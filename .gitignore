@@ -1,0 +1,33 @@
+# Python runtime/cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Local experiment/training outputs
+data/
+catboost_info/
+artifacts/catboost_info/
+artifacts/tmp/
+temp_*.csv
+
+# Local thesis/report materials not tracked in code repo
+docs/
+OLD/
+docs_backup/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
