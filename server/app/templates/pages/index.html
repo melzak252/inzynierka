@@ -1,0 +1,53 @@
+{% extends "shared/base.html" %}
+
+{% block content %}
+<main class="shell">
+  <section class="hero">
+    <p class="eyebrow">League of Legends matchup intelligence</p>
+    <h1>EnsembleLegends</h1>
+    <p class="lead">
+      Lekki panel FastAPI + Jinja2 + HTMX do szybkiego prototypowania porównywania drużyn,
+      importu danych GOL.GG i późniejszej warstwy predykcyjnej.
+    </p>
+
+    <div class="actions">
+      <a class="button primary" href="/docs">Swagger API</a>
+      <a class="button secondary" href="/api/v1/health">Health JSON</a>
+    </div>
+  </section>
+
+  <section class="status-card">
+    <div>
+      <span class="label">Backend</span>
+      <h2>{{ app_name }}</h2>
+      <p>Environment: <strong>{{ environment }}</strong></p>
+    </div>
+    <div
+      hx-get="/ui/partials/health"
+      hx-trigger="load, every 10s"
+      hx-swap="innerHTML"
+      class="status-slot"
+    >
+      <span class="pill pending">checking</span>
+    </div>
+  </section>
+
+  <section class="grid">
+    <article>
+      <span class="step">01</span>
+      <h3>PostgreSQL schema</h3>
+      <p>Modele drużyn, graczy, turniejów, meczów, gier i statystyk z GOL.GG.</p>
+    </article>
+    <article>
+      <span class="step">02</span>
+      <h3>Importer danych</h3>
+      <p>Idempotentny import `data/golgg_matches.json` do relacyjnej bazy danych.</p>
+    </article>
+    <article>
+      <span class="step">03</span>
+      <h3>Matchup service</h3>
+      <p>Porównanie historii drużyn i przygotowanie wejścia pod model predykcyjny.</p>
+    </article>
+  </section>
+</main>
+{% endblock %}

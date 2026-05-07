@@ -1,10 +1,13 @@
 # EnsembleLegends Server
 
-Backend API dla aplikacji predykcji meczów League of Legends.
+Backend aplikacji predykcji meczów League of Legends. Na start renderuje prosty interfejs
+Jinja2 + HTMX, a równolegle utrzymuje API FastAPI pod przyszłe integracje.
 
 ## Stack
 
 - FastAPI
+- Jinja2
+- HTMX
 - SQLAlchemy
 - PostgreSQL
 - Pydantic Settings
@@ -16,8 +19,8 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-API będzie dostępne pod adresem:
+Backend będzie dostępny pod adresem:
 
-- `http://localhost:8000`
+- Widok aplikacji: `http://localhost:8000`
 - Swagger UI: `http://localhost:8000/docs`
 - Healthcheck: `http://localhost:8000/api/v1/health`

@@ -29,7 +29,7 @@ services:
       APP_NAME: ${APP_NAME:-EnsembleLegends API}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ensemblelegends}:${POSTGRES_PASSWORD:-ensemblelegends_dev_password}@postgres:5432/${POSTGRES_DB:-ensemblelegends}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8000,http://127.0.0.1:8000}
     ports:
       - "${SERVER_PORT:-8000}:8000"
     volumes:
@@ -49,30 +49,8 @@ services:
     networks:
       - ensemblelegends
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: ensemblelegends-frontend
-    restart: unless-stopped
-    environment:
-      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
-    ports:
-      - "${FRONTEND_PORT:-5173}:5173"
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/index.html:/app/index.html
-      - ./frontend/vite.config.ts:/app/vite.config.ts
-      - frontend_node_modules:/app/node_modules
-    depends_on:
-      server:
-        condition: service_healthy
-    networks:
-      - ensemblelegends
-
 volumes:
   postgres_data:
-  frontend_node_modules:
 
 networks:
   ensemblelegends:
