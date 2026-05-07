@@ -28,6 +28,8 @@ Projekt obejmuje:
 | Ścieżka | Rola |
 |---|---|
 | `src/` | Kod wielokrotnego użytku: moduły danych, ratingów, modeli, metryk, symulacji i wizualizacji. |
+| `server/` | Backend FastAPI dla aplikacji webowej, API predykcji i dostępu do PostgreSQL. |
+| `frontend/` | Frontend React + TypeScript + Vite dla porównywania drużyn i prezentacji predykcji. |
 | `scripts/` | Numerowane skrypty pipeline'u pogrupowane według rozdziałów/etapów pracy. Szczegóły są w `scripts/README.md`. |
 | `artifacts/` | Lokalne artefakty robocze, cache eksperymentów i pliki tymczasowe. |
 | `notebooks/` | Notatniki eksploracyjne. |
@@ -49,6 +51,31 @@ data/golgg_stacking_results.csv
 Na razie dane nie mają publicznego linku pobierania. Katalog `data/` jest ignorowany przez Git.
 
 ## Uruchamianie
+
+### Aplikacja webowa
+
+Stos aplikacyjny składa się z PostgreSQL, backendu FastAPI i frontendu React. Najprostsze uruchomienie lokalne:
+
+```powershell
+Copy-Item .env.example .env
+docker compose up --build
+```
+
+Usługi:
+
+- Frontend React: `http://localhost:5173`
+- Backend FastAPI: `http://localhost:8000`
+- Swagger UI: `http://localhost:8000/docs`
+- PostgreSQL: `localhost:5432`
+
+Szybka weryfikacja API:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/v1/health
+Invoke-RestMethod http://localhost:8000/api/v1/health/db
+```
+
+### Skrypty badawcze
 
 Projekt powinien być uruchamiany z aktywnego środowiska wirtualnego i z katalogu głównego repozytorium:
 
