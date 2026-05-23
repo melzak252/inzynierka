@@ -9,8 +9,14 @@ opening and closing odds in ``odds.csv`` after removing the bookmaker margin.
 
 from __future__ import annotations
 
+import re
+import sys
 from pathlib import Path
 from typing import Iterable
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,8 +25,15 @@ import seaborn as sns
 from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score, roc_curve
 
+from src.visualization.thesis_style import (
+    DARK_TEXT,
+    PASTEL_BLUE,
+    PASTEL_ORANGE,
+    apply_thesis_style,
+    clean_axis,
+    palette as thesis_palette,
+)
 
-ROOT_DIR = Path(__file__).resolve().parents[2]
 ASSET_DIR = ROOT_DIR / "docs" / "assets" / "baseline_point5"
 RATINGS_PATH = ROOT_DIR / "data" / "golgg_y_predicts.csv"
 ODDS_PATH = ROOT_DIR / "data" / "odds.csv"
@@ -46,19 +59,7 @@ TEAM_MODELS = [name for name in RATING_MODELS if name.startswith("Team")]
 
 def configure_style() -> None:
     """Configure a thesis-friendly visual style for generated plots."""
-    sns.set_theme(style="whitegrid", context="talk")
-    plt.rcParams.update(
-        {
-            "figure.dpi": 120,
-            "savefig.dpi": 300,
-            "axes.titlesize": 15,
-            "axes.titleweight": "bold",
-            "axes.labelsize": 12,
-            "legend.fontsize": 9,
-            "xtick.labelsize": 10,
-            "ytick.labelsize": 10,
-        }
-    )
+    apply_thesis_style(context="paper")
 
 
 def safe_probability(series: pd.Series) -> pd.Series:
@@ -114,6 +115,20 @@ def no_vig_probability(home_odds: pd.Series, away_odds: pd.Series) -> pd.Series:
     return p_home / (p_home + p_away)
 
 
+def normalize_team_name(name: object) -> str:
+    """Normalize team names for conservative market-side alignment.
+
+    Args:
+        name: Raw team name from ratings or market data.
+
+    Returns:
+        Lowercase alphanumeric name used for exact comparison after removing
+        whitespace and punctuation.
+    """
+
+    return re.sub(r"[^a-z0-9]+", "", str(name or "").lower())
+
+
 def load_ratings() -> pd.DataFrame:
     """Load and normalize rating predictions."""
     ratings = pd.read_csv(RATINGS_PATH)
@@ -122,6 +137,9 @@ def load_ratings() -> pd.DataFrame:
         ratings["golgg_match_id"], errors="coerce"
     ).astype("Int64")
     ratings["y_true"] = pd.to_numeric(ratings["y_true"], errors="coerce")
+    for column in ["team1_name", "team2_name"]:
+        if column not in ratings.columns:
+            ratings[column] = pd.NA
     for column in RATING_MODELS.values():
         if column in ratings.columns:
             ratings[column] = safe_probability(ratings[column])
@@ -140,7 +158,55 @@ def load_market() -> pd.DataFrame:
     odds["market_close"] = no_vig_probability(
         odds["avg_odds_home"], odds["avg_odds_away"]
     )
-    return odds[["golgg_match_id", "market_open", "market_close"]]
+    return odds[
+        [
+            "golgg_match_id",
+            "golgg_team1",
+            "golgg_team2",
+            "market_open",
+            "market_close",
+        ]
+    ]
+
+
+def orient_market_to_rating_side(data: pd.DataFrame) -> pd.DataFrame:
+    """Orient market probabilities to the same team-1 side as rating outputs.
+
+    The stored ``odds.csv`` was mapped before the GOL.GG export changed. For
+    some match identifiers, the market-side team order is the reverse of the
+    current canonical JSON side. This function uses team names to decide whether
+    bookmaker probabilities should be kept or inverted.
+
+    Args:
+        data: Merged ratings and market dataset.
+
+    Returns:
+        Copy with ``market_open_aligned`` and ``market_close_aligned`` columns.
+    """
+
+    output = data.copy()
+    rating_t1 = output["team1_name"].map(normalize_team_name)
+    rating_t2 = output["team2_name"].map(normalize_team_name)
+    market_t1 = output["golgg_team1"].map(normalize_team_name)
+    market_t2 = output["golgg_team2"].map(normalize_team_name)
+
+    same_side = (rating_t1 == market_t1) & (rating_t2 == market_t2)
+    swapped_side = (rating_t1 == market_t2) & (rating_t2 == market_t1)
+
+    output["market_side_alignment"] = np.select(
+        [same_side, swapped_side], ["same", "swapped"], default="unknown"
+    )
+    output["market_open_aligned"] = np.select(
+        [same_side, swapped_side],
+        [output["market_open"], 1.0 - output["market_open"]],
+        default=np.nan,
+    )
+    output["market_close_aligned"] = np.select(
+        [same_side, swapped_side],
+        [output["market_close"], 1.0 - output["market_close"]],
+        default=np.nan,
+    )
+    return output
 
 
 def add_simple_average(data: pd.DataFrame) -> pd.DataFrame:
@@ -206,7 +272,7 @@ def save_roc_plot(
 ) -> None:
     """Save ROC curves for selected models."""
     plt.figure(figsize=(8, 7))
-    palette = sns.color_palette("tab10", n_colors=min(max_models, len(model_columns)))
+    palette = thesis_palette(min(max_models, len(model_columns)))
     for index, (name, column) in enumerate(list(model_columns.items())[:max_models]):
         subset = data[["y_true", column]].dropna()
         if subset.empty:
@@ -216,7 +282,7 @@ def save_roc_plot(
         fpr, tpr, _ = roc_curve(y_true, y_prob)
         auc_value = roc_auc_score(y_true, y_prob)
         plt.plot(fpr, tpr, label=f"{name} ({auc_value:.3f})", color=palette[index])
-    plt.plot([0, 1], [0, 1], "k--", alpha=0.6, label="Losowo")
+    plt.plot([0, 1], [0, 1], linestyle="--", color=DARK_TEXT, alpha=0.6, label="Losowo")
     plt.title(title)
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
@@ -235,7 +301,7 @@ def save_calibration_plot(
 ) -> None:
     """Save reliability curves for selected models."""
     plt.figure(figsize=(8, 7))
-    palette = sns.color_palette("tab10", n_colors=min(max_models, len(model_columns)))
+    palette = thesis_palette(min(max_models, len(model_columns)))
     for index, (name, column) in enumerate(list(model_columns.items())[:max_models]):
         subset = data[["y_true", column]].dropna()
         if subset.empty:
@@ -246,7 +312,7 @@ def save_calibration_plot(
             y_true, y_prob, n_bins=10, strategy="quantile"
         )
         plt.plot(prob_pred, prob_true, marker="o", linewidth=2, label=name, color=palette[index])
-    plt.plot([0, 1], [0, 1], "k--", alpha=0.7, label="Idealna kalibracja")
+    plt.plot([0, 1], [0, 1], linestyle="--", color=DARK_TEXT, alpha=0.7, label="Idealna kalibracja")
     plt.title(title)
     plt.xlabel("Średnie przewidywane prawdopodobieństwo")
     plt.ylabel("Empiryczny odsetek zwycięstw")
@@ -277,7 +343,7 @@ def save_metric_bar(
         x="model",
         y=metric,
         hue="model",
-        palette="viridis",
+        palette=thesis_palette(len(data)),
         legend=False,
     )
     ax.set_title(title)
@@ -287,7 +353,7 @@ def save_metric_bar(
     ax.tick_params(axis="x", rotation=35)
     for container in ax.containers:
         ax.bar_label(container, fmt="%.3f", fontsize=8)
-    sns.despine(left=True, bottom=True)
+    clean_axis(ax)
     plt.tight_layout()
     plt.savefig(output_path, bbox_inches="tight")
     plt.close()
@@ -304,7 +370,13 @@ def save_player_team_comparison(metrics: pd.DataFrame, output_path: Path) -> Non
                 rows.append({"family": family, "level": level, "auc": match.iloc[0]["auc"]})
     plot_data = pd.DataFrame(rows)
     plt.figure(figsize=(11, 5.5))
-    ax = sns.barplot(data=plot_data, x="family", y="auc", hue="level", palette="coolwarm")
+    ax = sns.barplot(
+        data=plot_data,
+        x="family",
+        y="auc",
+        hue="level",
+        palette={"Player": PASTEL_BLUE, "Team": PASTEL_ORANGE},
+    )
     ax.set_title("Player-based vs team-based rating systems — AUC")
     ax.set_xlabel("Rodzina rankingu")
     ax.set_ylabel("AUC")
@@ -312,6 +384,7 @@ def save_player_team_comparison(metrics: pd.DataFrame, output_path: Path) -> Non
     ax.set_ylim(0.68, max(0.76, plot_data["auc"].max() + 0.01))
     for container in ax.containers:
         ax.bar_label(container, fmt="%.3f", fontsize=8)
+    clean_axis(ax)
     plt.tight_layout()
     plt.savefig(output_path, bbox_inches="tight")
     plt.close()
@@ -331,7 +404,11 @@ def save_probability_distribution(
     plt.figure(figsize=(10, 6))
     for name, column in selected.items():
         if column in data.columns:
-            sns.kdeplot(safe_probability(data[column]).dropna(), label=name, linewidth=2)
+            sns.kdeplot(
+                safe_probability(data[column]).dropna(),
+                label=name,
+                linewidth=2,
+            )
     plt.title("Rozkład predykcji bazowych")
     plt.xlabel("Prawdopodobieństwo zwycięstwa Team 1")
     plt.ylabel("Gęstość")
@@ -385,13 +462,14 @@ def save_uncertainty_plot(summary: pd.DataFrame, output_path: Path) -> None:
         x="feature",
         y="median",
         hue="feature",
-        palette="magma",
+        palette=thesis_palette(len(summary)),
         legend=False,
     )
     ax.set_title("Median uncertainty/RD dla systemów rankingowych")
     ax.set_xlabel("")
     ax.set_ylabel("Mediana")
     ax.tick_params(axis="x", rotation=45)
+    clean_axis(ax)
     plt.tight_layout()
     plt.savefig(output_path, bbox_inches="tight")
     plt.close()
@@ -456,9 +534,10 @@ def main() -> None:
     ratings = add_simple_average(load_ratings())
     market = load_market()
     merged = ratings.merge(market, on="golgg_match_id", how="left")
+    merged = orient_market_to_rating_side(merged)
 
     full_sample = merged[(merged["date"] >= "2020-01-01") & merged["y_true"].notna()].copy()
-    common_sample = full_sample[full_sample["market_open"].notna()].copy()
+    common_sample = full_sample[full_sample["market_open_aligned"].notna()].copy()
 
     rating_and_ensemble = {
         **RATING_MODELS,
@@ -467,8 +546,8 @@ def main() -> None:
     }
     common_models = {
         **rating_and_ensemble,
-        "Market Open": "market_open",
-        "Market Close": "market_close",
+        "Market Open": "market_open_aligned",
+        "Market Close": "market_close_aligned",
     }
 
     full_metrics = evaluate_models(full_sample, rating_and_ensemble)
@@ -484,8 +563,8 @@ def main() -> None:
         "Player Elo": "player_elo",
         "Player TrueSkill": "player_ts",
         "Simple Avg Player": "simple_avg_player_ratings",
-        "Market Open": "market_open",
-        "Market Close": "market_close",
+        "Market Open": "market_open_aligned",
+        "Market Close": "market_close_aligned",
     }
     save_roc_plot(
         common_sample,
@@ -522,6 +601,8 @@ def main() -> None:
 
     print("Baseline artefacts saved to:", ASSET_DIR)
     print("Common sample size:", len(common_sample))
+    print("Market side alignment:")
+    print(full_sample["market_side_alignment"].value_counts(dropna=False).to_string())
     print(common_metrics.head(8).to_string(index=False))
 
 

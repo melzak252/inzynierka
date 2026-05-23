@@ -17,6 +17,7 @@ before the evaluated odds match and therefore are legitimate context history.
 from __future__ import annotations
 
 import json
+import sys
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,11 @@ from tqdm import tqdm
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.utils.golgg_schema import games, team1_id, team2_id
+
 ASSETS_DIR = PROJECT_ROOT / "docs" / "assets" / "metamodel_experiments_point6"
 
 CONTEXT_WINDOWS = [3, 5, 10, 20, 50]
@@ -88,6 +94,14 @@ ROLLING_FULL_FEATURES = [
     "t2_rolling_dpm",
     "t1_rolling_vspm",
     "t2_rolling_vspm",
+    "t1_rolling_towers",
+    "t2_rolling_towers",
+    "t1_rolling_nashors",
+    "t2_rolling_nashors",
+    "t1_rolling_gold",
+    "t2_rolling_gold",
+    "t1_rolling_duration",
+    "t2_rolling_duration",
 ]
 
 
@@ -139,6 +153,22 @@ def safe_stat(player: dict[str, Any], key: str) -> float:
     return float(value or 0.0)
 
 
+def safe_team_stat(game: dict[str, Any], stats_key: str, key: str) -> float:
+    """Read a numeric team-level statistic from a game record.
+
+    Args:
+        game: Single game dictionary from the GOL.GG match archive.
+        stats_key: Team stats key, usually ``t1_stats`` or ``t2_stats``.
+        key: Statistic name inside the team stats dictionary.
+
+    Returns:
+        Numeric statistic value or zero when the field is missing.
+    """
+
+    value = (game.get(stats_key, {}) or {}).get(key, 0.0)
+    return float(value or 0.0)
+
+
 def default_team_stats() -> dict[str, float]:
     """Return neutral defaults for teams with no historical games."""
 
@@ -149,6 +179,10 @@ def default_team_stats() -> dict[str, float]:
         "gd15": 0.0,
         "dpm": 1800.0,
         "vspm": 7.0,
+        "towers": 5.0,
+        "nashors": 0.5,
+        "gold": 55000.0,
+        "duration": 1800.0,
     }
 
 
@@ -165,6 +199,10 @@ def average_history(history: deque[dict[str, float]] | None) -> dict[str, float]
         "gd15": float(np.mean([row["gd15"] for row in rows])),
         "dpm": float(np.mean([row["dpm"] for row in rows])),
         "vspm": float(np.mean([row["vspm"] for row in rows])),
+        "towers": float(np.mean([row["towers"] for row in rows])),
+        "nashors": float(np.mean([row["nashors"] for row in rows])),
+        "gold": float(np.mean([row["gold"] for row in rows])),
+        "duration": float(np.mean([row["duration"] for row in rows])),
     }
 
 
@@ -179,6 +217,7 @@ def update_team_history(
     is_team_1 = str(game.get("t1_id")) == str(team_id)
     win = bool(game.get("t1_win")) if is_team_1 else bool(game.get("t2_win"))
     players_key = "t1_players" if is_team_1 else "t2_players"
+    stats_key = "t1_stats" if is_team_1 else "t2_stats"
     players = game.get(players_key, {}) or {}
     game_stats = {
         "win": float(win),
@@ -187,6 +226,10 @@ def update_team_history(
         "dpm": sum(safe_stat(player, "dpm") for player in players.values()),
         "vspm": sum(safe_stat(player, "vspm") for player in players.values()),
         "gd15": sum(safe_stat(player, "gd@15") for player in players.values()),
+        "towers": safe_team_stat(game, stats_key, "towers"),
+        "nashors": safe_team_stat(game, stats_key, "nashors"),
+        "gold": safe_team_stat(game, stats_key, "gold"),
+        "duration": float(game.get("game_duration") or 0.0),
     }
     if team_id not in team_history:
         team_history[team_id] = deque(maxlen=window_size)
@@ -212,8 +255,8 @@ def generate_rolling_features(windows: list[int]) -> dict[int, pd.DataFrame]:
 
     for match in tqdm(matches, desc="Rolling windows"):
         match_id = str(match["match_id"])
-        team_1 = str(match["tid_1"])
-        team_2 = str(match["tid_2"])
+        team_1 = team1_id(match)
+        team_2 = team2_id(match)
         for window in windows:
             team_history = histories[window]
             t1_stats = average_history(team_history.get(team_1))
@@ -225,7 +268,7 @@ def generate_rolling_features(windows: list[int]) -> dict[int, pd.DataFrame]:
                 row[f"t2_rolling_{stat}"] = value
             results[window].append(row)
 
-        for game in match.get("games", []) or []:
+        for game in games(match):
             for window in windows:
                 update_team_history(histories[window], team_1, game, window)
                 update_team_history(histories[window], team_2, game, window)

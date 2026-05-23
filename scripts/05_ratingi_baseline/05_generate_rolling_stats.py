@@ -5,6 +5,11 @@ from tqdm import tqdm
 from collections import deque
 import matplotlib.pyplot as plt
 import os
+import sys
+
+sys.path.insert(0, os.getcwd())
+
+from src.utils.golgg_schema import games, team1_id, team2_id
 
 def main():
     print("Running 05_generate_rolling_stats.py...")
@@ -25,8 +30,8 @@ def main():
     print("Processing matches for rolling stats...")
     for match in tqdm(matches):
         match_id = str(match['match_id'])
-        t1_id = match['tid_1']
-        t2_id = match['tid_2']
+        t1_id = team1_id(match)
+        t2_id = team2_id(match)
 
         # 1. Get current rolling stats for both teams (BEFORE this match)
         def get_avg_stats(tid):
@@ -58,9 +63,8 @@ def main():
 
         # 2. Update history with the results of THIS match (for future matches)
         def update_history(tid, is_t1, match_data):
-            games = match_data['games']
-            for game in games:
-                is_team_1_in_game = (game['t1_id'] == tid)
+            for game in games(match_data):
+                is_team_1_in_game = str(game['t1_id']) == str(tid)
                 win = game['t1_win'] if is_team_1_in_game else game['t2_win']
                 
                 player_stats_key = 't1_players' if is_team_1_in_game else 't2_players'

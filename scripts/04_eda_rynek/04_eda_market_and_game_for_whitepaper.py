@@ -8,8 +8,13 @@ for the chapter about sport/game EDA and bookmaker-market EDA.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,8 +22,26 @@ import pandas as pd
 import seaborn as sns
 from sklearn.metrics import log_loss, roc_auc_score
 
+from src.utils.golgg_schema import (
+    games,
+    players1,
+    players2,
+    score1,
+    score2,
+    team1_name,
+    team2_name,
+    match_tournament,
+)
+from src.visualization.thesis_style import (
+    DARK_TEXT,
+    PASTEL_BLUE,
+    PASTEL_ORANGE,
+    PASTEL_PALETTE,
+    apply_thesis_style,
+    palette as thesis_palette,
+)
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
 ASSETS_DIR = PROJECT_ROOT / "docs" / "assets" / "eda_point4"
 
 BOOKMAKERS = ["betclic", "betfan", "efortuna", "lv_bet", "sts", "superbet"]
@@ -42,24 +65,7 @@ TIER1_KEYWORDS = (
 
 def configure_plot_style() -> None:
     """Configure a consistent thesis-friendly plotting style."""
-
-    sns.set_theme(
-        style="whitegrid",
-        context="talk",
-        rc={
-            "figure.facecolor": "white",
-            "axes.facecolor": "white",
-            "axes.edgecolor": "#D0D0D0",
-            "axes.titleweight": "bold",
-            "axes.titlesize": 17,
-            "axes.labelsize": 12,
-            "xtick.labelsize": 10,
-            "ytick.labelsize": 10,
-            "grid.color": "#D9D9D9",
-            "grid.linestyle": "--",
-            "grid.alpha": 0.55,
-        },
-    )
+    apply_thesis_style(context="paper")
 
 
 def load_json_matches(path: Path) -> list[dict[str, Any]]:
@@ -111,22 +117,22 @@ def build_match_frame(matches: list[dict[str, Any]]) -> pd.DataFrame:
 
     rows: list[dict[str, Any]] = []
     for match in matches:
-        score_1 = int(match.get("score_1", 0) or 0)
-        score_2 = int(match.get("score_2", 0) or 0)
-        games = match.get("games") or []
-        players_1 = match.get("players_1") or []
-        players_2 = match.get("players_2") or []
+        match_score_1 = score1(match)
+        match_score_2 = score2(match)
+        game_payload = games(match)
+        players_1 = players1(match)
+        players_2 = players2(match)
         rows.append(
             {
                 "match_id": str(match.get("match_id")),
                 "date": match.get("date"),
-                "tournament": match.get("tournament"),
-                "team_1": match.get("name_1"),
-                "team_2": match.get("name_2"),
-                "score_1": score_1,
-                "score_2": score_2,
-                "t1_win": score_1 > score_2,
-                "games_count": len(games) if isinstance(games, list) else 0,
+                "tournament": match_tournament(match),
+                "team_1": team1_name(match),
+                "team_2": team2_name(match),
+                "score_1": match_score_1,
+                "score_2": match_score_2,
+                "t1_win": match_score_1 > match_score_2,
+                "games_count": len(game_payload),
                 "players_1_count": len(players_1) if isinstance(players_1, list) else 0,
                 "players_2_count": len(players_2) if isinstance(players_2, list) else 0,
             }
@@ -162,7 +168,7 @@ def build_game_frame(matches: list[dict[str, Any]]) -> pd.DataFrame:
 
     rows: list[dict[str, Any]] = []
     for match in matches:
-        for game in match.get("games") or []:
+        for game in games(match):
             if not isinstance(game, dict):
                 continue
             rows.append(
@@ -343,7 +349,7 @@ def save_bar(
     y_col: str,
     title: str,
     path: Path,
-    palette: str = "viridis",
+    palette: str | list[str] = PASTEL_PALETTE,
     value_suffix: str = "",
     value_decimals: int = 0,
 ) -> None:
@@ -355,7 +361,7 @@ def save_bar(
         y_col: Y-axis column.
         title: Chart title.
         path: Output PNG path.
-        palette: Seaborn palette name.
+        palette: Seaborn palette name or explicit color list.
         value_suffix: Text suffix for bar labels.
         value_decimals: Number of decimals for bar labels.
     """
@@ -389,7 +395,7 @@ def save_auc_bar(
     y_col: str,
     title: str,
     path: Path,
-    palette: str = "viridis",
+    palette: str | list[str] = PASTEL_PALETTE,
     ylim: tuple[float, float] | None = None,
 ) -> None:
     """Save a compact single-line AUC bar chart.
@@ -400,7 +406,7 @@ def save_auc_bar(
         y_col: AUC column to plot.
         title: Chart title.
         path: Output PNG path.
-        palette: Seaborn palette name.
+        palette: Seaborn palette name or explicit color list.
         ylim: Optional y-axis limits.
     """
 
@@ -431,6 +437,54 @@ def save_auc_bar(
     plt.close(fig)
 
 
+def save_market_open_close_comparison(
+    market_metrics: pd.DataFrame,
+    path: Path,
+) -> None:
+    """Save an open-vs-close market LogLoss comparison figure.
+
+    Args:
+        market_metrics: Market quality metrics with the aggregate ``all`` row.
+        path: Output PNG path.
+    """
+
+    overall = market_metrics.loc[market_metrics["segment"] == "all"].iloc[0]
+    plot_data = pd.DataFrame(
+        {
+            "benchmark": ["Market Open", "Market Close"],
+            "logloss": [overall["open_logloss"], overall["close_logloss"]],
+        }
+    )
+
+    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    palette = [PASTEL_BLUE, PASTEL_ORANGE]
+
+    sns.barplot(
+        data=plot_data,
+        x="benchmark",
+        y="logloss",
+        hue="benchmark",
+        palette=palette,
+        legend=False,
+        ax=ax,
+    )
+    ax.set_title("LogLoss kursów otwarcia i zamknięcia")
+    ax.set_xlabel("")
+    ax.set_ylabel("LogLoss (niżej = lepiej)")
+    loss_min = float(plot_data["logloss"].min())
+    loss_max = float(plot_data["logloss"].max())
+    loss_margin = max(0.003, 0.35 * (loss_max - loss_min))
+    ax.set_ylim(loss_min - loss_margin, loss_max + loss_margin)
+    annotate_bars(ax, decimals=3)
+    ax.grid(axis="y", linestyle="--", alpha=0.55)
+    ax.tick_params(axis="x", rotation=0)
+    sns.despine(ax=ax, left=True, bottom=True)
+
+    fig.tight_layout(pad=0.9)
+    fig.savefig(path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
 def save_grouped_bar(
     data: pd.DataFrame,
     x_col: str,
@@ -438,7 +492,7 @@ def save_grouped_bar(
     hue_col: str,
     title: str,
     path: Path,
-    palette: str = "coolwarm",
+    palette: str | list[str] = PASTEL_PALETTE,
     value_suffix: str = "",
     value_decimals: int = 3,
 ) -> None:
@@ -451,7 +505,7 @@ def save_grouped_bar(
         hue_col: Grouping column.
         title: Chart title.
         path: Output PNG path.
-        palette: Seaborn palette name.
+        palette: Seaborn palette name or explicit color list.
         value_suffix: Text suffix for bar labels.
         value_decimals: Number of decimals for bar labels.
     """
@@ -489,7 +543,7 @@ def save_side_pie(data: pd.DataFrame, path: Path) -> None:
 
     fig, ax = plt.subplots(figsize=(7.2, 5.2))
     labels = ["Team 1 / blue proxy", "Team 2 / red proxy"]
-    colors = sns.color_palette("coolwarm", 2)
+    colors = [PASTEL_BLUE, PASTEL_ORANGE]
     _, _, autotexts = ax.pie(
         data["win_rate_pct"],
         labels=labels,
@@ -563,7 +617,7 @@ def generate_sport_eda(match_df: pd.DataFrame, game_df: pd.DataFrame) -> None:
         "matches",
         "Liczba meczów w zbiorze GOL.GG",
         ASSETS_DIR / "sport_matches_per_year.png",
-        palette="viridis",
+        palette=thesis_palette(len(matches_per_year)),
     )
     save_bar(
         games_per_year,
@@ -571,7 +625,7 @@ def generate_sport_eda(match_df: pd.DataFrame, game_df: pd.DataFrame) -> None:
         "games",
         "Liczba pojedynczych gier w zbiorze GOL.GG",
         ASSETS_DIR / "sport_games_per_year.png",
-        palette="magma",
+        palette=thesis_palette(len(games_per_year)),
     )
     save_bar(
         bon_distribution,
@@ -579,7 +633,7 @@ def generate_sport_eda(match_df: pd.DataFrame, game_df: pd.DataFrame) -> None:
         "matches",
         "Dystrybucja formatów Best-of-N",
         ASSETS_DIR / "sport_bon_distribution.png",
-        palette="viridis",
+        palette=thesis_palette(len(bon_distribution)),
     )
     save_bar(
         tier_distribution,
@@ -587,7 +641,7 @@ def generate_sport_eda(match_df: pd.DataFrame, game_df: pd.DataFrame) -> None:
         "matches",
         "Segmentacja meczów: Tier 1 vs ligi regionalne",
         ASSETS_DIR / "sport_tier_distribution.png",
-        palette="coolwarm",
+        palette=thesis_palette(len(tier_distribution)),
     )
     save_side_pie(side_win, ASSETS_DIR / "sport_side_win_rate.png")
 
@@ -598,7 +652,7 @@ def generate_sport_eda(match_df: pd.DataFrame, game_df: pd.DataFrame) -> None:
         y="win_rate",
         size="games",
         sizes=(60, 420),
-        color="royalblue",
+        color=PASTEL_BLUE,
         alpha=0.72,
         ax=ax,
         legend=False,
@@ -607,12 +661,12 @@ def generate_sport_eda(match_df: pd.DataFrame, game_df: pd.DataFrame) -> None:
         data=gd15_bins,
         x=gd15_bins["gd15_mid"].astype(float),
         y="win_rate",
-        color="crimson",
+        color=PASTEL_ORANGE,
         linewidth=2.5,
         ax=ax,
     )
-    ax.axhline(0.5, color="black", linestyle="--", linewidth=1)
-    ax.axvline(0, color="black", linestyle="--", linewidth=1)
+    ax.axhline(0.5, color=DARK_TEXT, linestyle="--", linewidth=1)
+    ax.axvline(0, color=DARK_TEXT, linestyle="--", linewidth=1)
     ax.set_title("Zależność Win Rate od różnicy złota w 15. minucie")
     ax.set_xlabel("Suma GD@15 drużyny 1 — środek przedziału")
     ax.set_ylabel("Win Rate drużyny 1")
@@ -632,6 +686,12 @@ def generate_market_eda(odds: pd.DataFrame) -> None:
     margins = summarize_margins(odds)
     market_metrics = summarize_market_metrics(odds)
     bookmaker_metrics = summarize_bookmaker_market_metrics(odds)
+    bookmaker_open_summary = summarize_bookmaker_open_quality(
+        margins,
+        bookmaker_metrics,
+        market_metrics,
+        len(odds),
+    )
     arbitrage = summarize_arbitrage(odds)
     movement = odds["prob_shift_close_minus_open"].dropna().describe().reset_index()
     movement.columns = ["statistic", "value"]
@@ -640,6 +700,10 @@ def generate_market_eda(odds: pd.DataFrame) -> None:
     market_metrics.to_csv(ASSETS_DIR / "market_auc_logloss.csv", index=False)
     bookmaker_metrics.to_csv(
         ASSETS_DIR / "market_bookmaker_auc_logloss.csv",
+        index=False,
+    )
+    bookmaker_open_summary.to_csv(
+        ASSETS_DIR / "market_bookmaker_open_quality_summary.csv",
         index=False,
     )
     arbitrage.to_csv(ASSETS_DIR / "market_arbitrage_by_year.csv", index=False)
@@ -651,18 +715,13 @@ def generate_market_eda(odds: pd.DataFrame) -> None:
         "open_margin_pct",
         "Średnia marża opening u bukmacherów",
         ASSETS_DIR / "market_bookmaker_margins.png",
-        palette="viridis",
+        palette=thesis_palette(len(margins)),
         value_suffix="%",
         value_decimals=2,
     )
-    save_auc_bar(
-        market_metrics[market_metrics["segment"] == "all"],
-        "segment",
-        "open_auc",
-        "Ogólna siła rynku — AUC kursów otwarcia",
+    save_market_open_close_comparison(
+        market_metrics,
         ASSETS_DIR / "market_auc_overall.png",
-        palette="Blues",
-        ylim=(0.68, 0.76),
     )
     save_auc_bar(
         market_metrics[market_metrics["segment"].isin(["Bo1", "Bo3", "Bo5"])],
@@ -670,7 +729,7 @@ def generate_market_eda(odds: pd.DataFrame) -> None:
         "open_auc",
         "Siła rynku według formatu meczu — AUC opening",
         ASSETS_DIR / "market_auc_by_bon.png",
-        palette="viridis",
+        palette=thesis_palette(3),
         ylim=(0.64, 0.79),
     )
     save_auc_bar(
@@ -679,7 +738,7 @@ def generate_market_eda(odds: pd.DataFrame) -> None:
         "open_auc",
         "Siła rynku według tieru rozgrywek — AUC opening",
         ASSETS_DIR / "market_auc_by_tier.png",
-        palette="coolwarm",
+        palette=thesis_palette(2),
         ylim=(0.70, 0.75),
     )
     save_auc_bar(
@@ -688,7 +747,7 @@ def generate_market_eda(odds: pd.DataFrame) -> None:
         "open_auc",
         "Siła predykcyjna indywidualnych bukmacherów — AUC opening",
         ASSETS_DIR / "market_auc_by_bookmaker.png",
-        palette="mako",
+        palette=thesis_palette(len(bookmaker_metrics)),
         ylim=(0.70, 0.755),
     )
     save_bar(
@@ -697,7 +756,7 @@ def generate_market_eda(odds: pd.DataFrame) -> None:
         "raw_arbitrage_count",
         "Okazje arbitrażowe brutto według roku",
         ASSETS_DIR / "market_raw_arbitrage_by_year.png",
-        palette="Blues",
+        palette=thesis_palette(len(arbitrage)),
     )
     save_bar(
         arbitrage,
@@ -705,7 +764,7 @@ def generate_market_eda(odds: pd.DataFrame) -> None:
         "tax_arbitrage_count",
         "Okazje arbitrażowe po podatku 12% według roku",
         ASSETS_DIR / "market_tax_arbitrage_by_year.png",
-        palette="Reds",
+        palette=thesis_palette(len(arbitrage)),
     )
 
     fig, ax = plt.subplots(figsize=(12, 7))
@@ -713,10 +772,10 @@ def generate_market_eda(odds: pd.DataFrame) -> None:
         odds["prob_shift_close_minus_open"].dropna(),
         bins=100,
         kde=True,
-        color="royalblue",
+        color=PASTEL_BLUE,
         ax=ax,
     )
-    ax.axvline(0, color="crimson", linestyle="--", linewidth=2)
+    ax.axvline(0, color=PASTEL_ORANGE, linestyle="--", linewidth=2)
     ax.set_title("Korekta rynku: prawdopodobieństwo closing minus opening")
     ax.set_xlabel("Zmiana no-vig probability dla drużyny 1")
     ax.set_ylabel("Liczba meczów")
@@ -827,6 +886,63 @@ def summarize_bookmaker_market_metrics(odds: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows).sort_values("open_auc", ascending=False)
+
+
+def summarize_bookmaker_open_quality(
+    margins: pd.DataFrame,
+    bookmaker_metrics: pd.DataFrame,
+    market_metrics: pd.DataFrame,
+    total_matches: int,
+) -> pd.DataFrame:
+    """Combine bookmaker coverage, margin and predictive quality.
+
+    Args:
+        margins: Bookmaker-level overround summary.
+        bookmaker_metrics: Bookmaker-level AUC and LogLoss summary.
+        market_metrics: Segment-level market average metrics.
+        total_matches: Number of mapped odds rows used as coverage denominator.
+
+    Returns:
+        Combined opening-odds table with one additional market-average row.
+    """
+
+    summary = margins.merge(
+        bookmaker_metrics[["bookmaker", "open_auc", "open_logloss"]],
+        on="bookmaker",
+        how="left",
+    )[
+        [
+            "bookmaker",
+            "open_matches",
+            "open_coverage",
+            "open_margin_pct",
+            "open_auc",
+            "open_logloss",
+        ]
+    ]
+    summary["open_coverage_pct"] = (summary["open_coverage"] * 100.0).round(2)
+
+    all_market = market_metrics.loc[market_metrics["segment"] == "all"].iloc[0]
+    weighted_margin = float(
+        np.average(summary["open_margin_pct"], weights=summary["open_matches"])
+    )
+    market_row = pd.DataFrame(
+        [
+            {
+                "bookmaker": "market_average",
+                "open_matches": int(all_market["matches"]),
+                "open_coverage": round(float(all_market["matches"] / total_matches), 4),
+                "open_margin_pct": round(weighted_margin, 4),
+                "open_auc": float(all_market["open_auc"]),
+                "open_logloss": float(all_market["open_logloss"]),
+                "open_coverage_pct": round(float(all_market["matches"] / total_matches * 100.0), 2),
+            }
+        ]
+    )
+
+    summary = summary.drop(columns=["open_coverage"])
+    market_row = market_row.drop(columns=["open_coverage"])
+    return pd.concat([summary, market_row], ignore_index=True)
 
 
 def melt_market_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
