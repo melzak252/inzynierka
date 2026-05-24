@@ -1,12 +1,17 @@
-"""Financial validation suite for Chapter 8 of the whitepaper.
+"""Financial validation suite for the current LR-W20-Binomial model.
 
-The script evaluates candidate probability models selected in Chapter 7 under
-several staking policies. It intentionally uses only opening odds as executable
-prices. Closing odds are used only for CLV diagnostics.
+This script replaces the legacy hybrid-input dependency with the current final
+common sample produced in Chapter 7. It evaluates the final logistic model,
+the opening market benchmark and simple model-market hybrids under several
+staking policies.
+
+The output is diagnostic only: it tests historical betting-style simulations,
+but the thesis narrative remains focused on probabilistic prediction quality.
 """
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,10 +21,25 @@ import pandas as pd
 import seaborn as sns
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-ROOT = Path(__file__).resolve().parents[2]
-INPUT_PATH = ROOT / "docs" / "assets" / "hybrid_point7" / "hybrid_model_input_predictions.csv"
-OUTPUT_DIR = ROOT / "docs" / "assets" / "financial_point8"
+from src.visualization.thesis_style import apply_thesis_style, clean_axis, colors_for
+
+
+INPUT_PATH = (
+    PROJECT_ROOT
+    / "docs"
+    / "assets"
+    / "final_w20_binomial_market_comparison"
+    / "final_w20_binomial_market_common_sample.csv"
+)
+ODDS_PATH = PROJECT_ROOT / "data" / "odds.csv"
+OUTPUT_DIR = PROJECT_ROOT / "docs" / "assets" / "financial_point8"
+
+BOOKMAKERS = ["betclic", "betfan", "efortuna", "lv_bet", "sts", "superbet"]
+MODEL_PROBABILITY = "prob_lr_elasticnet_w20_binomial"
 
 INITIAL_BANKROLL = 100.0
 TAX_RATE = 0.12
@@ -35,91 +55,52 @@ class Candidate:
     """Probability candidate evaluated in the financial suite.
 
     Attributes:
-        name: Human-readable model name.
-        alpha: Optional hybrid alpha. If None, raw model probability is used.
-        temperature: Temperature applied to metamodel probabilities.
-        source: Candidate family: market, metamodel, or hybrid.
+        name: Human-readable candidate name.
+        source: Candidate source: market, model, or hybrid.
+        alpha: Model weight for hybrid candidates.
+        temperature: Temperature applied to model probabilities before mixing.
     """
 
     name: str
-    alpha: float | None
-    temperature: float
     source: str
+    alpha: float | None = None
+    temperature: float = 1.0
 
 
 @dataclass(frozen=True)
 class StakingPolicy:
-    """Staking policy configuration.
-
-    Attributes:
-        name: Policy name for reporting.
-        kind: fixed, percent, or kelly.
-        fixed_stake: Fixed stake for flat staking.
-        fraction: Bankroll fraction or Kelly multiplier.
-    """
+    """Staking policy configuration."""
 
     name: str
     kind: str
     fixed_stake: float | None = None
     fraction: float | None = None
-
-
-def configure_style() -> None:
-    """Configure a thesis-friendly plotting style."""
-    sns.set_theme(style="whitegrid", context="talk")
-    plt.rcParams.update(
-        {
-            "figure.dpi": 120,
-            "savefig.dpi": 300,
-            "axes.titleweight": "bold",
-            "axes.titlesize": 15,
-            "axes.labelsize": 12,
-        }
-    )
+    min_stake: float = MIN_STAKE
+    max_stake: float = MAX_STAKE
 
 
 def safe_logit(probability: pd.Series | np.ndarray) -> np.ndarray:
-    """Calculate a clipped logit transform.
+    """Calculate a clipped logit transform."""
 
-    Args:
-        probability: Probability vector.
-
-    Returns:
-        Logit-transformed probabilities.
-    """
     clipped = np.clip(np.asarray(probability, dtype=float), 1e-6, 1 - 1e-6)
     return np.log(clipped / (1 - clipped))
 
 
 def sigmoid(value: np.ndarray) -> np.ndarray:
-    """Calculate sigmoid for an array."""
-    return 1 / (1 + np.exp(-value))
+    """Calculate the sigmoid function."""
+
+    return 1.0 / (1.0 + np.exp(-value))
 
 
 def apply_temperature(probability: pd.Series | np.ndarray, temperature: float) -> np.ndarray:
-    """Apply temperature scaling to binary probabilities.
+    """Apply binary temperature scaling to a probability vector."""
 
-    Args:
-        probability: Base probabilities.
-        temperature: Temperature parameter. Values below one sharpen probabilities.
-
-    Returns:
-        Temperature-scaled probabilities.
-    """
     return sigmoid(safe_logit(probability) / temperature)
 
 
 def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate Expected Calibration Error.
+    """Calculate Expected Calibration Error."""
 
-    Args:
-        y_true: Binary labels.
-        y_prob: Predicted probabilities.
-        n_bins: Number of calibration bins.
-
-    Returns:
-        ECE value.
-    """
     bins = np.linspace(0, 1, n_bins + 1)
     ece = 0.0
     for lower, upper in zip(bins[:-1], bins[1:]):
@@ -129,53 +110,104 @@ def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> f
     return float(ece)
 
 
-def model_probability(data: pd.DataFrame, candidate: Candidate) -> np.ndarray:
-    """Build candidate probability vector.
-
-    Args:
-        data: Input data with market and metamodel probabilities.
-        candidate: Candidate definition.
+def load_dataset() -> pd.DataFrame:
+    """Load final model sample and attach executable bookmaker odds.
 
     Returns:
-        Probability for team 1.
+        Chronologically sorted final common sample with best open/close odds
+        aligned to GOL.GG Team 1 and Team 2.
     """
+
+    final_sample = pd.read_csv(INPUT_PATH, parse_dates=["date"])
+    odds = pd.read_csv(ODDS_PATH)
+    final_sample["golgg_match_id"] = final_sample["golgg_match_id"].astype(str)
+    odds["golgg_match_id"] = odds["golgg_match_id"].astype(str)
+
+    odds_columns = ["golgg_match_id", "tournament"]
+    for bookmaker in BOOKMAKERS:
+        odds_columns.extend(
+            [
+                f"odds1_{bookmaker}_open",
+                f"odds2_{bookmaker}_open",
+                f"odds1_{bookmaker}_close",
+                f"odds2_{bookmaker}_close",
+            ]
+        )
+
+    data = final_sample.merge(odds[odds_columns], on="golgg_match_id", how="inner")
+    for side in ("t1", "t2"):
+        data[f"best_open_{side}"] = np.nan
+        data[f"best_close_{side}"] = np.nan
+
+    open_t1_values: list[float] = []
+    open_t2_values: list[float] = []
+    close_t1_values: list[float] = []
+    close_t2_values: list[float] = []
+
+    for _, row in data.iterrows():
+        if row["market_side_alignment"] == "swapped":
+            open_t1_cols = [f"odds2_{bookmaker}_open" for bookmaker in BOOKMAKERS]
+            open_t2_cols = [f"odds1_{bookmaker}_open" for bookmaker in BOOKMAKERS]
+            close_t1_cols = [f"odds2_{bookmaker}_close" for bookmaker in BOOKMAKERS]
+            close_t2_cols = [f"odds1_{bookmaker}_close" for bookmaker in BOOKMAKERS]
+        else:
+            open_t1_cols = [f"odds1_{bookmaker}_open" for bookmaker in BOOKMAKERS]
+            open_t2_cols = [f"odds2_{bookmaker}_open" for bookmaker in BOOKMAKERS]
+            close_t1_cols = [f"odds1_{bookmaker}_close" for bookmaker in BOOKMAKERS]
+            close_t2_cols = [f"odds2_{bookmaker}_close" for bookmaker in BOOKMAKERS]
+
+        open_t1_values.append(float(pd.to_numeric(row[open_t1_cols], errors="coerce").max()))
+        open_t2_values.append(float(pd.to_numeric(row[open_t2_cols], errors="coerce").max()))
+        close_t1_values.append(float(pd.to_numeric(row[close_t1_cols], errors="coerce").max()))
+        close_t2_values.append(float(pd.to_numeric(row[close_t2_cols], errors="coerce").max()))
+
+    data["best_open_t1"] = open_t1_values
+    data["best_open_t2"] = open_t2_values
+    data["best_close_t1"] = close_t1_values
+    data["best_close_t2"] = close_t2_values
+
+    required = [
+        "y_true",
+        MODEL_PROBABILITY,
+        "market_open",
+        "market_close",
+        "best_open_t1",
+        "best_open_t2",
+    ]
+    return data.dropna(subset=required).sort_values("date").reset_index(drop=True)
+
+
+def candidate_probability(data: pd.DataFrame, candidate: Candidate) -> np.ndarray:
+    """Build Team-1 probability for a candidate."""
+
+    market = data["market_open"].to_numpy(dtype=float)
+    model = apply_temperature(data[MODEL_PROBABILITY], candidate.temperature)
+
     if candidate.source == "market":
-        return data["prob_market_open"].to_numpy(dtype=float)
-
-    model_prob = apply_temperature(data["prob_model"], candidate.temperature)
-    if candidate.source == "metamodel":
-        return model_prob
-
-    if candidate.alpha is None:
-        raise ValueError("Hybrid candidate requires alpha.")
-    market_prob = data["prob_market_open"].to_numpy(dtype=float)
-    return candidate.alpha * model_prob + (1 - candidate.alpha) * market_prob
+        return market
+    if candidate.source == "model":
+        return model
+    if candidate.source == "hybrid":
+        if candidate.alpha is None:
+            raise ValueError("Hybrid candidate requires alpha.")
+        return candidate.alpha * model + (1.0 - candidate.alpha) * market
+    raise ValueError(f"Unknown candidate source: {candidate.source}")
 
 
 def choose_bet(row: pd.Series, probability: float) -> tuple[str | None, float, float, float]:
-    """Choose a bet side if EV threshold is exceeded.
-
-    Args:
-        row: Match row with best opening odds.
-        probability: Probability for team 1.
-
-    Returns:
-        Tuple of selected side, selected probability, raw odds, selected EV.
-    """
-    odds_t1 = row["best_open_t1"]
-    odds_t2 = row["best_open_t2"]
-    if pd.isna(odds_t1) or pd.isna(odds_t2):
-        return None, 0.0, 0.0, 0.0
+    """Choose the side with positive expected value, if any."""
 
     prob_t1 = float(probability)
     prob_t2 = 1.0 - prob_t1
-    ev_t1 = prob_t1 * odds_t1 * (1 - TAX_RATE) - 1
-    ev_t2 = prob_t2 * odds_t2 * (1 - TAX_RATE) - 1
+    odds_t1 = float(row["best_open_t1"])
+    odds_t2 = float(row["best_open_t2"])
+    ev_t1 = prob_t1 * odds_t1 * (1.0 - TAX_RATE) - 1.0
+    ev_t2 = prob_t2 * odds_t2 * (1.0 - TAX_RATE) - 1.0
 
     if ev_t1 > ev_t2 and ev_t1 > EV_THRESHOLD:
-        return "t1", prob_t1, float(odds_t1), float(ev_t1)
+        return "t1", prob_t1, odds_t1, ev_t1
     if ev_t2 > EV_THRESHOLD:
-        return "t2", prob_t2, float(odds_t2), float(ev_t2)
+        return "t2", prob_t2, odds_t2, ev_t2
     return None, 0.0, 0.0, 0.0
 
 
@@ -185,42 +217,29 @@ def calculate_stake(
     probability: float,
     raw_odds: float,
 ) -> float:
-    """Calculate stake for the selected policy.
+    """Calculate stake for the selected policy."""
 
-    Args:
-        bankroll: Current bankroll.
-        policy: Staking policy.
-        probability: Probability of selected side.
-        raw_odds: Raw selected opening odds before execution slippage.
-
-    Returns:
-        Stake amount or zero if no stake should be placed.
-    """
     if bankroll <= 0:
         return 0.0
-
     if policy.kind == "fixed":
         stake = float(policy.fixed_stake or 0.0)
     elif policy.kind == "percent":
         stake = bankroll * float(policy.fraction or 0.0)
-        stake = min(max(stake, MIN_STAKE), MAX_STAKE)
+        stake = min(max(stake, policy.min_stake), policy.max_stake)
     elif policy.kind == "kelly":
-        execution_odds = raw_odds * (1 - SLIPPAGE)
-        net_decimal = execution_odds * (1 - TAX_RATE)
-        b = net_decimal - 1
+        execution_odds = raw_odds * (1.0 - SLIPPAGE)
+        net_decimal = execution_odds * (1.0 - TAX_RATE)
+        b = net_decimal - 1.0
         if b <= 0:
             return 0.0
-        full_kelly = ((b * probability) - (1 - probability)) / b
+        full_kelly = ((b * probability) - (1.0 - probability)) / b
         if full_kelly <= 0:
             return 0.0
         stake = bankroll * full_kelly * float(policy.fraction or 0.0)
-        stake = min(max(stake, MIN_STAKE), MAX_STAKE)
+        stake = min(max(stake, policy.min_stake), policy.max_stake)
     else:
         raise ValueError(f"Unknown staking policy: {policy.kind}")
-
-    if stake > bankroll:
-        return 0.0
-    return float(stake)
+    return float(stake if stake <= bankroll else 0.0)
 
 
 def simulate_strategy(
@@ -230,18 +249,8 @@ def simulate_strategy(
     policy: StakingPolicy,
     scope_name: str,
 ) -> tuple[dict[str, float | int | str], pd.DataFrame]:
-    """Simulate a strategy under one staking policy.
+    """Simulate one candidate and staking policy."""
 
-    Args:
-        data: Match data sorted chronologically.
-        probabilities: Probability for team 1.
-        candidate_name: Model candidate label.
-        policy: Staking policy.
-        scope_name: Evaluation scope label.
-
-    Returns:
-        Summary dictionary and bankroll history frame.
-    """
     bankroll = INITIAL_BANKROLL
     peak = INITIAL_BANKROLL
     max_drawdown = 0.0
@@ -252,8 +261,8 @@ def simulate_strategy(
     clv_values: list[float] = []
     rows: list[dict[str, float | int | str]] = []
 
-    for idx, (_, row) in enumerate(data.iterrows()):
-        side, selected_prob, raw_odds, selected_ev = choose_bet(row, probabilities[idx])
+    for index, (_, row) in enumerate(data.iterrows()):
+        side, selected_prob, raw_odds, selected_ev = choose_bet(row, probabilities[index])
         profit = 0.0
         stake = 0.0
         is_win = False
@@ -261,7 +270,7 @@ def simulate_strategy(
         if side is not None:
             stake = calculate_stake(bankroll, policy, selected_prob, raw_odds)
             if stake > 0:
-                execution_odds = raw_odds * (1 - SLIPPAGE)
+                execution_odds = raw_odds * (1.0 - SLIPPAGE)
                 if side == "t1":
                     is_win = bool(row["y_true"] == 1)
                     close_odds = row.get("best_close_t1", np.nan)
@@ -270,30 +279,28 @@ def simulate_strategy(
                     close_odds = row.get("best_close_t2", np.nan)
 
                 if is_win:
-                    profit = stake * (execution_odds * (1 - TAX_RATE) - 1)
+                    profit = stake * (execution_odds * (1.0 - TAX_RATE) - 1.0)
                     wins += 1
                 else:
                     profit = -stake
-
                 bankroll += profit
                 total_staked += stake
                 total_profit += profit
                 bets += 1
 
                 if pd.notna(close_odds) and close_odds > 0:
-                    clv_values.append((raw_odds - close_odds) / close_odds)
+                    clv_values.append((raw_odds - float(close_odds)) / float(close_odds))
 
         peak = max(peak, bankroll)
         if peak > 0:
             max_drawdown = max(max_drawdown, (peak - bankroll) / peak)
-
         rows.append(
             {
                 "scope": scope_name,
                 "candidate": candidate_name,
                 "staking_policy": policy.name,
                 "date": row["date"],
-                "match_index": idx,
+                "match_index": index,
                 "bankroll": bankroll,
                 "stake": stake,
                 "profit": profit,
@@ -309,31 +316,21 @@ def simulate_strategy(
         "staking_policy": policy.name,
         "final_bankroll": bankroll,
         "profit": total_profit,
-        "roi_pct": (bankroll / INITIAL_BANKROLL - 1) * 100,
-        "yield_pct": (total_profit / total_staked * 100) if total_staked else 0.0,
-        "max_drawdown_pct": max_drawdown * 100,
+        "roi_pct": (bankroll / INITIAL_BANKROLL - 1.0) * 100.0,
+        "yield_pct": (total_profit / total_staked * 100.0) if total_staked else 0.0,
+        "max_drawdown_pct": max_drawdown * 100.0,
         "total_staked": total_staked,
         "bets": bets,
-        "win_rate_pct": (wins / bets * 100) if bets else 0.0,
+        "win_rate_pct": (wins / bets * 100.0) if bets else 0.0,
         "avg_stake": (total_staked / bets) if bets else 0.0,
-        "avg_clv_pct": (np.mean(clv_values) * 100) if clv_values else 0.0,
+        "avg_clv_pct": (np.mean(clv_values) * 100.0) if clv_values else 0.0,
     }
     return summary, pd.DataFrame(rows)
 
 
-def evaluate_probability_metrics(
-    y_true: np.ndarray,
-    y_prob: np.ndarray,
-) -> dict[str, float]:
-    """Evaluate probabilistic metrics.
+def evaluate_probability_metrics(y_true: np.ndarray, y_prob: np.ndarray) -> dict[str, float]:
+    """Evaluate probabilistic metrics for one candidate."""
 
-    Args:
-        y_true: Binary labels.
-        y_prob: Predicted probabilities.
-
-    Returns:
-        Dictionary with AUC, LogLoss, Brier, and ECE.
-    """
     clipped = np.clip(y_prob, 1e-6, 1 - 1e-6)
     return {
         "auc": roc_auc_score(y_true, clipped),
@@ -344,13 +341,8 @@ def evaluate_probability_metrics(
 
 
 def save_top_bankroll_plot(history: pd.DataFrame, summary: pd.DataFrame, scope: str) -> None:
-    """Save bankroll plot for selected top candidates.
+    """Save a bankroll plot for the best fixed-percent configurations."""
 
-    Args:
-        history: Full simulation history.
-        summary: Simulation summary.
-        scope: Scope label to plot.
-    """
     fixed_percent = summary[
         (summary["scope"] == scope)
         & (summary["staking_policy"] == "Fixed percent 2% min2 max100")
@@ -358,28 +350,33 @@ def save_top_bankroll_plot(history: pd.DataFrame, summary: pd.DataFrame, scope: 
     selected = fixed_percent.head(5)[["candidate", "staking_policy"]]
     plot_data = history.merge(selected, on=["candidate", "staking_policy"])
     plot_data = plot_data[plot_data["scope"] == scope].copy()
-
     if plot_data.empty:
         return
 
-    plt.figure(figsize=(12, 6))
-    sns.lineplot(data=plot_data, x="date", y="bankroll", hue="candidate", linewidth=2.0)
-    plt.title(f"Financial validation — bankroll over time ({scope})")
-    plt.xlabel("Date")
-    plt.ylabel("Bankroll")
-    plt.legend(title="Candidate", fontsize=9)
-    plt.tight_layout()
+    apply_thesis_style(context="paper")
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    sns.lineplot(
+        data=plot_data,
+        x="date",
+        y="bankroll",
+        hue="candidate",
+        palette=colors_for(plot_data["candidate"].unique()),
+        linewidth=2.0,
+        ax=ax,
+    )
+    ax.set_title(f"Symulacja finansowa — bankroll ({scope})")
+    ax.set_xlabel("Data")
+    ax.set_ylabel("Bankroll")
+    clean_axis(ax)
+    fig.tight_layout()
     filename = f"financial_bankroll_{scope.lower().replace('+', 'plus')}.png"
-    plt.savefig(OUTPUT_DIR / filename, bbox_inches="tight")
-    plt.close()
+    fig.savefig(OUTPUT_DIR / filename, bbox_inches="tight")
+    plt.close(fig)
 
 
 def save_kelly_sensitivity(summary: pd.DataFrame) -> None:
-    """Save Kelly multiplier sensitivity plot for hybrid candidates.
+    """Save Kelly multiplier sensitivity plot for hybrid candidates."""
 
-    Args:
-        summary: Simulation summary frame.
-    """
     data = summary[
         summary["staking_policy"].str.startswith("Kelly")
         & summary["candidate"].str.contains("Hybrid")
@@ -389,12 +386,13 @@ def save_kelly_sensitivity(summary: pd.DataFrame) -> None:
         return
     data["kelly_multiplier"] = data["staking_policy"].str.extract(r"Kelly ([0-9.]+)").astype(float)
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    apply_thesis_style(context="paper")
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.8))
     sns.lineplot(data=data, x="kelly_multiplier", y="roi_pct", hue="candidate", marker="o", ax=axes[0])
     axes[0].set_title("Kelly multiplier vs ROI — 2024+")
     axes[0].set_xlabel("Kelly multiplier")
     axes[0].set_ylabel("ROI [%]")
-
+    clean_axis(axes[0])
     sns.lineplot(
         data=data,
         x="kelly_multiplier",
@@ -407,39 +405,123 @@ def save_kelly_sensitivity(summary: pd.DataFrame) -> None:
     axes[1].set_title("Kelly multiplier vs Max Drawdown — 2024+")
     axes[1].set_xlabel("Kelly multiplier")
     axes[1].set_ylabel("Max Drawdown [%]")
-    plt.tight_layout()
-    plt.savefig(OUTPUT_DIR / "financial_kelly_sensitivity_2024.png", bbox_inches="tight")
-    plt.close()
+    clean_axis(axes[1])
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / "financial_kelly_sensitivity_2024.png", bbox_inches="tight")
+    plt.close(fig)
 
 
-def main() -> None:
-    """Run the Chapter 8 financial validation suite."""
-    configure_style()
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def save_drawdown_frontier(summary: pd.DataFrame) -> None:
+    """Save a risk-return scatter plot for the 2024+ financial grid."""
 
-    data = pd.read_csv(INPUT_PATH)
-    data["date"] = pd.to_datetime(data["date"])
-    data = data.sort_values("date").reset_index(drop=True)
+    data = summary[(summary["scope"] == "2024+") & (summary["bets"] >= 25)].copy()
+    if data.empty:
+        return
+
+    data["policy_family"] = data["staking_policy"].str.extract(r"^(Fixed|Kelly)")
+    apply_thesis_style(context="paper")
+    fig, ax = plt.subplots(figsize=(8.8, 5.4))
+    sns.scatterplot(
+        data=data,
+        x="max_drawdown_pct",
+        y="roi_pct",
+        hue="policy_family",
+        size="bets",
+        sizes=(30, 180),
+        alpha=0.75,
+        ax=ax,
+    )
+    ax.axvline(25, color="#2F3640", linestyle="--", linewidth=1.0, alpha=0.7)
+    ax.axvline(35, color="#2F3640", linestyle=":", linewidth=1.0, alpha=0.7)
+    ax.set_title("Kompromis ROI--MaxDD dla siatki alpha i stakingu — 2024+")
+    ax.set_xlabel("Max Drawdown [%] (niżej = bezpieczniej)")
+    ax.set_ylabel("ROI [%]")
+    clean_axis(ax)
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / "financial_roi_drawdown_frontier_2024.png", bbox_inches="tight")
+    plt.close(fig)
+
+
+def build_candidates() -> list[Candidate]:
+    """Build a dense alpha grid for model-market hybrid candidates."""
 
     candidates = [
-        Candidate("Market Avg Open", None, 1.0, "market"),
-        Candidate("Metamodel T=1.00", None, 1.0, "metamodel"),
-        Candidate("Metamodel T=0.60", None, 0.6, "metamodel"),
-        Candidate("Hybrid a=0.62 T=1.00", 0.62, 1.0, "hybrid"),
-        Candidate("Hybrid a=0.48 T=1.00", 0.48, 1.0, "hybrid"),
-        Candidate("Hybrid a=0.48 T=0.70", 0.48, 0.7, "hybrid"),
-        Candidate("Hybrid a=0.48 T=0.60", 0.48, 0.6, "hybrid"),
-        Candidate("Hybrid a=0.62 T=0.80", 0.62, 0.8, "hybrid"),
+        Candidate("Market Open", "market"),
+        Candidate("LR-ElasticNet-W20-Binomial", "model", temperature=1.0),
+        Candidate("LR-ElasticNet T=0.80", "model", temperature=0.8),
+        Candidate("LR-ElasticNet T=0.90", "model", temperature=0.9),
+        Candidate("LR-ElasticNet T=1.10", "model", temperature=1.1),
+        Candidate("LR-ElasticNet T=1.20", "model", temperature=1.2),
     ]
 
-    policies = [
+    for temperature in (0.8, 0.9, 1.0):
+        for alpha in np.round(np.arange(0.1, 1.0, 0.1), 2):
+            if temperature == 1.0:
+                name = f"Hybrid a={alpha:.2f}"
+            else:
+                name = f"Hybrid a={alpha:.2f} T={temperature:.2f}"
+            candidates.append(
+                Candidate(
+                    name=name,
+                    source="hybrid",
+                    alpha=float(alpha),
+                    temperature=float(temperature),
+                )
+            )
+    return candidates
+
+
+def build_staking_policies() -> list[StakingPolicy]:
+    """Build conservative and aggressive staking policies for drawdown analysis."""
+
+    return [
+        StakingPolicy("Fixed stake 2", "fixed", fixed_stake=2.0),
+        StakingPolicy("Fixed stake 5", "fixed", fixed_stake=5.0),
         StakingPolicy("Fixed stake 10", "fixed", fixed_stake=FIXED_STAKE),
+        StakingPolicy(
+            "Fixed percent 0.5% min1 max25",
+            "percent",
+            fraction=0.005,
+            min_stake=1.0,
+            max_stake=25.0,
+        ),
+        StakingPolicy(
+            "Fixed percent 1% min1 max50",
+            "percent",
+            fraction=0.01,
+            min_stake=1.0,
+            max_stake=50.0,
+        ),
         StakingPolicy("Fixed percent 2% min2 max100", "percent", fraction=0.02),
+        StakingPolicy(
+            "Kelly 0.02 min1 max25",
+            "kelly",
+            fraction=0.02,
+            min_stake=1.0,
+            max_stake=25.0,
+        ),
+        StakingPolicy(
+            "Kelly 0.05 min1 max50",
+            "kelly",
+            fraction=0.05,
+            min_stake=1.0,
+            max_stake=50.0,
+        ),
         StakingPolicy("Kelly 0.10 min2 max100", "kelly", fraction=0.10),
         StakingPolicy("Kelly 0.25 min2 max100", "kelly", fraction=0.25),
         StakingPolicy("Kelly 0.50 min2 max100", "kelly", fraction=0.50),
     ]
 
+
+def main() -> None:
+    """Run current-model financial validation experiments."""
+
+    apply_thesis_style(context="paper")
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    data = load_dataset()
+
+    candidates = build_candidates()
+    policies = build_staking_policies()
     scopes = {
         "2021+": data[data["date"] >= pd.Timestamp("2021-01-01")].copy(),
         "2024+": data[data["date"] >= pd.Timestamp("2024-01-01")].copy(),
@@ -452,7 +534,7 @@ def main() -> None:
     for scope_name, scope_data in scopes.items():
         y_true = scope_data["y_true"].to_numpy(dtype=int)
         for candidate in candidates:
-            probabilities = model_probability(scope_data, candidate)
+            probabilities = candidate_probability(scope_data, candidate)
             metric_row = {
                 "scope": scope_name,
                 "candidate": candidate.name,
@@ -460,7 +542,6 @@ def main() -> None:
                 "n_matches": len(scope_data),
             }
             metric_rows.append(metric_row)
-
             for policy in policies:
                 summary, history = simulate_strategy(
                     scope_data,
@@ -474,9 +555,11 @@ def main() -> None:
                 histories.append(history)
 
     summary_df = pd.DataFrame(summaries)
+    summary_df["roi_to_maxdd"] = summary_df["roi_pct"] / summary_df[
+        "max_drawdown_pct"
+    ].clip(lower=1e-6)
     history_df = pd.concat(histories, ignore_index=True)
     metrics_df = pd.DataFrame(metric_rows)
-
     summary_df.to_csv(OUTPUT_DIR / "financial_validation_summary.csv", index=False)
     history_df.to_csv(OUTPUT_DIR / "financial_validation_bankroll_history.csv", index=False)
     metrics_df.to_csv(OUTPUT_DIR / "financial_validation_probability_metrics.csv", index=False)
@@ -484,10 +567,11 @@ def main() -> None:
     save_top_bankroll_plot(history_df, summary_df, "2021+")
     save_top_bankroll_plot(history_df, summary_df, "2024+")
     save_kelly_sensitivity(summary_df)
+    save_drawdown_frontier(summary_df)
 
     top_2024 = summary_df[summary_df["scope"] == "2024+"].sort_values(
         "final_bankroll", ascending=False
-    ).head(10)
+    ).head(12)
     print("\nTop 2024+ financial configurations:")
     print(
         top_2024[
@@ -502,8 +586,33 @@ def main() -> None:
                 "avg_stake",
                 "logloss",
             ]
-        ].to_string(index=False)
+        ].to_string(index=False, float_format=lambda value: f"{value:.4f}")
     )
+    risk_controlled = summary_df[
+        (summary_df["scope"] == "2024+")
+        & (summary_df["roi_pct"] > 0)
+        & (summary_df["bets"] >= 100)
+        & (summary_df["max_drawdown_pct"] <= 25)
+    ].sort_values("roi_to_maxdd", ascending=False)
+    if not risk_controlled.empty:
+        print("\nBest 2024+ configurations with MaxDD <= 25%:")
+        print(
+            risk_controlled[
+                [
+                    "candidate",
+                    "staking_policy",
+                    "final_bankroll",
+                    "roi_pct",
+                    "yield_pct",
+                    "max_drawdown_pct",
+                    "roi_to_maxdd",
+                    "bets",
+                    "logloss",
+                ]
+            ]
+            .head(12)
+            .to_string(index=False, float_format=lambda value: f"{value:.4f}")
+        )
     print(f"\nSaved outputs to {OUTPUT_DIR}")
 
 
