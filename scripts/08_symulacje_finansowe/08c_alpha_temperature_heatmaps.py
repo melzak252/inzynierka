@@ -29,9 +29,9 @@ from src.visualization.thesis_style import apply_thesis_style
 INPUT_PATH = PROJECT_ROOT / "docs" / "assets" / "financial_point8" / "financial_validation_summary.csv"
 OUTPUT_DIR = PROJECT_ROOT / "docs" / "assets" / "financial_point8"
 DEFAULT_SCOPE = "2024+"
-DEFAULT_POLICY = "Kelly 0.05 min1 max50"
+DEFAULT_POLICY = "Kelly 0.05 min2 max100"
 POLICIES_TO_PLOT = [
-    "Kelly 0.05 min1 max50",
+    "Kelly 0.05 min2 max100",
     "Kelly 0.25 min2 max100",
 ]
 
