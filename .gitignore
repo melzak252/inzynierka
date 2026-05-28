@@ -43,6 +43,7 @@ thesis/*.log
 thesis/*.lot
 thesis/*.out
 thesis/*.run.xml
+thesis/*.synctex.gz
 thesis/*.toc
 thesis/main.pdf
 thesis/*-SAVE-ERROR

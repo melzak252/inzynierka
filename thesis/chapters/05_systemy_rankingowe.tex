@@ -1,0 +1,194 @@
+\chapter{Systemy rankingowe jako modele bazowe}
+
+\section{Rola systemów rankingowych w predykcji}
+
+Systemy rankingowe stanowią pierwszy poziom modelowania siły sportowej. Ich zadaniem jest
+przekształcenie historii wyników w liczbową ocenę aktualnej siły drużyny lub zawodnika. W kontekście
+predykcji przedmeczowej ranking jest użyteczny, ponieważ może zostać obliczony wyłącznie na
+podstawie informacji dostępnych przed danym meczem. Po zakończeniu meczu ranking jest aktualizowany
+i może wpływać dopiero na kolejne predykcje.
+
+W pracy systemy rankingowe pełnią dwie funkcje. Po pierwsze, są samodzielnymi modelami bazowymi,
+które można porównać z benchmarkiem bukmacherskim. Po drugie, generują cechy wejściowe dla
+metamodelu uczenia maszynowego. Metamodel nie zastępuje więc rankingów, lecz wykorzystuje je jako
+syntetyczne reprezentacje siły stron meczu.
+
+\section{Ranking drużynowy i ranking zawodniczy}
+
+W klasycznym ujęciu ranking może być przypisany drużynie. Takie podejście jest naturalne w wielu
+sportach zespołowych, ponieważ nazwa klubu często jest stabilnym nośnikiem informacji o sile. W
+profesjonalnym League of Legends założenie to jest jednak ograniczone. Organizacje esportowe
+regularnie zmieniają składy, a pojedynczy zawodnicy przenoszą znaczną część informacji o jakości gry
+pomiędzy drużynami.
+
+Z tego powodu w pracy porównano dwa poziomy modelowania:
+
+\begin{itemize}
+    \item \textbf{ranking drużynowy}, w którym aktualizowana jest ocena organizacji lub drużyny jako całości,
+    \item \textbf{ranking zawodniczy}, w którym aktualizowane są oceny graczy występujących w danym meczu, a siła zespołu jest wyznaczana na podstawie składu.
+\end{itemize}
+
+Hipoteza badawcza H1 zakłada, że podejście zawodnicze powinno być skuteczniejsze od drużynowego.
+Wynika to z faktu, że w LoL skład osobowy jest bardziej bezpośrednim opisem rzeczywistej siły
+zespołu niż sama nazwa organizacji.
+
+\section{Zastosowane rodziny rankingów}
+
+\subsection{Elo}
+
+System Elo jest jednym z najprostszych i najbardziej znanych systemów oceny siły graczy
+\parencite{elo1978}. Model zakłada, że oczekiwany wynik zależy od różnicy rankingów dwóch stron. Po
+meczu ranking zwycięzcy rośnie, a ranking przegranego maleje. Wielkość zmiany zależy od tego, jak
+bardzo wynik różnił się od oczekiwania.
+
+Zaletą Elo jest prostota i łatwa interpretacja. Ograniczeniem jest natomiast brak jawnego
+modelowania niepewności. Zawodnik z dużą liczbą rozegranych meczów i zawodnik z bardzo krótką
+historią mogą mieć podobny rating, mimo że pewność oszacowania ich siły jest różna.
+
+\subsection{Glicko-2}
+
+Glicko-2 rozwija ideę rankingów Elo przez wprowadzenie dodatkowych parametrów opisujących niepewność
+oceny \parencite{glickman2012}. Oprócz samego ratingu model uwzględnia rating deviation, czyli miarę
+niepewności oszacowania siły. Jest to szczególnie istotne w środowisku esportowym, gdzie część
+zawodników ma długą historię występów, a część pojawia się w danych tylko okresowo.
+
+W praktyce oznacza to, że wynik przeciwko dobrze znanemu zawodnikowi może być interpretowany inaczej
+niż wynik przeciwko zawodnikowi o bardzo niepewnym poziomie. Ta własność jest korzystna w danych
+obejmujących wiele lat, regionów i poziomów rozgrywek.
+
+\subsection{TrueSkill i OpenSkill}
+
+TrueSkill modeluje umiejętność gracza jako rozkład prawdopodobieństwa, a nie pojedynczą wartość
+punktową \parencite{trueskill2007}. Podejście to zostało zaprojektowane z myślą o grach
+wieloosobowych i zespołowych. OpenSkill jest otwartą implementacją podobnej klasy systemów
+rankingowych. W pracy modele te są traktowane jako alternatywne sposoby reprezentacji siły
+zawodników i drużyn.
+
+\subsection{Modele porównawcze}
+
+Uzupełniająco wykorzystano także modele z rodziny Plackett--Luce oraz Thurstone--Mosteller. Ich rola
+w pracy jest głównie porównawcza: pozwalają sprawdzić, czy przewaga konkretnego systemu rankingowego
+wynika z ogólnej idei rankingu, czy ze specyfiki wybranej metody aktualizacji.
+
+\section{Procedura obliczania predykcji rankingowych}
+
+Predykcje rankingowe były generowane chronologicznie. Dla każdego meczu najpierw odczytywano
+aktualne rankingi drużyn lub zawodników, następnie obliczano prawdopodobieństwo zwycięstwa pierwszej
+strony, a dopiero po tym aktualizowano rankingi na podstawie wyniku. Taka procedura jest zgodna z
+zasadą unikania przecieku informacji opisaną w poprzednim rozdziale.
+
+W przypadku rankingów zawodniczych siła strony była wyznaczana na podstawie zawodników występujących
+w danym meczu. Dzięki temu transfer zawodnika wpływał na ocenę nowego zespołu, zamiast pozostawać
+wyłącznie w historii poprzedniej organizacji.
+
+\section{Dobór parametrów systemów rankingowych}
+
+Same definicje rodzin rankingowych nie przesądzają jeszcze o ich jakości predykcyjnej. Każdy system
+wymaga przyjęcia parametrów opisujących tempo aktualizacji, skalę różnic siły lub sposób traktowania
+niepewności. Z tego powodu przed wyborem rankingów do dalszych etapów wykonano oddzielny eksperyment
+doboru parametrów. Nie był on traktowany jako strojenie końcowego modelu uczenia maszynowego, lecz
+jako sprawdzenie, czy słabsze wyniki niektórych rodzin rankingowych nie wynikają wyłącznie z
+niekorzystnego ustawienia parametrów domyślnych.
+
+Dobór przeprowadzono w sposób chronologiczny. Okres 2021--2023 wykorzystano jako część walidacyjną
+do wyboru konfiguracji, natomiast okres 2024+ jako okres testowy. Dla Elo sprawdzano przede
+wszystkim wartość współczynnika aktualizacji $K$, dla Glicko-2 początkowe odchylenie rankingu oraz
+tempo wzrostu niepewności, dla TrueSkill parametry $\beta$ i $\tau$, a dla rodzin Plackett--Luce i
+Thurstone--Mosteller parametry skali i dryfu. Dla OpenSkill testowano przede wszystkim początkową
+wartość niepewności $\sigma$.
+
+Taka procedura pozwala uczciwie porównać rodziny rankingowe po ich podstawowym dostrojeniu.
+Jednocześnie zachowuje warunek przedmeczowy: w każdej predykcji ranking był liczony wyłącznie na
+podstawie wcześniejszych meczów.
+
+Po wyborze najlepszych konfiguracji predykcje rankingowe zostały wygenerowane ponownie i to one
+stanowiły wejście do dalszych eksperymentów metamodelu. Dzięki temu wyniki w kolejnych rozdziałach
+są spójne z parametrami raportowanymi w tym rozdziale.
+
+\section{Wyniki po doborze parametrów}
+
+Najważniejsze porównanie rankingów w pracy dotyczy meczów, które można później zestawić również z
+rynkiem bukmacherskim. Dzięki temu etap rankingowy pozostaje spójny z końcową próbą ewaluacyjną.
+Wyniki w tabeli~\ref{tab:ranking_common_sample_results} pokazują najlepsze konfiguracje wybranych
+rodzin rankingowych na okresie testowym 2024+.
+
+W tym rozdziale Player Glicko-2 pełni rolę silnego, prostego baseline'u sportowego. Jest to
+odpowiednik prostego modelu odniesienia: nie wykorzystuje pełnego kontekstu historycznego ani
+dodatkowego metamodelu, ale pozwala sprawdzić, jak daleko można dojść za pomocą samej
+chronologicznej oceny siły zawodników.
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Najlepsze konfiguracje rodzin rankingowych na okresie testowym 2024+}
+    \label{tab:ranking_common_sample_results}
+    \begin{tabular}{p{3.1cm}p{4.1cm}rrrr}
+        \toprule
+        Rodzina & Najlepsze parametry & AUC & LogLoss & Brier & ECE \\
+        \midrule
+        Player Glicko-2 & $RD=350$, $vol=0{,}06$, okres $=7$ & 0{,}7511 & 0{,}5941 & 0{,}2040 & 0{,}0443 \\
+        Player Elo & $K=48$ & 0{,}7348 & 0{,}6015 & 0{,}2077 & 0{,}0283 \\
+        Player Thurstone--Mosteller & $\beta=18{,}75$, $\tau=0{,}05$ & 0{,}7336 & 0{,}6052 & 0{,}2084 & 0{,}0326 \\
+        Player Plackett--Luce & $\beta=18{,}75$, $\tau=0{,}05$ & 0{,}7352 & 0{,}6134 & 0{,}2105 & 0{,}0548 \\
+        Player TrueSkill & $\beta=4{,}16$, $\tau=0{,}25$ & 0{,}7255 & 0{,}6224 & 0{,}2162 & 0{,}0622 \\
+        Player OpenSkill & $\sigma=3{,}50$ & 0{,}7337 & 0{,}6453 & 0{,}2163 & 0{,}0834 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Wyniki w tabeli~\ref{tab:ranking_common_sample_results} wskazują, że najlepszym pojedynczym systemem
+rankingowym jest Player Glicko-2. Model ten osiąga najwyższe AUC oraz najniższy LogLoss spośród
+analizowanych rankingów również po doborze parametrów. Oznacza to, że przewaga tej rodziny nie
+wynikała wyłącznie z przypadkowego ustawienia parametrów domyślnych.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{baseline_point5/baseline_player_vs_team_auc_2020.png}
+    \caption{Porównanie jakości rankingów zawodniczych i drużynowych według AUC.}
+    \label{fig:ranking_player_vs_team_auc}
+\end{figure}
+
+\Cref{fig:ranking_player_vs_team_auc} pokazuje, że ranking oparty na zawodnikach jest zasadniczo
+silniejszy niż ranking oparty wyłącznie na drużynie. Jest to zgodne ze specyfiką League of Legends:
+historia organizacji nie zawsze dobrze opisuje aktualny skład, natomiast informacje o zawodnikach
+lepiej przenoszą się pomiędzy sezonami i transferami.
+
+\section{Porównanie ratingów z benchmarkiem rynkowym}
+
+W porównaniu z benchmarkiem rynkowym Player Glicko-2 osiąga lepszy AUC i LogLoss niż kurs otwarcia
+oraz wynik zbliżony do kursu zamknięcia. Nie oznacza to jednak, że surowy ranking jest kompletnym
+modelem predykcyjnym. Rynek bukmacherski pozostaje silnie skalibrowanym benchmarkiem, a surowy
+ranking ma gorsze ECE niż kursy rynkowe.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{baseline_point5/baseline_auc_ranking_common_2020.png}
+    \caption{Porównanie AUC rankingów i benchmarków rynkowych na wspólnej próbie.}
+    \label{fig:ranking_auc_common}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{baseline_point5/baseline_calibration_common_2020.png}
+    \caption{Kalibracja wybranych rankingów i benchmarków rynkowych na wspólnej próbie.}
+    \label{fig:ranking_calibration_common}
+\end{figure}
+
+Porównanie AUC i wykresów kalibracji prowadzi do dwóch wniosków. Po pierwsze, ranking zawodniczy
+zawiera silny sygnał sportowy, ponieważ dobrze porządkuje mecze według prawdopodobieństwa
+zwycięstwa. Po drugie, sama wartość ratingowa nie wystarcza do uzyskania najlepszej jakości
+probabilistycznej, ponieważ kalibracja prawdopodobieństw może być gorsza niż w przypadku rynku.
+Zamiast pełnych krzywych ROC pokazano zestawienie AUC, ponieważ krzywe najlepszych wariantów były
+bardzo zbliżone i na jednym wykresie praktycznie się nakładały.
+
+\section{Znaczenie wyników rankingowych dla dalszego modelowania}
+
+Wyniki systemów rankingowych uzasadniają budowę metamodelu. Skoro Player Glicko-2 jest silnym
+pojedynczym sygnałem, może stanowić podstawę modelu wyższego poziomu. Jednocześnie jego ograniczenia
+kalibracyjne wskazują, że warto połączyć różne informacje rankingowe, niepewność oraz historyczny
+kontekst formy w jednym modelu probabilistycznym.
+
+Najważniejszy wniosek z tego rozdziału jest zatem dwojaki. Po pierwsze, ranking zawodniczy jest
+lepszym sposobem reprezentacji siły w League of Legends niż ranking drużynowy. Po drugie, najlepszy
+pojedynczy ranking nie kończy procesu modelowania, lecz stanowi punkt wyjścia dla metamodelu
+opisanego w kolejnym rozdziale.

@@ -1,0 +1,472 @@
+\chapter{Metamodel kontekstowy W20-Binomial}
+
+\section{Motywacja budowy metamodelu}
+
+\subsection{Rola modelu drugiego poziomu}
+
+\subsubsection{Ograniczenia pojedynczych rankingów}
+
+W poprzednim rozdziale pokazano, że systemy rankingowe zawodników, szczególnie Player Glicko-2,
+dostarczają silnego sygnału predykcyjnego. Pojedynczy ranking nie wykorzystuje jednak pełnej
+informacji dostępnej przed meczem. Nie łączy jednocześnie wielu rodzin ratingów, miar niepewności,
+historycznej formy drużyn oraz formatu serii Bo1/Bo3/Bo5. Z tego powodu kolejnym etapem pracy jest
+metamodel, którego zadaniem jest połączenie tych informacji w jedną predykcję probabilistyczną.
+
+\subsubsection{Stacking jako uzasadnienie konstrukcji modelu}
+
+Metamodel jest w tej pracy rozumiany jako model drugiego poziomu. Jego wejściami są predykcje i
+parametry modeli rankingowych oraz cechy historyczne obliczane wyłącznie na podstawie spotkań
+rozegranych przed przewidywanym meczem. Takie podejście jest zgodne z ideą stacked generalization, w
+której predykcje modeli bazowych są wykorzystywane jako cechy dla modelu wyższego poziomu
+\parencite{wolpert1992,breiman1996stacked}.
+
+\subsection{Definicja wariantu W20-Binomial}
+
+Finalnym obiektem modelowania w tym rozdziale jest \textbf{W20-Binomial}: kompletny zestaw cech
+obejmujący predykcje rankingowe, niepewności rankingów, pełny historyczny kontekst drużynowy W20
+oraz sygnały rankingowe skorygowane dwumianowo względem formatu serii. Rodzina estymatora nie
+została założona z góry. Hiperparametry kilku rodzin modeli dobrano za pomocą Optuny, a następnie
+dostrojone warianty porównano w procedurze walk-forward i miesięcznym bootstrapie blokowym.
+Ostatecznie najstabilniejszym estymatorem okazała się regresja logistyczna ElasticNet.
+
+\section{Zestaw cech W20-Binomial}
+
+Wszystkie cechy dla meczu $t$ były obliczane wyłącznie z informacji dostępnych przed tym meczem.
+Model nie korzystał z żadnych statystyk z rozgrywanego spotkania. Zestaw W20-Binomial składa się z
+czterech grup cech.
+
+\subsection{Predykcje rankingowe zawodników}
+
+Pierwszą grupę stanowią \textbf{predykcje rankingowe zawodników}, czyli prawdopodobieństwa
+zwycięstwa Team 1 wygenerowane przez sześć rodzin rankingowych:
+
+\begin{itemize}
+    \item \texttt{player\_elo} -- Elo,
+    \item \texttt{player\_gl} -- Glicko-2,
+    \item \texttt{player\_ts} -- TrueSkill,
+    \item \texttt{player\_os} -- OpenSkill,
+    \item \texttt{player\_pl} -- Plackett--Luce,
+    \item \texttt{player\_tm} -- Thurstone--Mosteller.
+\end{itemize}
+
+\subsection{Niepewność ocen i rozkład siły składu}
+
+Drugą grupę stanowią \textbf{cechy niepewności i rozkładu siły w składzie}. Obejmują one między
+innymi minimalne ratingi zawodników w Elo, maksymalne ratingi w Glicko-2, średnie odchylenie ratingu
+Glicko-2 oraz średnie niepewności $\sigma$ dla rodzin TrueSkill, OpenSkill, Plackett--Luce i
+Thurstone--Mosteller. Celem tych cech jest opisanie nie tylko średniej siły drużyny, lecz także
+stabilności i pewności tej oceny.
+
+\subsection{Historyczny kontekst drużynowy W20}
+
+Trzecią grupę stanowi \textbf{pełny historyczny kontekst W20}. Dla obu stron meczu agregowano
+ostatnie 20 wcześniejszych obserwacji danej drużyny. Kontekst obejmuje:
+
+\begin{itemize}
+    \item kroczący współczynnik zwycięstw,
+    \item średnią liczbę zabójstw i śmierci,
+    \item historyczne GD@15,
+    \item DPM i VSPM,
+    \item liczbę zniszczonych wież,
+    \item liczbę Baronów Nashora,
+    \item końcową ilość złota drużyny,
+    \item czas trwania gry.
+\end{itemize}
+
+W dalszej części pracy przez \textbf{model kontekstowy} rozumiany jest model wykorzystujący właśnie
+ten pełny kontekst historyczny. Nie rozdzielano finalnej narracji na wariant podstawowy i pełny;
+węższe zestawy cech traktowano wyłącznie jako ablacje diagnostyczne.
+
+\subsection{Cechy dwumianowe dla formatu serii}
+
+Czwartą grupę stanowią \textbf{cechy dwumianowe} (ang. \textit{binomial features}). Format serii
+Bo1/Bo3/Bo5 nie został podany modelowi wyłącznie jako surowa liczba. Zamiast tego prawdopodobieństwa
+rankingowe przekształcono do przybliżonego prawdopodobieństwa wygrania całej serii. Dla serii do $n$
+map zastosowano wzór:
+
+\[ P(\text{win series}) = \sum_{k=\lfloor n/2 \rfloor + 1}^{n} \binom{n}{k} p^k (1-p)^{n-k}, \]
+
+gdzie $p$ oznacza rankingowe prawdopodobieństwo wygrania pojedynczej mapy lub pojedynczego meczu
+traktowane jako sygnał bazowy. W praktyce utworzono po jednej cesze dwumianowej dla każdej rodziny
+rankingowej. Zabieg ten jest istotny, ponieważ dłuższa seria nie tylko informuje o typie meczu, lecz
+także zmienia wariancję wyniku: silniejsza drużyna powinna mieć większą szansę wygrania Bo3 lub Bo5
+niż pojedynczej mapy.
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{Skład finalnego zestawu cech W20-Binomial}
+    \label{tab:metamodel_feature_sets}
+    \begin{tabular}{p{3.4cm}p{7.3cm}p{3.3cm}}
+        \toprule
+        Grupa cech & Skład & Rola w modelu \\
+        \midrule
+        Predykcje rankingowe
+            & Elo, Glicko-2, TrueSkill, OpenSkill, Plackett--Luce, Thurstone--Mosteller
+            & Bazowy opis relatywnej siły składów \\
+        Niepewność rankingów
+            & Minimalne/maksymalne ratingi, RD Glicko-2, średnie $\sigma$ rodzin probabilistycznych
+            & Informacja o stabilności i pewności oceny \\
+        Kontekst W20
+            & Win rate, kills, deaths, GD@15, DPM, VSPM, towers, nashors, gold, duration
+            & Forma, styl, ekonomia, obiekty i tempo gry \\
+        Korekta dwumianowa
+            & Sześć prawdopodobieństw rankingowych przekształconych wzorem dwumianowym dla Bo1/Bo3/Bo5
+            & Strukturalne uwzględnienie formatu serii \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \resizebox{0.92\textwidth}{!}{%
+    \begin{tikzpicture}[
+        block/.style={draw, rounded corners, align=center, minimum width=4.0cm, minimum height=1.0cm, fill=blue!6},
+        feature/.style={draw, rounded corners, align=center, minimum width=4.0cm, minimum height=1.0cm, fill=green!7},
+        process/.style={draw, rounded corners, align=center, minimum width=5.2cm, minimum height=1.0cm, fill=orange!10},
+        output/.style={draw, rounded corners, align=center, minimum width=4.4cm, minimum height=1.0cm, fill=purple!8},
+        arrow/.style={-{Latex[length=2.5mm]}, thick, shorten >=2pt, shorten <=2pt}
+    ]
+        \node[block] (golgg) at (0,0) {Dane GOL.GG\\mecze, składy, statystyki};
+
+        \node[feature] (rankings) at (-3.2,-2.2) {Systemy rankingowe\\Elo, Glicko-2, TS, OS, PL, TM};
+        \node[feature] (context) at (3.2,-2.2) {Pełny kontekst W20\\forma, ekonomia, obiekty, tempo};
+
+        \node[process] (binom) at (-3.2,-4.4) {Transformacja dwumianowa\\zależnie od długości serii};
+        \node[process] (features) at (0,-6.6) {Wektor cech\\W20-Binomial};
+        \node[process] (lr) at (0,-8.8) {Regresja logistyczna ElasticNet};
+        \node[process] (sym) at (0,-11.0) {Symetryzacja kolejności drużyn\\$p_{sym}=\frac{p_{orig}+(1-p_{swap})}{2}$};
+        \node[process] (cal) at (0,-13.2) {Kalibracja Platta\\expanding-window};
+        \node[output] (prob) at (0,-15.4) {Końcowa predykcja\\$P(\mathrm{Team\ 1\ wins})$};
+
+        \draw[arrow] (golgg.south) to[out=-135,in=90] (rankings.north);
+        \draw[arrow] (golgg.south) to[out=-45,in=90] (context.north);
+
+        \draw[arrow] (rankings.south) -- (binom.north);
+
+        \draw[arrow] (context.south) to[out=-90,in=35] (features.east);
+        \draw[arrow] (binom.south) to[out=-90,in=145] (features.north);
+
+        \draw[arrow] (features.south) -- (lr.north);
+        \draw[arrow] (lr.south) -- (sym.north);
+        \draw[arrow] (sym.south) -- (cal.north);
+        \draw[arrow] (cal.south) -- (prob.north);
+    \end{tikzpicture}%
+    }
+    \caption{Architektura finalnego modelu W20-Binomial. Diagram pokazuje cztery główne grupy
+    informacji wejściowej oraz dwa końcowe etapy postprocessingu: symetryzację predykcji względem
+    kolejności drużyn i kalibrację Platta w schemacie expanding-window.}
+    \label{fig:w20_binomial_architecture}
+\end{figure}
+
+\section{Współzależność sygnałów rankingowych}
+
+\subsection{Korelacje pomiędzy rodzinami rankingów}
+
+Przed trenowaniem modelu sprawdzono, czy sygnały rankingowe rzeczywiście wnoszą niezależną
+informację. Wiele systemów rankingowych opisuje tę samą ukrytą wielkość: relatywną siłę drużyny lub
+zawodników przed meczem. Z tego powodu można oczekiwać wysokich korelacji pomiędzy predykcjami Elo,
+Glicko-2, TrueSkill, OpenSkill, Plackett--Luce i Thurstone--Mosteller.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{metamodel_correlation_vif/rating_signal_correlation_heatmap.png}
+    \caption{Macierz korelacji głównych sygnałów rankingowych.}
+    \label{fig:rating_signal_correlation}
+\end{figure}
+
+Macierz na rysunku~\ref{fig:rating_signal_correlation} pokazuje bardzo silną współzależność wielu
+ratingów. Nie oznacza to, że cechy rankingowe są bezużyteczne; przeciwnie, pokazuje, że zawierają
+podobny sygnał sportowy. Oznacza jednak, że model liniowy powinien być regularyzowany, a
+interpretacja pojedynczych współczynników musi być ostrożna.
+
+\subsection{Analiza VIF i konsekwencje dla modelu liniowego}
+
+Drugim krokiem była analiza VIF, czyli variance inflation factor. Wysoki VIF wskazuje na silną
+współliniowość i może prowadzić do niestabilnych współczynników w modelach liniowych.
+
+\begin{table}[H]
+    \centering
+    \caption{Najwyższe wartości VIF dla sygnałów rankingowych}
+    \label{tab:rating_signal_vif}
+    \begin{tabular}{lr}
+        \toprule
+        Sygnał rankingowy & VIF \\
+        \midrule
+        Team Thurstone--Mosteller & 337{,}6 \\
+        Team OpenSkill & 222{,}3 \\
+        Team Glicko-2 & 143{,}4 \\
+        Player OpenSkill & 132{,}6 \\
+        Player Thurstone--Mosteller & 126{,}4 \\
+        Player Plackett--Luce & 124{,}5 \\
+        Team TrueSkill & 109{,}4 \\
+        Team Plackett--Luce & 106{,}3 \\
+        Player Elo & 59{,}7 \\
+        Team Elo & 41{,}4 \\
+        Player TrueSkill & 25{,}4 \\
+        Player Glicko-2 & 13{,}2 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Wyniki w tabeli~\ref{tab:rating_signal_vif} potwierdzają, że część sygnałów rankingowych jest silnie
+współliniowa. W pracy nie potraktowano tego jako powodu do ręcznego usunięcia całych rodzin
+ratingów, ponieważ podobne systemy mogą nadal wnosić niewielkie, ale użyteczne różnice w konkretnych
+okresach, ligach lub składach. Wniosek z analizy VIF jest zatem metodologiczny: finalny metamodel
+powinien wykorzystywać regularyzację oraz powinien być oceniany przede wszystkim przez jakość
+predykcji out-of-time, a nie przez bezpośrednią interpretację pojedynczych współczynników.
+
+Z tego powodu w dalszych eksperymentach zastosowano regresję logistyczną ElasticNet oraz porównano
+ją z modelami nieliniowymi w procedurze walk-forward. Regularyzacja ElasticNet ogranicza wpływ
+współliniowości przez zmniejszanie wag podobnych cech i częściową selekcję sygnałów, natomiast
+bootstrap blokowy sprawdza, czy uzyskana przewaga nie wynika z jednej niestabilnej konfiguracji
+danych. Analiza VIF pełni więc rolę uzasadnienia wyboru regularyzowanego estymatora i ostrożnej
+interpretacji wag modelu, a nie osobnego kryterium eliminacji cech.
+
+\section{Dobór długości okna historycznego}
+
+Osobno sprawdzono długość okna historycznego dla pełnego kontekstu drużynowego. Testowano okna W3,
+W5, W10, W20 oraz W50. Krótsze okna szybciej reagują na zmianę formy, lecz są bardziej podatne na
+szum pojedynczych meczów. Dłuższe okna są stabilniejsze, ale mogą mieszać aktualną formę z
+nieaktualnymi składami, patchami lub stylami gry.
+
+\begin{table}[H]
+    \centering
+    \caption{Wpływ długości okna historycznego na jakość metamodelu}
+    \label{tab:metamodel_window_ablation}
+    \begin{tabular}{lrrrr}
+        \toprule
+        Okno & AUC & LogLoss & Brier & ECE \\
+        \midrule
+        W3 & 0{,}7470 & 0{,}5928 & 0{,}2036 & 0{,}0131 \\
+        W5 & 0{,}7476 & 0{,}5924 & 0{,}2035 & 0{,}0108 \\
+        W10 & 0{,}7477 & 0{,}5925 & 0{,}2034 & 0{,}0088 \\
+        W20 & 0{,}7492 & 0{,}5910 & 0{,}2028 & 0{,}0088 \\
+        W50 & 0{,}7489 & 0{,}5915 & 0{,}2030 & 0{,}0124 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Najniższy LogLoss w tej ablacji uzyskało okno W20. Różnica względem W50 nie jest duża, ale W20
+lepiej odpowiada finalnej interpretacji modelu: ma reprezentować aktualną formę, styl i tempo
+drużyny, bez nadmiernego obciążenia starszymi meczami. Dlatego w dalszych eksperymentach jako główny
+wariant kontekstu przyjęto W20.
+
+\section{Dobór rodziny estymatora po strojeniu hiperparametrów}
+
+Ostatnim krokiem wyboru architektury było porównanie kilku rodzin modeli na tym samym kompletnym
+zestawie cech W20-Binomial. Hiperparametry dla każdej rodziny dobrano za pomocą Optuny na
+chronologicznym zbiorze walidacyjnym. Wyników samej walidacji Optuny nie traktowano jako finalnej
+tabeli rezultatów; Optuna pełniła funkcję strojenia hiperparametrów. Dopiero dostrojone warianty
+oceniono w schemacie walk-forward, który lepiej odpowiada rzeczywistemu użyciu modelu w czasie.
+
+Porównano regresję logistyczną ElasticNet, ExtraTrees, LightGBM, HistGradientBoosting oraz małą sieć
+MLP. Wszystkie modele korzystały z tego samego zestawu cech W20-Binomial i były trenowane w
+schemacie expanding-window z aktualizacją co 1000 meczów.
+
+\begin{table}[H]
+    \centering
+    \caption{Porównanie dostrojonych rodzin modeli W20-Binomial w procedurze walk-forward}
+    \label{tab:w20_binomial_model_family_comparison}
+    \begin{tabular}{lrrrr}
+        \toprule
+        Model & AUC & LogLoss & Brier & ECE \\
+        \midrule
+        LR ElasticNet & 0{,}7553 & 0{,}5858 & 0{,}2007 & 0{,}0130 \\
+        ExtraTrees & 0{,}7505 & 0{,}5896 & 0{,}2024 & 0{,}0121 \\
+        LightGBM & 0{,}7507 & 0{,}5897 & 0{,}2024 & 0{,}0110 \\
+        HistGradientBoosting & 0{,}7502 & 0{,}5904 & 0{,}2026 & 0{,}0100 \\
+        MLP & 0{,}7456 & 0{,}5952 & 0{,}2046 & 0{,}0201 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Najniższy LogLoss i najwyższy AUC uzyskała regresja logistyczna ElasticNet. Modele nieliniowe miały
+miejscami lepsze ECE, lecz zgodnie z hierarchią metryk głównym kryterium wyboru pozostaje LogLoss,
+ponieważ bezpośrednio mierzy jakość prognozy probabilistycznej i silnie karze błędną pewność.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{w20_binomial_all_models_bootstrap/all_models_bootstrap_delta_logloss.png}
+    \caption{Miesięczny bootstrap blokowy różnic LogLoss dostrojonych modeli względem regresji logistycznej ElasticNet.}
+    \label{fig:w20_binomial_all_models_bootstrap}
+\end{figure}
+
+Bootstrap blokowy przedstawiony na rysunku~\ref{fig:w20_binomial_all_models_bootstrap} potwierdza
+stabilność przewagi modelu liniowego. Wszystkie testowane warianty nieliniowe miały dodatnie
+przedziały ufności dla różnicy LogLoss względem regresji logistycznej ElasticNet. Różnice wynosiły
+odpowiednio około 0{,}0038 dla ExtraTrees, 0{,}0039 dla LightGBM, 0{,}0045 dla HistGradientBoosting
+oraz 0{,}0094 dla MLP. Oznacza to, że wybór regresji logistycznej nie wynika wyłącznie z pojedynczej
+tabeli metryk, lecz jest stabilny względem miesięcznego resamplingu.
+
+\section{Ablacje finalnego estymatora: masking i sygnał Glicko-2}
+
+Po wyborze regresji logistycznej ElasticNet jako finalnej rodziny estymatora przeprowadzono
+dodatkowe ablacje wyjaśniające, z których sygnałów korzysta model. Taka kolejność jest istotna:
+najpierw wybrano klasę modelu na kompletnym zestawie cech W20-Binomial, a dopiero następnie
+sprawdzono wrażliwość wybranego estymatora na maskowanie i usuwanie wybranych grup rankingowych.
+Szczególnie ważny był test zależności od rodziny Glicko-2, ponieważ w rozdziale rankingowym Player
+Glicko-2 był najlepszym pojedynczym sygnałem.
+
+\begin{table}[H]
+    \centering
+    \caption{Masking i ablacja sygnału Player Glicko-2 w modelu kontekstowym}
+    \label{tab:logistic_masking_ablation}
+    \begin{tabular}{lrrrr}
+        \toprule
+        Wariant & AUC & LogLoss & ECE & $\Delta$ LogLoss \\
+        \midrule
+        Pełny model kontekstowy & 0{,}7555 & 0{,}5855 & 0{,}0118 & 0{,}0000 \\
+        G2 + context & 0{,}7551 & 0{,}5861 & 0{,}0102 & 0{,}0005 \\
+        Mask all 10\% & 0{,}7537 & 0{,}5868 & 0{,}0085 & 0{,}0012 \\
+        Mask G2 10\% & 0{,}7527 & 0{,}5875 & 0{,}0089 & 0{,}0020 \\
+        Mask G2 30\% & 0{,}7516 & 0{,}5884 & 0{,}0110 & 0{,}0028 \\
+        No player\_gl & 0{,}7501 & 0{,}5898 & 0{,}0130 & 0{,}0042 \\
+        No G2 family & 0{,}7470 & 0{,}5925 & 0{,}0119 & 0{,}0070 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Eksperyment potwierdza, że Player Glicko-2 jest najważniejszym pojedynczym sygnałem, ale pełny model
+korzysta również z informacji zastępczej zawartej w pozostałych rankingach. Maskowanie cech w danych
+treningowych nie poprawiło wyniku, dlatego nie zostało włączone do finalnego estymatora. Ablacja
+pełni jednak ważną funkcję kontrolną: pokazuje, że model nie jest arbitralną czarną skrzynką, lecz
+wykorzystuje przewidywalną strukturę sygnałów rankingowych.
+
+Osobno sprawdzono, czy do finalnego wejścia warto dodać predykcje i parametry rankingów drużynowych.
+Wariant rozszerzony Player+Team W20-Binomial uzyskał minimalnie niższy LogLoss niż wariant
+player-based, ale różnica była bardzo mała i nie została potwierdzona w miesięcznym bootstrapie
+blokowym. Wynik przedstawiono w tabeli~\ref{tab:player_team_ablation}. Z tego powodu finalny model
+zachowuje prostszą strukturę: komponent rankingowy opiera się na sygnałach zawodniczych, natomiast
+informacja drużynowa jest reprezentowana przez pełny kontekst historyczny W20.
+
+\begin{table}[H]
+    \centering
+    \caption{Ablacja dodania rankingów drużynowych do finalnego wejścia W20-Binomial}
+    \label{tab:player_team_ablation}
+    \begin{tabular}{lrrrr}
+        \toprule
+        Wariant & AUC & LogLoss & Brier & ECE \\
+        \midrule
+        Player-based W20-Binomial & 0{,}7553 & 0{,}5858 & 0{,}2007 & 0{,}0131 \\
+        Player+Team W20-Binomial & 0{,}7554 & 0{,}5857 & 0{,}2007 & 0{,}0144 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+W miesięcznym bootstrapie blokowym różnica
+$\Delta=\mathrm{LogLoss}_{\mathrm{Player+Team}}-\mathrm{LogLoss}_{\mathrm{Player}}$ wyniosła
+$-0{,}0001$, a przedział ufności 95\% był równy $[-0{,}0002,\ 0{,}0020]$. Ponieważ przedział
+obejmuje zero, dodatkowe cechy team-based potraktowano jako zwiększenie złożoności bez stabilnej
+poprawy jakości predykcji.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{logistic_masking_ablation_bootstrap/masking_monthly_block_bootstrap_ci.png}
+    \caption{Miesięczny bootstrap blokowy różnic LogLoss wariantów maskingu względem pełnego modelu kontekstowego.}
+    \label{fig:masking_block_bootstrap}
+\end{figure}
+
+\section{Symetryzacja kolejności drużyn}
+
+\subsection{Źródło asymetrii technicznej}
+
+Regresja logistyczna trenowana na wektorze cech zależnym od kolejności stron meczu generuje
+predykcję dla zdarzenia, że wygra strona zapisana jako Team 1. Problem ten jest technicznie
+naturalny, ponieważ dane wejściowe mają postać różnic lub par cech Team 1--Team 2. Jednocześnie z
+perspektywy sportowej prawdopodobieństwo powinno spełniać warunek antysymetrii: jeżeli ten sam mecz
+zostanie zapisany w odwróconej kolejności, to prawdopodobieństwo zwycięstwa pierwszej strony powinno
+być dopełnieniem poprzedniej predykcji.
+
+\subsection{Procedura uśredniania predykcji}
+
+W praktyce sprawdzono, że surowy estymator nie jest idealnie niewrażliwy na kolejność drużyn. Dla
+każdego meczu wygenerowano więc dwie predykcje: predykcję w oryginalnej orientacji oraz predykcję po
+zamianie stron. Predykcję po zamianie stron przeliczono z powrotem na prawdopodobieństwo zwycięstwa
+pierwotnej strony, a następnie uśredniono oba oszacowania:
+
+\begin{equation}
+    p_{sym}(A>B) = \frac{p_{orig}(A>B) + \left(1 - p_{swap}(B>A)\right)}{2}.
+    \label{eq:symmetrized_prediction}
+\end{equation}
+
+Tak zdefiniowany wariant zachowuje informację wyuczoną przez regresję logistyczną, ale ogranicza
+artefakt wynikający z arbitralnego zapisu meczu. Diagnostyka wrażliwości kolejności wykazała średnią
+bezwzględną różnicę prawdopodobieństw równą około 0{,}0287, medianę 0{,}0237 oraz maksimum 0{,}2113.
+Po symetryzacji surowy model uzyskał AUC 0{,}7561 i LogLoss 0{,}5858, nieznacznie poprawiając
+rozróżnianie względem predykcji w oryginalnej orientacji. Wniosek z tej analizy jest metodologiczny:
+model końcowy powinien respektować symetrię problemu, nawet jeżeli sama poprawa metryk jest
+niewielka.
+
+\section{Kalibracja prawdopodobieństw}
+
+\subsection{Schemat expanding-window}
+
+Ponieważ celem pracy jest predykcja probabilistyczna, końcowy wariant modelu poddano dodatkowej
+analizie kalibracji. Porównano predykcje surowe, kalibrację Platta oraz kalibrację izotoniczną. Obie
+metody były stosowane w schemacie expanding-window: kalibrator dla danego folda uczono wyłącznie na
+wcześniejszych foldach, bez wykorzystania przyszłych obserwacji. Dzięki temu kalibracja zachowuje
+chronologiczny charakter ewaluacji.
+
+\subsection{Porównanie Platta i kalibracji izotonicznej}
+
+Kalibracja Platta polegała na dopasowaniu regresji logistycznej do logitu surowych prawdopodobieństw
+modelu. Jej zaletą jest mała liczba parametrów i odporność na mniejsze próbki kalibracyjne.
+Kalibracja izotoniczna jest bardziej elastyczna, ale może łatwiej dopasować lokalny szum,
+szczególnie przy dryfie danych i nierównej liczbie obserwacji w kolejnych okresach.
+
+\begin{table}[H]
+    \centering
+    \caption{Porównanie wariantów symetryzacji i kalibracji na wspólnej próbie rynkowej}
+    \label{tab:symmetry_calibration_comparison}
+    \small
+    \begin{tabular}{lrrrr}
+        \toprule
+        Wariant & AUC & LogLoss & Brier & ECE \\
+        \midrule
+        Symetryczny + Platt expanding & 0{,}7551 & 0{,}5854 & 0{,}2007 & 0{,}0100 \\
+        Oryginalny + Platt expanding & 0{,}7542 & 0{,}5862 & 0{,}2010 & 0{,}0098 \\
+        Symetryczny surowy & 0{,}7551 & 0{,}5867 & 0{,}2011 & 0{,}0193 \\
+        Oryginalny surowy & 0{,}7543 & 0{,}5868 & 0{,}2011 & 0{,}0125 \\
+        Symetryczny + isotonic expanding & 0{,}7532 & 0{,}5901 & 0{,}2013 & 0{,}0097 \\
+        Oryginalny + isotonic expanding & 0{,}7519 & 0{,}5906 & 0{,}2018 & 0{,}0104 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{final_symmetric_calibrated_market_comparison/final_symmetric_calibrated_calibration_logloss.png}
+    \caption{Porównanie wariantów symetryzacji i kalibracji według LogLoss na wspólnej próbie rynkowej.}
+    \label{fig:final_calibration_logloss}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{final_symmetric_calibrated_market_comparison/final_symmetric_calibrated_calibration_ece.png}
+    \caption{Porównanie wariantów symetryzacji i kalibracji według ECE na wspólnej próbie rynkowej.}
+    \label{fig:final_calibration_ece}
+\end{figure}
+
+Najniższy LogLoss uzyskał wariant symetryczny z kalibracją Platta. Kalibracja izotoniczna dawała
+bardzo niskie ECE, ale pogarszała LogLoss i AUC. Zgodnie z hierarchią metryk przyjętą w pracy
+wybrano więc wariant Platta: poprawiał kalibrację względem surowego modelu, a jednocześnie nie
+obniżał jakości probabilistycznej mierzonej główną metryką. Ostateczny model kierowany do porównania
+z benchmarkami rynkowymi to \textbf{skalibrowany symetryczny LR-ElasticNet-W20-Binomial}.
+
+\section{Wnioski z etapu metamodelowania}
+
+Etap metamodelowania prowadzi do sześciu głównych wniosków. Po pierwsze, cechy zawodnicze pozostają
+najważniejszą podstawą predykcji, a Player Glicko-2 jest najsilniejszym pojedynczym sygnałem
+rankingowym. Po drugie, pełny kontekst W20 uzupełnia rankingi o informacje o aktualnej formie,
+stylu, ekonomii, obiektach i tempie gry. Po trzecie, format serii Bo1/Bo3/Bo5 najlepiej uwzględnić
+strukturalnie przez transformację dwumianową prawdopodobieństw rankingowych. Po czwarte, mimo
+przetestowania modeli drzewiastych i MLP, najlepiej generalizującym estymatorem okazała się
+regularyzowana regresja logistyczna ElasticNet. Po piąte, finalny model powinien respektować
+symetrię problemu względem kolejności drużyn. Po szóste, kalibracja Platta poprawia jakość
+prawdopodobieństw bez pogorszenia LogLoss, dlatego została użyta w wariancie końcowym.
+
+Najważniejszym rezultatem tego rozdziału jest wybór modelu głównego do porównania z benchmarkami
+bukmacherskimi: \textbf{skalibrowanego symetrycznego LR-ElasticNet-W20-Binomial}. Model ten będzie w
+następnym rozdziale oceniony na wspólnej próbie meczów posiadających zarówno dane sportowe, jak i
+kursy bukmacherskie.

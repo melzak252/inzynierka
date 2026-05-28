@@ -1,21 +1,38 @@
 \chapter{Wstęp}
 
-Dynamiczny rozwój esportu sprawił, że profesjonalne rozgrywki w grach komputerowych stały się pełnoprawnym obszarem analizy ilościowej. 
-Jednym z najgłośniejszych przykładów jest \textit{League of Legends}, dla którego dostępne są wieloletnie dane o meczach, składach, statystykach gry oraz -- dla części spotkań -- kursach bukmacherskich. Taka kombinacja danych pozwala badać nie tylko to, czy model potrafi wskazać zwycięzcę, lecz także czy potrafi przypisać realistyczne prawdopodobieństwo wyniku.
+Dynamiczny rozwój esportu sprawił, że profesjonalne rozgrywki w grach komputerowych stały się
+pełnoprawnym obszarem analizy ilościowej. Jednym z najgłośniejszych przykładów jest \textit{League
+of Legends}, dla którego dostępne są wieloletnie dane o meczach, składach, statystykach gry oraz --
+dla części spotkań -- kursach bukmacherskich. Taka kombinacja danych pozwala badać nie tylko to, czy
+model potrafi wskazać zwycięzcę, lecz także czy potrafi przypisać realistyczne prawdopodobieństwo
+wyniku.
 
-Prognozowanie wyników takich meczów jest trudne, ponieważ obserwowana siła zespołu zmienia się w czasie. Składy są przebudowywane, zawodnicy pełnią wyspecjalizowane role, a aktualizacje gry wpływają na dominujące strategie. Dlatego sama historyczna nazwa drużyny jest często zbyt ubogą reprezentacją jej bieżącego potencjału sportowego. W pracy przyjęto więc perspektywę przedmeczowej predykcji probabilistycznej, w której model może korzystać wyłącznie z informacji dostępnych przed rozpoczęciem spotkania.
+Prognozowanie wyników takich meczów jest trudne, ponieważ obserwowana siła zespołu zmienia się w
+czasie. Składy są przebudowywane, zawodnicy pełnią wyspecjalizowane role, a aktualizacje gry
+wpływają na dominujące strategie. Dlatego sama historyczna nazwa drużyny jest często zbyt ubogą
+reprezentacją jej bieżącego potencjału sportowego. W pracy przyjęto więc perspektywę przedmeczowej
+predykcji probabilistycznej, w której model może korzystać wyłącznie z informacji dostępnych przed
+rozpoczęciem spotkania.
 
-Celem niniejszej pracy jest opracowanie oraz ocena modelu przewidującego wynik profesjonalnego meczu \textit{League of Legends}.
-Model łączy systemy rankingowe zawodników, miary niepewności, pełny historyczny kontekst drużynowy W20 oraz korektę dwumianową zależną od formatu serii Bo1/Bo3/Bo5.
-Jako zewnętrzny punkt odniesienia wykorzystano prawdopodobieństwa implikowane przez kursy bukmacherskie, które są jednym z najsilniejszych publicznie dostępnych benchmarków dla predykcji przedmeczowej.
+Celem niniejszej pracy jest opracowanie oraz ocena modelu przewidującego wynik profesjonalnego meczu
+\textit{League of Legends}. Model łączy systemy rankingowe zawodników, miary niepewności, pełny
+historyczny kontekst drużynowy W20 oraz korektę dwumianową zależną od formatu serii Bo1/Bo3/Bo5.
+Jako zewnętrzny punkt odniesienia wykorzystano prawdopodobieństwa implikowane przez kursy
+bukmacherskie, które są jednym z najsilniejszych publicznie dostępnych benchmarków dla predykcji
+przedmeczowej.
 
-Praca nie dotyczy budowy systemu inwestycyjnego ani oceny opłacalności zakładów.
-Analiza ogranicza się do jakości predykcji probabilistycznej, dlatego wykorzystano AUC, LogLoss, Brier Score oraz Expected Calibration Error, przy czym główną metryką jest LogLoss.
+Praca nie dotyczy budowy systemu inwestycyjnego ani oceny opłacalności zakładów. Analiza ogranicza
+się do jakości predykcji probabilistycznej, dlatego wykorzystano AUC, LogLoss, Brier Score oraz
+Expected Calibration Error, przy czym główną metryką jest LogLoss.
 
-Zakres pracy obejmuje analizę danych GOL.GG, przygotowanie wspólnej próby z kursami OddsPortal, porównanie systemów rankingowych, budowę metamodelu W20-Binomial oraz końcową ocenę względem rynku bukmacherskiego.
-Główna ewaluacja została przeprowadzona na meczach, dla których dostępne były oba typy danych.
+Zakres pracy obejmuje analizę danych GOL.GG, przygotowanie wspólnej próby z kursami OddsPortal,
+porównanie systemów rankingowych, budowę metamodelu W20-Binomial oraz końcową ocenę względem rynku
+bukmacherskiego. Główna ewaluacja została przeprowadzona na meczach, dla których dostępne były oba
+typy danych.
 
-Główne pytanie badawcze pracy brzmi: czy model oparty na rankingach zawodników i historycznym kontekście drużyn potrafi skutecznie przewidywać wyniki profesjonalnych meczów \textit{League of Legends} oraz osiągać jakość probabilistyczną konkurencyjną względem kursów bukmacherskich?
+Główne pytanie badawcze pracy brzmi: czy model oparty na rankingach zawodników i historycznym
+kontekście drużyn potrafi skutecznie przewidywać wyniki profesjonalnych meczów \textit{League of
+Legends} oraz osiągać jakość probabilistyczną konkurencyjną względem kursów bukmacherskich?
 
 W pracy przyjęto następujące hipotezy badawcze:
 
@@ -26,4 +43,15 @@ W pracy przyjęto następujące hipotezy badawcze:
     \item Model rankingowo-kontekstowy osiąga wyniki konkurencyjne względem prawdopodobieństw implikowanych przez kursy bukmacherskie.
 \end{enumerate}
 
-Dalsza część pracy została zorganizowana w następujący sposób. Najpierw przedstawiono stan wiedzy i kontekst problemu, obejmujący predykcję sportową, systemy rankingowe, metamodelowanie, ocenę probabilistyczną oraz rolę kursów bukmacherskich jako benchmarku. Następnie opisano środowisko \textit{League of Legends}, wykorzystane źródła danych GOL.GG i OddsPortal oraz proces konstrukcji wspólnej próby badawczej. Kolejny rozdział zawiera eksploracyjną analizę danych, obejmującą strukturę zbioru, formaty meczów, poziomy rozgrywek oraz podstawową analizę rynku bukmacherskiego. W dalszej części opisano metodykę ewaluacji, systemy rankingowe wykorzystane jako modele bazowe, konstrukcję metamodelu W20-Binomial, dobór okna historycznego, porównanie rodzin estymatorów oraz końcową symetryzację i kalibrację. Rozdział wynikowy prezentuje końcowe porównanie modeli, analizę bootstrapową, segmentację według formatu serii i weryfikację hipotez. Następnie omówiono interpretację wyników, ograniczenia badania oraz kierunki dalszych prac. Ostatni rozdział zawiera syntetyczne podsumowanie i odpowiedź na pytanie badawcze.
+Dalsza część pracy została zorganizowana w następujący sposób. Najpierw przedstawiono stan wiedzy i
+kontekst problemu, obejmujący predykcję sportową, systemy rankingowe, metamodelowanie, ocenę
+probabilistyczną oraz rolę kursów bukmacherskich jako benchmarku. Następnie opisano środowisko
+\textit{League of Legends}, wykorzystane źródła danych GOL.GG i OddsPortal oraz proces konstrukcji
+wspólnej próby badawczej. Kolejny rozdział zawiera eksploracyjną analizę danych, obejmującą
+strukturę zbioru, formaty meczów, poziomy rozgrywek oraz podstawową analizę rynku bukmacherskiego. W
+dalszej części opisano metodykę ewaluacji, systemy rankingowe wykorzystane jako modele bazowe,
+konstrukcję metamodelu W20-Binomial, dobór okna historycznego, porównanie rodzin estymatorów oraz
+końcową symetryzację i kalibrację. Rozdział wynikowy prezentuje końcowe porównanie modeli, analizę
+bootstrapową, segmentację według formatu serii i weryfikację hipotez. Następnie omówiono
+interpretację wyników, ograniczenia badania oraz kierunki dalszych prac. Ostatni rozdział zawiera
+syntetyczne podsumowanie i odpowiedź na pytanie badawcze.

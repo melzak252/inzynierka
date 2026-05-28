@@ -105,24 +105,61 @@
 \pagenumbering{roman}
 
 \begin{abstract}
-\hspace*{1.5em}Praca dotyczy predykcji wyników profesjonalnych meczów \textit{League of Legends} na podstawie historycznych danych sportowych oraz porównania jakości predykcji z benchmarkiem bukmacherskim. Wykorzystano dane GOL.GG oraz kursy z serwisu OddsPortal. Celem pracy było sprawdzenie, czy systemy rankingowe zawodników i drużyn mogą stanowić skuteczną bazę predykcyjną oraz czy metamodel rankingowo-kontekstowy poprawia jakość oceny wyniku meczu.
+\hspace*{1.5em}Praca dotyczy predykcji wyników profesjonalnych meczów
+\textit{League of Legends} na podstawie historycznych danych sportowych oraz porównania jakości
+predykcji z benchmarkiem bukmacherskim. Wykorzystano dane GOL.GG oraz kursy z serwisu
+OddsPortal. Celem pracy było sprawdzenie, czy systemy rankingowe zawodników i drużyn mogą
+stanowić skuteczną bazę predykcyjną oraz czy metamodel rankingowo-kontekstowy poprawia jakość
+oceny wyniku meczu.
 
-Porównano rodziny rankingów Elo, Glicko-2, TrueSkill, OpenSkill, Plackett--Luce oraz Thurstone--Mosteller. Ich predykcje, miary niepewności, pełny historyczny kontekst drużynowy W20 oraz sygnały skorygowane dwumianowo względem formatu serii wykorzystano w metamodelu W20-Binomial. Hiperparametry kilku rodzin estymatorów dobrano z użyciem Optuny, a finalne warianty oceniono chronologicznie w procedurze walk-forward, z użyciem metryk AUC, LogLoss, Brier score i ECE.
+Porównano rodziny rankingów Elo, Glicko-2, TrueSkill, OpenSkill, Plackett--Luce oraz
+Thurstone--Mosteller. Ich predykcje, miary niepewności, pełny historyczny kontekst drużynowy W20
+oraz sygnały skorygowane dwumianowo względem formatu serii wykorzystano w metamodelu W20-Binomial.
+Hiperparametry kilku rodzin estymatorów dobrano z użyciem Optuny, a finalne warianty oceniono
+chronologicznie w procedurze walk-forward, z użyciem metryk AUC, LogLoss, Brier score i ECE.
 
-Wyniki wskazują, że modele zawodnicze są skuteczniejsze od modeli opartych wyłącznie na nazwach drużyn, a najlepszym pojedynczym rankingiem był Player Glicko-2. Najlepszym estymatorem finalnego zestawu cech okazała się regularyzowana regresja logistyczna ElasticNet. Wariant końcowy został dodatkowo usymetryzowany względem kolejności drużyn oraz skalibrowany metodą Platta w schemacie expanding-window. Skalibrowany symetryczny model LR-ElasticNet-W20-Binomial uzyskał niższy LogLoss niż pojedynczy ranking Player Glicko-2 oraz benchmarki Market Open i Market Close. Wynik należy interpretować jako przewagę predykcyjną na analizowanej próbie historycznej, a nie jako dowód opłacalności strategii zakładów.
+Wyniki wskazują, że modele zawodnicze są skuteczniejsze od modeli opartych wyłącznie na nazwach
+drużyn, a najlepszym pojedynczym rankingiem był Player Glicko-2. Najlepszym estymatorem finalnego
+zestawu cech okazała się regularyzowana regresja logistyczna ElasticNet. Wariant końcowy został
+dodatkowo usymetryzowany względem kolejności drużyn oraz skalibrowany metodą Platta w schemacie
+expanding-window. Skalibrowany symetryczny model LR-ElasticNet-W20-Binomial uzyskał niższy LogLoss
+niż pojedynczy ranking Player Glicko-2 oraz benchmarki Market Open i Market Close. Wynik należy
+interpretować jako przewagę predykcyjną na analizowanej próbie historycznej, a nie jako dowód
+opłacalności strategii zakładów.
 
-\textbf{Słowa kluczowe:} League of Legends, esport, predykcja wyników, systemy rankingowe, Glicko-2, metamodel kontekstowy, W20-Binomial, regresja logistyczna ElasticNet, kursy bukmacherskie, LogLoss, kalibracja.
+\textbf{Słowa kluczowe:} League of Legends, esport, predykcja wyników, systemy rankingowe,
+Glicko-2, metamodel kontekstowy, W20-Binomial, regresja logistyczna ElasticNet, kursy
+bukmacherskie, LogLoss, kalibracja.
 \end{abstract}
 
 \begin{otherlanguage}{english}
 \begin{abstract}
-\hspace*{1.5em}This thesis addresses the problem of predicting outcomes of professional \textit{League of Legends} matches using historical sports data and compares the quality of these predictions with bookmaker benchmarks. The study uses GOL.GG data and betting odds collected from OddsPortal. The objective was to examine whether player- and team-based rating systems can provide an effective predictive foundation, and whether a ranking-context metamodel improves probabilistic match outcome estimation.
+\hspace*{1.5em}This thesis addresses the problem of predicting outcomes of professional
+\textit{League of Legends} matches using historical sports data and compares the quality of these
+predictions with bookmaker benchmarks. The study uses GOL.GG data and betting odds collected from
+OddsPortal. The objective was to examine whether player- and team-based rating systems can provide
+an effective predictive foundation, and whether a ranking-context metamodel improves probabilistic
+match outcome estimation.
 
-The analysis compares Elo, Glicko-2, TrueSkill, OpenSkill, Plackett--Luce and Thurstone--Mosteller rating families. Their predictions, uncertainty measures, full historical team context with a 20-match rolling window, and binomially adjusted signals dependent on series format were used in the W20-Binomial metamodel. Hyperparameters of several estimator families were selected with Optuna, while final variants were evaluated chronologically using a walk-forward procedure and the AUC, LogLoss, Brier score and ECE metrics.
+The analysis compares Elo, Glicko-2, TrueSkill, OpenSkill, Plackett--Luce and Thurstone--Mosteller
+rating families. Their predictions, uncertainty measures, full historical team context with a
+20-match rolling window, and binomially adjusted signals dependent on series format were used in the
+W20-Binomial metamodel. Hyperparameters of several estimator families were selected with Optuna,
+while final variants were evaluated chronologically using a walk-forward procedure and the AUC,
+LogLoss, Brier score and ECE metrics.
 
-The results indicate that player-based models outperform models based only on team names, and that Player Glicko-2 was the strongest single rating system. The best estimator for the final feature set was regularized ElasticNet logistic regression. The final variant was additionally symmetrized with respect to team ordering and calibrated with expanding-window Platt scaling. The calibrated symmetric LR-ElasticNet-W20-Binomial model achieved lower LogLoss than the single Player Glicko-2 ranking and the Market Open and Market Close bookmaker benchmarks. This result should be interpreted as a predictive advantage on the analysed historical sample, not as evidence of profitability of a betting strategy.
+The results indicate that player-based models outperform models based only on team names, and that
+Player Glicko-2 was the strongest single rating system. The best estimator for the final feature set
+was regularized ElasticNet logistic regression. The final variant was additionally symmetrized with
+respect to team ordering and calibrated with expanding-window Platt scaling. The calibrated
+symmetric LR-ElasticNet-W20-Binomial model achieved lower LogLoss than the single Player Glicko-2
+ranking and the Market Open and Market Close bookmaker benchmarks. This result should be interpreted
+as a predictive advantage on the analysed historical sample, not as evidence of profitability of a
+betting strategy.
 
-\textbf{Keywords:} League of Legends, esports, match outcome prediction, rating systems, Glicko-2, contextual metamodel, W20-Binomial, ElasticNet logistic regression, betting odds, LogLoss, calibration.
+\textbf{Keywords:} League of Legends, esports, match outcome prediction, rating systems,
+Glicko-2, contextual metamodel, W20-Binomial, ElasticNet logistic regression, betting odds,
+LogLoss, calibration.
 \end{abstract}
 \end{otherlanguage}
 
@@ -135,14 +172,14 @@ The results indicate that player-based models outperform models based only on te
 
 \input{chapters/00_wstep}
 \input{chapters/01_stan_wiedzy_i_kontekst_problemu}
-\input{chapters/01_dane_i_opis_zjawiska}
-\input{chapters/02_eksploracyjna_analiza_danych}
-\input{chapters/03_metodyka_oceny}
-\input{chapters/04_systemy_rankingowe}
-\input{chapters/05_metamodel_i_kontekst_historyczny}
-\input{chapters/06_ocena_i_porownanie_z_bukmacherami}
-\input{chapters/07_dyskusja}
-\input{chapters/07_zakonczenie}
+\input{chapters/02_dane_i_opis_zjawiska}
+\input{chapters/03_eksploracyjna_analiza_danych}
+\input{chapters/04_metodyka_oceny}
+\input{chapters/05_systemy_rankingowe}
+\input{chapters/06_metamodel_i_kontekst_historyczny}
+\input{chapters/07_ocena_i_porownanie_z_bukmacherami}
+\input{chapters/08_dyskusja}
+\input{chapters/09_zakonczenie}
 
 % Kolejne rozdziały zostaną dodane w osobnych plikach:
 % Dalsze załączniki i wykazy zostaną dodane po finalnej redakcji.
