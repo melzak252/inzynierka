@@ -1,0 +1,31 @@
+\chapter{Zakończenie}
+
+\section{Podsumowanie celu pracy}
+
+Celem pracy było zbudowanie i ocena modelu probabilistycznego dla profesjonalnych meczów \textit{League of Legends}. Model miał wykorzystywać informacje dostępne przed meczem, w szczególności systemy rankingowe zawodników i drużyn, historyczny kontekst sportowy oraz format serii. Drugim celem była ocena, czy taki model może osiągać jakość predykcyjną konkurencyjną względem prawdopodobieństw implikowanych przez kursy bukmacherskie.
+
+Zakres pracy był świadomie ograniczony do predykcji probabilistycznej. Kursy bukmacherskie pełniły funkcję benchmarku rynkowego, ale nie analizowano strategii obstawiania, zwrotu finansowego ani zarządzania kapitałem. Dzięki temu głównym kryterium oceny pozostała jakość prawdopodobieństw, przede wszystkim LogLoss.
+
+\section{Najważniejsze wyniki}
+
+Pierwszym istotnym wynikiem jest przewaga rankingów zawodniczych nad rankingami drużynowymi. W kontekście esportu oznacza to, że aktualny skład lepiej opisuje siłę zespołu niż sama historyczna nazwa organizacji. Najlepszym pojedynczym systemem rankingowym okazał się Player Glicko-2.
+
+Drugim wynikiem jest skuteczność metamodelu W20-Binomial. Połączenie predykcji rankingowych, miar niepewności, historycznych cech kroczących oraz korekty formatu serii poprawiło jakość probabilistyczną względem pojedynczego rankingu. Najlepszym estymatorem dla tego zestawu cech była regularyzowana regresja logistyczna ElasticNet.
+
+Trzecim wynikiem jest przewaga finalnego wariantu Sym-Cal LR-ElasticNet-W20-Binomial. Końcowa symetryzacja kolejności drużyn i kalibracja Platta poprawiły surowy wariant regresji logistycznej w sposób niewielki, lecz stabilny. Na wspólnej próbie sportowo-rynkowej model finalny uzyskał najniższy LogLoss spośród analizowanych wariantów i benchmarków.
+
+\section{Weryfikacja hipotez}
+
+Hipoteza pierwsza, zgodnie z którą rankingi zawodnicze osiągają lepszą jakość predykcji niż rankingi drużynowe, została potwierdzona. Wynik ten jest zgodny ze specyfiką \textit{League of Legends}, gdzie transfery i zmiany składów istotnie wpływają na bieżącą siłę drużyny.
+
+Hipoteza druga, dotycząca przewagi metamodelu nad pojedynczym rankingiem, również została potwierdzona. Player Glicko-2 był silnym punktem odniesienia, ale metamodel rankingowo-kontekstowy osiągnął lepsze wartości LogLoss i Brier Score.
+
+Hipoteza trzecia, zakładająca przydatność historycznego kontekstu W20, została potwierdzona w sposób umiarkowany. Cechy kroczące nie zastąpiły ratingów, lecz uzupełniły je o informacje o formie, tempie gry, ekonomii i stylu drużyny.
+
+Hipoteza czwarta, odnosząca się do konkurencyjności względem rynku bukmacherskiego, została potwierdzona na analizowanej próbie. Finalny model uzyskał niższy LogLoss niż Market Open i Market Close, a miesięczny bootstrap blokowy wskazał dodatnie przedziały ufności. Wniosek ten dotyczy jakości predykcyjnej, nie wyniku finansowego.
+
+\section{Odpowiedź na pytanie badawcze}
+
+Odpowiedź na główne pytanie badawcze jest pozytywna. Model oparty na rankingach zawodników, historycznym kontekście drużyn, korekcie formatu serii, symetryzacji predykcji i kalibracji Platta może skutecznie przewidywać wyniki profesjonalnych meczów \textit{League of Legends}. Na wspólnej próbie z rynkiem bukmacherskim skalibrowany symetryczny LR-ElasticNet-W20-Binomial osiągnął niższy LogLoss niż benchmarki Market Open i Market Close.
+
+Jednocześnie odpowiedź ta ma ograniczony zakres. Wyniki odnoszą się do danych historycznych, zastosowanej procedury walidacji i meczów posiadających kursy bukmacherskie. Nie stanowią dowodu opłacalności strategii zakładów ani gwarancji utrzymania przewagi w przyszłych sezonach. Najważniejszym rezultatem pracy jest więc pokazanie, że starannie skonstruowany model rankingowo-kontekstowy może stanowić silny i interpretowalny model probabilistyczny dla profesjonalnego esportu.

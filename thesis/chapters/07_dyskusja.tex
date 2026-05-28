@@ -1,0 +1,73 @@
+\chapter{Dyskusja}
+
+\section{Interpretacja najważniejszych wyników}
+
+\subsection{Znaczenie modelowania na poziomie zawodników}
+
+Najbardziej spójnym wynikiem pracy jest przewaga systemów rankingowych liczonych na poziomie zawodników nad rankingami liczonymi wyłącznie na poziomie organizacji. Jest to zgodne ze specyfiką profesjonalnego \textit{League of Legends}. Drużyna nie jest stabilną jednostką w takim samym sensie jak klub w wielu tradycyjnych dyscyplinach sportowych: składy zmieniają się pomiędzy splitami, zawodnicy przechodzą między regionami, a siła organizacji może szybko spaść lub wzrosnąć po transferach. Ranking drużynowy agreguje te zmiany z opóźnieniem, natomiast ranking zawodniczy może przenosić część informacji o jakości gracza po zmianie zespołu.
+
+Nie oznacza to, że sama suma ratingów zawodników w pełni opisuje siłę drużyny. Wyniki metamodelu pokazują raczej, że ratingi zawodnicze są najlepszym fundamentem, ale wymagają uzupełnienia o kontekst historyczny i informacje o formacie serii. W praktyce pięciu silnych zawodników nie zawsze tworzy równie silny zespół, a krótko- i średnioterminowa forma może wpływać na wynik niezależnie od długookresowej oceny siły.
+
+\subsection{Rola metamodelu W20-Binomial}
+
+Metamodel W20-Binomial poprawił jakość probabilistyczną względem najlepszego pojedynczego rankingu. Interpretacyjnie oznacza to, że predykcja meczu nie powinna opierać się wyłącznie na jednym systemie ratingowym. Różne rodziny rankingów opisują podobną ukrytą siłę sportową, ale robią to z inną dynamiką aktualizacji i innym sposobem traktowania niepewności. Połączenie tych sygnałów z kroczącymi statystykami drużynowymi pozwala modelowi odróżnić samą siłę składu od bieżącej formy, stylu gry i kontekstu serii.
+
+Wybór regresji logistycznej ElasticNet jako najlepszego estymatora wskazuje, że zasadnicza część informacji była już zawarta w skonstruowanych cechach. Bardziej złożone modele nieliniowe nie poprawiły LogLoss, mimo że miały większą elastyczność. W tym sensie wynik wspiera podejście inżynierskie oparte na starannej konstrukcji cech, kontroli chronologii i regularyzacji, a nie wyłącznie na zwiększaniu złożoności estymatora.
+
+\subsection{Symetryzacja i kalibracja jako końcowe uporządkowanie modelu}
+
+Końcowa symetryzacja oraz kalibracja Platta przyniosły niewielką, ale stabilną poprawę względem surowego wariantu regresji logistycznej. Skala tej poprawy nie powinna być interpretowana jako przełomowy skok jakościowy. Jej znaczenie jest przede wszystkim metodologiczne: model końcowy lepiej respektuje symetrię problemu, w którym zamiana kolejności drużyn nie powinna zmieniać sensu predykcji, oraz generuje bardziej wiarygodne prawdopodobieństwa.
+
+Warto podkreślić, że kalibracja izotoniczna uzyskała bardzo dobre wartości ECE, ale pogorszyła LogLoss i AUC. Z tego powodu nie została wybrana jako wariant finalny. Decyzja ta jest konsekwencją hierarchii metryk przyjętej w pracy: głównym kryterium jest jakość probabilistyczna mierzona LogLoss, natomiast ECE pełni funkcję diagnostyczną. Skalowanie Platta okazało się lepszym kompromisem pomiędzy kalibracją a stabilnością predykcji.
+
+\section{Interpretacja porównania z rynkiem bukmacherskim}
+
+\subsection{Rynek jako silny benchmark probabilistyczny}
+
+Kursy bukmacherskie są trudnym punktem odniesienia, ponieważ agregują wiele źródeł informacji: modele analityczne, wiedzę ekspertów, reakcje uczestników rynku oraz aktualizacje cen przed meczem. Szczególnie kurs zamknięcia może zawierać informacje niedostępne w danych sportowych wykorzystanych w tej pracy. Z tego powodu porównanie z Market Close jest bardziej wymagające niż porównanie z prostym benchmarkiem rankingowym.
+
+Finalny model uzyskał niższy LogLoss zarówno od Market Open, jak i Market Close na wspólnej próbie historycznej. Wynik ten jest istotny, ponieważ wskazuje, że połączenie ratingów zawodniczych i kontekstu historycznego może przypisywać wynikom prawdopodobieństwa konkurencyjne względem publicznego benchmarku rynkowego. Jednocześnie przewaga ta powinna być interpretowana ostrożnie: dotyczy konkretnej próby, konkretnego sposobu normalizacji kursów i konkretnego horyzontu danych.
+
+\subsection{Granice wniosku rynkowego}
+
+Niższy LogLoss od benchmarku kursowego nie jest równoznaczny z możliwością osiągnięcia zysku z zakładów. Ewaluacja probabilistyczna i strategia finansowa są odrębnymi problemami. Analiza finansowa wymagałaby uwzględnienia marży, podatków, limitów, płynności, dostępności kursów w czasie rzeczywistym, opóźnień wykonania oraz reguł zarządzania ryzykiem. Te elementy nie były przedmiotem pracy.
+
+Dlatego właściwy wniosek jest węższy: na badanej próbie historycznej model sportowy uzyskał lepsze metryki probabilistyczne niż znormalizowane prawdopodobieństwa implikowane przez kursy. Jest to wynik dotyczący jakości predykcyjnej, a nie ekonomicznej przewagi nad rynkiem.
+
+\section{Ograniczenia badania}
+
+\subsection{Zakres i reprezentatywność danych}
+
+Pierwszym ograniczeniem jest zależność wyników od dostępnych źródeł danych. Dane GOL.GG dostarczają bogatego opisu sportowego, ale nie obejmują wszystkich czynników wpływających na wynik meczu. W szczególności brakuje informacji jakościowych o problemach organizacyjnych, chorobach, treningach, komunikacji drużyn, przygotowaniu strategicznym oraz szczegółowym stanie mety w danym patchu. Część tych informacji może być pośrednio uwzględniana przez rynek kursów, ale nie występuje jawnie w zbiorze sportowym.
+
+Drugim ograniczeniem jest fakt, że końcowa próba rynkowa obejmuje tylko mecze posiadające kursy bukmacherskie. Jest to konieczne dla uczciwego porównania z rynkiem, ale zawęża interpretację wyników. Mecze z kursami mogą różnić się od całej populacji meczów GOL.GG: częściej dotyczą ważniejszych lig, bardziej rozpoznawalnych drużyn i spotkań o większym zainteresowaniu.
+
+\subsection{Dryf czasowy i zmiany środowiska gry}
+
+\textit{League of Legends} jest środowiskiem niestacjonarnym. Aktualizacje gry, zmiany mety, przebudowy składów i zmiany formatu rozgrywek mogą wpływać na zależności obserwowane w danych historycznych. Procedura walk-forward ogranicza ryzyko przecieku informacji z przyszłości, ale nie usuwa problemu dryfu danych. Model oceniony historycznie może wymagać okresowej aktualizacji i ponownej walidacji w kolejnych sezonach.
+
+Szczególnie trudne są okresy po dużych zmianach patcha lub po przerwach między sezonami, gdy dotychczasowe ratingi i cechy historyczne mogą słabiej opisywać aktualną siłę drużyn. Z tego powodu wyniki należy traktować jako ocenę na analizowanym horyzoncie, a nie jako gwarancję stałej skuteczności w przyszłości.
+
+\subsection{Ograniczenia konstrukcji cech}
+
+Model wykorzystuje historyczny kontekst W20, rankingowe predykcje bazowe, miary niepewności oraz korektę formatu serii. Nie wykorzystuje natomiast pełnego opisu draftu bohaterów ani szczegółowych interakcji pomiędzy rolami. W praktyce siła drużyny może zależeć od dopasowania stylów gry, synergii zawodników, preferencji bohaterów i zdolności adaptacji do przeciwnika. Te elementy są tylko częściowo reprezentowane przez statystyki historyczne.
+
+Ograniczeniem jest również agregacja informacji na poziomie drużyny i zawodników. Ranking zawodniczy poprawia opis transferów, ale nie modeluje wprost relacji pomiędzy konkretną piątką graczy. Dwie drużyny o podobnej sumarycznej sile zawodników mogą różnić się zgraniem, komunikacją lub dopasowaniem ról. To wskazuje na potencjalną wartość przyszłych cech opisujących stabilność składu i doświadczenie wspólnej gry.
+
+\section{Implikacje dla dalszych badań}
+
+\subsection{Rozszerzenie danych przedmeczowych}
+
+Najbardziej naturalnym kierunkiem rozwoju jest rozszerzenie danych o informacje dostępne przed meczem, ale nieuwzględnione w obecnym zbiorze. Szczególnie ważny może być draft bohaterów, kontekst patcha, absencje, zmiany składu oraz bardziej szczegółowe informacje o historii wspólnej gry zawodników. Takie dane mogłyby poprawić model zwłaszcza w meczach, w których różnica ratingów jest niewielka.
+
+\subsection{Walidacja przyszłościowa}
+
+Drugim kierunkiem jest rygorystyczna walidacja przyszłościowa. Najsilniejszym testem byłoby zamrożenie procesu konstrukcji cech, hiperparametrów i procedury kalibracji, a następnie ocena na pełnym kolejnym sezonie, który nie był użyty ani w eksploracji, ani w doborze modelu. Pozwoliłoby to lepiej ocenić odporność metamodelu na dryf danych i zmiany środowiska gry.
+
+\subsection{Lepsze modelowanie składu i synergii}
+
+Trzecim kierunkiem jest dokładniejsze modelowanie składu. Obecna praca pokazuje, że poziom zawodniczy jest ważniejszy niż sama nazwa drużyny, ale nie wyczerpuje problemu. Można rozważyć cechy opisujące stabilność piątki, liczbę wspólnie rozegranych meczów, zmiany ról, doświadczenie międzynarodowe oraz zgodność stylów gry. Takie cechy mogłyby pomóc odróżnić drużyny złożone z indywidualnie silnych graczy od zespołów rzeczywiście stabilnych taktycznie.
+
+\section{Podsumowanie dyskusji}
+
+Wyniki pracy wskazują, że połączenie rankingów zawodniczych, kontekstu historycznego i prostego regularyzowanego metamodelu może skutecznie przewidywać profesjonalne mecze \textit{League of Legends}. Najważniejsza wartość pracy nie polega na pojedynczym dużym skoku metryki, lecz na spójnym procesie: od systemów rankingowych, przez kontrolę chronologii i metamodelowanie, po końcową kalibrację oraz porównanie z rynkiem. Ograniczenia dotyczą głównie zakresu danych, dryfu czasowego oraz braku części informacji jakościowych. Wnioski należy więc traktować jako dowód skuteczności przyjętej metodologii na historycznej próbie, a nie jako pełne rozwiązanie problemu predykcji esportowej.

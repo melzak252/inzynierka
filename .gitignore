@@ -26,6 +26,11 @@ docs/
 OLD/
 docs_backup/
 
+# Local scratch notes / diagnostics not intended for the thesis commit
+todo.txt
+scripts/08_symulacje_finansowe/08g_random_start_window_simulation.py
+scripts/08_symulacje_finansowe/08h_close_market_hybrid_simulation.py
+
 # LaTeX build artefacts
 thesis/*.aux
 thesis/*.bbl

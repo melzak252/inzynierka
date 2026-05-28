@@ -1,0 +1,91 @@
+\chapter{Stan wiedzy i kontekst problemu}
+
+\section{Predykcja wyników w sporcie i esporcie}
+
+\subsection{Od klasyfikacji zwycięzcy do predykcji probabilistycznej}
+
+Predykcja wyniku meczu sportowego może być formułowana na kilka sposobów. Najprostszym wariantem jest klasyfikacja zwycięzcy, w której model zwraca jedną z klas. W niniejszej pracy problem jest jednak rozumiany szerzej: celem nie jest wyłącznie wskazanie bardziej prawdopodobnego zwycięzcy, lecz oszacowanie prawdopodobieństwa zwycięstwa jednej ze stron. Takie ujęcie jest istotne, ponieważ dwa modele o podobnej trafności klasyfikacyjnej mogą różnić się jakością przypisywanych prawdopodobieństw. Model może poprawnie porządkować mecze według faworyta, ale jednocześnie systematycznie zawyżać lub zaniżać pewność predykcji.
+
+W zadaniach sportowych i esportowych probabilistyczna interpretacja wyniku ma szczególne znaczenie. Mecz jest zdarzeniem losowym zależnym od aktualnej dyspozycji zawodników, zmian składu, decyzji strategicznych, przewagi strony mapy, formatu serii oraz czynników niedostępnych w danych historycznych. Model, który przypisuje zbyt wysoką pewność pojedynczym predykcjom, może osiągać akceptowalną trafność, ale słabą jakość probabilistyczną. Dlatego w dalszej części pracy główną metryką jest LogLoss, a accuracy pełni co najwyżej rolę pomocniczą.
+
+\subsection{Dominujący charakter prac dotyczących \textit{League of Legends}}
+
+Literatura dotycząca predykcji w \textit{League of Legends} jest relatywnie młoda i w dużej części koncentruje się na informacjach dostępnych w trakcie gry albo na cechach blisko związanych z przebiegiem konkretnej mapy. Przykładowo prace dotyczące predykcji wyniku meczu, analizy cech zwycięstwa, doświadczenia graczy na bohaterach oraz predykcji w czasie rzeczywistym wykorzystują statystyki drużyn, wybory bohaterów, doświadczenie zawodników lub zmienne opisujące stan rozgrywki \parencite{lin2016lol,costa2021lol,do2021championExperience,junior2023lol}. Taki kierunek jest naturalny, ponieważ dane wewnątrz gry silnie opisują aktualną przewagę jednej ze stron.
+
+Z perspektywy niniejszej pracy jest to jednak inny problem badawczy niż przedmeczowa predykcja probabilistyczna. Jeżeli model korzysta z informacji po rozpoczęciu mapy, takich jak złoto, zabójstwa, obiekty neutralne, kompozycje po drafcie albo bieżący stan mapy, to przewiduje wynik warunkowo względem już ujawnionej części meczu. W niniejszej pracy przyjęto ostrzejsze ograniczenie informacyjne: model powinien działać przed meczem, a więc bez znajomości przebiegu gry. Oznacza to, że większe znaczenie mają historyczna siła zawodników, skład drużyny, forma, region, liga, format serii oraz kontekst czasowy.
+
+Ten podział wyznacza lukę badawczą. Istnieją prace analizujące \textit{League of Legends} i istnieją prace wykorzystujące systemy rankingowe w sporcie, ale znacznie rzadziej spotyka się połączenie: przedmeczowa predykcja profesjonalnych spotkań \textit{League of Legends}, ratingi liczone sekwencyjnie, metamodel probabilistyczny oraz porównanie z benchmarkiem rynku kursów. Niniejsza praca wpisuje się właśnie w tę lukę.
+
+\subsection{Specyfika esportu i uzasadnienie ratingów zawodniczych}
+
+Esport różni się od tradycyjnych dyscyplin sportowych kilkoma cechami istotnymi dla modelowania. Po pierwsze, środowisko gry zmienia się wraz z aktualizacjami, które mogą wpływać na wartość strategii, bohaterów i stylów gry. Po drugie, drużyny często modyfikują składy pomiędzy sezonami, a pojedynczy zawodnik może mieć duży wpływ na siłę zespołu. Po trzecie, profesjonalne rozgrywki są podzielone na ligi, turnieje i regiony o różnym poziomie sportowym. Te czynniki powodują, że model oparty wyłącznie na nazwie drużyny może być niestabilny, szczególnie przy transferach zawodników.
+
+Z tego powodu uzasadnione jest wykorzystanie rankingów zawodniczych jako podstawowego sygnału. Ranking zawodnika może przenosić część informacji pomiędzy drużynami po transferze i pozwala oddzielić bieżącą siłę składu od historycznej marki organizacji. Jednocześnie ranking sam w sobie nie opisuje pełnego kontekstu meczu: nie zawiera bezpośrednio informacji o formie w ostatnich spotkaniach, stylu gry, ekonomii, czasie trwania map ani formacie serii. Te ograniczenia motywują budowę metamodelu łączącego rankingi z historycznymi agregatami drużynowymi.
+
+\section{Systemy rankingowe jako modele siły uczestników}
+
+\subsection{Elo jako punkt wyjścia dla modeli ratingowych}
+
+Jednym z najbardziej znanych sposobów modelowania siły uczestników rywalizacji jest system Elo, pierwotnie zaproponowany dla szachów \parencite{elo1978}. Podstawowa idea polega na przypisaniu każdemu graczowi liczbowej oceny siły, która jest aktualizowana po kolejnych wynikach. Różnica ratingów jest przekształcana na oczekiwane prawdopodobieństwo zwycięstwa, a następnie ratingi są korygowane zależnie od tego, czy wynik był zgodny z oczekiwaniem.
+
+Popularność Elo wynika z prostoty, interpretowalności i możliwości działania online. Model nie wymaga pełnego ponownego trenowania po każdym meczu, lecz aktualizuje oceny sekwencyjnie. Ta cecha jest szczególnie użyteczna w danych sportowych i esportowych, gdzie obserwacje pojawiają się chronologicznie, a siła uczestników może zmieniać się w czasie.
+
+\subsection{Elo w predykcji piłki nożnej}
+
+Zastosowanie Elo do piłki nożnej badali między innymi Hvattum i Arntzen \parencite{hvattum2010eloFootball}. Autorzy wykorzystali ratingi Elo jako źródło zmiennych w uporządkowanych modelach logitowych predykcji wyniku meczu. Istotne jest tutaj nie samo użycie rankingu jako tabeli siły zespołów, lecz przekształcenie różnicy ratingów w predykcję probabilistyczną i porównanie takiego podejścia z innymi metodami.
+
+Wyniki tej pracy są ważnym argumentem metodologicznym dla niniejszego projektu. Pokazują, że rating historyczny może być używany jako sygnał predykcyjny w modelu statystycznym, a nie tylko jako opisowa miara pozycji drużyny. Jednocześnie późniejsze omówienia tego nurtu wskazują, że modele oparte wyłącznie na Elo mogą być słabsze od kursów bukmacherskich, które agregują więcej informacji rynkowej \parencite{wunderlich2018bettingOddsRating}. Wniosek dla niniejszej pracy jest następujący: ratingi są silnym, interpretowalnym punktem wyjścia, ale nie powinny być traktowane jako pełny opis meczu. Dlatego w dalszych rozdziałach ratingi są porównywane jako samodzielne benchmarki, a następnie używane jako cechy metamodelu.
+
+\subsection{Rozszerzenia probabilistyczne: Glicko-2, TrueSkill i OpenSkill}
+
+Klasyczny Elo reprezentuje siłę jedną liczbą, ale nie opisuje jawnie niepewności tej oceny. W praktyce dwie drużyny lub dwóch zawodników z takim samym ratingiem mogą różnić się wiarygodnością oszacowania: jedna ocena może wynikać z wielu aktualnych meczów, a druga z małej liczby starych obserwacji. System Glicko oraz jego rozwinięcie Glicko-2 dodają do ratingu miarę niepewności, dzięki czemu aktualizacja może zależeć od pewności ocen uczestników \parencite{glickman1995,glickman2012}.
+
+Inną rodziną metod są bayesowskie systemy ratingowe, takie jak TrueSkill \parencite{trueskill2007}, algorytmy online opisane przez Wenga i Lina \parencite{weng2011onlineRanking} oraz OpenSkill \parencite{openskill2024}. Ich wspólną cechą jest traktowanie siły uczestnika jako zmiennej losowej, a nie pojedynczej deterministycznej wartości. Taka reprezentacja jest atrakcyjna w esporcie, ponieważ pozwala modelowi odróżnić drużyny stabilne od drużyn, których poziom jest słabo rozpoznany.
+
+W niniejszej pracy ratingi nie są traktowane wyłącznie jako końcowe modele. Pełnią dwie role. Po pierwsze, są oceniane jako samodzielne benchmarki predykcyjne. Po drugie, ich predykcje i parametry, w tym miary niepewności, stają się wejściem metamodelu. Takie podejście zachowuje interpretowalność rankingów, a jednocześnie pozwala modelowi wyższego poziomu łączyć wiele powiązanych sygnałów.
+
+\section{Prace łączące ratingi z kursami bukmacherskimi}
+
+\subsection{Ratingi i regresja logistyczna}
+
+Prace sportowe oparte na ratingach są ważnym punktem odniesienia, ponieważ analizują podobną strukturę problemu: siła uczestników zmienia się w czasie, predykcja musi być wykonywana przed meczem, a wynik jest oceniany probabilistycznie. Thegelström \parencite{thegelstrom2023eloPremierLeagueOdds} analizował zastosowanie systemu Elo oraz regresji logistycznej do prognozowania kursów Premier League. Z perspektywy niniejszej pracy istotne są trzy elementy tego podejścia: rating jest aktualizowany chronologicznie, różnica ratingów staje się wejściem modelu statystycznego, a wyniki są interpretowane w odniesieniu do rynku kursów.
+
+Podobieństwo do niniejszej pracy dotyczy więc ogólnej architektury: rating sekwencyjny + model probabilistyczny + benchmark rynkowy. Różnice są jednak równie ważne. W niniejszym projekcie ratingi są liczone nie tylko na poziomie drużyn, lecz także na poziomie zawodników, co jest uzasadnione transferami i rolami w \textit{League of Legends}. Ponadto końcowy model nie wykorzystuje pojedynczego ratingu, lecz łączy wiele rodzin rankingów, miary niepewności oraz kontekst historyczny W20.
+
+\subsection{Betting Odds Rating System}
+
+Najbardziej bezpośrednim przykładem połączenia ratingów i kursów jest praca Wunderlicha i Memmerta \parencite{wunderlich2018bettingOddsRating}. Autorzy zaproponowali Betting Odds Rating System, w którym informacje zawarte w kursach są wykorzystywane do aktualizacji oceny siły drużyn. Badanie objęło 14931 meczów z sezonów 2007/2008--2016/2017 w kilku rozgrywkach piłkarskich: Premier League, Bundeslidze, La Liga, Serie A oraz europejskich pucharach. Kursy zostały znormalizowane w celu usunięcia marży bukmacherskiej, a następnie porównano kilka wariantów: klasyczny model oparty na wyniku, wariant uwzględniający bramki oraz wariant oparty na kursach.
+
+Wyniki pokazały, że kursy bukmacherskie były najsilniejszym punktem odniesienia pod względem średniej straty informacyjnej: dla samych kursów raportowano wartość 1.380, dla ELO-Odds 1.391, dla ELO-Goals 1.401, a dla ELO-Result 1.403. Oznacza to, że wariant wykorzystujący informację z kursów był lepszy od wariantów aktualizowanych wyłącznie wynikiem lub bramkami, ale nadal nie przewyższył bezpośrednio samych kursów jako prognozy. Dla niniejszej pracy jest to ważne ostrzeżenie: rynek kursów jest bardzo silnym benchmarkiem probabilistycznym, więc przewaga nad nim wymaga starannej ewaluacji na wspólnej próbie i z kontrolą niepewności.
+
+Autorzy podkreślają również różnicę pomiędzy jakością predykcyjną a strategią finansową. Model może być użyteczny jako probabilistyczny opis siły drużyn, nawet jeśli nie tworzy bezpośrednio opłacalnej strategii zakładów. Ten wniosek jest zgodny z zakresem niniejszej pracy: kursy są traktowane jako benchmark prawdopodobieństw, a nie jako punkt wyjścia do analizy zysku, stawek lub zarządzania kapitałem.
+
+\section{Metamodelowanie i łączenie sygnałów}
+
+\subsection{Stacking jako rama metodologiczna}
+
+Pojedynczy ranking może dobrze opisywać relatywną siłę zawodników, ale zwykle pomija część kontekstu. Z drugiej strony cechy historyczne drużyny mogą zawierać informacje o stylu gry i formie, lecz są podatne na szum oraz zmiany składu. Naturalnym rozwiązaniem jest połączenie wielu źródeł informacji w modelu drugiego poziomu.
+
+Podejście to jest zgodne z ideą stacked generalization \parencite{wolpert1992} oraz stacked regressions \parencite{breiman1996stacked}. W takim schemacie predykcje modeli bazowych mogą być traktowane jako cechy wejściowe dla metamodelu. W niniejszej pracy model drugiego poziomu nie zastępuje rankingów, lecz uczy się, jak łączyć ich predykcje, niepewności oraz kontekst historyczny W20.
+
+Wybór regresji logistycznej ElasticNet jako finalnego estymatora jest zgodny z charakterem problemu. Cechy rankingowe są silnie skorelowane, ponieważ wiele systemów opisuje tę samą ukrytą siłę sportową. Regularyzacja pozwala ograniczyć niestabilność współczynników i zmniejszyć ryzyko przeuczenia, a jednocześnie zachowuje większą interpretowalność niż modele drzewiaste lub głębokie sieci neuronowe.
+
+\section{Ocena probabilistyczna i kalibracja}
+
+\subsection{Właściwe reguły punktacji}
+
+Ponieważ celem pracy jest oszacowanie prawdopodobieństwa zwycięstwa, metryka oceny powinna nagradzać poprawne prawdopodobieństwa, a nie tylko poprawną klasę. LogLoss oraz Brier Score należą do rodziny reguł punktacji używanych do oceny prognoz probabilistycznych. Właściwe reguły punktacji zachęcają model do raportowania prawdziwych przekonań probabilistycznych, ponieważ zaniżanie lub zawyżanie pewności jest karane \parencite{gneiting2007}.
+
+LogLoss jest szczególnie istotny, ponieważ silnie karze sytuacje, w których model przypisuje wysokie prawdopodobieństwo błędnemu wynikowi. Jest to pożądane w analizie przedmeczowej, gdzie nadmierna pewność może być bardziej szkodliwa niż umiarkowana niepewność. Brier Score pełni funkcję pomocniczą, ponieważ mierzy średni kwadratowy błąd prawdopodobieństwa. AUC ocenia zdolność rozróżniania meczów, ale nie wystarcza do oceny jakości samych prawdopodobieństw.
+
+\subsection{Kalibracja prawdopodobieństw}
+
+Model może dobrze porządkować obserwacje, ale nadal generować źle skalibrowane prawdopodobieństwa. Kalibracja oznacza zgodność pomiędzy deklarowanym prawdopodobieństwem a empiryczną częstością zdarzenia. Jeżeli model w grupie predykcji około 70\% wygrywa w rzeczywistości tylko w 60\% przypadków, to jest nadmiernie pewny.
+
+Do klasycznych metod poprawy kalibracji należą skalowanie Platta i kalibracja izotoniczna \parencite{zadrozny2002calibration,niculescu2005probabilities}. W nowszej literaturze zwraca się również uwagę, że modele o wysokiej trafności mogą być słabo skalibrowane, dlatego kalibracja powinna być analizowana osobno \parencite{guo2017calibration}. W niniejszej pracy kalibracja jest wykonywana w schemacie expanding-window, aby uniknąć przecieku informacji z przyszłości.
+
+\section{Wnioski dla niniejszej pracy}
+
+Przegląd literatury prowadzi do kilku decyzji projektowych. Po pierwsze, w pracach dotyczących \textit{League of Legends} dominują zadania wykorzystujące informacje dostępne w trakcie gry lub po jej rozpoczęciu, dlatego przedmeczowa predykcja probabilistyczna wymaga osobnego ujęcia. Po drugie, systemy rankingowe są naturalnym punktem wyjścia, ponieważ umożliwiają sekwencyjne śledzenie zmiennej siły zawodników i drużyn. Po trzecie, ratingi powinny być analizowane probabilistycznie, a nie wyłącznie jako ranking porządkowy. Po czwarte, kursy bukmacherskie są silnym benchmarkiem, ale ich użycie w tej pracy dotyczy jakości prawdopodobieństw, a nie strategii finansowej. Po piąte, metamodelowanie pozwala połączyć wiele rodzin rankingów z kontekstem historycznym, co odpowiada złożoności profesjonalnego esportu.
+
+Te założenia wyznaczają dalszą strukturę pracy. Kolejne rozdziały opisują dane GOL.GG i OddsPortal, eksploracyjną analizę danych, metodykę ewaluacji, systemy rankingowe, konstrukcję metamodelu oraz końcowe porównanie z benchmarkami rynkowymi.

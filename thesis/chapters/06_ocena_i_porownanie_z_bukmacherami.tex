@@ -1,0 +1,231 @@
+\chapter{Ocena końcowa i porównanie z rynkiem bukmacherskim}
+
+\section{Cel porównania końcowego}
+
+\subsection{Zakres ewaluacji}
+
+\subsubsection{Wspólna próba sportowo-rynkowa}
+
+Ostatni etap empiryczny zestawia końcowy model sportowy z benchmarkami rankingowymi, modelami pomocniczymi oraz rynkiem bukmacherskim. Porównanie wykonano na wspólnej próbie meczów, dla których dostępne były zarówno dane GOL.GG, jak i kursy OddsPortal. Dzięki temu każdy wariant oceniono na identycznym zbiorze obserwacji oraz przy tej samej orientacji stron meczu.
+
+\subsubsection{Predykcja probabilistyczna zamiast decyzji finansowej}
+
+Rozdział dotyczy jakości predykcji probabilistycznej. Kursy bukmacherskie pełnią funkcję punktu odniesienia, ponieważ są skondensowaną rynkową oceną prawdopodobieństwa wyniku. Nie analizowano jednak strategii obstawiania, stawek, zwrotu z inwestycji ani zarządzania kapitałem. Wnioski należy więc interpretować jako porównanie jakości prawdopodobieństw na próbie historycznej.
+
+\section{Porównywane warianty}
+
+\subsection{Model finalny i warianty kontrolne}
+
+\subsubsection{Sym-Cal jako wariant promowany}
+
+W końcowym porównaniu uwzględniono następujące warianty:
+
+\begin{itemize}
+    \item \textbf{Sym-Cal LR-ElasticNet-W20-Binomial}, czyli finalny model pracy: regresję logistyczną ElasticNet na zestawie W20-Binomial, z symetryzacją kolejności drużyn i kalibracją Platta w schemacie expanding-window,
+    \item \textbf{LR-ElasticNet-W20-Binomial (raw)}, czyli poprzedni surowy wariant regresji logistycznej bez końcowej symetryzacji i kalibracji,
+    \item \textbf{ExtraTrees-W20-Binomial}, \textbf{LightGBM-W20-Binomial}, \textbf{HGB-W20-Binomial} i \textbf{MLP-W20-Binomial}, czyli dostrojone warianty nieliniowe używane jako kontrola wyboru rodziny estymatora,
+    \item \textbf{Player Glicko-2}, czyli najlepszy pojedynczy system rankingowy,
+    \item \textbf{Mkt Open}, czyli prawdopodobieństwa implikowane przez kursy otwarcia,
+    \item \textbf{Mkt Close}, czyli prawdopodobieństwa implikowane przez kursy zamknięcia.
+\end{itemize}
+
+\subsubsection{Znaczenie kursu otwarcia i zamknięcia}
+
+Kurs otwarcia jest benchmarkiem bliższym perspektywie wcześniejszej prognozy przedmeczowej, natomiast kurs zamknięcia jest silniejszym benchmarkiem diagnostycznym, ponieważ może zawierać późniejsze informacje rynkowe. Surowy wariant LR pozostawiono w tabeli, aby bezpośrednio pokazać efekt końcowej symetryzacji i kalibracji.
+
+\section{Wyniki na wspólnej próbie}
+
+\subsection{Główna tabela metryk}
+
+\subsubsection{Jednolity zbiór obserwacji}
+
+Końcowa wspólna próba obejmowała 11609 meczów. Jest to ścisła przecięta próba sportowo-rynkowa, dlatego różni się od niektórych wcześniejszych diagnostyk kalibracji, które obejmowały nieco więcej obserwacji. W tej części pracy cytowane są wyłącznie wartości z końcowej próby wspólnej.
+
+\begin{table}[H]
+    \centering
+    \caption{Końcowe porównanie finalnego modelu, wariantów pomocniczych i benchmarków rynkowych}
+    \label{tab:final_model_market_comparison}
+    \small
+    \begin{tabular}{lrrrr}
+        \toprule
+        Model & AUC & LogLoss & Brier & ECE \\
+        \midrule
+        Sym-Cal LR-ElasticNet-W20-Binomial & 0{,}7551 & 0{,}5854 & 0{,}2007 & 0{,}0100 \\
+        LR-ElasticNet-W20-Binomial (raw) & 0{,}7543 & 0{,}5868 & 0{,}2011 & 0{,}0125 \\
+        ExtraTrees-W20-Binomial & 0{,}7495 & 0{,}5906 & 0{,}2028 & 0{,}0120 \\
+        LightGBM-W20-Binomial & 0{,}7496 & 0{,}5907 & 0{,}2028 & 0{,}0110 \\
+        HGB-W20-Binomial & 0{,}7492 & 0{,}5913 & 0{,}2030 & 0{,}0100 \\
+        Player Glicko-2 & 0{,}7488 & 0{,}5950 & 0{,}2045 & 0{,}0317 \\
+        MLP-W20-Binomial & 0{,}7446 & 0{,}5961 & 0{,}2050 & 0{,}0201 \\
+        Mkt Close & 0{,}7420 & 0{,}5978 & 0{,}2057 & 0{,}0138 \\
+        Mkt Open & 0{,}7337 & 0{,}6047 & 0{,}2088 & 0{,}0183 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{final_symmetric_calibrated_market_comparison/final_symmetric_calibrated_market_logloss.png}
+    \caption{Porównanie końcowych modeli według LogLoss na wspólnej próbie.}
+    \label{fig:final_model_market_logloss}
+\end{figure}
+
+\subsubsection{Interpretacja przewagi LogLoss}
+
+Tabela~\ref{tab:final_model_market_comparison} oraz rysunek~\ref{fig:final_model_market_logloss} pokazują, że najniższy LogLoss uzyskał skalibrowany symetryczny LR-ElasticNet-W20-Binomial. Względem surowego wariantu regresji logistycznej poprawa wyniosła około 0{,}0014 LogLoss. Różnica jest niewielka w skali bezwzględnej, ale istotna metodologicznie: końcowy model jednocześnie respektuje symetrię problemu i poprawia kalibrację prawdopodobieństw.
+
+Najważniejszy wynik końcowy pozostaje stabilny: finalny model uzyskał niższy LogLoss niż Player Glicko-2, Market Open, Market Close oraz wszystkie dostrojone warianty nieliniowe trenowane na tym samym zestawie cech. Oznacza to, że końcowa poprawa nie zmieniła wniosku o przewadze modelu liniowego, lecz go wzmocniła.
+
+\section{Istotność różnic LogLoss}
+
+\subsection{Definicja różnicy strat}
+
+Zgodnie z procedurą opisaną w rozdziale metodologicznym, końcowe różnice LogLoss zweryfikowano miesięcznym bootstrapem blokowym. Dla każdego meczu obliczono:
+
+\[
+    d_i = \ell_{benchmark,i} - \ell_{model,i}.
+\]
+
+Wartość dodatnia oznacza, że finalny model uzyskał niższą stratę niż benchmark. Wyniki bootstrapu przedstawiono w tabeli~\ref{tab:logloss_block_bootstrap}.
+
+\begin{table}[H]
+    \centering
+    \caption{Miesięczny bootstrap blokowy różnic LogLoss względem modelu Sym-Cal LR-ElasticNet-W20-Binomial}
+    \label{tab:logloss_block_bootstrap}
+    \small
+    \begin{tabular}{p{5.7cm}rrr}
+        \toprule
+        Porównanie & Różnica LogLoss & 95\% CI & $p$ jednostronne \\
+        \midrule
+        Mkt Open & 0{,}0193 & [0{,}0108; 0{,}0283] & 0{,}0001 \\
+        Mkt Close & 0{,}0124 & [0{,}0042; 0{,}0214] & 0{,}0010 \\
+        MLP-W20-Binomial & 0{,}0107 & [0{,}0072; 0{,}0144] & 0{,}0001 \\
+        Player Glicko-2 & 0{,}0096 & [0{,}0064; 0{,}0129] & 0{,}0001 \\
+        HGB-W20-Binomial & 0{,}0059 & [0{,}0035; 0{,}0082] & 0{,}0001 \\
+        LightGBM-W20-Binomial & 0{,}0053 & [0{,}0032; 0{,}0074] & 0{,}0002 \\
+        ExtraTrees-W20-Binomial & 0{,}0053 & [0{,}0028; 0{,}0077] & 0{,}0001 \\
+        LR-ElasticNet-W20-Binomial (raw) & 0{,}0014 & [0{,}0004; 0{,}0024] & 0{,}0031 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Przedziały ufności bootstrapu blokowego}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{final_symmetric_calibrated_market_comparison/final_symmetric_calibrated_market_bootstrap_ci.png}
+    \caption{Przedziały ufności dla różnic LogLoss w miesięcznym bootstrapie blokowym względem finalnego modelu symetrycznego i skalibrowanego.}
+    \label{fig:logloss_block_bootstrap_ci}
+\end{figure}
+
+Wszystkie przedziały ufności w tabeli~\ref{tab:logloss_block_bootstrap} są dodatnie. Dotyczy to zarówno benchmarków rynkowych, jak i surowego wariantu regresji logistycznej. Oznacza to, że symetryzacja i kalibracja Platta poprawiły model względem poprzedniej wersji, a finalny wariant zachował przewagę nad pozostałymi punktami odniesienia.
+
+\subsection{AUC jako metryka pomocnicza}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{final_symmetric_calibrated_market_comparison/final_symmetric_calibrated_market_auc.png}
+    \caption{Porównanie końcowych modeli według AUC na wspólnej próbie.}
+    \label{fig:final_model_market_auc}
+\end{figure}
+
+AUC potwierdza, że końcowy model dobrze porządkuje mecze według prawdopodobieństwa zwycięstwa. Najważniejsza przewaga pracy nie polega jednak wyłącznie na lepszym rankingu obserwacji, lecz na poprawie jakości prawdopodobieństw mierzonej LogLoss i Brier Score.
+
+\section{Analiza segmentowa według formatu serii}
+
+\subsection{Definicja przewagi segmentowej}
+
+Ponieważ format serii wpływa na charakter problemu predykcyjnego, końcowy model porównano z benchmarkami także osobno dla Bo1, Bo3 i Bo5. Przewagę modelu przedstawiono jako różnicę LogLoss pomiędzy benchmarkiem i finalnym modelem:
+
+\[
+    \Delta_{BoN} = \mathrm{LogLoss}_{benchmark,BoN} - \mathrm{LogLoss}_{model,BoN}.
+\]
+
+Wartość dodatnia oznacza, że model Sym-Cal LR-ElasticNet-W20-Binomial uzyskał niższy LogLoss w danym segmencie.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{final_symmetric_calibrated_market_comparison/final_symmetric_calibrated_bon_segment_advantage.png}
+    \caption{Przewaga finalnego modelu symetrycznego i skalibrowanego nad benchmarkami według formatu serii. Wartości dodatnie oznaczają niższy LogLoss modelu.}
+    \label{fig:final_model_bon_segment_advantage}
+\end{figure}
+
+\subsection{Wyniki segmentowe}
+
+\subsubsection{LogLoss według długości serii}
+
+\begin{table}[H]
+    \centering
+    \caption{LogLoss finalnego modelu i benchmarków według formatu serii}
+    \label{tab:final_model_bon_segment_logloss}
+    \begin{tabular}{lrrrrr}
+        \toprule
+        Format & Mecze & Model & Mkt Open & Mkt Close & Player Glicko-2 \\
+        \midrule
+        Bo1 & 7~229 & 0{,}5994 & 0{,}6150 & 0{,}6068 & 0{,}6057 \\
+        Bo3 & 3~117 & 0{,}5424 & 0{,}5665 & 0{,}5604 & 0{,}5571 \\
+        Bo5 & 1~263 & 0{,}6113 & 0{,}6398 & 0{,}6382 & 0{,}6268 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsubsection{Ostrożność interpretacji segmentu Bo5}
+
+\Cref{fig:final_model_bon_segment_advantage,tab:final_model_bon_segment_logloss} pokazują przewagę modelu we wszystkich formatach. Największa różnica względem Market Close występuje w Bo5: 0{,}6113 wobec 0{,}6382 LogLoss. Segment Bo5 jest jednak najmniejszy i obejmuje głównie mecze play-off, dlatego wynik ten należy traktować jako diagnozę segmentową, a nie jako podstawę osobnej interpretacji przyczynowej.
+
+\section{Znaczenie kalibracji}
+
+\subsection{Porównanie surowego i skalibrowanego modelu}
+
+\subsubsection{Wpływ na LogLoss i ECE}
+
+Końcowa kalibracja zmienia interpretację modelu. Surowy wariant LR-ElasticNet-W20-Binomial uzyskał LogLoss 0{,}5868 i ECE 0{,}0125, natomiast wariant symetryczny z kalibracją Platta uzyskał LogLoss 0{,}5854 i ECE 0{,}0100. Poprawa ECE jest istotna, ponieważ model końcowy ma dostarczać wiarygodne prawdopodobieństwa, a nie tylko klasyfikować zwycięzcę.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\textwidth]{final_symmetric_calibrated_market_comparison/final_symmetric_calibrated_market_ece.png}
+    \caption{Porównanie końcowych modeli według ECE na wspólnej próbie.}
+    \label{fig:final_model_market_ece}
+\end{figure}
+
+\subsubsection{Dlaczego ECE nie jest jedynym kryterium}
+
+Najniższe ECE w końcowym zestawieniu uzyskał HGB-W20-Binomial, a bardzo niskie ECE miały również LightGBM i finalny model symetryczny. Nie wystarczyło to jednak do wyboru wariantów drzewiastych, ponieważ ich LogLoss był wyraźnie gorszy. Zgodnie z hierarchią metryk przyjętą w pracy głównym kryterium wyboru pozostaje LogLoss, natomiast ECE pełni funkcję pomocniczą. W tym sensie kalibracja Platta jest korzystna: poprawia ECE i Brier Score, nie obniżając głównej jakości probabilistycznej.
+
+\section{Weryfikacja hipotez badawczych}
+
+\subsection{Tabela weryfikacyjna}
+
+Na podstawie wyników z poprzednich rozdziałów i końcowego porównania można odnieść się do hipotez sformułowanych we wstępie.
+
+\begin{table}[H]
+    \centering
+    \caption{Weryfikacja hipotez badawczych}
+    \label{tab:hypotheses_verification}
+    \begin{tabular}{p{0.12\textwidth}p{0.55\textwidth}p{0.2\textwidth}}
+        \toprule
+        Hipoteza & Treść & Ocena \\
+        \midrule
+        H1 & Ranking zawodniczy osiąga lepsze wyniki niż ranking drużynowy. & Potwierdzona \\
+        H2 & Metamodel poprawia jakość probabilistyczną względem pojedynczego rankingu. & Potwierdzona \\
+        H3 & Dodanie pełnego historycznego kontekstu W20 poprawia interpretację i wspiera jakość modelu względem wariantów bez kontekstu. & Potwierdzona \\
+        H4 & Model sportowy jest konkurencyjny względem benchmarku bukmacherskiego. & Potwierdzona na badanej próbie \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{Interpretacja hipotezy rynkowej}
+
+W przypadku H4 należy zachować ostrożność interpretacyjną. Wyniki pokazują przewagę finalnego modelu w metrykach probabilistycznych nad benchmarkami rynkowymi na historycznej wspólnej próbie. Nie oznaczają jednak automatycznie możliwości uzyskania dodatniego wyniku finansowego ani trwałej przewagi nad rynkiem w warunkach rzeczywistych. Do takiej oceny potrzebne byłyby osobne eksperymenty dotyczące cen wykonania, kosztów transakcyjnych, limitów, płynności oraz walidacji przyszłościowej.
+
+\section{Wnioski z porównania końcowego}
+
+\subsection{Syntetyczna odpowiedź empiryczna}
+
+\subsubsection{Przewaga predykcyjna modelu Sym-Cal}
+
+Końcowe porównanie pokazuje, że skalibrowany symetryczny LR-ElasticNet-W20-Binomial osiąga najniższy LogLoss na wspólnej próbie sportowo-rynkowej i istotnie przewyższa Market Open, Market Close oraz Player Glicko-2. Poprawa względem surowego modelu jest mała, ale dodatnia i stabilna w miesięcznym bootstrapie blokowym. Wybór finalnego wariantu jest więc uzasadniony zarówno merytorycznie, przez zgodność z symetrią problemu, jak i empirycznie, przez niższy LogLoss oraz lepszą kalibrację.
+
+\subsubsection{Ograniczenie interpretacji rynkowej}
+
+Nie oznacza to dowodu słabości rynku ani skuteczności strategii bukmacherskiej. Kursy pozostają silnym benchmarkiem i mogą uwzględniać informacje niedostępne w danych sportowych, takie jak absencje, przygotowanie drużyn lub zmiany organizacyjne. Wniosek końcowy dotyczy jakości predykcyjnej na analizowanej próbie historycznej.

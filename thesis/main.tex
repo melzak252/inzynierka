@@ -1,0 +1,155 @@
+% !TeX program = lualatex
+% Główny plik pracy inżynierskiej.
+% Kompilacja: latexmk -lualatex main.tex
+
+\documentclass[12pt,a4paper]{report}
+
+% --- Język, fonty i kodowanie ---
+\usepackage{fontspec}
+\usepackage[english,polish]{babel}
+\usepackage{csquotes}
+\usepackage{indentfirst}
+
+% --- Układ strony ---
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+% --- Matematyka, tabele, grafika ---
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{subcaption}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,shapes.misc,fit,calc}
+
+% --- Linki i odwołania ---
+\usepackage{xurl}
+\usepackage[hidelinks]{hyperref}
+\usepackage[nameinlink,noabbrev]{cleveref}
+\crefname{chapter}{rozdział}{rozdziały}
+\Crefname{chapter}{Rozdział}{Rozdziały}
+\crefname{section}{sekcja}{sekcje}
+\Crefname{section}{Sekcja}{Sekcje}
+\crefname{figure}{rysunek}{rysunki}
+\Crefname{figure}{Rysunek}{Rysunki}
+\crefname{table}{tabela}{tabele}
+\Crefname{table}{Tabela}{Tabele}
+\crefname{equation}{równanie}{równania}
+\Crefname{equation}{Równanie}{Równania}
+\providecommand{\crefpairconjunction}{ i }
+\providecommand{\crefmiddleconjunction}{, }
+\providecommand{\creflastconjunction}{ i }
+
+% --- Bibliografia ---
+\usepackage[backend=biber,style=authoryear,sorting=nyt]{biblatex}
+\addbibresource{references.bib}
+
+% --- Ścieżki do grafik ---
+\graphicspath{{figures/}}
+
+% --- Dane strony tytułowej PJATK ---
+\newcommand{\ThesisFaculty}{Wydział Informatyki}
+\newcommand{\ThesisDepartment}{Katedra Baz Danych}
+\newcommand{\ThesisSpecialization}{Specjalizacja Systemy inteligentne i Data Science}
+\newcommand{\ThesisAuthor}{Jakub Melzacki}
+\newcommand{\ThesisStudentId}{s27664}
+\newcommand{\ThesisTitle}{Predykcja wyników profesjonalnych meczów League of Legends z wykorzystaniem systemów rankingowych i metamodelu uczenia maszynowego}
+\newcommand{\ThesisType}{Praca inżynierska}
+\newcommand{\ThesisSupervisor}{dr Dominik Deja}
+\newcommand{\ThesisPlaceDate}{Warszawa, maj 2026}
+
+\newcommand{\makepjatktitlepage}{%
+\begin{titlepage}
+    \thispagestyle{empty}
+    \centering
+    \includegraphics[width=0.42\textwidth]{pjatk_logo.pdf}\par
+    \vspace{1.6cm}
+
+    {\large \ThesisFaculty\par}
+    \vspace{1.0cm}
+    {\large \ThesisDepartment\par}
+    \vspace{0.6cm}
+    {\large \ThesisSpecialization\par}
+
+    \vfill
+
+    {\large \ThesisAuthor\par}
+    \vspace{0.2cm}
+    {\large Nr albumu \ThesisStudentId\par}
+
+    \vspace{1.8cm}
+
+    {\Large\bfseries \ThesisTitle\par}
+
+    \vfill
+
+    {\large \ThesisType\par}
+    \vspace{0.8cm}
+    {\large \ThesisSupervisor\par}
+
+    \vfill
+    {\large \ThesisPlaceDate\par}
+\end{titlepage}%
+}
+
+\begin{document}
+
+\setcounter{secnumdepth}{3}
+\setcounter{tocdepth}{3}
+
+\makepjatktitlepage
+
+\pagenumbering{roman}
+
+\begin{abstract}
+\hspace*{1.5em}Praca dotyczy predykcji wyników profesjonalnych meczów \textit{League of Legends} na podstawie historycznych danych sportowych oraz porównania jakości predykcji z benchmarkiem bukmacherskim. Wykorzystano dane GOL.GG oraz kursy z serwisu OddsPortal. Celem pracy było sprawdzenie, czy systemy rankingowe zawodników i drużyn mogą stanowić skuteczną bazę predykcyjną oraz czy metamodel rankingowo-kontekstowy poprawia jakość oceny wyniku meczu.
+
+Porównano rodziny rankingów Elo, Glicko-2, TrueSkill, OpenSkill, Plackett--Luce oraz Thurstone--Mosteller. Ich predykcje, miary niepewności, pełny historyczny kontekst drużynowy W20 oraz sygnały skorygowane dwumianowo względem formatu serii wykorzystano w metamodelu W20-Binomial. Hiperparametry kilku rodzin estymatorów dobrano z użyciem Optuny, a finalne warianty oceniono chronologicznie w procedurze walk-forward, z użyciem metryk AUC, LogLoss, Brier score i ECE.
+
+Wyniki wskazują, że modele zawodnicze są skuteczniejsze od modeli opartych wyłącznie na nazwach drużyn, a najlepszym pojedynczym rankingiem był Player Glicko-2. Najlepszym estymatorem finalnego zestawu cech okazała się regularyzowana regresja logistyczna ElasticNet. Wariant końcowy został dodatkowo usymetryzowany względem kolejności drużyn oraz skalibrowany metodą Platta w schemacie expanding-window. Skalibrowany symetryczny model LR-ElasticNet-W20-Binomial uzyskał niższy LogLoss niż pojedynczy ranking Player Glicko-2 oraz benchmarki Market Open i Market Close. Wynik należy interpretować jako przewagę predykcyjną na analizowanej próbie historycznej, a nie jako dowód opłacalności strategii zakładów.
+
+\textbf{Słowa kluczowe:} League of Legends, esport, predykcja wyników, systemy rankingowe, Glicko-2, metamodel kontekstowy, W20-Binomial, regresja logistyczna ElasticNet, kursy bukmacherskie, LogLoss, kalibracja.
+\end{abstract}
+
+\begin{otherlanguage}{english}
+\begin{abstract}
+\hspace*{1.5em}This thesis addresses the problem of predicting outcomes of professional \textit{League of Legends} matches using historical sports data and compares the quality of these predictions with bookmaker benchmarks. The study uses GOL.GG data and betting odds collected from OddsPortal. The objective was to examine whether player- and team-based rating systems can provide an effective predictive foundation, and whether a ranking-context metamodel improves probabilistic match outcome estimation.
+
+The analysis compares Elo, Glicko-2, TrueSkill, OpenSkill, Plackett--Luce and Thurstone--Mosteller rating families. Their predictions, uncertainty measures, full historical team context with a 20-match rolling window, and binomially adjusted signals dependent on series format were used in the W20-Binomial metamodel. Hyperparameters of several estimator families were selected with Optuna, while final variants were evaluated chronologically using a walk-forward procedure and the AUC, LogLoss, Brier score and ECE metrics.
+
+The results indicate that player-based models outperform models based only on team names, and that Player Glicko-2 was the strongest single rating system. The best estimator for the final feature set was regularized ElasticNet logistic regression. The final variant was additionally symmetrized with respect to team ordering and calibrated with expanding-window Platt scaling. The calibrated symmetric LR-ElasticNet-W20-Binomial model achieved lower LogLoss than the single Player Glicko-2 ranking and the Market Open and Market Close bookmaker benchmarks. This result should be interpreted as a predictive advantage on the analysed historical sample, not as evidence of profitability of a betting strategy.
+
+\textbf{Keywords:} League of Legends, esports, match outcome prediction, rating systems, Glicko-2, contextual metamodel, W20-Binomial, ElasticNet logistic regression, betting odds, LogLoss, calibration.
+\end{abstract}
+\end{otherlanguage}
+
+\clearpage
+
+\tableofcontents
+
+\clearpage
+\pagenumbering{arabic}
+
+\input{chapters/00_wstep}
+\input{chapters/01_stan_wiedzy_i_kontekst_problemu}
+\input{chapters/01_dane_i_opis_zjawiska}
+\input{chapters/02_eksploracyjna_analiza_danych}
+\input{chapters/03_metodyka_oceny}
+\input{chapters/04_systemy_rankingowe}
+\input{chapters/05_metamodel_i_kontekst_historyczny}
+\input{chapters/06_ocena_i_porownanie_z_bukmacherami}
+\input{chapters/07_dyskusja}
+\input{chapters/07_zakonczenie}
+
+% Kolejne rozdziały zostaną dodane w osobnych plikach:
+% Dalsze załączniki i wykazy zostaną dodane po finalnej redakcji.
+
+\printbibliography
+
+\listoffigures
+\listoftables
+
+\end{document}

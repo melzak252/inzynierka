@@ -1,0 +1,248 @@
+\chapter{Eksploracyjna analiza danych}
+
+\section{Cel analizy eksploracyjnej}
+
+Eksploracyjna analiza danych służy rozpoznaniu struktury próby przed budową modeli. W pracy ma trzy funkcje: sprawdza zróżnicowanie danych w czasie, formacie serii i poziomie rozgrywek, kontroluje balans zmiennej objaśnianej oraz wstępnie ocenia siłę rynku bukmacherskiego jako benchmarku.
+
+EDA nie zastępuje eksperymentów modelowych. Uzasadnia natomiast późniejsze decyzje: walidację chronologiczną, segmentację Bo1/Bo3/Bo5, kontrolę poziomu rozgrywek oraz rozdzielenie kursów otwarcia i zamknięcia.
+
+\section{Zakres czasowy i charakter próbki}
+
+Dane sportowe obejmują wiele sezonów profesjonalnych rozgrywek \textit{League of Legends}. Jest to korzystne dla systemów rankingowych, ale oznacza także niejednorodność: w czasie zmieniały się składy, formaty rozgrywek, liczba turniejów oraz sama gra.
+
+Z tego powodu w dalszej części pracy nie stosuje się losowego podziału obserwacji na zbiór treningowy i testowy. Taki podział mógłby prowadzić do sytuacji, w której model uczy się na meczach rozegranych po spotkaniach znajdujących się w zbiorze testowym. Zamiast tego zastosowano podejście chronologiczne, w którym predykcja dla danego meczu może korzystać jedynie z informacji dostępnych przed jego rozegraniem.
+
+Wspólna próbka sportowo-rynkowa jest mniejsza od pełnej historii GOL.GG, ale tylko ona pozwala bezpośrednio porównać model z rynkiem. Dlatego w EDA dodatkowo sprawdzono, czy mecze z kursami nie są nadmiernie skupione na jednym poziomie rozgrywek.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{eda_point4/sport_matches_per_year.png}
+    \caption{Liczba meczów sportowych w kolejnych latach w danych GOL.GG.}
+    \label{fig:eda_matches_per_year}
+\end{figure}
+
+\Cref{fig:eda_matches_per_year} pokazuje, że liczba obserwacji meczowych zmienia się w czasie. Sam wykres meczów nie opisuje jednak w pełni aktywności sceny esportowej, ponieważ pojedynczy mecz może składać się z jednej, trzech lub pięciu gier. Z tego powodu obok liczby meczów należy analizować także liczbę pojedynczych gier.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{eda_point4/sport_games_per_year.png}
+    \caption{Liczba pojedynczych gier w kolejnych latach w danych GOL.GG.}
+    \label{fig:eda_games_per_year}
+\end{figure}
+
+Zestawienie \cref{fig:eda_matches_per_year,fig:eda_games_per_year} prowadzi do ważnej obserwacji. Po 2022 roku liczba rekordów meczowych maleje, ale liczba rozegranych gier pozostaje relatywnie wysoka. W aktualnej próbce rok 2025 zawiera mniej meczów niż lata 2021--2024, natomiast liczba pojedynczych gier jest nadal zbliżona do najwyższych wartości w całym szeregu czasowym. Nie oznacza to więc prostego spadku aktywności sceny, lecz zmianę struktury kalendarza i większy udział serii wielomapowych.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.95\textwidth]{eda_point4/sport_matches_by_format_per_year_stacked.png}
+    \caption{Liczba meczów w kolejnych latach z podziałem według formatu serii.}
+    \label{fig:eda_matches_by_format_year}
+\end{figure}
+
+Wykres skumulowany na rysunku~\ref{fig:eda_matches_by_format_year} pokazuje, jak zmieniał się udział formatów Bo1, Bo3 i Bo5. Jest to istotne, ponieważ etykieta predykcyjna i kursy bukmacherskie są zdefiniowane na poziomie meczu, natomiast część statystyk sportowych powstaje na poziomie pojedynczych gier. Większy udział Bo3 i Bo5 może więc utrzymywać wysoką liczbę rozegranych map mimo mniejszej liczby rekordów meczowych.
+
+\section{Zmienna objaśniana i balans klas}
+
+Zmienną objaśnianą jest zwycięstwo pierwszej drużyny w uporządkowanej parze meczowej. W idealnym przypadku, przy losowym przypisaniu stron, udział zwycięstw pierwszej drużyny byłby bliski 50\%. W praktyce może występować niewielkie odchylenie od tej wartości, wynikające z konwencji zapisu meczów, kolejności drużyn w źródłach danych lub specyfiki dopasowania danych sportowych do kursów.
+
+Balans klas ma znaczenie dla interpretacji metryk. Sama trafność klasyfikacji przy progu 0{,}5 nie jest wystarczającą miarą jakości, ponieważ model może osiągać pozornie dobre wyniki przez preferowanie częstszej klasy. Dlatego w dalszej części pracy podstawowymi miarami są AUC, LogLoss, Brier score oraz ECE. Metryki te oceniają nie tylko wskazanie zwycięzcy, lecz także jakość przypisanego prawdopodobieństwa.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.75\textwidth]{eda_point4/sport_side_win_rate.png}
+    \caption{Udział zwycięstw stron meczu w danych sportowych.}
+    \label{fig:eda_side_win_rate}
+\end{figure}
+
+Wizualizacja na rysunku~\ref{fig:eda_side_win_rate} pełni funkcję kontroli podstawowej struktury celu predykcyjnego. Jeżeli jedna ze stron byłaby dominująca wyłącznie z powodu sposobu zapisu danych, proste metryki klasyfikacyjne mogłyby być mylące. Z tego powodu w pracy nacisk położono na metryki probabilistyczne.
+
+\section{Formaty meczów}
+
+Profesjonalne mecze \textit{League of Legends} mogą być rozgrywane w różnych formatach serii. Najczęściej spotykane są formaty Bo1, Bo3 oraz Bo5. Różnią się one nie tylko liczbą gier potrzebnych do rozstrzygnięcia meczu, lecz także poziomem losowości wyniku.
+
+W formacie Bo1 pojedyncza gra decyduje o wyniku całego meczu. Taki format jest bardziej podatny na jednorazowe błędy, nietypowe strategie lub specyficzne przygotowanie do konkretnego przeciwnika. W formacie Bo3 drużyna musi wygrać dwie gry, co częściowo redukuje wpływ pojedynczego zdarzenia. Format Bo5 jest zwykle stosowany w fazach pucharowych i finałach, przez co obejmuje specyficzną grupę meczów o wysokiej stawce.
+
+Segmentacja według formatu jest istotna, ponieważ model może działać z różną skutecznością w zależności od typu serii. W późniejszej ewaluacji najlepsze wyniki osiągane są w formacie Bo3, natomiast format Bo5 okazuje się trudniejszy do oceny. Wynika to prawdopodobnie z mniejszej liczby obserwacji oraz specyfiki meczów play-off, w których mierzą się silniejsze i bardziej wyrównane drużyny.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{eda_point4/sport_bon_distribution.png}
+    \caption{Rozkład formatów serii w danych sportowych.}
+    \label{fig:eda_bon_distribution}
+\end{figure}
+
+Rozkład przedstawiony na rysunku~\ref{fig:eda_bon_distribution} uzasadnia raportowanie wyników w segmentach Bo1, Bo3 i Bo5. Segmenty te różnią się liczebnością i charakterem sportowym, dlatego końcowa ocena modelu nie powinna ograniczać się wyłącznie do jednej zagregowanej metryki.
+
+\section{Poziom rozgrywek}
+
+Drugim wymiarem segmentacji jest poziom rozgrywek. Stabilność składów, dostępność informacji i efektywność rynku mogą różnić się między ligami najwyższego poziomu a rozgrywkami regionalnymi. Segmentacja służy tu kontroli struktury próby, a nie budowie osobnych modeli dla każdego poziomu.
+
+Ponieważ GOL.GG nie zawiera jawnej zmiennej poziomu rozgrywek, zastosowano operacyjny podział na Tier 1 i Tier 2. Tier 1 obejmuje turnieje międzynarodowe najwyższego poziomu oraz główne ligi LCK, LPL, LEC i LCS, natomiast Tier 2 pozostałe rozgrywki regionalne, ligi akademickie i challengers. Jest to heurystyka oparta na nazwie turnieju, a nie oficjalna klasyfikacja Riot Games.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.88\textwidth]{eda_point4/tier_coverage_common_sample.png}
+    \caption{Udział meczów Tier 1 i Tier 2 w pełnej próbie sportowej od 2020 roku oraz we wspólnej próbie z kursami bukmacherskimi.}
+    \label{fig:eda_tier_coverage_common_sample}
+\end{figure}
+
+\begin{table}[H]
+    \centering
+    \caption{Struktura poziomu rozgrywek w danych sportowych i w próbie bukmacherskiej}
+    \label{tab:eda_tier_coverage_common_sample}
+    \begin{tabular}{llrr}
+        \toprule
+        Próba & Segment & Liczba meczów & Udział [\%] \\
+        \midrule
+        GOL.GG 2020+ & Tier 1 / major & 6~159 & 20{,}3 \\
+        GOL.GG 2020+ & Tier 2 / regionalne & 24~157 & 79{,}7 \\
+        Próba z kursami & Tier 1 / major & 4~448 & 38{,}3 \\
+        Próba z kursami & Tier 2 / regionalne & 7~161 & 61{,}7 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\Cref{fig:eda_tier_coverage_common_sample,tab:eda_tier_coverage_common_sample} pokazują, że wspólna próba z kursami nie jest zdominowana wyłącznie przez niszowe rozgrywki. W porównaniu z pełną historią sportową od 2020 roku ma ona wyższy udział meczów Tier 1: około 38{,}3\% wobec 20{,}3\%. Jednocześnie nadal zawiera dużą część rozgrywek Tier 2, co oznacza, że końcowa ewaluacja obejmuje zarówno najbardziej rozpoznawalne ligi i turnieje, jak i segment regionalny. 
+Taka struktura jest korzystna dla celu pracy: rynek bukmacherski dostarcza benchmark głównie tam, gdzie mecz jest wystarczająco istotny, aby zostać wyceniony, ale próba nie redukuje się wyłącznie do jednego wąskiego poziomu rozgrywek.
+
+\section{Rynek bukmacherski jako punkt odniesienia}
+
+Kursy bukmacherskie są silnym benchmarkiem, ponieważ agregują informacje o drużynach, składach, formie i reakcji rynku. W pracy rozróżniono kursy otwarcia, bliższe realistycznej predykcji przedmeczowej, oraz kursy zamknięcia, traktowane jako silniejszy benchmark diagnostyczny.
+
+Na wspólnej próbce historycznej rynek otwarcia osiąga wyniki wyraźnie lepsze od losowego klasyfikatora, co potwierdza, że kursy zawierają istotną informację predykcyjną. Rynek zamknięcia jest zwykle silniejszy od rynku otwarcia, co jest zgodne z intuicją: im bliżej meczu, tym więcej informacji może zostać uwzględnionych w cenie.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{eda_point4/market_auc_overall.png}
+    \caption{Porównanie jakości kursów otwarcia i zamknięcia jako benchmarku probabilistycznego.}
+    \label{fig:eda_market_auc_overall}
+\end{figure}
+
+\begin{table}[H]
+    \centering
+    \caption{Orientacyjne wyniki benchmarku bukmacherskiego na wspólnej próbce historycznej}
+    \label{tab:eda_market_benchmark}
+    \begin{tabular}{lrr}
+        \toprule
+        Benchmark & AUC & LogLoss \\
+        \midrule
+        Market Open & 0{,}7325 & 0{,}6057 \\
+        Market Close & 0{,}7403 & 0{,}5992 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+Wyniki w tabeli~\ref{tab:eda_market_benchmark} nie są jeszcze końcową oceną modelu. Pokazują natomiast, że rynek jest wymagającym punktem odniesienia, a kurs zamknięcia jest silniejszy od kursu otwarcia.
+
+Jakość benchmarku bukmacherskiego nie musi być jednak taka sama dla każdego formatu serii. W formacie Bo1 pojedyncza gra decyduje o wyniku meczu, natomiast w Bo3 i Bo5 wynik całej serii zależy od kilku gier. Z tego powodu dodatkowo sprawdzono, jak LogLoss kursów otwarcia i zamknięcia zmienia się pomiędzy segmentami Bo1, Bo3 i Bo5.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.86\textwidth]{eda_point4/market_quality_by_bon_logloss.png}
+    \caption{Jakość predykcji bukmacherów według formatu serii na wspólnej próbie z kursami. Niższy LogLoss oznacza lepszą jakość probabilistyczną.}
+    \label{fig:eda_market_quality_by_bon}
+\end{figure}
+
+\begin{table}[H]
+    \centering
+    \caption{Jakość benchmarku bukmacherskiego według formatu serii}
+    \label{tab:eda_market_quality_by_bon}
+    \begin{tabular}{llrrrr}
+        \toprule
+        Format & Benchmark & Mecze & AUC & LogLoss & ECE \\
+        \midrule
+        Bo1 & Market Open & 7~229 & 0{,}7206 & 0{,}6150 & 0{,}0139 \\
+        Bo1 & Market Close & 7~229 & 0{,}7312 & 0{,}6068 & 0{,}0114 \\
+        Bo3 & Market Open & 3~117 & 0{,}7784 & 0{,}5665 & 0{,}0213 \\
+        Bo3 & Market Close & 3~117 & 0{,}7840 & 0{,}5604 & 0{,}0153 \\
+        Bo5 & Market Open & 1~263 & 0{,}6682 & 0{,}6398 & 0{,}0544 \\
+        Bo5 & Market Close & 1~263 & 0{,}6742 & 0{,}6382 & 0{,}0486 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\Cref{fig:eda_market_quality_by_bon,tab:eda_market_quality_by_bon} pokazują, że rynek najlepiej radził sobie w segmencie Bo3. Dla kursu zamknięcia LogLoss wyniósł tam około 0{,}5604, wobec 0{,}6068 dla Bo1 i 0{,}6382 dla Bo5. Słabszy wynik Bo5 należy interpretować ostrożnie: segment jest mniejszy i obejmuje głównie mecze play-off oraz spotkania silnych drużyn. Analiza uzasadnia uwzględnienie formatu serii w cechach modelu.
+
+Oprócz jakości predykcyjnej ważna jest marża kursów. Dla rynku dwuwynikowego można ją przybliżyć jako nadwyżkę sumy odwrotności kursów ponad jeden. W analizowanej próbce średnia marża kursów otwarcia wynosiła około 8{,}17\%, a średnia ważona liczbą meczów około 8{,}29\%. Dlatego surowe kursy wymagały normalizacji, a w tabeli~\ref{tab:bookmaker_margin_summary} zestawiono jednocześnie pokrycie, marżę, AUC i LogLoss.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.9\textwidth]{eda_point4/market_bookmaker_margins.png}
+    \caption{Średnia marża kursów otwarcia według bukmachera.}
+    \label{fig:eda_bookmaker_margins}
+\end{figure}
+
+\begin{table}[H]
+    \centering
+    \caption{Pokrycie danych, marża i jakość predykcyjna kursów otwarcia według bukmachera}
+    \label{tab:bookmaker_margin_summary}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lrrrrr}
+        \toprule
+        Bukmacher & Mecze z kursem otwarcia & Pokrycie [\%] & Marża [\%] & AUC & LogLoss \\
+        \midrule
+        Betclic & 4~153 & 25{,}36 & 7{,}39 & 0{,}7418 & 0{,}5980 \\
+        Superbet & 9~444 & 57{,}67 & 8{,}05 & 0{,}7255 & 0{,}6111 \\
+        Betfan & 11~404 & 69{,}64 & 8{,}10 & 0{,}7298 & 0{,}6077 \\
+        LV BET & 13~159 & 80{,}36 & 8{,}19 & 0{,}7323 & 0{,}6061 \\
+        STS & 13~695 & 83{,}63 & 8{,}48 & 0{,}7299 & 0{,}6079 \\
+        eFortuna & 13~902 & 84{,}90 & 8{,}78 & 0{,}7307 & 0{,}6069 \\
+        \midrule
+        Średnia rynkowa & 16~308 & 99{,}59 & 8{,}29 & 0{,}7325 & 0{,}6057 \\
+        \bottomrule
+    \end{tabular}
+    }
+\end{table}
+
+Betclic miał najniższą marżę i najlepszy LogLoss wśród pojedynczych bukmacherów, ale obejmował tylko około jedną czwartą próby. Największe pokrycie miały eFortuna, STS i LV BET. Średnia rynkowa obejmuje prawie całą próbę, dlatego jest stabilniejszym benchmarkiem niż pojedynczy operator.
+
+\section{Historyczne statystyki gry jako źródło kontekstu}
+
+Dane GOL.GG zawierają także informacje opisujące przebieg poszczególnych gier, między innymi statystyki zawodników i drużyn. Część takich zmiennych, na przykład przewaga w złocie w piętnastej minucie aktualnej gry, jest silnie związana z końcowym wynikiem. Nie może być jednak użyta bezpośrednio w predykcji przedmeczowej, ponieważ w momencie predykcji aktualna gra jeszcze się nie odbyła.
+
+Jedną z takich zmiennych jest GD@15, czyli \textit{gold difference at 15 minutes}. Oznacza ona różnicę w łącznej liczbie złota zgromadzonego przez obie drużyny w 15. minucie gry. Dodatnia wartość GD@15 dla drużyny oznacza, że po pierwszych 15 minutach miała ona przewagę ekonomiczną nad przeciwnikiem, natomiast wartość ujemna oznacza stratę. W praktyce jest to syntetyczna miara jakości wczesnej fazy gry, ponieważ złoto odzwierciedla zabójstwa, farmę, kontrolę mapy i zdobyte cele.
+
+W predykcji przedmeczowej nie można użyć GD@15 z aktualnej gry, ponieważ ta wartość jest znana dopiero po rozpoczęciu meczu. Można natomiast obliczyć historyczne GD@15 drużyny, czyli średnią przewagę lub stratę w złocie w 15. minucie w jej wcześniejszych grach. 
+Taka zmienna opisuje, czy dana drużyna zwykle dobrze rozpoczynała swoje mecze i czy potrafiła budować przewagę ekonomiczną we wczesnej fazie gry.
+
+Z tego powodu w pracy wykorzystano wyłącznie historyczne agregaty takich informacji. Przykładowo, zamiast używać przewagi w złocie z aktualnej gry, obliczono średnią przewagę w złocie z wcześniejszych występów drużyny. Następnie dla każdego meczu wyznaczono różnicę tych średnich wartości pomiędzy Team 1 i Team 2. 
+Taka cecha opisuje wcześniejszy styl oraz formę zespołu przed meczem, a jednocześnie nie narusza zasady chronologicznego dostępu do informacji.
+
+Formalnie, dla meczu rozgrywanego w chwili \(t\), historyczna cecha Team 1 może być zapisana jako średnia z wcześniejszych gier tej drużyny:
+
+\begin{equation}
+    \overline{GD@15}_{Team1,t} = \frac{1}{K}\sum_{k=1}^{K} GD@15_{Team1,t-k},
+\end{equation}
+
+gdzie \(K\) oznacza liczbę wcześniejszych gier uwzględnionych w oknie historycznym. W analizie eksploracyjnej i późniejszych modelach najważniejsza jest różnica pomiędzy analogicznymi wartościami dla obu drużyn:
+
+\begin{equation}
+    \Delta GD@15_t = \overline{GD@15}_{Team1,t} - \overline{GD@15}_{Team2,t}.
+\end{equation}
+
+Dodatnia wartość \(\Delta GD@15_t\) oznacza, że Team 1 miał historycznie lepszą wczesną fazę gry niż Team 2, natomiast wartość ujemna oznacza przewagę Team 2 w tym aspekcie.
+
+Ta obserwacja uzasadnia późniejsze wprowadzenie metamodelu z kontekstem historycznym. Same ratingi opisują ogólną siłę zawodników i drużyn, ale cechy kroczące mogą dostarczyć dodatkowej informacji o aktualnej formie, dynamice gry oraz niedawnych wynikach.
+
+Zależność pomiędzy historyczną przewagą GD@15 a wynikiem meczu można ocenić bez używania informacji z aktualnej gry. Dla czytelności analizę ograniczono do części próby z lat 2024--2026, dla której dostępne były kursy bukmacherskie. Pominięto również mecze, w których różnica historycznego GD@15 była równa zero, ponieważ nie wskazywały one przewagi żadnej ze stron. W tak zdefiniowanej próbie Team 1 wygrywał około 65{,}2\% meczów, gdy jego historyczne GD@15 było wyższe od rywala, oraz około 42{,}5\% meczów, gdy było niższe. Oznacza to, że historyczny profil early game był powiązany z późniejszym wynikiem meczu.
+
+Siłę tej zależności sprawdzono również prostą diagnostyką jednowymiarową. Korelacja Pearsona pomiędzy różnicą historycznego GD@15 a wynikiem meczu wyniosła około 0{,}252, a korelacja rang Spearmana około 0{,}259. Jednowymiarowa regresja logistyczna oparta wyłącznie na tej zmiennej uzyskała AUC równe 0{,}650 i LogLoss równy 0{,}656. Wynik ten jest zbyt słaby, aby traktować historyczne GD@15 jako samodzielny model predykcyjny, ale wystarczająco wyraźny, aby uzasadnić pozostawienie tej zmiennej jako składnika szerszego kontekstu historycznego.
+
+Tę samą zmienną można następnie przedstawić w sposób zagregowany, dzieląc mecze na przedziały różnicy historycznego GD@15 i obliczając rzeczywisty udział zwycięstw Team 1 w każdym przedziale. Taka wizualizacja bezpośrednio pokazuje, czy historyczna przewaga wczesnej fazy gry była powiązana z późniejszym wynikiem meczu.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.90\textwidth]{eda_point4/historical_gd15_diff_vs_winrate.png}
+    \caption{Relacja pomiędzy różnicą średniego historycznego GD@15 a rzeczywistym win rate Team 1.}
+    \label{fig:eda_historical_gd15_market_open}
+\end{figure}
+
+\Cref{fig:eda_historical_gd15_market_open} pokazuje tę zależność w formie wykresu punktowego po przedziałach GD@15. Każdy punkt oznacza przedział różnicy historycznego GD@15, jego położenie na osi pionowej odpowiada rzeczywistemu win rate Team 1, a wielkość punktu informuje o liczbie meczów w danym przedziale. Wraz ze wzrostem historycznej przewagi GD@15 rośnie rzeczywisty udział zwycięstw Team 1. Oznacza to, że historyczna siła drużyn w early game pozostaje użytecznym kandydatem do modelu kontekstowego, mimo że nie wykorzystuje informacji z aktualnego meczu.
+
+\section{Obserwacje nietypowe i konsekwencje dla modelowania}
+
+Analiza eksploracyjna ujawniła kilka cech próby istotnych dla interpretacji wyników. Po pierwsze, liczba meczów i liczba pojedynczych gier nie zawsze zmieniają się równolegle, ponieważ formaty Bo3 i Bo5 generują więcej map na jeden rekord meczowy. Po drugie, Bo5 jest mniejszym i specyficznym segmentem play-off, dlatego jego wyniki należy interpretować ostrożnie. Po trzecie, mecze z bardzo wysokimi kursami mogą silnie wpływać na LogLoss, co wzmacnia znaczenie metryk probabilistycznych. Po czwarte, Market Open i Market Close pełnią różne role: pierwszy jest wcześniejszym punktem odniesienia, drugi silniejszym benchmarkiem diagnostycznym.
+
+\section{Wnioski z analizy eksploracyjnej}
+
+Z EDA wynikają trzy decyzje metodologiczne. Po pierwsze, predykcja musi być oceniana chronologicznie. Po drugie, format meczu i poziom rozgrywek powinny być analizowane jako segmenty próby. Po trzecie, pełna historia sportowa służy do budowy ratingów i cech historycznych, natomiast wspólna próbka z kursami służy do końcowego porównania z rynkiem.
