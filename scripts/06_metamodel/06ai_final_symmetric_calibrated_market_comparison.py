@@ -16,12 +16,14 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece, clip_probabilities, evaluate_probability_column
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
+from src.analysis.bootstrap import bootstrap_probability_column_comparisons
 from src.visualization.thesis_style import (
     DARK_TEXT,
     MODEL_PALETTE,
@@ -75,29 +77,6 @@ BON_COLUMNS = {
 }
 
 
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate expected calibration error for binary probabilities.
-
-    Args:
-        y_true: Binary target labels.
-        y_prob: Predicted positive-class probabilities.
-        n_bins: Number of equal-width probability bins.
-
-    Returns:
-        Weighted average absolute calibration error.
-    """
-
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        weight = float(np.mean(in_bin))
-        if weight == 0.0:
-            continue
-        ece += abs(float(np.mean(y_true[in_bin])) - float(np.mean(y_prob[in_bin]))) * weight
-    return ece
-
-
 def safe_column_name(model_name: str, suffix: str = "") -> str:
     """Create a stable probability column name from a model label.
 
@@ -133,18 +112,13 @@ def evaluate_probability(data: pd.DataFrame, model: str, column: str) -> dict[st
         Dictionary with thesis metrics.
     """
 
-    subset = data[[TARGET, column]].dropna().copy()
-    y_true = subset[TARGET].astype(int).to_numpy()
-    y_prob = np.clip(subset[column].to_numpy(dtype=float), EPSILON, 1.0 - EPSILON)
-    return {
-        "model": model,
-        "probability_column": column,
-        "sample_size": int(len(subset)),
-        "auc": float(roc_auc_score(y_true, y_prob)),
-        "logloss": float(log_loss(y_true, y_prob)),
-        "brier": float(brier_score_loss(y_true, y_prob)),
-        "ece": calculate_ece(y_true, y_prob),
-    }
+    return evaluate_probability_column(
+        data,
+        target_column=TARGET,
+        probability_column=column,
+        epsilon=EPSILON,
+        metadata={"model": model},
+    )
 
 
 def load_model_variant(predictions: pd.DataFrame, variant: str, column: str) -> pd.DataFrame:
@@ -191,22 +165,6 @@ def load_calibrated_variant(
     return selected.rename(columns={"y_prob": column})
 
 
-def log_loss_vector(y_true: np.ndarray, y_prob: np.ndarray) -> np.ndarray:
-    """Return per-match binary LogLoss values.
-
-    Args:
-        y_true: Binary target labels.
-        y_prob: Predicted positive-class probabilities.
-
-    Returns:
-        Vector of per-row LogLoss values.
-    """
-
-    clipped = np.clip(y_prob.astype(float), 1e-15, 1.0 - 1e-15)
-    labels = y_true.astype(int)
-    return -(labels * np.log(clipped) + (1 - labels) * np.log(1 - clipped))
-
-
 def monthly_block_bootstrap(data: pd.DataFrame, main_column: str) -> pd.DataFrame:
     """Compare the final model with benchmarks via monthly block bootstrap.
 
@@ -221,36 +179,30 @@ def monthly_block_bootstrap(data: pd.DataFrame, main_column: str) -> pd.DataFram
         Bootstrap summary table.
     """
 
-    working = data.copy()
-    working["month"] = pd.to_datetime(working["date"]).dt.to_period("M").astype(str)
-    months = sorted(working["month"].unique())
-    y_true = working[TARGET].astype(int).to_numpy()
-    main_loss = log_loss_vector(y_true, working[main_column].to_numpy())
-    rng = np.random.default_rng(RANDOM_SEED)
-    rows: list[dict[str, object]] = []
-
-    for label, column in BOOTSTRAP_COMPARISONS.items():
-        benchmark_loss = log_loss_vector(y_true, working[column].to_numpy())
-        working["delta"] = benchmark_loss - main_loss
-        observed = float(working["delta"].mean())
-        month_stats = working.groupby("month")["delta"].agg(delta_sum="sum", n="size").loc[months]
-        delta_sums = month_stats["delta_sum"].to_numpy(dtype=float)
-        counts = month_stats["n"].to_numpy(dtype=float)
-        samples = np.empty(N_BOOTSTRAPS, dtype=float)
-        for idx in range(N_BOOTSTRAPS):
-            sampled_idx = rng.integers(0, len(months), size=len(months))
-            samples[idx] = delta_sums[sampled_idx].sum() / counts[sampled_idx].sum()
-        rows.append(
-            {
-                "comparison": f"{FINAL_MODEL_LABEL} vs {label}",
-                "observed_delta_logloss": observed,
-                "ci_lower_95": float(np.quantile(samples, 0.025)),
-                "ci_upper_95": float(np.quantile(samples, 0.975)),
-                "p_one_sided_final_model_better": float((np.sum(samples <= 0.0) + 1) / (len(samples) + 1)),
-                "significantly_better": bool(np.quantile(samples, 0.025) > 0.0),
-            }
-        )
-    return pd.DataFrame(rows).sort_values("observed_delta_logloss", ascending=False)
+    bootstrap = bootstrap_probability_column_comparisons(
+        data,
+        target_column=TARGET,
+        reference_column=main_column,
+        comparison_columns=BOOTSTRAP_COMPARISONS,
+        n_bootstraps=N_BOOTSTRAPS,
+        random_seed=RANDOM_SEED,
+    )
+    bootstrap = bootstrap.rename(
+        columns={
+            "p_one_sided_delta_leq_zero": "p_one_sided_final_model_better",
+            "ci_excludes_zero_positive": "significantly_better",
+        }
+    )
+    bootstrap["comparison"] = FINAL_MODEL_LABEL + " vs " + bootstrap["comparison_label"]
+    columns = [
+        "comparison",
+        "observed_delta_logloss",
+        "ci_lower_95",
+        "ci_upper_95",
+        "p_one_sided_final_model_better",
+        "significantly_better",
+    ]
+    return bootstrap[columns].sort_values("observed_delta_logloss", ascending=False)
 
 
 def plot_metric(metrics: pd.DataFrame, metric: str, file_name: str, ylabel: str) -> None:
@@ -589,7 +541,7 @@ def build_calibration_comparison(market_sample: pd.DataFrame) -> pd.DataFrame:
     for (base_variant, calibration), group in calibration_predictions.groupby(["base_variant", "calibration"]):
         aligned = ids.merge(group, on="golgg_match_id", how="inner")
         y_true = aligned[TARGET].astype(int).to_numpy()
-        y_prob = np.clip(aligned["y_prob"].to_numpy(dtype=float), EPSILON, 1.0 - EPSILON)
+        y_prob = clip_probabilities(aligned["y_prob"].to_numpy(dtype=float), epsilon=EPSILON)
         rows.append(
             {
                 "base_variant": base_variant,

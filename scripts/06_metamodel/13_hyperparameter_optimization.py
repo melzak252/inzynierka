@@ -1,6 +1,8 @@
 """Optimize LightGBM hyperparameters for the odds-only metamodel sample."""
 
 import os
+import sys
+from pathlib import Path
 
 import numpy as np
 import optuna
@@ -8,39 +10,10 @@ import pandas as pd
 from lightgbm import LGBMClassifier
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
-
-def calculate_ece(
-    y_true: pd.Series,
-    y_prob: np.ndarray,
-    n_bins: int = 10,
-) -> float:
-    """Calculate Expected Calibration Error for binary probabilities.
-
-    Args:
-        y_true: Binary target values.
-        y_prob: Predicted probabilities for the positive class.
-        n_bins: Number of equally spaced probability bins.
-
-    Returns:
-        Expected Calibration Error value.
-    """
-    bin_boundaries = np.linspace(0, 1, n_bins + 1)
-    bin_lowers = bin_boundaries[:-1]
-    bin_uppers = bin_boundaries[1:]
-
-    ece = 0.0
-    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
-        in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
-        prop_in_bin = np.mean(in_bin)
-
-        if prop_in_bin > 0:
-            accuracy_in_bin = np.mean(y_true[in_bin])
-            avg_confidence_in_bin = np.mean(y_prob[in_bin])
-            ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
-
-    return float(ece)
-
-
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 def main() -> None:
     """Run Optuna hyperparameter optimization for odds-mapped matches.
 

@@ -38,6 +38,9 @@ from src.visualization.thesis_style import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import binary_log_loss_vector as log_loss_vector
 HELPER_SCRIPT = PROJECT_ROOT / "scripts" / "06_metamodel" / "06i_best_metamodel_config_search.py"
 OUTPUT_DIR = PROJECT_ROOT / "docs" / "assets" / "w20_binomial_all_models_bootstrap"
 TARGET = "y_true"
@@ -81,30 +84,6 @@ def load_helper_module() -> object:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
-
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate Expected Calibration Error.
-
-    Args:
-        y_true: Binary labels.
-        y_prob: Positive-class probabilities.
-        n_bins: Number of equal-width calibration bins.
-
-    Returns:
-        Weighted calibration error.
-    """
-
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        weight = float(np.mean(in_bin))
-        if weight > 0.0:
-            accuracy = float(np.mean(y_true[in_bin]))
-            confidence = float(np.mean(y_prob[in_bin]))
-            ece += abs(accuracy - confidence) * weight
-    return ece
 
 
 def series_probability(map_probability: np.ndarray, best_of: np.ndarray) -> np.ndarray:
@@ -424,22 +403,6 @@ def evaluate_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows).sort_values("logloss")
-
-
-def log_loss_vector(y_true: np.ndarray, y_prob: np.ndarray) -> np.ndarray:
-    """Calculate per-row binary LogLoss values.
-
-    Args:
-        y_true: Binary labels.
-        y_prob: Positive-class probabilities.
-
-    Returns:
-        Per-row LogLoss values.
-    """
-
-    clipped = np.clip(y_prob.astype(float), 1e-15, 1.0 - 1e-15)
-    labels = y_true.astype(int)
-    return -(labels * np.log(clipped) + (1 - labels) * np.log(1 - clipped))
 
 
 def monthly_block_bootstrap(predictions: pd.DataFrame, baseline: str) -> pd.DataFrame:

@@ -10,6 +10,7 @@ best logistic-regression experiment.
 
 from __future__ import annotations
 
+import sys
 import importlib.util
 from pathlib import Path
 from typing import Protocol
@@ -29,6 +30,9 @@ from tqdm import tqdm
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 SOURCE_SCRIPT = PROJECT_ROOT / "scripts" / "06_metamodel" / "06i_best_metamodel_config_search.py"
 ASSETS_DIR = PROJECT_ROOT / "docs" / "assets" / "metamodel_additional_architectures"
 TARGET = "y_true"
@@ -60,29 +64,6 @@ def load_best_config_module() -> object:
     spec.loader.exec_module(module)
     return module
 
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate Expected Calibration Error.
-
-    Args:
-        y_true: Binary labels.
-        y_prob: Positive-class probabilities.
-        n_bins: Number of equal-width bins.
-
-    Returns:
-        Weighted absolute calibration error.
-    """
-
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    error = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        proportion = float(np.mean(in_bin))
-        if proportion > 0:
-            accuracy = float(np.mean(y_true[in_bin]))
-            confidence = float(np.mean(y_prob[in_bin]))
-            error += abs(accuracy - confidence) * proportion
-    return error
 
 
 def build_models() -> dict[str, ProbabilisticClassifier]:

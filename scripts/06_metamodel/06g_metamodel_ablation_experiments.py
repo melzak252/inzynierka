@@ -34,6 +34,7 @@ from tqdm import tqdm
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 
 from src.utils.golgg_schema import games, team1_id, team2_id
 
@@ -121,29 +122,6 @@ def configure_plot_style() -> None:
         }
     )
 
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate Expected Calibration Error.
-
-    Args:
-        y_true: Binary labels.
-        y_prob: Predicted probabilities.
-        n_bins: Number of equal-width bins.
-
-    Returns:
-        Weighted mean absolute calibration error.
-    """
-
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        prop = float(np.mean(in_bin))
-        if prop > 0:
-            accuracy = float(np.mean(y_true[in_bin]))
-            confidence = float(np.mean(y_prob[in_bin]))
-            ece += abs(accuracy - confidence) * prop
-    return ece
 
 
 def safe_stat(player: dict[str, Any], key: str) -> float:

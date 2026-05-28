@@ -1,3 +1,5 @@
+import sys
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -6,21 +8,10 @@ from sklearn.calibration import calibration_curve
 from sklearn.metrics import brier_score_loss, log_loss, roc_curve, auc
 import os
 from datetime import datetime
-
-def calculate_ece(y_true, y_prob, n_bins=10):
-    bin_boundaries = np.linspace(0, 1, n_bins + 1)
-    bin_lowers = bin_boundaries[:-1]
-    bin_uppers = bin_boundaries[1:]
-    
-    ece = 0
-    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
-        in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
-        prop_in_bin = np.mean(in_bin)
-        if prop_in_bin > 0:
-            accuracy_in_bin = np.mean(y_true[in_bin])
-            avg_confidence_in_bin = np.mean(y_prob[in_bin])
-            ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
-    return ece
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 
 def main():
     print("Running 04_evaluate_ratings.py...")

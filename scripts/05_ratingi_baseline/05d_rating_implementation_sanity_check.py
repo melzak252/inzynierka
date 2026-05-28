@@ -25,6 +25,7 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 
 from src.ratings.elo import EloRating
 from src.ratings.glicko import GlickoRating
@@ -42,28 +43,6 @@ RATING_COLUMNS = [
     "player_pl",
     "player_tm",
 ]
-
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate expected calibration error.
-
-    Args:
-        y_true: Binary target labels.
-        y_prob: Positive-class probabilities.
-        n_bins: Number of probability bins.
-
-    Returns:
-        Weighted calibration gap.
-    """
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    error = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        weight = float(np.mean(in_bin))
-        if weight == 0.0:
-            continue
-        error += abs(float(np.mean(y_true[in_bin])) - float(np.mean(y_prob[in_bin]))) * weight
-    return error
 
 
 def toy_orientation_checks() -> pd.DataFrame:

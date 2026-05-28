@@ -1,3 +1,5 @@
+import sys
+from pathlib import Path
 import pandas as pd
 import numpy as np
 from lightgbm import LGBMClassifier
@@ -11,34 +13,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 
-def calculate_ece(y_true, y_prob, n_bins=10):
-    """Calculate Expected Calibration Error for probabilistic predictions.
-
-    Args:
-        y_true: Binary ground-truth labels.
-        y_prob: Predicted probabilities for the positive class.
-        n_bins: Number of calibration bins.
-
-    Returns:
-        Weighted average calibration error across probability bins.
-    """
-
-    bin_boundaries = np.linspace(0, 1, n_bins + 1)
-    bin_lowers = bin_boundaries[:-1]
-    bin_uppers = bin_boundaries[1:]
-    
-    ece = 0
-    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
-        in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
-        prop_in_bin = np.mean(in_bin)
-        
-        if prop_in_bin > 0:
-            accuracy_in_bin = np.mean(y_true[in_bin])
-            avg_confidence_in_bin = np.mean(y_prob[in_bin])
-            ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
-            
-    return ece
 
 
 def generate_time_series_oof_predictions(model_class, model_kwargs, X_train, y_train, n_splits=5):

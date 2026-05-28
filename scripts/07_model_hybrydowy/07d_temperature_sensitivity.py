@@ -8,6 +8,7 @@ sharpening/flattening improves statistical or financial behaviour.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +20,10 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.analysis.probability_metrics import calculate_ece
 ASSET_DIR = PROJECT_ROOT / "docs" / "assets" / "hybrid_point7"
 INPUT_PATH = ASSET_DIR / "hybrid_model_input_predictions.csv"
 
@@ -98,27 +103,6 @@ def blend_linear(model_prob: np.ndarray, market_prob: np.ndarray, alpha: float) 
         Hybrid probability array.
     """
     return alpha * model_prob + (1 - alpha) * market_prob
-
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate Expected Calibration Error.
-
-    Args:
-        y_true: Binary labels.
-        y_prob: Predicted probabilities.
-        n_bins: Number of calibration bins.
-
-    Returns:
-        ECE value.
-    """
-    bins = np.linspace(0, 1, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(bins[:-1], bins[1:]):
-        mask = (y_prob > lower) & (y_prob <= upper)
-        prop = np.mean(mask)
-        if prop > 0:
-            ece += abs(np.mean(y_true[mask]) - np.mean(y_prob[mask])) * prop
-    return float(ece)
 
 
 def evaluate_metrics(y_true: np.ndarray, y_prob: np.ndarray) -> dict[str, float]:

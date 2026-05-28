@@ -9,6 +9,7 @@ controls on the same common sample.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -18,6 +19,9 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece, binary_log_loss_vector as log_loss_vector
 SOURCE_COMPARISON_DIR = PROJECT_ROOT / "docs" / "assets" / "final_model_market_comparison"
 TWO_STAGE_DIR = PROJECT_ROOT / "docs" / "assets" / "two_stage_ranking_context"
 OUTPUT_DIR = PROJECT_ROOT / "docs" / "assets" / "final_two_stage_market_comparison"
@@ -32,27 +36,6 @@ TWO_STAGE_VARIANTS = {
     "LR-W50": "LR-W50",
 }
 
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate expected calibration error for binary probabilities.
-
-    Args:
-        y_true: Binary target labels.
-        y_prob: Predicted positive-class probabilities.
-        n_bins: Number of equal-width probability bins.
-
-    Returns:
-        Weighted average absolute calibration error.
-    """
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        weight = float(np.mean(in_bin))
-        if weight == 0.0:
-            continue
-        ece += abs(float(np.mean(y_true[in_bin])) - float(np.mean(y_prob[in_bin]))) * weight
-    return ece
 
 
 def evaluate_probability(data: pd.DataFrame, model: str, column: str) -> dict[str, object]:
@@ -135,20 +118,6 @@ def plot_metric(metrics: pd.DataFrame, metric: str, file_name: str, ylabel: str)
     fig.savefig(OUTPUT_DIR / file_name, dpi=180)
     plt.close(fig)
 
-
-def log_loss_vector(y_true: np.ndarray, y_prob: np.ndarray) -> np.ndarray:
-    """Return per-match binary LogLoss values.
-
-    Args:
-        y_true: Binary target labels.
-        y_prob: Predicted positive-class probabilities.
-
-    Returns:
-        Vector of per-row LogLoss values.
-    """
-    clipped = np.clip(y_prob.astype(float), 1e-15, 1 - 1e-15)
-    labels = y_true.astype(int)
-    return -(labels * np.log(clipped) + (1 - labels) * np.log(1 - clipped))
 
 
 def monthly_block_bootstrap(data: pd.DataFrame, main_column: str) -> pd.DataFrame:

@@ -13,6 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import binary_log_loss_vector as log_loss_vector
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -43,29 +44,6 @@ MODEL_VARIANTS = {
     "HGB-W20-Binomial": "HistGradientBoosting W20-Binomial",
     "MLP-W20-Binomial": "MLP W20-Binomial",
 }
-
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate expected calibration error for binary probabilities.
-
-    Args:
-        y_true: Binary target labels.
-        y_prob: Predicted positive-class probabilities.
-        n_bins: Number of equal-width probability bins.
-
-    Returns:
-        Weighted average absolute calibration error.
-    """
-
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        weight = float(np.mean(in_bin))
-        if weight == 0.0:
-            continue
-        ece += abs(float(np.mean(y_true[in_bin])) - float(np.mean(y_prob[in_bin]))) * weight
-    return ece
 
 
 def safe_column_name(model_name: str) -> str:
@@ -99,18 +77,12 @@ def evaluate_probability(data: pd.DataFrame, model: str, column: str) -> dict[st
         Dictionary with thesis metrics.
     """
 
-    subset = data[[TARGET, column]].dropna().copy()
-    y_true = subset[TARGET].astype(int).to_numpy()
-    y_prob = np.clip(subset[column].to_numpy(dtype=float), 0.001, 0.999)
-    return {
-        "model": model,
-        "probability_column": column,
-        "sample_size": int(len(subset)),
-        "auc": float(roc_auc_score(y_true, y_prob)),
-        "logloss": float(log_loss(y_true, y_prob)),
-        "brier": float(brier_score_loss(y_true, y_prob)),
-        "ece": calculate_ece(y_true, y_prob),
-    }
+    return evaluate_probability_column(
+        data,
+        target_column=TARGET,
+        probability_column=column,
+        metadata={"model": model},
+    )
 
 
 def load_variant(predictions: pd.DataFrame, variant: str, column: str) -> pd.DataFrame:
@@ -128,22 +100,6 @@ def load_variant(predictions: pd.DataFrame, variant: str, column: str) -> pd.Dat
     selected = predictions.loc[predictions["variant"] == variant, ["golgg_match_id", "y_prob"]].copy()
     selected["golgg_match_id"] = selected["golgg_match_id"].astype(str)
     return selected.rename(columns={"y_prob": column})
-
-
-def log_loss_vector(y_true: np.ndarray, y_prob: np.ndarray) -> np.ndarray:
-    """Return per-match binary LogLoss values.
-
-    Args:
-        y_true: Binary target labels.
-        y_prob: Predicted positive-class probabilities.
-
-    Returns:
-        Vector of per-row LogLoss values.
-    """
-
-    clipped = np.clip(y_prob.astype(float), 1e-15, 1.0 - 1e-15)
-    labels = y_true.astype(int)
-    return -(labels * np.log(clipped) + (1 - labels) * np.log(1 - clipped))
 
 
 def monthly_block_bootstrap(data: pd.DataFrame, main_column: str) -> pd.DataFrame:

@@ -8,6 +8,7 @@ not as a new model-selection loop.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,6 +17,10 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -115,27 +120,6 @@ def apply_temperature(probability: pd.Series | np.ndarray, temperature: float) -
     """
 
     return sigmoid(safe_logit(probability) / temperature)
-
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate Expected Calibration Error.
-
-    Args:
-        y_true: Binary target values.
-        y_prob: Predicted probabilities.
-        n_bins: Number of equal-width calibration bins.
-
-    Returns:
-        Expected Calibration Error.
-    """
-
-    bins = np.linspace(0, 1, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(bins[:-1], bins[1:]):
-        mask = (y_prob > lower) & (y_prob <= upper)
-        if mask.mean() > 0:
-            ece += abs(y_prob[mask].mean() - y_true[mask].mean()) * mask.mean()
-    return float(ece)
 
 
 def is_tier1(tournament: object) -> bool:

@@ -15,6 +15,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,40 +34,6 @@ FINAL_SAMPLE_PATH = (
 )
 OUTPUT_DIR = PROJECT_ROOT / "docs" / "assets" / "eda_point4"
 MARKET_COLUMNS = ("market_open", "market_close")
-
-
-def calculate_ece(y_true: pd.Series, y_prob: pd.Series, n_bins: int = 10) -> float:
-    """Calculate expected calibration error for binary probabilities.
-
-    Args:
-        y_true: Binary target values.
-        y_prob: Predicted probabilities for the positive class.
-        n_bins: Number of equally spaced probability bins.
-
-    Returns:
-        Expected calibration error as a weighted absolute calibration gap.
-    """
-
-    targets = y_true.to_numpy(dtype=float)
-    probabilities = y_prob.to_numpy(dtype=float)
-    bins = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-
-    for index in range(n_bins):
-        lower = bins[index]
-        upper = bins[index + 1]
-        if index == n_bins - 1:
-            mask = (probabilities >= lower) & (probabilities <= upper)
-        else:
-            mask = (probabilities >= lower) & (probabilities < upper)
-
-        if mask.any():
-            bin_weight = mask.mean()
-            bin_accuracy = targets[mask].mean()
-            bin_confidence = probabilities[mask].mean()
-            ece += bin_weight * abs(bin_accuracy - bin_confidence)
-
-    return float(ece)
 
 
 def load_series_metadata() -> pd.DataFrame:

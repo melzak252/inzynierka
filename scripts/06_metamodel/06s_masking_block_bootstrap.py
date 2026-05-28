@@ -15,6 +15,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import binary_log_loss_vector as log_loss_vector
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -51,22 +52,6 @@ class BootstrapResult:
     p_variant_worse_one_sided: float
     p_two_sided: float
     significant_05: bool
-
-
-def log_loss_vector(y_true: pd.Series, probabilities: pd.Series) -> np.ndarray:
-    """Compute per-match binary LogLoss.
-
-    Args:
-        y_true: Binary labels.
-        probabilities: Predicted probabilities of the positive class.
-
-    Returns:
-        Per-row LogLoss values.
-    """
-
-    y_array = y_true.to_numpy(dtype=float)
-    p_array = probabilities.clip(EPSILON, 1.0 - EPSILON).to_numpy(dtype=float)
-    return -(y_array * np.log(p_array) + (1.0 - y_array) * np.log(1.0 - p_array))
 
 
 def prepare_wide_predictions(path: Path) -> pd.DataFrame:

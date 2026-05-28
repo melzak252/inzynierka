@@ -24,6 +24,7 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 
 from src.visualization.thesis_style import apply_thesis_style, clean_axis, colors_for
 
@@ -96,18 +97,6 @@ def apply_temperature(probability: pd.Series | np.ndarray, temperature: float) -
     """Apply binary temperature scaling to a probability vector."""
 
     return sigmoid(safe_logit(probability) / temperature)
-
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate Expected Calibration Error."""
-
-    bins = np.linspace(0, 1, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(bins[:-1], bins[1:]):
-        mask = (y_prob > lower) & (y_prob <= upper)
-        if mask.mean() > 0:
-            ece += abs(y_prob[mask].mean() - y_true[mask].mean()) * mask.mean()
-    return float(ece)
 
 
 def load_dataset() -> pd.DataFrame:

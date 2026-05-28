@@ -13,19 +13,23 @@ diagnostic verifies whether the pipeline is stable when match sides are swapped:
 
 from __future__ import annotations
 
-import importlib.util
-import re
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_score
 from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import evaluate_probability_groups
+
+from src.models.team_order import (
+    swap_orientation,
+    symmetrize_binary_probabilities,
+)
+from src.utils.module_loading import load_module_from_path
 
 
 BASE_SCRIPT = PROJECT_ROOT / "scripts" / "06_metamodel" / "06ab_w20_binomial_all_models_bootstrap.py"
@@ -38,125 +42,13 @@ UPDATE_INTERVAL = 1000
 def load_base_module() -> object:
     """Load the W20-Binomial model-family module."""
 
-    spec = importlib.util.spec_from_file_location("w20_binomial_models", BASE_SCRIPT)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load module from {BASE_SCRIPT}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def binomial_columns(features: list[str]) -> list[str]:
-    """Return generated binomial probability feature names."""
-
-    return [feature for feature in features if feature.endswith("_binom_series")]
-
-
-def pair_columns(features: list[str]) -> list[tuple[str, str]]:
-    """Find feature pairs that represent Team 1 / Team 2 quantities.
-
-    Args:
-        features: Feature names used by the final model.
-
-    Returns:
-        Unique pairs of columns that should be swapped together.
-    """
-
-    feature_set = set(features)
-    pairs: list[tuple[str, str]] = []
-    seen: set[str] = set()
-
-    for feature in features:
-        if feature in seen:
-            continue
-        counterpart = ""
-        if feature.startswith("t1_"):
-            counterpart = "t2_" + feature[3:]
-        elif feature.startswith("t2_"):
-            counterpart = "t1_" + feature[3:]
-        else:
-            match = re.match(r"(.+)([12])$", feature)
-            if match is not None:
-                prefix, side = match.groups()
-                counterpart = f"{prefix}{'2' if side == '1' else '1'}"
-        if counterpart and counterpart in feature_set and counterpart not in seen:
-            left, right = sorted([feature, counterpart])
-            pairs.append((left, right))
-            seen.update({feature, counterpart})
-    return pairs
-
-
-def swap_orientation(
-    data: pd.DataFrame,
-    features: list[str],
-    rank_probability_features: list[str],
-    swap_mask: np.ndarray,
-) -> pd.DataFrame:
-    """Swap Team 1 and Team 2 representation for selected rows.
-
-    Args:
-        data: Input modeling frame.
-        features: Final model feature names.
-        rank_probability_features: Player ranking probability columns.
-        swap_mask: Boolean mask indicating rows to swap.
-
-    Returns:
-        Modeling frame with selected rows represented from the opposite side.
-    """
-
-    swapped = data.copy()
-    mask = np.asarray(swap_mask, dtype=bool)
-    probability_features = [
-        feature
-        for feature in [*rank_probability_features, *binomial_columns(features)]
-        if feature in swapped.columns
-    ]
-    for feature in probability_features:
-        swapped.loc[mask, feature] = 1.0 - swapped.loc[mask, feature].astype(float)
-
-    for left, right in pair_columns(features):
-        left_values = swapped.loc[mask, left].copy()
-        swapped.loc[mask, left] = swapped.loc[mask, right].to_numpy()
-        swapped.loc[mask, right] = left_values.to_numpy()
-
-    swapped.loc[mask, TARGET] = 1 - swapped.loc[mask, TARGET].astype(int)
-    swapped["orientation_swapped"] = mask.astype(int)
-    return swapped
-
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate Expected Calibration Error."""
-
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        weight = float(np.mean(in_bin))
-        if weight > 0.0:
-            ece += abs(float(np.mean(y_true[in_bin])) - float(np.mean(y_prob[in_bin]))) * weight
-    return ece
+    return load_module_from_path(BASE_SCRIPT, "w20_binomial_models")
 
 
 def evaluate_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
     """Evaluate all orientation variants."""
 
-    rows: list[dict[str, float | int | str]] = []
-    for variant, group in predictions.groupby("variant"):
-        y_true = group[TARGET].astype(int).to_numpy()
-        y_prob = group["y_prob"].to_numpy(dtype=float)
-        rows.append(
-            {
-                "variant": variant,
-                "sample_size": len(group),
-                "auc": roc_auc_score(y_true, y_prob),
-                "logloss": log_loss(y_true, y_prob),
-                "brier": brier_score_loss(y_true, y_prob),
-                "ece": calculate_ece(y_true, y_prob),
-                "accuracy_0_5": accuracy_score(y_true, y_prob >= 0.5),
-            }
-        )
-    return pd.DataFrame(rows).sort_values("logloss")
+    return evaluate_probability_groups(predictions, ["variant"], target_column=TARGET)
 
 
 def walk_forward_original_and_swapped_test(
@@ -185,8 +77,7 @@ def walk_forward_original_and_swapped_test(
         )
         swapped_side_prob = np.clip(model.predict_proba(swapped_chunk[features])[:, 1], 0.001, 0.999)
         converted_prob = 1.0 - swapped_side_prob
-
-        symmetrized_prob = 0.5 * (original_prob + converted_prob)
+        symmetrized_prob = symmetrize_binary_probabilities(original_prob, swapped_side_prob)
 
         for variant, probability in [
             ("Original orientation", original_prob),

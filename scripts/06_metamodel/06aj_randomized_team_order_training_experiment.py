@@ -8,22 +8,22 @@ comparable with the raw and symmetrized final-model diagnostics.
 
 from __future__ import annotations
 
-import importlib.util
 import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.isotonic import IsotonicRegression
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_score
 from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import clip_probabilities, evaluate_probability_groups
 
+from src.analysis.bootstrap import bootstrap_long_predictions_against_baseline
+from src.models.calibration import expanding_platt_isotonic_calibration
+from src.utils.module_loading import load_module_from_path
 from src.visualization.thesis_style import DARK_TEXT, PASTEL_BLUE, PASTEL_RED, apply_thesis_style, clean_axis
 
 BASE_SCRIPT = PROJECT_ROOT / "scripts" / "06_metamodel" / "06ab_w20_binomial_all_models_bootstrap.py"
@@ -50,62 +50,6 @@ BASELINE_VARIANTS = [
 ]
 
 
-def load_module(path: Path, name: str) -> object:
-    """Load a Python script as an importable module.
-
-    Args:
-        path: Script path.
-        name: Runtime module name.
-
-    Returns:
-        Loaded Python module.
-    """
-
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load module from {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate Expected Calibration Error.
-
-    Args:
-        y_true: Binary labels.
-        y_prob: Positive-class probabilities.
-        n_bins: Number of equal-width bins.
-
-    Returns:
-        Weighted absolute calibration error.
-    """
-
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        weight = float(np.mean(in_bin))
-        if weight > 0.0:
-            ece += abs(float(np.mean(y_true[in_bin])) - float(np.mean(y_prob[in_bin]))) * weight
-    return ece
-
-
-def logit(probability: np.ndarray) -> np.ndarray:
-    """Return clipped logit values as a two-dimensional array.
-
-    Args:
-        probability: Probability vector.
-
-    Returns:
-        Logit-transformed probabilities.
-    """
-
-    clipped = np.clip(probability.astype(float), EPSILON, 1.0 - EPSILON)
-    return np.log(clipped / (1.0 - clipped)).reshape(-1, 1)
-
-
 def evaluate(predictions: pd.DataFrame, group_columns: list[str]) -> pd.DataFrame:
     """Evaluate probability streams.
 
@@ -117,26 +61,12 @@ def evaluate(predictions: pd.DataFrame, group_columns: list[str]) -> pd.DataFram
         Metric table sorted by LogLoss.
     """
 
-    rows: list[dict[str, object]] = []
-    for keys, group in predictions.groupby(group_columns):
-        key_tuple = keys if isinstance(keys, tuple) else (keys,)
-        y_true = group[TARGET].astype(int).to_numpy()
-        y_prob = np.clip(group["y_prob"].to_numpy(dtype=float), EPSILON, 1.0 - EPSILON)
-        row: dict[str, object] = dict(zip(group_columns, key_tuple, strict=True))
-        row.update(
-            {
-                "sample_size": int(len(group)),
-                "auc": float(roc_auc_score(y_true, y_prob)),
-                "logloss": float(log_loss(y_true, y_prob)),
-                "brier": float(brier_score_loss(y_true, y_prob)),
-                "ece": calculate_ece(y_true, y_prob),
-                "accuracy_0_5": float(accuracy_score(y_true, y_prob >= 0.5)),
-            }
-        )
-        if "calibrator_available" in group.columns:
-            row["calibrated_sample_rate"] = float(group["calibrator_available"].mean())
-        rows.append(row)
-    return pd.DataFrame(rows).sort_values("logloss")
+    return evaluate_probability_groups(
+        predictions,
+        group_columns,
+        target_column=TARGET,
+        epsilon=EPSILON,
+    )
 
 
 def run_randomized_order_training(base_module: object, swap_module: object) -> pd.DataFrame:
@@ -174,7 +104,7 @@ def run_randomized_order_training(base_module: object, swap_module: object) -> p
 
         model = base_module.build_logistic_regression()
         model.fit(randomized_train[features], randomized_train[TARGET].astype(int))
-        probability = np.clip(model.predict_proba(test_chunk[features])[:, 1], EPSILON, 1.0 - EPSILON)
+        probability = clip_probabilities(model.predict_proba(test_chunk[features])[:, 1], epsilon=EPSILON)
 
         parts.append(
             pd.DataFrame(
@@ -203,39 +133,14 @@ def expanding_calibrate_randomized(predictions: pd.DataFrame) -> pd.DataFrame:
         Raw and calibrated prediction streams.
     """
 
-    variant_data = predictions.copy().sort_values(["fold", "date"])
-    calibrated_parts: list[pd.DataFrame] = []
-    for fold in sorted(variant_data["fold"].unique()):
-        test_fold = variant_data[variant_data["fold"] == fold].copy()
-        calibration_pool = variant_data[variant_data["fold"] < fold].copy()
-        raw_prob = np.clip(test_fold["y_prob"].to_numpy(dtype=float), EPSILON, 1.0 - EPSILON)
-        platt_prob = raw_prob.copy()
-        isotonic_prob = raw_prob.copy()
-        calibrated = False
-
-        if len(calibration_pool) >= MIN_CALIBRATION_SAMPLES and calibration_pool[TARGET].nunique() == 2:
-            cal_y = calibration_pool[TARGET].astype(int).to_numpy()
-            cal_prob = np.clip(calibration_pool["y_prob"].to_numpy(dtype=float), EPSILON, 1.0 - EPSILON)
-            platt = LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000)
-            platt.fit(logit(cal_prob), cal_y)
-            platt_prob = np.clip(platt.predict_proba(logit(raw_prob))[:, 1], EPSILON, 1.0 - EPSILON)
-            isotonic = IsotonicRegression(out_of_bounds="clip", y_min=EPSILON, y_max=1.0 - EPSILON)
-            isotonic.fit(cal_prob, cal_y)
-            isotonic_prob = np.clip(isotonic.predict(raw_prob), EPSILON, 1.0 - EPSILON)
-            calibrated = True
-
-        for calibration, probability in [
-            ("raw", raw_prob),
-            ("platt_expanding", platt_prob),
-            ("isotonic_expanding", isotonic_prob),
-        ]:
-            output = test_fold[["golgg_match_id", "date", "fold", TARGET]].copy()
-            output["base_variant"] = RANDOM_VARIANT
-            output["calibration"] = calibration
-            output["y_prob"] = probability
-            output["calibrator_available"] = int(calibrated)
-            calibrated_parts.append(output)
-    return pd.concat(calibrated_parts, ignore_index=True)
+    return expanding_platt_isotonic_calibration(
+        predictions,
+        variant_value=RANDOM_VARIANT,
+        variant_column="base_variant",
+        target_column=TARGET,
+        min_calibration_samples=MIN_CALIBRATION_SAMPLES,
+        epsilon=EPSILON,
+    )
 
 
 def load_reference_predictions() -> pd.DataFrame:
@@ -277,14 +182,6 @@ def add_market_subset_flag(predictions: pd.DataFrame) -> pd.DataFrame:
     return output
 
 
-def log_loss_vector(y_true: np.ndarray, y_prob: np.ndarray) -> np.ndarray:
-    """Calculate per-row binary LogLoss values."""
-
-    clipped = np.clip(y_prob.astype(float), EPSILON, 1.0 - EPSILON)
-    labels = y_true.astype(int)
-    return -(labels * np.log(clipped) + (1 - labels) * np.log(1.0 - clipped))
-
-
 def monthly_bootstrap_vs_baseline(predictions: pd.DataFrame, baseline: str) -> pd.DataFrame:
     """Compare variants against one baseline using monthly block bootstrap.
 
@@ -296,52 +193,13 @@ def monthly_bootstrap_vs_baseline(predictions: pd.DataFrame, baseline: str) -> p
         Bootstrap comparison table.
     """
 
-    normalized = predictions.copy()
-    normalized["golgg_match_id"] = normalized["golgg_match_id"].astype(str)
-    normalized["date"] = pd.to_datetime(normalized["date"]).dt.strftime("%Y-%m-%d")
-    baseline_data = normalized[normalized["model_label"] == baseline][
-        ["golgg_match_id", "date", TARGET, "y_prob"]
-    ].rename(columns={"y_prob": "baseline_prob"})
-    rng = np.random.default_rng(RANDOM_SEED)
-    rows: list[dict[str, object]] = []
-    for variant in sorted(label for label in normalized["model_label"].unique() if label != baseline):
-        variant_data = normalized[normalized["model_label"] == variant][
-            ["golgg_match_id", "y_prob"]
-        ].rename(columns={"y_prob": "variant_prob"})
-        comparison_data = baseline_data.merge(variant_data, on="golgg_match_id", how="inner")
-        comparison_data = comparison_data.dropna(subset=[TARGET, "baseline_prob", "variant_prob"])
-        comparison_data["month"] = pd.to_datetime(comparison_data["date"]).dt.to_period("M").astype(str)
-        baseline_loss = log_loss_vector(
-            comparison_data[TARGET].to_numpy(),
-            comparison_data["baseline_prob"].to_numpy(),
-        )
-        variant_loss = log_loss_vector(
-            comparison_data[TARGET].to_numpy(),
-            comparison_data["variant_prob"].to_numpy(),
-        )
-        comparison_data["delta"] = variant_loss - baseline_loss
-        observed = float(comparison_data["delta"].mean())
-        comparison_months = sorted(comparison_data["month"].unique())
-        month_stats = comparison_data.groupby("month")["delta"].agg(delta_sum="sum", n="size").loc[comparison_months]
-        delta_sums = month_stats["delta_sum"].to_numpy(dtype=float)
-        counts = month_stats["n"].to_numpy(dtype=float)
-        samples = np.empty(N_BOOTSTRAPS, dtype=float)
-        for index in range(N_BOOTSTRAPS):
-            sampled_idx = rng.integers(0, len(comparison_months), size=len(comparison_months))
-            samples[index] = float(delta_sums[sampled_idx].sum() / counts[sampled_idx].sum())
-        rows.append(
-            {
-                "comparison": f"{variant} vs {baseline}",
-                "variant": variant,
-                "baseline": baseline,
-                "observed_delta_logloss_variant_minus_baseline": observed,
-                "ci_lower_95": float(np.nanquantile(samples, 0.025)),
-                "ci_upper_95": float(np.nanquantile(samples, 0.975)),
-                "p_one_sided_variant_worse": float((np.nansum(samples <= 0.0) + 1) / (np.sum(~np.isnan(samples)) + 1)),
-                "significantly_worse": bool(np.nanquantile(samples, 0.025) > 0.0),
-            }
-        )
-    return pd.DataFrame(rows).sort_values("observed_delta_logloss_variant_minus_baseline")
+    return bootstrap_long_predictions_against_baseline(
+        predictions,
+        baseline_label=baseline,
+        target_column=TARGET,
+        n_bootstraps=N_BOOTSTRAPS,
+        random_seed=RANDOM_SEED,
+    )
 
 
 def plot_logloss(metrics: pd.DataFrame, output_path: Path) -> None:
@@ -397,8 +255,8 @@ def main() -> None:
     """Run randomized-order training experiment."""
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    base_module = load_module(BASE_SCRIPT, "w20_binomial_models_random_order")
-    swap_module = load_module(SWAP_SCRIPT, "team_order_swap_utils")
+    base_module = load_module_from_path(BASE_SCRIPT, "w20_binomial_models_random_order")
+    swap_module = load_module_from_path(SWAP_SCRIPT, "team_order_swap_utils")
 
     randomized_raw = run_randomized_order_training(base_module, swap_module)
     randomized_calibrated = expanding_calibrate_randomized(randomized_raw)

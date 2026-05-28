@@ -9,6 +9,7 @@ within-month dependence caused by leagues, patches, and tournament phases.
 
 from __future__ import annotations
 
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,7 +18,11 @@ import numpy as np
 import pandas as pd
 
 
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import binary_log_loss_vector as log_loss_vector
 INPUT_PATH = (
     PROJECT_ROOT
     / "docs/assets/final_logistic_market_comparison/final_logistic_market_common_sample.csv"
@@ -70,22 +75,6 @@ class BootstrapResult:
     p_one_sided: float
     p_two_sided: float
     significant_05: bool
-
-
-def log_loss_vector(y_true: pd.Series, probabilities: pd.Series) -> np.ndarray:
-    """Compute per-match binary LogLoss values.
-
-    Args:
-        y_true: Binary outcome series, where 1 means team 1 won.
-        probabilities: Predicted probability of team 1 winning.
-
-    Returns:
-        NumPy array with per-match LogLoss values.
-    """
-
-    y_array = y_true.to_numpy(dtype=float)
-    p_array = probabilities.clip(EPSILON, 1.0 - EPSILON).to_numpy(dtype=float)
-    return -(y_array * np.log(p_array) + (1.0 - y_array) * np.log(1.0 - p_array))
 
 
 def prepare_dataset(path: Path) -> pd.DataFrame:

@@ -15,6 +15,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -47,36 +48,6 @@ MODEL_COLUMNS = {
     "Mkt Close": "market_close",
     "Player Glicko-2": "player_glicko2",
 }
-
-
-def calculate_ece(y_true: pd.Series, y_prob: pd.Series, n_bins: int = 10) -> float:
-    """Calculate expected calibration error for binary probabilities.
-
-    Args:
-        y_true: Binary target values.
-        y_prob: Predicted probabilities for Team 1 victory.
-        n_bins: Number of probability bins.
-
-    Returns:
-        Expected calibration error.
-    """
-
-    targets = y_true.to_numpy(dtype=float)
-    probabilities = y_prob.to_numpy(dtype=float)
-    bins = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-
-    for index in range(n_bins):
-        lower = bins[index]
-        upper = bins[index + 1]
-        if index == n_bins - 1:
-            mask = (probabilities >= lower) & (probabilities <= upper)
-        else:
-            mask = (probabilities >= lower) & (probabilities < upper)
-        if mask.any():
-            ece += mask.mean() * abs(targets[mask].mean() - probabilities[mask].mean())
-
-    return float(ece)
 
 
 def load_series_metadata() -> pd.DataFrame:

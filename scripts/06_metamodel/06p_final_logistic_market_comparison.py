@@ -9,6 +9,7 @@ execution, expected value, staking, bankroll, or ROI simulation.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -18,6 +19,9 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import calculate_ece
 SOURCE_COMPARISON_DIR = PROJECT_ROOT / "docs" / "assets" / "final_model_market_comparison"
 LOGISTIC_DIR = PROJECT_ROOT / "docs" / "assets" / "logistic_regression_robustness"
 OUTPUT_DIR = PROJECT_ROOT / "docs" / "assets" / "final_logistic_market_comparison"
@@ -27,30 +31,6 @@ MAIN_LOGISTIC_VARIANT = "player_full_context_w50 | L1 | C=0.3"
 PLAYER_ONLY_VARIANT = "player_only | L2 | C=0.3"
 CORE_CONTEXT_VARIANT = "player_core_context_w50 | L2 | C=1"
 
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate expected calibration error for binary probabilities.
-
-    Args:
-        y_true: Binary target labels.
-        y_prob: Predicted positive-class probabilities.
-        n_bins: Number of equal-width probability bins.
-
-    Returns:
-        Weighted average absolute calibration error.
-    """
-
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        weight = float(np.mean(in_bin))
-        if weight == 0.0:
-            continue
-        accuracy = float(np.mean(y_true[in_bin]))
-        confidence = float(np.mean(y_prob[in_bin]))
-        ece += abs(accuracy - confidence) * weight
-    return ece
 
 
 def evaluate_probability(data: pd.DataFrame, model: str, column: str) -> dict[str, object]:

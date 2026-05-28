@@ -9,49 +9,25 @@ same observations that are later evaluated.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
-from sklearn.isotonic import IsotonicRegression
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_score
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.analysis.probability_metrics import evaluate_probability_groups
+
+from src.models.calibration import expanding_platt_isotonic_calibration
+
 INPUT_PATH = PROJECT_ROOT / "docs" / "assets" / "team_order_sensitivity" / "team_order_sensitivity_predictions.csv"
 OUTPUT_DIR = PROJECT_ROOT / "docs" / "assets" / "calibration_symmetry_diagnostic"
 TARGET = "y_true"
 RAW_VARIANTS = ["Original orientation", "Order-symmetrized prediction"]
 MIN_CALIBRATION_SAMPLES = 1000
 EPSILON = 0.001
-
-
-def logit(probability: np.ndarray) -> np.ndarray:
-    """Calculate clipped logit transformation.
-
-    Args:
-        probability: Probability vector.
-
-    Returns:
-        Logit-transformed vector as a two-dimensional array.
-    """
-
-    clipped = np.clip(probability.astype(float), EPSILON, 1.0 - EPSILON)
-    return np.log(clipped / (1.0 - clipped)).reshape(-1, 1)
-
-
-def calculate_ece(y_true: np.ndarray, y_prob: np.ndarray, n_bins: int = 10) -> float:
-    """Calculate Expected Calibration Error."""
-
-    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
-    ece = 0.0
-    for lower, upper in zip(boundaries[:-1], boundaries[1:]):
-        in_bin = (y_prob > lower) & (y_prob <= upper)
-        weight = float(np.mean(in_bin))
-        if weight > 0.0:
-            ece += abs(float(np.mean(y_true[in_bin])) - float(np.mean(y_prob[in_bin]))) * weight
-    return ece
 
 
 def expanding_calibrate_variant(data: pd.DataFrame, variant: str) -> pd.DataFrame:
@@ -65,67 +41,25 @@ def expanding_calibrate_variant(data: pd.DataFrame, variant: str) -> pd.DataFram
         Frame with raw and calibrated probabilities.
     """
 
-    variant_data = data[data["variant"] == variant].copy().sort_values(["fold", "date"])
-    calibrated_parts: list[pd.DataFrame] = []
-
-    for fold in sorted(variant_data["fold"].unique()):
-        test_fold = variant_data[variant_data["fold"] == fold].copy()
-        calibration_pool = variant_data[variant_data["fold"] < fold].copy()
-        raw_prob = np.clip(test_fold["y_prob"].to_numpy(dtype=float), EPSILON, 1.0 - EPSILON)
-
-        platt_prob = raw_prob.copy()
-        isotonic_prob = raw_prob.copy()
-        calibrated = False
-
-        if len(calibration_pool) >= MIN_CALIBRATION_SAMPLES and calibration_pool[TARGET].nunique() == 2:
-            cal_y = calibration_pool[TARGET].astype(int).to_numpy()
-            cal_prob = np.clip(calibration_pool["y_prob"].to_numpy(dtype=float), EPSILON, 1.0 - EPSILON)
-
-            platt = LogisticRegression(C=1.0, solver="lbfgs", max_iter=1000)
-            platt.fit(logit(cal_prob), cal_y)
-            platt_prob = np.clip(platt.predict_proba(logit(raw_prob))[:, 1], EPSILON, 1.0 - EPSILON)
-
-            isotonic = IsotonicRegression(out_of_bounds="clip", y_min=EPSILON, y_max=1.0 - EPSILON)
-            isotonic.fit(cal_prob, cal_y)
-            isotonic_prob = np.clip(isotonic.predict(raw_prob), EPSILON, 1.0 - EPSILON)
-            calibrated = True
-
-        for calibration_name, probability in [
-            ("raw", raw_prob),
-            ("platt_expanding", platt_prob),
-            ("isotonic_expanding", isotonic_prob),
-        ]:
-            output = test_fold[["golgg_match_id", "date", "fold", TARGET]].copy()
-            output["base_variant"] = variant
-            output["calibration"] = calibration_name
-            output["y_prob"] = probability
-            output["calibrator_available"] = int(calibrated)
-            calibrated_parts.append(output)
-
-    return pd.concat(calibrated_parts, ignore_index=True)
+    return expanding_platt_isotonic_calibration(
+        data,
+        variant_value=variant,
+        variant_column="variant",
+        target_column=TARGET,
+        min_calibration_samples=MIN_CALIBRATION_SAMPLES,
+        epsilon=EPSILON,
+    )
 
 
 def evaluate_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
     """Evaluate raw and calibrated probability streams."""
 
-    rows: list[dict[str, float | int | str]] = []
-    for (base_variant, calibration), group in predictions.groupby(["base_variant", "calibration"]):
-        y_true = group[TARGET].astype(int).to_numpy()
-        y_prob = np.clip(group["y_prob"].to_numpy(dtype=float), EPSILON, 1.0 - EPSILON)
-        rows.append(
-            {
-                "base_variant": base_variant,
-                "calibration": calibration,
-                "sample_size": len(group),
-                "calibrated_sample_rate": float(group["calibrator_available"].mean()),
-                "auc": roc_auc_score(y_true, y_prob),
-                "logloss": log_loss(y_true, y_prob),
-                "brier": brier_score_loss(y_true, y_prob),
-                "ece": calculate_ece(y_true, y_prob),
-                "accuracy_0_5": accuracy_score(y_true, y_prob >= 0.5),
-            }
-        )
-    return pd.DataFrame(rows).sort_values(["base_variant", "logloss"])
+    return evaluate_probability_groups(
+        predictions,
+        ["base_variant", "calibration"],
+        target_column=TARGET,
+        epsilon=EPSILON,
+    ).sort_values(["base_variant", "logloss"])
 
 
 def main() -> None:
