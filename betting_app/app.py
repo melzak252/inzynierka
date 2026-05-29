@@ -204,8 +204,12 @@ def render_match_card(canonical_match_id: int, *, tax_rate: float) -> None:
                         "canonical_odds_b",
                         "Hybrid EV A %",
                         "Hybrid EV B %",
+                        "Hybrid Kelly A %",
+                        "Hybrid Kelly B %",
                         "Model EV A %",
                         "Model EV B %",
+                        "Model Kelly A %",
+                        "Model Kelly B %",
                         "raw_team_a",
                         "raw_team_b",
                         "scraped_at",
@@ -217,13 +221,18 @@ def render_match_card(canonical_match_id: int, *, tax_rate: float) -> None:
                         "canonical_odds_b": f"{team_b}",
                         "Hybrid EV A %": f"Hybrid EV {team_a}",
                         "Hybrid EV B %": f"Hybrid EV {team_b}",
+                        "Hybrid Kelly A %": f"Hybrid Kelly {team_a}",
+                        "Hybrid Kelly B %": f"Hybrid Kelly {team_b}",
                         "Model EV A %": f"Model EV {team_a}",
                         "Model EV B %": f"Model EV {team_b}",
+                        "Model Kelly A %": f"Model Kelly {team_a}",
+                        "Model Kelly B %": f"Model Kelly {team_b}",
                     }
                 ),
                 use_container_width=True,
                 hide_index=True,
             )
+            st.caption("Kelly = pełny Kelly po podatku; 0% oznacza brak zakładu według Kelly'ego.")
     with tab2:
         st.subheader("Prawdopodobieństwa")
         if predictions.empty:
@@ -239,6 +248,8 @@ def render_match_card(canonical_match_id: int, *, tax_rate: float) -> None:
                         "P(B) %",
                         "EV A %",
                         "EV B %",
+                        "Kelly A %",
+                        "Kelly B %",
                         "Best A",
                         "Best B",
                         "predicted_at",
@@ -251,8 +262,12 @@ def render_match_card(canonical_match_id: int, *, tax_rate: float) -> None:
         if hybrid:
             ev_a = expected_value(float(hybrid["prob_a"]), float(summary.get("best_odds_a") or 0), tax_rate)
             ev_b = expected_value(float(hybrid["prob_b"]), float(summary.get("best_odds_b") or 0), tax_rate)
+            kelly_a = kelly_fraction(float(hybrid["prob_a"]), float(summary.get("best_odds_a") or 0), tax_rate)
+            kelly_b = kelly_fraction(float(hybrid["prob_b"]), float(summary.get("best_odds_b") or 0), tax_rate)
             st.write("**EV hybrydy po podatku dla najlepszych kursów**")
             st.write({team_a: format_pct(ev_a), team_b: format_pct(ev_b), "tax": format_pct(tax_rate)})
+            st.write("**Full Kelly hybrydy dla najlepszych kursów**")
+            st.write({team_a: format_pct(kelly_a), team_b: format_pct(kelly_b), "tax": format_pct(tax_rate)})
     with tab3:
         st.subheader("Składy z ostatniego meczu GOL.GG")
         col_a, col_b = st.columns(2)
@@ -308,8 +323,12 @@ def build_prediction_ev_table(predictions: pd.DataFrame, summary: dict[str, Any]
     frame["Best B"] = format_odds(best_b)
     frame["EV A"] = frame["prob_a"].map(lambda probability: expected_value(float(probability), best_a, tax_rate) if best_a else None)
     frame["EV B"] = frame["prob_b"].map(lambda probability: expected_value(float(probability), best_b, tax_rate) if best_b else None)
+    frame["Kelly A"] = frame["prob_a"].map(lambda probability: kelly_fraction(float(probability), best_a, tax_rate) if best_a else None)
+    frame["Kelly B"] = frame["prob_b"].map(lambda probability: kelly_fraction(float(probability), best_b, tax_rate) if best_b else None)
     frame["EV A %"] = frame["EV A"].map(format_pct)
     frame["EV B %"] = frame["EV B"].map(format_pct)
+    frame["Kelly A %"] = frame["Kelly A"].map(format_pct)
+    frame["Kelly B %"] = frame["Kelly B"].map(format_pct)
     return frame
 
 
@@ -327,24 +346,43 @@ def build_odds_ev_table(odds: pd.DataFrame, predictions: pd.DataFrame, *, tax_ra
             return None
         return expected_value(probability, odds_value, tax_rate)
 
+    def side_kelly(probability: Any, odds_value: Any) -> float | None:
+        probability = none_or_float(probability)
+        odds_value = none_or_float(odds_value)
+        if probability is None or odds_value is None:
+            return None
+        return kelly_fraction(probability, odds_value, tax_rate)
+
     if hybrid:
         frame["Hybrid EV A"] = frame["canonical_odds_a"].map(lambda value: side_ev(hybrid.get("prob_a"), value))
         frame["Hybrid EV B"] = frame["canonical_odds_b"].map(lambda value: side_ev(hybrid.get("prob_b"), value))
+        frame["Hybrid Kelly A"] = frame["canonical_odds_a"].map(lambda value: side_kelly(hybrid.get("prob_a"), value))
+        frame["Hybrid Kelly B"] = frame["canonical_odds_b"].map(lambda value: side_kelly(hybrid.get("prob_b"), value))
     else:
         frame["Hybrid EV A"] = None
         frame["Hybrid EV B"] = None
+        frame["Hybrid Kelly A"] = None
+        frame["Hybrid Kelly B"] = None
 
     if sport:
         frame["Model EV A"] = frame["canonical_odds_a"].map(lambda value: side_ev(sport.get("prob_a"), value))
         frame["Model EV B"] = frame["canonical_odds_b"].map(lambda value: side_ev(sport.get("prob_b"), value))
+        frame["Model Kelly A"] = frame["canonical_odds_a"].map(lambda value: side_kelly(sport.get("prob_a"), value))
+        frame["Model Kelly B"] = frame["canonical_odds_b"].map(lambda value: side_kelly(sport.get("prob_b"), value))
     else:
         frame["Model EV A"] = None
         frame["Model EV B"] = None
+        frame["Model Kelly A"] = None
+        frame["Model Kelly B"] = None
 
     frame["Hybrid EV A %"] = frame["Hybrid EV A"].map(format_pct)
     frame["Hybrid EV B %"] = frame["Hybrid EV B"].map(format_pct)
+    frame["Hybrid Kelly A %"] = frame["Hybrid Kelly A"].map(format_pct)
+    frame["Hybrid Kelly B %"] = frame["Hybrid Kelly B"].map(format_pct)
     frame["Model EV A %"] = frame["Model EV A"].map(format_pct)
     frame["Model EV B %"] = frame["Model EV B"].map(format_pct)
+    frame["Model Kelly A %"] = frame["Model Kelly A"].map(format_pct)
+    frame["Model Kelly B %"] = frame["Model Kelly B"].map(format_pct)
     return frame
 
 
@@ -625,6 +663,22 @@ def enrich_arbitrage(record: dict[str, Any], *, tax_rate: float) -> None:
 
 def expected_value(probability: float, odds: float, tax_rate: float) -> float:
     return probability * odds * (1 - tax_rate) - 1
+
+
+def kelly_fraction(probability: float, odds: float, tax_rate: float) -> float:
+    """Full Kelly fraction for a binary bet after tax on winnings.
+
+    The effective decimal return is `odds * (1 - tax_rate)`. Negative Kelly is
+    clipped to 0, meaning no bet according to Kelly criterion.
+    """
+
+    probability = float(probability)
+    effective_odds = float(odds) * (1 - tax_rate)
+    net_odds = effective_odds - 1
+    if probability <= 0 or effective_odds <= 1 or net_odds <= 0:
+        return 0.0
+    fraction = (probability * effective_odds - 1) / net_odds
+    return max(0.0, fraction)
 
 
 def latest_prediction(predictions: pd.DataFrame, model_name: str, model_version: str) -> dict[str, Any] | None:
