@@ -7,9 +7,9 @@ Lokalna aplikacja do ręcznej bukmacherki/analityki LoL. Aplikacja **nie stawia 
 MVP v0.1 na branchu `private/betting-playground`:
 
 - SQLite schema i lokalna baza `data/betting_app.sqlite3`,
-- ręczne dodawanie snapshotów kursów,
-- ręczne dodawanie predykcji dla meczu,
-- generowanie sygnałów EV+,
+- główny ekran **LoL Odds Hub**: nadchodzące mecze, max/średnie kursy A/B, arbitraż, model, hybryda i karta szczegółów meczu,
+- ręczne dodawanie snapshotów kursów i predykcji jako tryb pomocniczy,
+- generowanie sygnałów EV+ jako diagnostyka, nie główny widok,
 - manualny bet tracker,
 - osobne portfele/konta per bukmacher i historia transakcji,
 - rozliczanie zakładów i bankroll events,
@@ -27,7 +27,13 @@ python -m betting_app.scripts.init_db
 streamlit run betting_app/app.py
 ```
 
-Najważniejszy ekran do bieżącej pracy jest w multipage Streamlit:
+Najważniejszy ekran do bieżącej pracy to **strona główna** `betting_app/app.py` / **LoL Odds Hub**:
+
+- pokazuje listę najbliższych meczów,
+- dla każdego meczu pokazuje `max kurs A`, `max kurs B`, średnie kursy, liczbę bukmacherów i arbitraż brutto/po podatku,
+- po kliknięciu/wybraniu meczu pokazuje kartę: kursy u bukmacherów, linki do ofert, prawdopodobieństwa modelu i hybrydy, EV oraz składy z ostatniego meczu GOL.GG.
+
+Pozostałe ekrany multipage:
 
 - `07_model_opportunities.py` / **Wycena upcoming meczów LoL** — pokazuje status danych, predykcje modelu i hybrydy, best odds po obu stronach, średnie kursy, EV po podatku 12%, liczbę bukmacherów, linki do ofert oraz diagnostykę rosterów użytych z ostatniego meczu GOL.GG.
 - `08_system_status.py` / **System status** — pokazuje czy automat działa bez SSH: ostatnie cykle schedulera, komendy, błędy, ostatni scrape per bookmaker, liczność tabel, backup SQLite i przyciski do ręcznego przeliczenia pipeline’u.
@@ -73,7 +79,8 @@ System składa się z pięciu warstw:
    - `model_ev_signals`: EV po podatku 12%.
 
 5. **UI / operacja**
-    - Streamlit `07_model_opportunities.py` pokazuje nadchodzące mecze, best odds, średnie kursy, model/hybrid probability, EV, linki do ofert i diagnostykę rosterów.
+   - Strona główna Streamlit `app.py` jest agregatorem kursów: upcoming matches, max/avg odds, arbitraż i karta meczu.
+   - Streamlit `07_model_opportunities.py` pozostaje bardziej technicznym widokiem opportunities/EV.
    - Streamlit `03_bets.py` trzyma portfele per bukmacher oraz ręcznie wpisane zakłady.
 
 ## Kiedy co uruchamiać
