@@ -1,0 +1,91 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    container_name: ensemblelegends-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-betting}
+      POSTGRES_USER: ${POSTGRES_USER:-betting}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-betting_local_password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./docker/timescale/init.sql:/docker-entrypoint-initdb.d/001_timescale.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-betting} -d ${POSTGRES_DB:-betting}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  betting-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.betting
+    image: ensemblelegends-betting:latest
+    container_name: ensemblelegends-betting-app
+    restart: unless-stopped
+    ports:
+      - "${BETTING_APP_PORT:-8501}:8501"
+    environment:
+      BETTING_APP_DB: /app/data/betting_app.sqlite3
+      BETTING_APP_DEBUG_DIR: /app/data/betting_scraper_debug
+      BETTING_APP_TAX_RATE: "${BETTING_APP_TAX_RATE:-0.12}"
+      BETTING_APP_MIN_EV: "${BETTING_APP_MIN_EV:-0.05}"
+      BETTING_APP_BANKROLL: "${BETTING_APP_BANKROLL:-100.0}"
+      BETTING_APP_HEADLESS: "1"
+      BETTING_DATABASE_URL: "${BETTING_DATABASE_URL:-}"
+    volumes:
+      - ./data:/app/data
+    command: >
+      streamlit run betting_app/app.py
+      --server.address=0.0.0.0
+      --server.port=8501
+
+  betting-scheduler:
+    image: ensemblelegends-betting:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.betting
+    container_name: ensemblelegends-betting-scheduler
+    restart: unless-stopped
+    depends_on:
+      - betting-app
+    environment:
+      BETTING_APP_DB: /app/data/betting_app.sqlite3
+      BETTING_APP_DEBUG_DIR: /app/data/betting_scraper_debug
+      BETTING_APP_TAX_RATE: "${BETTING_APP_TAX_RATE:-0.12}"
+      BETTING_APP_MIN_EV: "${BETTING_APP_MIN_EV:-0.05}"
+      BETTING_APP_BANKROLL: "${BETTING_APP_BANKROLL:-100.0}"
+      BETTING_APP_HEADLESS: "1"
+      BETTING_DATABASE_URL: "${BETTING_DATABASE_URL:-}"
+      BETTING_SCHEDULER_INTERVAL_SECONDS: "${BETTING_SCHEDULER_INTERVAL_SECONDS:-7200}"
+      BETTING_SCHEDULER_RUN_ON_START: "${BETTING_SCHEDULER_RUN_ON_START:-1}"
+      BETTING_SCHEDULER_BOOKMAKERS: "${BETTING_SCHEDULER_BOOKMAKERS:-sts,betclic,superbet,efortuna,betfan,totalbet,lebull}"
+    volumes:
+      - ./data:/app/data
+    command: >
+      python -m betting_app.scripts.scheduler
+      --mode light
+
+  betting-maintenance:
+    image: ensemblelegends-betting:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.betting
+    container_name: ensemblelegends-betting-maintenance
+    profiles: ["maintenance"]
+    restart: "no"
+    environment:
+      BETTING_APP_DB: /app/data/betting_app.sqlite3
+      BETTING_APP_DEBUG_DIR: /app/data/betting_scraper_debug
+      BETTING_APP_HEADLESS: "1"
+      BETTING_DATABASE_URL: "${BETTING_DATABASE_URL:-}"
+    volumes:
+      - ./data:/app/data
+    command: >
+      python -m betting_app.scripts.scheduler
+      --mode heavy-once
+
+volumes:
+  timescale-data:

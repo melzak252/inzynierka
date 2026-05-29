@@ -1,0 +1,12 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+data/*.sqlite3-wal
+data/*.sqlite3-shm
+data/betting_scraper_debug/*
+thesis/build
+node_modules
