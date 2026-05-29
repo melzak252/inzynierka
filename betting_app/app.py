@@ -194,7 +194,7 @@ def render_match_card(canonical_match_id: int, *, tax_rate: float) -> None:
         if odds.empty:
             st.info("Brak kursów.")
         else:
-            view = odds.copy()
+            view = build_odds_ev_table(odds, predictions, tax_rate=tax_rate)
             view["link"] = view["offer_url"].fillna(view["source_url"])
             st.dataframe(
                 view[
@@ -202,6 +202,10 @@ def render_match_card(canonical_match_id: int, *, tax_rate: float) -> None:
                         "bookmaker",
                         "canonical_odds_a",
                         "canonical_odds_b",
+                        "Hybrid EV A %",
+                        "Hybrid EV B %",
+                        "Model EV A %",
+                        "Model EV B %",
                         "raw_team_a",
                         "raw_team_b",
                         "scraped_at",
@@ -211,6 +215,10 @@ def render_match_card(canonical_match_id: int, *, tax_rate: float) -> None:
                     columns={
                         "canonical_odds_a": f"{team_a}",
                         "canonical_odds_b": f"{team_b}",
+                        "Hybrid EV A %": f"Hybrid EV {team_a}",
+                        "Hybrid EV B %": f"Hybrid EV {team_b}",
+                        "Model EV A %": f"Model EV {team_a}",
+                        "Model EV B %": f"Model EV {team_b}",
                     }
                 ),
                 use_container_width=True,
@@ -294,6 +302,41 @@ def build_prediction_ev_table(predictions: pd.DataFrame, summary: dict[str, Any]
     frame["EV B"] = frame["prob_b"].map(lambda probability: expected_value(float(probability), best_b, tax_rate) if best_b else None)
     frame["EV A %"] = frame["EV A"].map(format_pct)
     frame["EV B %"] = frame["EV B"].map(format_pct)
+    return frame
+
+
+def build_odds_ev_table(odds: pd.DataFrame, predictions: pd.DataFrame, *, tax_rate: float) -> pd.DataFrame:
+    """Add per-bookmaker EV columns to detailed odds view."""
+
+    frame = odds.copy()
+    hybrid = latest_prediction(predictions, HYBRID_MODEL_NAME, HYBRID_MODEL_VERSION)
+    sport = latest_prediction(predictions, SPORT_MODEL_NAME, SPORT_MODEL_VERSION)
+
+    def side_ev(probability: Any, odds_value: Any) -> float | None:
+        probability = none_or_float(probability)
+        odds_value = none_or_float(odds_value)
+        if probability is None or odds_value is None:
+            return None
+        return expected_value(probability, odds_value, tax_rate)
+
+    if hybrid:
+        frame["Hybrid EV A"] = frame["canonical_odds_a"].map(lambda value: side_ev(hybrid.get("prob_a"), value))
+        frame["Hybrid EV B"] = frame["canonical_odds_b"].map(lambda value: side_ev(hybrid.get("prob_b"), value))
+    else:
+        frame["Hybrid EV A"] = None
+        frame["Hybrid EV B"] = None
+
+    if sport:
+        frame["Model EV A"] = frame["canonical_odds_a"].map(lambda value: side_ev(sport.get("prob_a"), value))
+        frame["Model EV B"] = frame["canonical_odds_b"].map(lambda value: side_ev(sport.get("prob_b"), value))
+    else:
+        frame["Model EV A"] = None
+        frame["Model EV B"] = None
+
+    frame["Hybrid EV A %"] = frame["Hybrid EV A"].map(format_pct)
+    frame["Hybrid EV B %"] = frame["Hybrid EV B"].map(format_pct)
+    frame["Model EV A %"] = frame["Model EV A"].map(format_pct)
+    frame["Model EV B %"] = frame["Model EV B"].map(format_pct)
     return frame
 
 
