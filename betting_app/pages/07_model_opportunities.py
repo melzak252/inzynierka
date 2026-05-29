@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import subprocess
 import sys
 
@@ -229,8 +231,7 @@ def load_opportunities(model_name: str, model_version: str, min_ev: float, min_b
                rs.ev,
                rs.stake_suggestion,
                os.offer_url,
-               json_extract(umf.features_json, '$.player_ratings.team_a_roster.source_match_id') AS a_roster_match_id,
-               json_extract(umf.features_json, '$.player_ratings.team_b_roster.source_match_id') AS b_roster_match_id
+               umf.features_json
         FROM latest_pred lp
         JOIN canonical_matches cm ON cm.id=lp.canonical_match_id
         JOIN ranked_signals rs ON rs.canonical_prediction_id=lp.id AND rs.rn=1
@@ -248,6 +249,13 @@ def load_opportunities(model_name: str, model_version: str, min_ev: float, min_b
     )
     if frame.empty:
         return frame
+    frame["a_roster_match_id"] = frame["features_json"].map(
+        lambda value: safe_json_get(value, ["player_ratings", "team_a_roster", "source_match_id"])
+    )
+    frame["b_roster_match_id"] = frame["features_json"].map(
+        lambda value: safe_json_get(value, ["player_ratings", "team_b_roster", "source_match_id"])
+    )
+    frame = frame.drop(columns=["features_json"], errors="ignore")
     summary = load_odds_summary(frame["canonical_match_id"].dropna().astype(int).unique().tolist())
     if not summary.empty:
         frame = frame.merge(summary, on="canonical_match_id", how="left")
@@ -368,19 +376,13 @@ def load_match_odds(canonical_match_id: int) -> pd.DataFrame:
 
 
 def load_match_diagnostics(canonical_match_id: int) -> pd.DataFrame:
-    return query_df(
+    frame = query_df(
         """
         SELECT feature_status,
                missing_reason,
                team_a_golgg_name,
                team_b_golgg_name,
-               json_extract(features_json, '$.player_ratings.team_a_roster.source_match_id') AS a_roster_match_id,
-               json_extract(features_json, '$.player_ratings.team_a_roster.source_match_date') AS a_roster_date,
-               json_extract(features_json, '$.player_ratings.team_b_roster.source_match_id') AS b_roster_match_id,
-               json_extract(features_json, '$.player_ratings.team_b_roster.source_match_date') AS b_roster_date,
-               json_extract(features_json, '$.player_ratings.probabilities.consensus') AS player_rating_prob,
-               json_extract(features_json, '$.ratings.probabilities.consensus') AS team_rating_prob,
-               json_extract(features_json, '$.w20.probability') AS w20_prob
+               features_json
         FROM upcoming_match_features
         WHERE canonical_match_id=?
         ORDER BY updated_at DESC
@@ -388,6 +390,44 @@ def load_match_diagnostics(canonical_match_id: int) -> pd.DataFrame:
         """,
         (canonical_match_id,),
     )
+    if frame.empty:
+        return frame
+    frame["a_roster_match_id"] = frame["features_json"].map(
+        lambda value: safe_json_get(value, ["player_ratings", "team_a_roster", "source_match_id"])
+    )
+    frame["a_roster_date"] = frame["features_json"].map(
+        lambda value: safe_json_get(value, ["player_ratings", "team_a_roster", "source_match_date"])
+    )
+    frame["b_roster_match_id"] = frame["features_json"].map(
+        lambda value: safe_json_get(value, ["player_ratings", "team_b_roster", "source_match_id"])
+    )
+    frame["b_roster_date"] = frame["features_json"].map(
+        lambda value: safe_json_get(value, ["player_ratings", "team_b_roster", "source_match_date"])
+    )
+    frame["player_rating_prob"] = frame["features_json"].map(
+        lambda value: safe_json_get(value, ["player_ratings", "probabilities", "consensus"])
+    )
+    frame["team_rating_prob"] = frame["features_json"].map(
+        lambda value: safe_json_get(value, ["ratings", "probabilities", "consensus"])
+    )
+    frame["w20_prob"] = frame["features_json"].map(lambda value: safe_json_get(value, ["w20", "probability"]))
+    return frame.drop(columns=["features_json"], errors="ignore")
+
+
+def safe_json_get(raw_json: object, path: list[str]) -> object | None:
+    """Read nested JSON defensively; old local rows may contain invalid payloads."""
+
+    if raw_json is None:
+        return None
+    try:
+        current: object = json.loads(str(raw_json))
+        for key in path:
+            if not isinstance(current, dict):
+                return None
+            current = current.get(key)
+        return current
+    except Exception:
+        return None
 
 
 def load_readiness_counts() -> dict[str, int]:
