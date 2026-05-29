@@ -221,22 +221,30 @@ def render_match_card(canonical_match_id: int, *, tax_rate: float) -> None:
         if predictions.empty:
             st.info("Brak predykcji dla tego meczu.")
         else:
-            pred_view = predictions.copy()
-            pred_view["P(A) %"] = pred_view["prob_a"].map(format_pct)
-            pred_view["P(B) %"] = pred_view["prob_b"].map(format_pct)
+            pred_view = build_prediction_ev_table(predictions, summary, tax_rate=tax_rate)
             st.dataframe(
-                pred_view[["model_name", "model_version", "P(A) %", "P(B) %", "predicted_at"]],
+                pred_view[
+                    [
+                        "model_name",
+                        "model_version",
+                        "P(A) %",
+                        "P(B) %",
+                        "EV A %",
+                        "EV B %",
+                        "Best A",
+                        "Best B",
+                        "predicted_at",
+                    ]
+                ],
                 use_container_width=True,
                 hide_index=True,
             )
-        st.write("**EV hybrydy po podatku**")
-        st.write(
-            {
-                team_a: format_pct(summary.get("hybrid_ev_a")),
-                team_b: format_pct(summary.get("hybrid_ev_b")),
-                "tax": format_pct(tax_rate),
-            }
-        )
+        hybrid = latest_prediction(predictions, HYBRID_MODEL_NAME, HYBRID_MODEL_VERSION)
+        if hybrid:
+            ev_a = expected_value(float(hybrid["prob_a"]), float(summary.get("best_odds_a") or 0), tax_rate)
+            ev_b = expected_value(float(hybrid["prob_b"]), float(summary.get("best_odds_b") or 0), tax_rate)
+            st.write("**EV hybrydy po podatku dla najlepszych kursów**")
+            st.write({team_a: format_pct(ev_a), team_b: format_pct(ev_b), "tax": format_pct(tax_rate)})
     with tab3:
         st.subheader("Składy z ostatniego meczu GOL.GG")
         col_a, col_b = st.columns(2)
@@ -270,6 +278,23 @@ def render_match_summary_cards(summary: dict[str, Any], predictions: pd.DataFram
     cols[3].metric("Arbitraż", "TAK" if summary.get("arb_after_tax") else ("brutto" if summary.get("arb_no_tax") else "nie"))
     cols[4].metric("Hybryda P(A)", format_pct(hybrid.get("prob_a") if hybrid else None))
     cols[5].metric("Model P(A)", format_pct(sport.get("prob_a") if sport else None))
+
+
+def build_prediction_ev_table(predictions: pd.DataFrame, summary: dict[str, Any], *, tax_rate: float) -> pd.DataFrame:
+    """Add EV columns for every prediction using best available odds on both sides."""
+
+    frame = predictions.copy()
+    best_a = none_or_float(summary.get("best_odds_a"))
+    best_b = none_or_float(summary.get("best_odds_b"))
+    frame["P(A) %"] = frame["prob_a"].map(format_pct)
+    frame["P(B) %"] = frame["prob_b"].map(format_pct)
+    frame["Best A"] = format_odds(best_a)
+    frame["Best B"] = format_odds(best_b)
+    frame["EV A"] = frame["prob_a"].map(lambda probability: expected_value(float(probability), best_a, tax_rate) if best_a else None)
+    frame["EV B"] = frame["prob_b"].map(lambda probability: expected_value(float(probability), best_b, tax_rate) if best_b else None)
+    frame["EV A %"] = frame["EV A"].map(format_pct)
+    frame["EV B %"] = frame["EV B"].map(format_pct)
+    return frame
 
 
 def render_roster(team_name: str, roster: Any) -> None:
