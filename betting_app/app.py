@@ -257,9 +257,17 @@ def render_match_card(canonical_match_id: int, *, tax_rate: float) -> None:
         st.subheader("Składy z ostatniego meczu GOL.GG")
         col_a, col_b = st.columns(2)
         with col_a:
-            render_roster(team_a, safe_json_get(features, ["player_ratings", "team_a_roster"]))
+            render_roster(
+                team_a,
+                safe_json_get(features, ["player_ratings", "team_a_roster"]),
+                safe_json_get(features, ["player_ratings", "team_a"]),
+            )
         with col_b:
-            render_roster(team_b, safe_json_get(features, ["player_ratings", "team_b_roster"]))
+            render_roster(
+                team_b,
+                safe_json_get(features, ["player_ratings", "team_b_roster"]),
+                safe_json_get(features, ["player_ratings", "team_b"]),
+            )
     with tab4:
         st.subheader("Diagnostyka feature vector")
         if features:
@@ -340,7 +348,7 @@ def build_odds_ev_table(odds: pd.DataFrame, predictions: pd.DataFrame, *, tax_ra
     return frame
 
 
-def render_roster(team_name: str, roster: Any) -> None:
+def render_roster(team_name: str, roster: Any, player_ratings: Any = None) -> None:
     st.write(f"**{team_name}**")
     if not isinstance(roster, dict):
         st.info("Brak rosteru.")
@@ -352,7 +360,38 @@ def render_roster(team_name: str, roster: Any) -> None:
     if not players:
         st.info("Brak graczy.")
         return
-    st.dataframe(pd.DataFrame(players), use_container_width=True, hide_index=True)
+    roster_frame = enrich_roster_with_glicko(players, player_ratings)
+    st.dataframe(roster_frame, use_container_width=True, hide_index=True)
+
+
+def enrich_roster_with_glicko(players: list[dict[str, Any]], player_ratings: Any = None) -> pd.DataFrame:
+    """Attach player Glicko-2 rating/RD to roster rows when available."""
+
+    frame = pd.DataFrame(players)
+    if frame.empty:
+        return frame
+
+    glicko = player_ratings.get("gl") if isinstance(player_ratings, dict) else None
+    rating_rows = glicko.get("players", []) if isinstance(glicko, dict) else []
+    ratings_by_id = {
+        str(row.get("normalized_entity_name")): row
+        for row in rating_rows
+        if row.get("normalized_entity_name") is not None
+    }
+
+    def glicko_value(player_id: Any, field: str) -> float | None:
+        row = ratings_by_id.get(str(player_id))
+        if not row:
+            return None
+        return none_or_float(row.get(field))
+
+    frame["Glicko-2"] = frame["player_id"].map(lambda player_id: glicko_value(player_id, "rating_value"))
+    frame["Glicko-2 RD"] = frame["player_id"].map(lambda player_id: glicko_value(player_id, "rd"))
+    frame["Glicko-2 games"] = frame["player_id"].map(lambda player_id: glicko_value(player_id, "games_played"))
+    for column in ["Glicko-2", "Glicko-2 RD"]:
+        frame[column] = frame[column].map(lambda value: round(float(value), 1) if value is not None else None)
+    frame["Glicko-2 games"] = frame["Glicko-2 games"].map(lambda value: int(value) if value is not None else None)
+    return frame
 
 
 def load_match_board(*, min_books: int, hours_back: int, days_ahead: int, tax_rate: float) -> pd.DataFrame:
