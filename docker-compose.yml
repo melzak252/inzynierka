@@ -34,6 +34,7 @@ services:
       BETTING_APP_MIN_EV: "${BETTING_APP_MIN_EV:-0.05}"
       BETTING_APP_BANKROLL: "${BETTING_APP_BANKROLL:-100.0}"
       BETTING_APP_HEADLESS: "1"
+      PYTHONPATH: /app
       BETTING_DATABASE_URL: "${BETTING_DATABASE_URL:-}"
     volumes:
       - ./data:/app/data
@@ -58,6 +59,7 @@ services:
       BETTING_APP_MIN_EV: "${BETTING_APP_MIN_EV:-0.05}"
       BETTING_APP_BANKROLL: "${BETTING_APP_BANKROLL:-100.0}"
       BETTING_APP_HEADLESS: "1"
+      PYTHONPATH: /app
       BETTING_DATABASE_URL: "${BETTING_DATABASE_URL:-}"
       BETTING_SCHEDULER_INTERVAL_SECONDS: "${BETTING_SCHEDULER_INTERVAL_SECONDS:-7200}"
       BETTING_SCHEDULER_RUN_ON_START: "${BETTING_SCHEDULER_RUN_ON_START:-1}"
@@ -80,6 +82,7 @@ services:
       BETTING_APP_DB: /app/data/betting_app.sqlite3
       BETTING_APP_DEBUG_DIR: /app/data/betting_scraper_debug
       BETTING_APP_HEADLESS: "1"
+      PYTHONPATH: /app
       BETTING_DATABASE_URL: "${BETTING_DATABASE_URL:-}"
     volumes:
       - ./data:/app/data
