@@ -47,7 +47,6 @@ def main() -> None:
     filters = render_filters(tax_rate)
     board = load_match_board(
         min_books=int(filters["min_books"]),
-        hours_back=int(filters["hours_back"]),
         days_ahead=int(filters["days_ahead"]),
         tax_rate=tax_rate,
     )
@@ -77,16 +76,14 @@ def render_top_status(db_path: str) -> None:
 
 def render_filters(tax_rate: float) -> dict[str, int | float]:
     with st.expander("Filtry", expanded=False):
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         with col1:
             min_books = st.number_input("Min bukmacherów", min_value=1, max_value=10, value=1, step=1)
         with col2:
-            hours_back = st.number_input("Pokaż zaczęte max X h temu", min_value=0, max_value=48, value=2, step=1)
-        with col3:
             days_ahead = st.number_input("Dni do przodu", min_value=1, max_value=30, value=10, step=1)
-        with col4:
+        with col3:
             st.metric("Podatek w EV", f"{tax_rate:.0%}")
-    return {"min_books": int(min_books), "hours_back": int(hours_back), "days_ahead": int(days_ahead)}
+    return {"min_books": int(min_books), "days_ahead": int(days_ahead)}
 
 
 def render_board_metrics(board: pd.DataFrame) -> None:
@@ -432,15 +429,17 @@ def enrich_roster_with_glicko(players: list[dict[str, Any]], player_ratings: Any
     return frame
 
 
-def load_match_board(*, min_books: int, hours_back: int, days_ahead: int, tax_rate: float) -> pd.DataFrame:
+def load_match_board(*, min_books: int, days_ahead: int, tax_rate: float) -> pd.DataFrame:
     odds = load_latest_aligned_odds()
     if odds.empty:
         return pd.DataFrame()
     now = datetime.now(UTC)
     max_time = now + pd.Timedelta(days=days_ahead)
     odds["start_dt"] = pd.to_datetime(odds["start_time_normalized"], errors="coerce", utc=True)
-    odds = odds[(odds["start_dt"].isna()) | (odds["start_dt"] >= now - pd.Timedelta(hours=hours_back))]
-    odds = odds[(odds["start_dt"].isna()) | (odds["start_dt"] <= max_time)]
+    # Main board is intentionally future-only: hide live/started/finished offers.
+    # Rows without parseable start time are also hidden to avoid stale/ambiguous listings.
+    odds = odds[odds["start_dt"].notna()]
+    odds = odds[(odds["start_dt"] > now) & (odds["start_dt"] <= max_time)]
     records = []
     predictions = load_latest_predictions_for_board()
     for match_id, group in odds.groupby("canonical_match_id"):
