@@ -108,10 +108,11 @@ def resolve_canonical_match(
         canonical_key = build_canonical_key(team_a_key, team_b_key, start_norm, league_norm)
         connection.execute(
             """
-            INSERT OR IGNORE INTO canonical_matches(
+            INSERT INTO canonical_matches(
                 canonical_key, team_a_name, team_b_name, normalized_team_a, normalized_team_b,
                 start_time_normalized, league, match_confidence, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, CURRENT_TIMESTAMP)
+            ON CONFLICT (canonical_key) DO NOTHING
             """,
             (canonical_key, raw_team_a, raw_team_b, team_a_key, team_b_key, start_norm, league),
         )

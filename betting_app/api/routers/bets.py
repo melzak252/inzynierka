@@ -51,14 +51,12 @@ def create_wallet(
         db.execute(
             text("""
             INSERT INTO bookmaker_accounts (bookmaker_id, account_name, currency, opening_balance, current_balance, is_active, created_at, updated_at)
-            VALUES (:bid, :name, 'PLN', :bal, :bal, 1, datetime('now'), datetime('now'))
+            VALUES (:bid, :name, 'PLN', :bal, :bal, 1, NOW(), NOW())
             """),
             {"bid": bookmaker_id, "name": account_name, "bal": opening_balance},
         )
         db.commit()
         # fetch the inserted row
-        row = query_one(db, "SELECT * FROM bookmaker_accounts WHERE id=last_insert_rowid()")
-        # actually we need to fetch differently...
         rows = query_df(
             db,
             "SELECT ba.*, b.name AS bookmaker_name FROM bookmaker_accounts ba "

@@ -125,7 +125,7 @@ def _seed_bookmakers() -> None:
     with get_session() as session:
         for name, url in bookmakers:
             session.execute(
-                text("INSERT OR IGNORE INTO bookmakers (name, base_url) VALUES (:name, :url)"),
+                text("INSERT INTO bookmakers (name, base_url) VALUES (:name, :url) ON CONFLICT (name) DO NOTHING"),
                 {"name": name, "url": url},
             )
         session.commit()

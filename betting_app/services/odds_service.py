@@ -25,7 +25,7 @@ def get_or_create_bookmaker(name: str, base_url: str | None = None) -> int:
 
     with transaction() as connection:
         connection.execute(
-            "INSERT OR IGNORE INTO bookmakers(name, base_url) VALUES (?, ?)",
+            "INSERT INTO bookmakers(name, base_url) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
             (name, base_url),
         )
         row = connection.execute("SELECT id FROM bookmakers WHERE name = ?", (name,)).fetchone()
@@ -341,14 +341,13 @@ def insert_outcome_snapshot(snapshot: dict[str, Any]) -> int:
     with transaction() as connection:
         cursor = connection.execute(
             """
-            INSERT OR IGNORE INTO odds_outcome_snapshots(
-                bookmaker_id, bookmaker_event_id, bookmaker_market_id, scrape_run_id,
+            INSERT INTO odds_outcome_snapshots(
+                bookmaker_event_id, bookmaker_market_key, scrape_run_id,
                 scraped_at, source_url, offer_url, outcome_key, outcome_name, outcome_side,
-                decimal_odds, is_live, scraper_name, scraper_version, raw_payload
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                decimal_odds, raw_payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                bookmaker_id,
                 event_id,
                 market_id,
                 snapshot.get("scrape_run_id"),
@@ -359,9 +358,6 @@ def insert_outcome_snapshot(snapshot: dict[str, Any]) -> int:
                 str(snapshot["outcome_name"]),
                 snapshot.get("outcome_side"),
                 float(snapshot["decimal_odds"]),
-                int(bool(snapshot.get("is_live", False))),
-                snapshot.get("scraper_name"),
-                snapshot.get("scraper_version"),
                 raw_payload,
             ),
         )

@@ -1,0 +1,177 @@
+.match-list {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.match-list h1 {
+  margin-bottom: 0.25rem;
+  color: #e0e0e0;
+}
+
+.subtitle {
+  color: #888;
+  margin-bottom: 1.5rem;
+}
+
+.matches-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.match-card {
+  display: block;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+
+.match-card:hover {
+  border-color: #4a4a8a;
+  transform: translateY(-1px);
+}
+
+.match-card.ev-highlight {
+  border-color: #4caf50;
+  box-shadow: 0 0 12px rgba(76, 175, 80, 0.3);
+}
+
+.match-card.ev-highlight:hover {
+  border-color: #66bb6a;
+  box-shadow: 0 0 16px rgba(76, 175, 80, 0.4);
+}
+
+.match-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.league {
+  font-size: 0.8rem;
+  color: #8888cc;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.datetime {
+  font-size: 0.8rem;
+  color: #aaa;
+}
+
+.match-teams {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.team {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.team:last-child {
+  flex-direction: row-reverse;
+}
+
+.team-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.odds {
+  background: #16213e;
+  color: #4fc3f7;
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.odds-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.ev-value {
+  font-size: 0.7rem;
+  color: #aaa;
+  font-weight: 600;
+}
+
+.ev-value.ev-strong {
+  color: #4caf50;
+  font-weight: 700;
+}
+
+.best-bookmaker {
+  font-size: 0.7rem;
+  color: #666;
+  background: #16213e;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+}
+
+.vs {
+  color: #555;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.match-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid #2a2a4a;
+}
+
+.bookmakers {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.arb-badge {
+  background: #4caf50;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+}
+
+.ev-badge {
+  background: #ff9800;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+}
+
+.loading,
+.empty,
+.error {
+  text-align: center;
+  padding: 3rem;
+  color: #888;
+  font-size: 1.1rem;
+}
+
+.error {
+  color: #ef5350;
+}

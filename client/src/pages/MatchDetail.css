@@ -1,0 +1,183 @@
+.match-detail {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.back-link {
+  display: inline-block;
+  color: #4fc3f7;
+  text-decoration: none;
+  margin-bottom: 1.5rem;
+  font-size: 0.9rem;
+}
+
+.back-link:hover {
+  text-decoration: underline;
+}
+
+.match-header-card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.league-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.league {
+  font-size: 0.85rem;
+  color: #8888cc;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status {
+  font-size: 0.8rem;
+  color: #888;
+  background: #16213e;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+}
+
+.match-header-card h1 {
+  margin: 0.5rem 0;
+  color: #e0e0e0;
+  font-size: 1.8rem;
+}
+
+.datetime {
+  color: #aaa;
+  font-size: 1rem;
+}
+
+section {
+  margin-bottom: 2rem;
+}
+
+section h2 {
+  color: #e0e0e0;
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+}
+
+.no-data {
+  color: #888;
+  font-style: italic;
+}
+
+.odds-table,
+.predictions-table {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.odds-header,
+.predictions-header {
+  display: grid;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: #16213e;
+  font-weight: 600;
+  color: #888;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.odds-header {
+  grid-template-columns: 1.5fr 1fr 1fr 1.2fr 0.8fr;
+}
+
+.predictions-header {
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+}
+
+.odds-row,
+.predictions-row {
+  display: grid;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #2a2a4a;
+  align-items: center;
+}
+
+.odds-row {
+  grid-template-columns: 1.5fr 1fr 1fr 1.2fr 0.8fr;
+}
+
+.predictions-row {
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+}
+
+.bookmaker-name {
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.odds-value {
+  font-weight: 700;
+  color: #4fc3f7;
+  font-variant-numeric: tabular-nums;
+}
+
+.scraped-at {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.link-cell a {
+  color: #4fc3f7;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.link-cell a:hover {
+  text-decoration: underline;
+}
+
+.model-name {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.model-name small {
+  color: #888;
+  font-weight: 400;
+}
+
+.prob-value {
+  color: #e0e0e0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-value {
+  color: #888;
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-value.positive {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.loading,
+.empty,
+.error {
+  text-align: center;
+  padding: 3rem;
+  color: #888;
+  font-size: 1.1rem;
+}
+
+.error {
+  color: #ef5350;
+}

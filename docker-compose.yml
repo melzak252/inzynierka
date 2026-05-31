@@ -67,7 +67,16 @@ services:
       --host 0.0.0.0
       --port 8000
 
-
+  client:
+    build: ./client
+    container_name: ensemblelegends-client
+    restart: unless-stopped
+    depends_on:
+      - betting-api
+    ports:
+      - "${CLIENT_PORT:-3000}:3000"
+    environment:
+      VITE_API_PROXY_TARGET: "http://192.168.1.17:8000"
 
 volumes:
   timescale-data:
