@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from betting_app.core.database import init_db, query_df, transaction
+from betting_app.core.db import init_db, query_df, transaction
 
 
 DEFAULT_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"

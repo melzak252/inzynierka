@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 from betting_app.core.config import PROJECT_ROOT
-from betting_app.core.database import init_db, transaction
+from betting_app.core.db import init_db, transaction
 
 
 MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pandas as pd
 
 from betting_app.core.config import load_config
-from betting_app.core.database import query_df, transaction
+from betting_app.core.db import query_df, transaction
 from betting_app.core.ev import best_ev_side, fair_market_probabilities
 from betting_app.core.staking import fractional_kelly_stake
 

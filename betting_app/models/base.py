@@ -50,7 +50,7 @@ def _get_sync_engine():
                 pool_pre_ping=True,
             )
         else:
-            from betting_app.core.database import get_db_path
+            from betting_app.core.db import get_db_path
 
             _sync_engine = create_engine(
                 f"sqlite:///{get_db_path()}",

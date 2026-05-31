@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from betting_app.core.database import init_db
+from betting_app.core.db import init_db
 from betting_app.services.betting_service import initialize_bankroll
 from betting_app.services.mapping_service import sync_golgg_teams
 

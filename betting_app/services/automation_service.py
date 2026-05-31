@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from betting_app.core.database import connect, query_df
+from betting_app.core.db import connect, query_df
 
 
 def utc_now_iso() -> str:

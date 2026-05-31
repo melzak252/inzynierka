@@ -15,7 +15,7 @@ import math
 from datetime import UTC, datetime
 from typing import Any
 
-from betting_app.core.database import query_df, transaction
+from betting_app.core.db import query_df, transaction
 from betting_app.core.ev import expected_value, fair_market_probabilities
 from betting_app.core.matching import normalize_team_name
 from betting_app.core.staking import fractional_kelly_stake

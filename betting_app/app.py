@@ -14,7 +14,7 @@ except ImportError as exc:  # pragma: no cover - user-facing runtime guard
     raise SystemExit("Install streamlit to run the app: pip install streamlit") from exc
 
 from betting_app.core.config import load_config
-from betting_app.core.database import init_db, query_df
+from betting_app.core.db import init_db, query_df
 from betting_app.services.canonical_match_service import align_snapshot_odds, parse_iso
 
 

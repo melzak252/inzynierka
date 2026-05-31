@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from betting_app.core.database import query_df, transaction
+from betting_app.core.db import query_df, transaction
 from betting_app.core.matching import best_match, normalize_team_name, similarity
 from betting_app.core.config import PROJECT_ROOT
 

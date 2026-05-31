@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from betting_app.core.database import init_db, transaction
+from betting_app.core.db import init_db, transaction
 from betting_app.services.canonical_match_service import canonical_match_overview, resolve_canonical_match
 
 

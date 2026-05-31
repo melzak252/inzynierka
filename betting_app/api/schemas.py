@@ -224,3 +224,31 @@ class BookmakerStatus(BaseModel):
     base_url: str | None = None
     last_scraped_at: str | None = None
     snapshot_count: int = 0
+
+
+# ── Scheduler ───────────────────────────────────────────────────────────────
+
+
+class SchedulerTaskResponse(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    interval_minutes: int | None = None
+    cron_trigger: str | None = None
+    enabled: bool = True
+
+
+class SchedulerJobResponse(BaseModel):
+    id: str
+    name: str
+    enabled: bool = True
+    next_run_time: str | None = None
+    last_run_at: str | None = None
+    last_run_status: str | None = None
+    is_running: bool = False
+
+
+class SchedulerTriggerResponse(BaseModel):
+    task_id: str
+    status: str
+    message: str

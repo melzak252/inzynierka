@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import datetime
 from collections.abc import Generator
 from typing import Any
 
-from betting_app.core.db import get_session, query_df as _query_df, query_one as _query_one
+from sqlalchemy import text
+
+from betting_app.core.db import get_session
 
 
 def get_db() -> Generator[Any, None, None]:
@@ -19,16 +22,29 @@ def get_db() -> Generator[Any, None, None]:
 
 def query_df(db: Any, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Execute raw SQL with named parameters, return list of dicts (datetimes as strings)."""
-    rows = _query_df(db, sql, params or {})
-    # Convert PG datetimes to ISO strings
-    from datetime import datetime as _dt
+    result = db.execute(text(sql), params or {})
+    columns = list(result.keys())
+    rows = result.fetchall()
+    out = []
     for row in rows:
-        for k, v in row.items():
-            if isinstance(v, _dt):
-                row[k] = v.isoformat()
-    return rows
+        d = dict(row._mapping) if hasattr(row, "_mapping") else dict(zip(columns, row))
+        # Convert datetimes to ISO strings
+        for k, v in d.items():
+            if isinstance(v, (datetime.datetime, datetime.date)):
+                d[k] = v.isoformat()
+        out.append(d)
+    return out
 
 
 def query_one(db: Any, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """Execute raw SQL, return first row as dict or None."""
-    return _query_one(db, sql, params or {})
+    result = db.execute(text(sql), params or {})
+    columns = list(result.keys())
+    row = result.fetchone()
+    if row is None:
+        return None
+    d = dict(row._mapping) if hasattr(row, "_mapping") else dict(zip(columns, row))
+    for k, v in d.items():
+        if isinstance(v, (datetime.datetime, datetime.date)):
+            d[k] = v.isoformat()
+    return d

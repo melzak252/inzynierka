@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from betting_app.core.config import PROJECT_ROOT
-from betting_app.core.database import transaction
+from betting_app.core.db import transaction
 from betting_app.core.matching import normalize_team_name
 from src.utils import golgg_schema
 

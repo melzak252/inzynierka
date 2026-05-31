@@ -8,6 +8,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text as sa_text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,8 +26,8 @@ class CanonicalMatch(Base):
     normalized_team_b: Mapped[str] = mapped_column(String(200), nullable=False)
     start_time_normalized: Mapped[str | None] = mapped_column(String(50))
     league: Mapped[str | None] = mapped_column(String(100))
-    status: Mapped[str] = mapped_column(String(50), default="upcoming")
-    match_confidence: Mapped[float] = mapped_column(Integer, default=1.0)
+    status: Mapped[str] = mapped_column(String(50), server_default="'upcoming'")
+    match_confidence: Mapped[float] = mapped_column(Integer, server_default="1")
 
 
 class UpcomingMatch(Base):
@@ -44,6 +45,6 @@ class UpcomingMatch(Base):
     league: Mapped[str | None] = mapped_column(String(100))
     source_url: Mapped[str | None] = mapped_column(String(500))
     offer_url: Mapped[str | None] = mapped_column(String(500))
-    is_live: Mapped[bool] = mapped_column(Integer, default=False)
+    is_live: Mapped[bool] = mapped_column(Integer, server_default="0")
 
     __table_args__ = (UniqueConstraint("bookmaker_match_key"),)

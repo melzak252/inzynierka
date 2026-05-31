@@ -8,6 +8,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -17,7 +18,7 @@ from betting_app.models.base import Base
 class ModelArtifact(Base):
     __tablename__ = "model_artifacts"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     model_name: Mapped[str] = mapped_column(String(200), nullable=False)
     model_version: Mapped[str] = mapped_column(String(50), nullable=False)
     artifact_path: Mapped[str | None] = mapped_column(String(500))
@@ -25,7 +26,7 @@ class ModelArtifact(Base):
     model_params_json: Mapped[str | None] = mapped_column(Text)
     training_cutoff_at: Mapped[str | None] = mapped_column(String(50))
     metrics_json: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(50), default="registered")
+    status: Mapped[str] = mapped_column(String(50), server_default='registered')
 
     __table_args__ = (UniqueConstraint("model_name", "model_version"),)
 
@@ -33,24 +34,24 @@ class ModelArtifact(Base):
 class RatingRun(Base):
     __tablename__ = "rating_runs"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     ratings_version: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     source: Mapped[str | None] = mapped_column(String(100))
     data_cutoff_at: Mapped[str | None] = mapped_column(String(50))
     started_at: Mapped[str | None] = mapped_column(String(50))
     finished_at: Mapped[str | None] = mapped_column(String(50))
-    status: Mapped[str] = mapped_column(String(50), default="running")
+    status: Mapped[str] = mapped_column(String(50), server_default='running')
     systems_json: Mapped[str | None] = mapped_column(Text)
-    matches_processed: Mapped[int] = mapped_column(Integer, default=0)
-    games_processed: Mapped[int] = mapped_column(Integer, default=0)
-    players_processed: Mapped[int] = mapped_column(Integer, default=0)
+    matches_processed: Mapped[int] = mapped_column(Integer, server_default="0")
+    games_processed: Mapped[int] = mapped_column(Integer, server_default="0")
+    players_processed: Mapped[int] = mapped_column(Integer, server_default="0")
     error: Mapped[str | None] = mapped_column(Text)
 
 
 class EntityRating(Base):
     __tablename__ = "entity_ratings"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     rating_run_id: Mapped[int | None] = mapped_column(ForeignKey("rating_runs.id"))
     ratings_version: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     snapshot_at: Mapped[str | None] = mapped_column(String(50))
@@ -63,7 +64,7 @@ class EntityRating(Base):
     rating_value: Mapped[float | None] = mapped_column(Integer)
     rd: Mapped[float | None] = mapped_column(Integer)
     sigma: Mapped[float | None] = mapped_column(Integer)
-    games_played: Mapped[int] = mapped_column(Integer, default=0)
+    games_played: Mapped[int] = mapped_column(Integer, server_default="0")
     last_match_at: Mapped[str | None] = mapped_column(String(50))
     state_json: Mapped[str | None] = mapped_column(Text)
 
@@ -73,14 +74,14 @@ class EntityRating(Base):
 class TeamRollingFeature(Base):
     __tablename__ = "team_rolling_features"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     feature_version: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     team_name: Mapped[str] = mapped_column(String(200), nullable=False)
     normalized_team_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    window_size: Mapped[int] = mapped_column(Integer, default=20)
+    window_size: Mapped[int] = mapped_column(Integer, server_default="20")
     data_cutoff_at: Mapped[str | None] = mapped_column(String(50))
-    matches_count: Mapped[int] = mapped_column(Integer, default=0)
-    games_count: Mapped[int] = mapped_column(Integer, default=0)
+    matches_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    games_count: Mapped[int] = mapped_column(Integer, server_default="0")
     win_rate: Mapped[float | None] = mapped_column(Integer)
     avg_kills: Mapped[float | None] = mapped_column(Integer)
     avg_deaths: Mapped[float | None] = mapped_column(Integer)
@@ -100,14 +101,14 @@ class TeamRollingFeature(Base):
 class UpcomingMatchFeature(Base):
     __tablename__ = "upcoming_match_features"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     canonical_match_id: Mapped[int] = mapped_column(ForeignKey("canonical_matches.id"), nullable=False)
     feature_version: Mapped[str] = mapped_column(String(100), nullable=False)
     ratings_version: Mapped[str] = mapped_column(String(100), nullable=False)
     data_cutoff_at: Mapped[str | None] = mapped_column(String(50))
     team_a_golgg_name: Mapped[str | None] = mapped_column(String(200))
     team_b_golgg_name: Mapped[str | None] = mapped_column(String(200))
-    feature_status: Mapped[str] = mapped_column(String(50), default="pending")
+    feature_status: Mapped[str] = mapped_column(String(50), server_default='pending')
     missing_reason: Mapped[str | None] = mapped_column(Text)
     features_json: Mapped[str | None] = mapped_column(Text)
 
@@ -117,7 +118,7 @@ class UpcomingMatchFeature(Base):
 class CanonicalPrediction(Base):
     __tablename__ = "canonical_predictions"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     canonical_match_id: Mapped[int] = mapped_column(ForeignKey("canonical_matches.id"), nullable=False, index=True)
     model_artifact_id: Mapped[int | None] = mapped_column(ForeignKey("model_artifacts.id"))
     model_name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -128,14 +129,14 @@ class CanonicalPrediction(Base):
     features_version: Mapped[str | None] = mapped_column(String(100))
     ratings_version: Mapped[str | None] = mapped_column(String(100))
     data_cutoff_at: Mapped[str | None] = mapped_column(String(50))
-    prediction_status: Mapped[str] = mapped_column(String(50), default="active")
+    prediction_status: Mapped[str] = mapped_column(String(50), server_default='active')
     diagnostics_json: Mapped[str | None] = mapped_column(Text)
 
 
 class ModelEvSignal(Base):
     __tablename__ = "model_ev_signals"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     canonical_match_id: Mapped[int] = mapped_column(ForeignKey("canonical_matches.id"), nullable=False, index=True)
     canonical_prediction_id: Mapped[int | None] = mapped_column(ForeignKey("canonical_predictions.id"))
     odds_snapshot_id: Mapped[int | None] = mapped_column(Integer)
@@ -145,6 +146,6 @@ class ModelEvSignal(Base):
     model_prob: Mapped[float | None] = mapped_column(Integer)
     market_prob: Mapped[float | None] = mapped_column(Integer)
     ev: Mapped[float | None] = mapped_column(Integer)
-    tax_rate: Mapped[float] = mapped_column(Integer, default=0.12)
+    tax_rate: Mapped[float] = mapped_column(Integer, server_default="12")
     stake_suggestion: Mapped[float | None] = mapped_column(Integer)
-    status: Mapped[str] = mapped_column(String(50), default="new")
+    status: Mapped[str] = mapped_column(String(50), server_default='new')

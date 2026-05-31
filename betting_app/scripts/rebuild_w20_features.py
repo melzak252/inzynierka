@@ -25,7 +25,7 @@ from typing import Any
 
 from tqdm import tqdm
 
-from betting_app.core.database import connect, init_db, transaction
+from betting_app.core.db import connect, init_db, transaction
 from betting_app.core.matching import normalize_team_name
 
 

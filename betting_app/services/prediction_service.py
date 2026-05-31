@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from betting_app.core.database import query_df, transaction
+from betting_app.core.db import query_df, transaction
 
 
 MODEL_NAME = "manual-or-sym-cal-placeholder"

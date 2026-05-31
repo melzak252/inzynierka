@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from betting_app.core.database import init_db, query_df
+from betting_app.core.db import init_db, query_df
 from betting_app.services.golgg_import_service import DEFAULT_GOLGG_MATCHES_PATH, import_golgg_matches
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from betting_app.core.database import init_db
+from betting_app.core.db import init_db
 from betting_app.services.upcoming_inference_service import (
     DEFAULT_HYBRID_ALPHA,
     DEFAULT_HYBRID_MODEL_NAME,

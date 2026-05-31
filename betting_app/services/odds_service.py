@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from betting_app.core.database import query_df, transaction
+from betting_app.core.db import query_df, transaction
 from betting_app.core.matching import normalize_team_name
 from betting_app.services.canonical_match_service import resolve_canonical_match
 

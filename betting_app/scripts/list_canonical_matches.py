@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from betting_app.core.database import init_db, query_df
+from betting_app.core.db import init_db, query_df
 from betting_app.services.canonical_match_service import align_snapshot_odds, canonical_match_overview, canonical_team_key
 
 

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from betting_app.core.config import load_config
-from betting_app.core.database import init_db
+from betting_app.core.db import init_db
 
 
 def main() -> None:

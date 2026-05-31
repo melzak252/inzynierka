@@ -30,7 +30,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from betting_app.core.database import connect, init_db, transaction  # noqa: E402
+from betting_app.core.db import connect, init_db, transaction  # noqa: E402
 from betting_app.core.matching import normalize_team_name  # noqa: E402
 from src.ratings.manager import RatingManager  # noqa: E402
 

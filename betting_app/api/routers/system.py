@@ -104,9 +104,10 @@ def list_bookmakers(db=Depends(get_db)):
 @router.post("/automation/light-cycle", response_model=AutomationTriggerResponse)
 def trigger_light_cycle():
     try:
-        from betting_app.scripts import scheduler as sched
-        result = sched.run_light_cycle()
-        return AutomationTriggerResponse(status="completed", message=f"Light cycle finished: {result}")
+        from betting_app.scheduler.tasks import scrape, predict
+        scrape.scrape_all()
+        predict.run_prediction_pipeline()
+        return AutomationTriggerResponse(status="completed", message="Light cycle finished")
     except Exception as exc:
         return AutomationTriggerResponse(status="error", message=f"Light cycle failed: {exc}")
 

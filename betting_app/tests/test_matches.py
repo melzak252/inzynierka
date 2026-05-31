@@ -1,42 +1,37 @@
 """Tests for /api/matches endpoints."""
 
-from datetime import UTC, datetime
-
-import pytest
 from fastapi.testclient import TestClient
-from sqlite3 import Connection
+from sqlalchemy import text
 
-from betting_app.core.database import init_db
-
-
-def _ensure_bookmaker(db: Connection) -> int:
-    """Return the 'manual' bookmaker id (seeded by schema)."""
-    row = db.execute("SELECT id FROM bookmakers WHERE name='manual'").fetchone()
-    return int(row["id"]) if row else 1
+from betting_app.core.db import get_session
 
 
-def _seed_single_match(db: Connection) -> int:
-    """Insert one canonical match + one odds_snapshot, return canonical ID."""
-    bm_id = _ensure_bookmaker(db)
-    db.execute(
-        """
+def _seed_single_match() -> int:
+    """Insert one canonical match + one odds_snapshot using SQLAlchemy, return canonical ID."""
+    session = get_session()
+    # Use existing bookmaker (seeded by schema)
+    bm = session.execute(text("SELECT id FROM bookmakers WHERE name='manual'")).fetchone()
+    bm_id = int(bm[0]) if bm else 1
+
+    session.execute(
+        text("""
         INSERT INTO canonical_matches (id, canonical_key, team_a_name, team_b_name,
                                        normalized_team_a, normalized_team_b,
-                                       start_time_normalized, league, status)
+                                       start_time_normalized, league, status, match_confidence)
         VALUES (1, 'test-key-1', 'TeamA', 'TeamB',
-                'team-a', 'team-b', '2026-12-31T12:00:00+00:00', 'TEST', 'upcoming')
-        """
+                'team-a', 'team-b', '2026-12-31T12:00:00+00:00', 'TEST', 'upcoming', 1.0)
+        """),
     )
-    now = datetime.now(UTC).isoformat(timespec="seconds")
-    db.execute(
-        """
+    session.execute(
+        text("""
         INSERT INTO odds_snapshots (bookmaker_id, market_type, is_live, canonical_match_id,
                                     raw_team_a, raw_team_b, odds_a, odds_b, scraped_at, source_url)
-        VALUES (?, 'match_winner', 0, 1, 'TeamA', 'TeamB', 2.0, 1.8, ?, 'https://x.pl/')
-        """,
-        (bm_id, now),
+        VALUES (:bm, 'match_winner', 0, 1, 'TeamA', 'TeamB', 2.0, 1.8, datetime('now'), 'https://x.pl/')
+        """),
+        {"bm": bm_id},
     )
-    db.commit()
+    session.commit()
+    session.close()
     return 1
 
 
@@ -49,14 +44,7 @@ class TestMatchList:
         assert data["matches"] == []
 
     def test_single_seeded(self, client: TestClient):
-        from betting_app.core.database import get_db_path
-        import sqlite3
-        conn = sqlite3.connect(get_db_path())
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        _seed_single_match(conn)
-        conn.close()
-
+        _seed_single_match()
         resp = client.get("/matches?min_books=1&days_ahead=365")
         assert resp.status_code == 200
         data = resp.json()
@@ -68,14 +56,7 @@ class TestMatchList:
         assert item["best_odds_b"] == 1.8
 
     def test_min_books_filter(self, client: TestClient):
-        from betting_app.core.database import get_db_path
-        import sqlite3
-        conn = sqlite3.connect(get_db_path())
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        _seed_single_match(conn)
-        conn.close()
-
+        _seed_single_match()
         resp = client.get("/matches?min_books=2&days_ahead=365")
         assert resp.status_code == 200
         data = resp.json()
@@ -88,14 +69,7 @@ class TestMatchDetail:
         assert resp.status_code == 404
 
     def test_found(self, client: TestClient):
-        from betting_app.core.database import get_db_path
-        import sqlite3
-        conn = sqlite3.connect(get_db_path())
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        _seed_single_match(conn)
-        conn.close()
-
+        _seed_single_match()
         resp = client.get("/matches/1")
         assert resp.status_code == 200
         data = resp.json()
@@ -111,14 +85,7 @@ class TestOddsHistory:
         assert resp.status_code == 404
 
     def test_history_returns_rows(self, client: TestClient):
-        from betting_app.core.database import get_db_path
-        import sqlite3
-        conn = sqlite3.connect(get_db_path())
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        _seed_single_match(conn)
-        conn.close()
-
+        _seed_single_match()
         resp = client.get("/matches/1/odds-history")
         assert resp.status_code == 200
         data = resp.json()

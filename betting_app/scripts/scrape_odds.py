@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from betting_app.core.database import init_db
+from betting_app.core.db import init_db
 from betting_app.scrapers.betfan_nodriver import BETFAN_ESPORT_URL, BetfanNoDriverScraper
 from betting_app.scrapers.betclic_nodriver import BETCLIC_LOL_URL, BetclicNoDriverScraper
 from betting_app.scrapers.dry_run import DryRunScraper

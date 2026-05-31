@@ -16,8 +16,8 @@ import time
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
-from betting_app.core.database import get_db_path as sqlite_path
-from betting_app.core.database import connect as sqlite_connect
+from betting_app.core.db import get_db_path as sqlite_path
+from betting_app.core.db import connect as sqlite_connect
 
 
 def log(msg: str) -> None:

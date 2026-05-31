@@ -1,23 +1,23 @@
 """Tests for /api/bets and /api/wallets endpoints."""
 
 from fastapi.testclient import TestClient
-from betting_app.core.database import get_db_path
-import sqlite3
+from sqlalchemy import text
+
+from betting_app.core.db import get_session
 
 
 def _seed_wallet() -> int:
-    """Create a test wallet tied to the 'manual' bookmaker (seeded in schema). Return wallet ID."""
-    conn = sqlite3.connect(get_db_path())
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    # 'manual' bookmaker is seeded first → id=1
-    cur = conn.execute(
-        "INSERT INTO bookmaker_accounts (bookmaker_id, account_name, currency, opening_balance, current_balance) "
-        "VALUES (1, 'test-wallet', 'PLN', 1000.0, 1000.0)"
+    """Create a test wallet, return its ID."""
+    session = get_session()
+    result = session.execute(
+        text("""
+        INSERT INTO bookmaker_accounts (bookmaker_id, account_name, currency, opening_balance, current_balance, is_active, created_at, updated_at)
+        VALUES (1, 'test-wallet', 'PLN', 1000.0, 1000.0, 1, datetime('now'), datetime('now'))
+        """),
     )
-    conn.commit()
-    wid = cur.lastrowid
-    conn.close()
+    session.commit()
+    wid = result.lastrowid
+    session.close()
     return wid
 
 
@@ -66,16 +66,12 @@ class TestBets:
         assert bet["status"] == "open"
         assert bet["stake"] == 100.0
 
-        # Settle as won
         resp = client.post(f"/bets/{bet['id']}/settle", json={"result": "won"})
         assert resp.status_code == 200
         settled = resp.json()
         assert settled["status"] == "won"
-
-        # profit = 100 * 2.0 * 0.88 - 100 = 76
         assert settled["profit"] == 76.0
 
-        # Check wallet updated: 1000 - 100 + 176 = 1076
         resp = client.get("/wallets")
         wallets = resp.json()
         assert wallets[0]["current_balance"] == 1076.0
@@ -84,12 +80,7 @@ class TestBets:
         wid = _seed_wallet()
         resp = client.post(
             "/bets",
-            json={
-                "bookmaker_account_id": wid,
-                "side": "b",
-                "stake": 50,
-                "odds": 3.0,
-            },
+            json={"bookmaker_account_id": wid, "side": "b", "stake": 50, "odds": 3.0},
         )
         assert resp.status_code == 201, resp.text
         bet = resp.json()
@@ -103,23 +94,13 @@ class TestBets:
         wid = _seed_wallet()
         resp = client.post(
             "/bets",
-            json={
-                "bookmaker_account_id": wid,
-                "side": "a",
-                "stake": 9999,
-                "odds": 2.0,
-            },
+            json={"bookmaker_account_id": wid, "side": "a", "stake": 9999, "odds": 2.0},
         )
         assert resp.status_code == 400
 
     def test_wallet_not_found(self, client: TestClient):
         resp = client.post(
             "/bets",
-            json={
-                "bookmaker_account_id": 999,
-                "side": "a",
-                "stake": 10,
-                "odds": 2.0,
-            },
+            json={"bookmaker_account_id": 999, "side": "a", "stake": 10, "odds": 2.0},
         )
         assert resp.status_code == 404
