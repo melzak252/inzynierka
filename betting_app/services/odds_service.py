@@ -148,7 +148,8 @@ def insert_odds_snapshot(snapshot: dict[str, Any]) -> int:
                 str(snapshot.get("screenshot_path")) if snapshot.get("screenshot_path") else None,
             ),
         )
-        return int(cursor.lastrowid)
+        row_id = cursor.lastrowid
+        return int(row_id) if row_id is not None else 0
 
 
 def start_scrape_run(
