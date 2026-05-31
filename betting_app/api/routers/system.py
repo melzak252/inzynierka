@@ -1,12 +1,10 @@
-"""Router: /api/system, /api/bookmakers, /api/automation — health, status, triggers."""
+"""Router: /api/system, /api/bookmakers, /api/automation."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
-from sqlite3 import Connection
 
-from betting_app.api.deps import get_db, query_df
+from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import (
     AutomationTriggerResponse,
     BookmakerStatus,
@@ -17,19 +15,13 @@ from betting_app.api.schemas import (
 router = APIRouter(tags=["system"])
 
 
-# ── GET /api/health ─────────────────────────────────────────────────────────
-
-
 @router.get("/health", response_model=HealthResponse)
 def health():
     return HealthResponse()
 
 
-# ── GET /api/system/status ──────────────────────────────────────────────────
-
-
 @router.get("/system/status", response_model=SystemStatusResponse)
-def system_status(db: Connection = Depends(get_db)):
+def system_status(db=Depends(get_db)):
     counts = {
         r["key"]: r["value"]
         for r in query_df(
@@ -82,16 +74,13 @@ def system_status(db: Connection = Depends(get_db)):
     )
 
 
-# ── GET /api/bookmakers ─────────────────────────────────────────────────────
-
-
 @router.get("/bookmakers", response_model=list[BookmakerStatus])
-def list_bookmakers(db: Connection = Depends(get_db)):
+def list_bookmakers(db=Depends(get_db)):
     rows = query_df(
         db,
         """
         SELECT b.id, b.name, b.base_url,
-               MAX(os.scraped_at) AS last_scraped_at,
+               MAX(os.scraped_at)::text AS last_scraped_at,
                COUNT(*) AS snapshot_count
         FROM bookmakers b
         LEFT JOIN odds_snapshots os ON os.bookmaker_id=b.id
@@ -112,32 +101,21 @@ def list_bookmakers(db: Connection = Depends(get_db)):
     ]
 
 
-# ── POST /api/automation/light-cycle ────────────────────────────────────────
-
-
 @router.post("/automation/light-cycle", response_model=AutomationTriggerResponse)
 def trigger_light_cycle():
-    """Run a light cycle synchronously (blocking, may be slow)."""
     try:
         from betting_app.scripts import scheduler as sched
         result = sched.run_light_cycle()
-        return AutomationTriggerResponse(
-            status="completed",
-            message=f"Light cycle finished: {result}",
-        )
+        return AutomationTriggerResponse(status="completed", message=f"Light cycle finished: {result}")
     except Exception as exc:
         return AutomationTriggerResponse(status="error", message=f"Light cycle failed: {exc}")
 
 
 @router.post("/automation/backup", response_model=AutomationTriggerResponse)
 def trigger_backup():
-    """Backup SQLite database."""
     try:
         from betting_app.scripts import backup_sqlite as backup
         result = backup.create_backup()
-        return AutomationTriggerResponse(
-            status="completed",
-            message=f"Backup created: {result}",
-        )
+        return AutomationTriggerResponse(status="completed", message=f"Backup created: {result}")
     except Exception as exc:
         return AutomationTriggerResponse(status="error", message=f"Backup failed: {exc}")

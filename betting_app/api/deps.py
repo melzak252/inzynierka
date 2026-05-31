@@ -1,37 +1,34 @@
-"""FastAPI dependencies: database connection, shared helpers."""
+"""FastAPI dependencies — SQLAlchemy session, query helpers."""
 
 from __future__ import annotations
 
 from collections.abc import Generator
 from typing import Any
 
-import sqlite3
-
-from betting_app.core.database import get_db_path
+from betting_app.core.db import get_session, query_df as _query_df, query_one as _query_one
 
 
-def get_db() -> Generator[sqlite3.Connection, None, None]:
-    """Yield a read-write SQLite connection.
-
-    FastAPI manages the context: opens before the handler, closes after.
-    """
-    path = get_db_path()
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
+def get_db() -> Generator[Any, None, None]:
+    """Yield an SQLAlchemy session, close on teardown."""
+    session = get_session()
     try:
-        yield conn
+        yield session
     finally:
-        conn.close()
+        session.close()
 
 
-def query_df(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
-    """Return query result as a list of dicts (lightweight, no pandas dependency)."""
-    cur = conn.execute(sql, params)
-    columns = [desc[0] for desc in cur.description]
-    return [dict(zip(columns, row)) for row in cur.fetchall()]
+def query_df(db: Any, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """Execute raw SQL with named parameters, return list of dicts (datetimes as strings)."""
+    rows = _query_df(db, sql, params or {})
+    # Convert PG datetimes to ISO strings
+    from datetime import datetime as _dt
+    for row in rows:
+        for k, v in row.items():
+            if isinstance(v, _dt):
+                row[k] = v.isoformat()
+    return rows
 
 
-def query_one(conn: sqlite3.Connection, sql: str, params: tuple[Any, ...] = ()) -> dict[str, Any] | None:
-    rows = query_df(conn, sql, params)
-    return rows[0] if rows else None
+def query_one(db: Any, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """Execute raw SQL, return first row as dict or None."""
+    return _query_one(db, sql, params or {})
