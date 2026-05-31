@@ -70,6 +70,27 @@ services:
       python -m betting_app.scripts.scheduler
       --mode light
 
+  betting-api:
+    image: ensemblelegends-betting:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.betting
+    container_name: ensemblelegends-betting-api
+    restart: unless-stopped
+    ports:
+      - "${BETTING_API_PORT:-8000}:8000"
+    environment:
+      BETTING_APP_DB: /app/data/betting_app.sqlite3
+      BETTING_APP_TAX_RATE: "${BETTING_APP_TAX_RATE:-0.12}"
+      BETTING_APP_MIN_EV: "${BETTING_APP_MIN_EV:-0.05}"
+      PYTHONPATH: /app
+    volumes:
+      - ./data:/app/data
+    command: >
+      uvicorn betting_app.api.main:app
+      --host 0.0.0.0
+      --port 8000
+
   betting-maintenance:
     image: ensemblelegends-betting:latest
     build:
