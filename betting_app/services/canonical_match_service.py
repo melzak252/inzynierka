@@ -97,7 +97,7 @@ def resolve_canonical_match(
                 UPDATE canonical_matches
                 SET start_time_normalized = COALESCE(start_time_normalized, ?),
                     league = COALESCE(league, ?),
-                    match_confidence = MAX(match_confidence, ?)
+                    match_confidence = GREATEST(match_confidence, ?)
                 WHERE id = ?
                 """,
                 (start_norm, league, best_score, best_id),
