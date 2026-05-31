@@ -74,7 +74,7 @@ def resolve_canonical_match(
             """
             SELECT * FROM canonical_matches
             WHERE status = 'upcoming'
-            ORDER BY updated_at DESC
+            ORDER BY id DESC
             LIMIT 500
             """
         ).fetchall()
@@ -97,8 +97,7 @@ def resolve_canonical_match(
                 UPDATE canonical_matches
                 SET start_time_normalized = COALESCE(start_time_normalized, ?),
                     league = COALESCE(league, ?),
-                    match_confidence = MAX(match_confidence, ?),
-                    updated_at = CURRENT_TIMESTAMP
+                    match_confidence = MAX(match_confidence, ?)
                 WHERE id = ?
                 """,
                 (start_norm, league, best_score, best_id),
@@ -110,8 +109,8 @@ def resolve_canonical_match(
             """
             INSERT INTO canonical_matches(
                 canonical_key, team_a_name, team_b_name, normalized_team_a, normalized_team_b,
-                start_time_normalized, league, match_confidence, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, CURRENT_TIMESTAMP)
+                start_time_normalized, league, match_confidence
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0)
             ON CONFLICT (canonical_key) DO NOTHING
             """,
             (canonical_key, raw_team_a, raw_team_b, team_a_key, team_b_key, start_norm, league),

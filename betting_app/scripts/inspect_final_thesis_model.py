@@ -70,15 +70,14 @@ def register_report(report: dict) -> None:
             """
             INSERT INTO model_artifacts(
                 model_name, model_version, artifact_path, feature_schema_json,
-                model_params_json, training_cutoff_at, metrics_json, status, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                model_params_json, training_cutoff_at, metrics_json, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(model_name, model_version) DO UPDATE SET
                 artifact_path = excluded.artifact_path,
                 feature_schema_json = excluded.feature_schema_json,
                 model_params_json = excluded.model_params_json,
                 metrics_json = excluded.metrics_json,
-                status = excluded.status,
-                updated_at = CURRENT_TIMESTAMP
+                status = excluded.status
             """,
             (
                 MODEL_NAME,

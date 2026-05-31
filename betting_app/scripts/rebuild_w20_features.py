@@ -294,8 +294,7 @@ def persist_rows(rows: list[tuple[Any, ...]]) -> None:
                 avg_dragons = excluded.avg_dragons,
                 avg_nashors = excluded.avg_nashors,
                 avg_game_duration = excluded.avg_game_duration,
-                features_json = excluded.features_json,
-                updated_at = CURRENT_TIMESTAMP
+                features_json = excluded.features_json
             """,
             rows,
         )

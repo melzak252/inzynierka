@@ -461,16 +461,15 @@ def upsert_upcoming_features(**kwargs: Any) -> None:
             INSERT INTO upcoming_match_features(
                 canonical_match_id, feature_version, ratings_version, data_cutoff_at,
                 team_a_golgg_name, team_b_golgg_name, feature_status, missing_reason,
-                features_json, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                features_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(canonical_match_id, feature_version, ratings_version) DO UPDATE SET
                 data_cutoff_at = excluded.data_cutoff_at,
                 team_a_golgg_name = excluded.team_a_golgg_name,
                 team_b_golgg_name = excluded.team_b_golgg_name,
                 feature_status = excluded.feature_status,
                 missing_reason = excluded.missing_reason,
-                features_json = excluded.features_json,
-                updated_at = CURRENT_TIMESTAMP
+                features_json = excluded.features_json
             """,
             (
                 kwargs["canonical_match_id"],
@@ -515,13 +514,12 @@ def register_operational_model() -> int:
         connection.execute(
             """
             INSERT INTO model_artifacts(
-                model_name, model_version, feature_schema_json, model_params_json, status, updated_at
-            ) VALUES (?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
+                model_name, model_version, feature_schema_json, model_params_json, status
+            ) VALUES (?, ?, ?, ?, 'active')
             ON CONFLICT(model_name, model_version) DO UPDATE SET
                 feature_schema_json = excluded.feature_schema_json,
                 model_params_json = excluded.model_params_json,
-                status = 'active',
-                updated_at = CURRENT_TIMESTAMP
+                status = 'active'
             """,
             (
                 DEFAULT_MODEL_NAME,
@@ -784,13 +782,12 @@ def register_hybrid_model(*, alpha: float, temperature: float, version: str) -> 
         connection.execute(
             """
             INSERT INTO model_artifacts(
-                model_name, model_version, feature_schema_json, model_params_json, status, updated_at
-            ) VALUES (?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
+                model_name, model_version, feature_schema_json, model_params_json, status
+            ) VALUES (?, ?, ?, ?, 'active')
             ON CONFLICT(model_name, model_version) DO UPDATE SET
                 feature_schema_json = excluded.feature_schema_json,
                 model_params_json = excluded.model_params_json,
-                status = 'active',
-                updated_at = CURRENT_TIMESTAMP
+                status = 'active'
             """,
             (
                 DEFAULT_HYBRID_MODEL_NAME,

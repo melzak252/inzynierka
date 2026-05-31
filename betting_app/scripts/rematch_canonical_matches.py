@@ -49,7 +49,7 @@ def rematch_odds_snapshots() -> int:
         )
         with transaction() as connection:
             connection.execute(
-                "UPDATE upcoming_matches SET canonical_match_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                "UPDATE upcoming_matches SET canonical_match_id = ? WHERE id = ?",
                 (canonical_match_id, row["id"]),
             )
             connection.execute(

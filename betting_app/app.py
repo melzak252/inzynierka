@@ -613,7 +613,7 @@ def load_feature_json(canonical_match_id: int) -> dict[str, Any] | None:
         SELECT features_json
         FROM upcoming_match_features
         WHERE canonical_match_id=?
-        ORDER BY updated_at DESC
+        ORDER BY id DESC
         LIMIT 1
         """,
         (canonical_match_id,),

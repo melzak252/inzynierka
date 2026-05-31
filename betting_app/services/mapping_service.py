@@ -104,11 +104,10 @@ def sync_golgg_teams() -> int:
         for team in teams:
             connection.execute(
                 """
-                INSERT INTO golgg_teams(team_name, normalized_name, updated_at)
-                VALUES (?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO golgg_teams(team_name, normalized_name)
+                VALUES (?, ?)
                 ON CONFLICT(normalized_name) DO UPDATE SET
-                    team_name = excluded.team_name,
-                    updated_at = CURRENT_TIMESTAMP
+                    team_name = excluded.team_name
                 """,
                 (team, normalize_team_name(team)),
             )
@@ -167,15 +166,14 @@ def upsert_alias(raw_name: str, golgg_team_name: str, source: str = "manual", co
             ).fetchone()
         connection.execute(
             """
-            INSERT INTO team_aliases(raw_name, normalized_name, golgg_team_id, golgg_team_name, confidence, confirmed_manually, source, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            INSERT INTO team_aliases(raw_name, normalized_name, golgg_team_id, golgg_team_name, confidence, confirmed_manually, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(normalized_name, source) DO UPDATE SET
                 raw_name = excluded.raw_name,
                 golgg_team_id = excluded.golgg_team_id,
                 golgg_team_name = excluded.golgg_team_name,
                 confidence = excluded.confidence,
-                confirmed_manually = excluded.confirmed_manually,
-                updated_at = CURRENT_TIMESTAMP
+                confirmed_manually = excluded.confirmed_manually
             """,
             (raw_name, normalized, int(team["id"]), golgg_team_name, confidence, int(confirmed), source),
         )

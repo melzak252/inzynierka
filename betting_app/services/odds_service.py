@@ -59,34 +59,38 @@ def upsert_upcoming_match(
         match_start_time=match_start_time,
         league=league,
     )
+    bookmaker_id = get_or_create_bookmaker(bookmaker)
+    norm_a = normalize_team_name(raw_team_a)
+    norm_b = normalize_team_name(raw_team_b)
     with transaction() as connection:
         connection.execute(
             """
             INSERT INTO upcoming_matches(
-                canonical_match_id, canonical_team_a, canonical_team_b, raw_team_a, raw_team_b,
-                match_start_time, league, offer_url, bookmaker_match_key, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                bookmaker_id, bookmaker_match_key, canonical_match_id,
+                raw_team_a, raw_team_b, normalized_team_a, normalized_team_b,
+                match_start_time, league, offer_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(bookmaker_match_key) DO UPDATE SET
                 canonical_match_id = excluded.canonical_match_id,
-                canonical_team_a = excluded.canonical_team_a,
-                canonical_team_b = excluded.canonical_team_b,
                 raw_team_a = excluded.raw_team_a,
                 raw_team_b = excluded.raw_team_b,
+                normalized_team_a = excluded.normalized_team_a,
+                normalized_team_b = excluded.normalized_team_b,
                 match_start_time = excluded.match_start_time,
                 league = excluded.league,
-                offer_url = COALESCE(excluded.offer_url, upcoming_matches.offer_url),
-                updated_at = CURRENT_TIMESTAMP
+                offer_url = COALESCE(excluded.offer_url, upcoming_matches.offer_url)
             """,
             (
+                bookmaker_id,
+                key,
                 canonical_match_id,
-                canonical_team_a,
-                canonical_team_b,
                 raw_team_a,
                 raw_team_b,
+                norm_a,
+                norm_b,
                 match_start_time,
                 league,
                 offer_url,
-                key,
             ),
         )
         row = connection.execute("SELECT id FROM upcoming_matches WHERE bookmaker_match_key = ?", (key,)).fetchone()
@@ -118,11 +122,9 @@ def insert_odds_snapshot(snapshot: dict[str, Any]) -> int:
         cursor = connection.execute(
             """
             INSERT INTO odds_snapshots(
-                bookmaker_id, match_id, canonical_match_id, scraped_at, source_url, offer_url, raw_league,
-                raw_team_a, raw_team_b, mapped_team_a, mapped_team_b,
-                match_start_time, odds_a, odds_b, market_type, is_live,
-                scraper_name, scraper_version, raw_payload, page_html_path, screenshot_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                bookmaker_id, match_id, canonical_match_id, scraped_at, source_url, offer_url,
+                raw_team_a, raw_team_b, odds_a, odds_b, market_type, is_live, raw_payload
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 bookmaker_id,
@@ -131,21 +133,13 @@ def insert_odds_snapshot(snapshot: dict[str, Any]) -> int:
                 scraped_at,
                 snapshot.get("source_url"),
                 snapshot.get("offer_url"),
-                snapshot.get("raw_league"),
                 snapshot["raw_team_a"],
                 snapshot["raw_team_b"],
-                snapshot.get("mapped_team_a"),
-                snapshot.get("mapped_team_b"),
-                snapshot.get("match_start_time"),
                 float(snapshot["odds_a"]),
                 float(snapshot["odds_b"]),
                 snapshot.get("market_type", "match_winner"),
                 int(bool(snapshot.get("is_live", False))),
-                snapshot.get("scraper_name"),
-                snapshot.get("scraper_version"),
                 raw_payload,
-                str(snapshot.get("page_html_path")) if snapshot.get("page_html_path") else None,
-                str(snapshot.get("screenshot_path")) if snapshot.get("screenshot_path") else None,
             ),
         )
         row_id = cursor.lastrowid
@@ -234,17 +228,14 @@ def upsert_bookmaker_event(snapshot: dict[str, Any]) -> int:
         connection.execute(
             """
             INSERT INTO bookmaker_events(
-                bookmaker_id, bookmaker_event_id, match_id, canonical_match_id, raw_team_a, raw_team_b,
-                mapped_team_a, mapped_team_b, match_start_time, sport_id, sport_name,
-                category_id, category_name, league_id, league_name, offer_url, last_seen_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                bookmaker_id, bookmaker_event_id, canonical_match_id, raw_team_a, raw_team_b,
+                match_start_time, sport_id, sport_name,
+                category_id, category_name, league_id, league_name, offer_url, first_seen_at, last_seen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ON CONFLICT(bookmaker_id, bookmaker_event_id) DO UPDATE SET
-                match_id = excluded.match_id,
                 canonical_match_id = excluded.canonical_match_id,
                 raw_team_a = excluded.raw_team_a,
                 raw_team_b = excluded.raw_team_b,
-                mapped_team_a = excluded.mapped_team_a,
-                mapped_team_b = excluded.mapped_team_b,
                 match_start_time = excluded.match_start_time,
                 sport_id = excluded.sport_id,
                 sport_name = excluded.sport_name,
@@ -253,18 +244,14 @@ def upsert_bookmaker_event(snapshot: dict[str, Any]) -> int:
                 league_id = excluded.league_id,
                 league_name = excluded.league_name,
                 offer_url = COALESCE(excluded.offer_url, bookmaker_events.offer_url),
-                last_seen_at = CURRENT_TIMESTAMP,
-                updated_at = CURRENT_TIMESTAMP
+                last_seen_at = CURRENT_TIMESTAMP
             """,
             (
                 bookmaker_id,
                 str(snapshot["bookmaker_event_id"]),
-                match_id,
                 canonical_match_id,
                 snapshot["raw_team_a"],
                 snapshot["raw_team_b"],
-                snapshot.get("mapped_team_a"),
-                snapshot.get("mapped_team_b"),
                 snapshot.get("match_start_time"),
                 snapshot.get("sport_id"),
                 snapshot.get("sport_name"),
@@ -290,28 +277,37 @@ def get_upcoming_canonical_match_id(match_id: int) -> int | None:
         return int(row["canonical_match_id"]) if row and row["canonical_match_id"] is not None else None
 
 
-def upsert_bookmaker_market(event_id: int, snapshot: dict[str, Any]) -> int:
-    """Create/update bookmaker market for an event."""
+def upsert_bookmaker_market(event_id: int, snapshot: dict[str, Any]) -> str:
+    """Create/update bookmaker market for an event and return market_key."""
 
     market_name = str(snapshot.get("market_name") or snapshot.get("line_name") or "unknown")
     market_key = str(snapshot.get("market_key") or f"{snapshot.get('line_id') or 'unknown'}:{market_name}")
+    
+    # Get bookmaker_event_id from event_id
     with transaction() as connection:
+        row = connection.execute(
+            "SELECT bookmaker_event_id FROM bookmaker_events WHERE id = ?",
+            (event_id,),
+        ).fetchone()
+        if not row:
+            raise ValueError(f"bookmaker_event id={event_id} not found")
+        bookmaker_event_id = str(row["bookmaker_event_id"])
+        
         connection.execute(
             """
             INSERT INTO bookmaker_markets(
                 bookmaker_event_id, bookmaker_market_key, market_name, market_type,
-                line_id, line_name, is_extra_market, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                line_id, line_name, is_extra_market
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(bookmaker_event_id, bookmaker_market_key) DO UPDATE SET
                 market_name = excluded.market_name,
                 market_type = excluded.market_type,
                 line_id = excluded.line_id,
                 line_name = excluded.line_name,
-                is_extra_market = excluded.is_extra_market,
-                updated_at = CURRENT_TIMESTAMP
+                is_extra_market = excluded.is_extra_market
             """,
             (
-                event_id,
+                bookmaker_event_id,
                 market_key,
                 market_name,
                 snapshot.get("market_type") or _market_type_from_name(market_name),
@@ -320,11 +316,7 @@ def upsert_bookmaker_market(event_id: int, snapshot: dict[str, Any]) -> int:
                 int(bool(snapshot.get("is_extra_market", False))),
             ),
         )
-        row = connection.execute(
-            "SELECT id FROM bookmaker_markets WHERE bookmaker_event_id = ? AND bookmaker_market_key = ?",
-            (event_id, market_key),
-        ).fetchone()
-        return int(row["id"])
+        return market_key
 
 
 def insert_outcome_snapshot(snapshot: dict[str, Any]) -> int:
@@ -333,7 +325,16 @@ def insert_outcome_snapshot(snapshot: dict[str, Any]) -> int:
     bookmaker_name = str(snapshot.get("bookmaker", "manual"))
     bookmaker_id = get_or_create_bookmaker(bookmaker_name, snapshot.get("base_url"))
     event_id = upsert_bookmaker_event(snapshot)
-    market_id = upsert_bookmaker_market(event_id, snapshot)
+    market_key = upsert_bookmaker_market(event_id, snapshot)
+
+    # Get the string bookmaker_event_id from the integer event_id
+    with transaction() as connection:
+        row = connection.execute(
+            "SELECT bookmaker_event_id FROM bookmaker_events WHERE id = ?",
+            (event_id,),
+        ).fetchone()
+        bookmaker_event_id = str(row["bookmaker_event_id"])
+
     raw_payload = snapshot.get("raw_payload")
     if raw_payload is not None and not isinstance(raw_payload, str):
         raw_payload = json.dumps(raw_payload, ensure_ascii=False)
@@ -348,8 +349,8 @@ def insert_outcome_snapshot(snapshot: dict[str, Any]) -> int:
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                event_id,
-                market_id,
+                bookmaker_event_id,
+                market_key,
                 snapshot.get("scrape_run_id"),
                 str(snapshot.get("scraped_at") or utc_now_iso()),
                 snapshot.get("source_url"),

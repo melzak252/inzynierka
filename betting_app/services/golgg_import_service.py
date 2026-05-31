@@ -62,8 +62,8 @@ def import_golgg_batch(matches: list[dict[str, Any]]) -> dict[str, int]:
                     match_id, date, tournament_name, patch, team1_name, team2_name,
                     team1_id, team2_id, team1_score, team2_score, team1_win, team2_win,
                     draw, games_played, best_of, winner_name, loser_name, source_link,
-                    raw_json, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(match_id) DO UPDATE SET
                     date = excluded.date,
                     tournament_name = excluded.tournament_name,
@@ -82,8 +82,7 @@ def import_golgg_batch(matches: list[dict[str, Any]]) -> dict[str, int]:
                     winner_name = excluded.winner_name,
                     loser_name = excluded.loser_name,
                     source_link = excluded.source_link,
-                    raw_json = excluded.raw_json,
-                    updated_at = CURRENT_TIMESTAMP
+                    raw_json = excluded.raw_json
                 """,
                 match_row(match, match_id),
             )
@@ -102,8 +101,8 @@ def import_golgg_batch(matches: list[dict[str, Any]]) -> dict[str, int]:
                     INSERT INTO golgg_games(
                         game_id, match_id, date, tournament_name, patch, team1_name, team2_name,
                         team1_id, team2_id, team1_win, team2_win, draw, team1_side, team2_side,
-                        game_duration, team1_stats_json, team2_stats_json, raw_json, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        game_duration, team1_stats_json, team2_stats_json, raw_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(game_id) DO UPDATE SET
                         match_id = excluded.match_id,
                         date = excluded.date,
@@ -121,8 +120,7 @@ def import_golgg_batch(matches: list[dict[str, Any]]) -> dict[str, int]:
                         game_duration = excluded.game_duration,
                         team1_stats_json = excluded.team1_stats_json,
                         team2_stats_json = excluded.team2_stats_json,
-                        raw_json = excluded.raw_json,
-                        updated_at = CURRENT_TIMESTAMP
+                        raw_json = excluded.raw_json
                     """,
                     game_row(game, match_id),
                 )
@@ -203,8 +201,8 @@ def upsert_game_players(connection, game: dict[str, Any], match_id: str, game_id
                 INSERT INTO golgg_game_players(
                     game_id, match_id, team_id, team_name, side, role, player_id,
                     player_name, champion_id, champion_name, champion_image,
-                    stats_json, raw_json, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    stats_json, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(game_id, side, role) DO UPDATE SET
                     match_id = excluded.match_id,
                     team_id = excluded.team_id,
@@ -215,8 +213,7 @@ def upsert_game_players(connection, game: dict[str, Any], match_id: str, game_id
                     champion_name = excluded.champion_name,
                     champion_image = excluded.champion_image,
                     stats_json = excluded.stats_json,
-                    raw_json = excluded.raw_json,
-                    updated_at = CURRENT_TIMESTAMP
+                    raw_json = excluded.raw_json
                 """,
                 (
                     game_id,
@@ -245,14 +242,12 @@ def upsert_golgg_team(connection, team_name: Any, last_seen_at: Any = None) -> i
         return 0
     connection.execute(
         """
-        INSERT INTO golgg_teams(team_name, normalized_name, last_seen_at, updated_at)
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        INSERT INTO golgg_teams(team_name, normalized_name)
+        VALUES (?, ?)
         ON CONFLICT(normalized_name) DO UPDATE SET
-            team_name = excluded.team_name,
-            last_seen_at = COALESCE(excluded.last_seen_at, golgg_teams.last_seen_at),
-            updated_at = CURRENT_TIMESTAMP
+            team_name = excluded.team_name
         """,
-        (team_name.strip(), normalize_team_name(team_name), str(last_seen_at) if last_seen_at else None),
+        (team_name.strip(), normalize_team_name(team_name)),
     )
     return 1
 

@@ -54,16 +54,15 @@ def register_default_model() -> int:
             """
             INSERT INTO model_artifacts(
                 model_name, model_version, artifact_path, feature_schema_json,
-                model_params_json, training_cutoff_at, metrics_json, status, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', CURRENT_TIMESTAMP)
+                model_params_json, training_cutoff_at, metrics_json, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
             ON CONFLICT(model_name, model_version) DO UPDATE SET
                 artifact_path = excluded.artifact_path,
                 feature_schema_json = excluded.feature_schema_json,
                 model_params_json = excluded.model_params_json,
                 training_cutoff_at = excluded.training_cutoff_at,
                 metrics_json = excluded.metrics_json,
-                status = 'active',
-                updated_at = CURRENT_TIMESTAMP
+                status = 'active'
             """,
             (
                 DEFAULT_MODEL_NAME,
