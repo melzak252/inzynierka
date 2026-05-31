@@ -13,11 +13,12 @@ import os
 import sys
 import time
 
+import sqlite3
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 
 from betting_app.core.db import get_db_path as sqlite_path
-from betting_app.core.db import connect as sqlite_connect
 
 
 def log(msg: str) -> None:
@@ -45,7 +46,13 @@ TABLES: list[tuple[str, str, str, int]] = [
 
 
 def migrate_table(pg_session: Session, table: str, pg_table: str, cols: str, batch: int) -> int:
-    src = sqlite_connect()
+    sqlite_db = sqlite_path()
+    if not sqlite_db or not sqlite_db.exists():
+        log(f"  SKIP {table}: SQLite file not found at {sqlite_db}")
+        return 0
+    
+    src = sqlite3.connect(str(sqlite_db))
+    src.row_factory = sqlite3.Row
     try:
         # Build SELECT for only the columns we need
         cols_stripped = cols.strip("()")
