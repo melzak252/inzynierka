@@ -14,8 +14,8 @@ def refresh_golgg() -> dict:
     start = datetime.utcnow()
     
     steps = {
-        "refresh": _run_module("betting_app.scripts.refresh_golgg", timeout=600),
-        "import": _run_module("betting_app.scripts.import_golgg", timeout=300),
+        "refresh": _run_module("betting_app.scripts.refresh_golgg_results", timeout=600),
+        "import": _run_module("betting_app.scripts.import_golgg_to_db", timeout=300),
     }
     
     duration = (datetime.utcnow() - start).total_seconds()
@@ -31,11 +31,15 @@ def refresh_golgg() -> dict:
 
 
 def rebuild_ratings() -> dict:
-    """Rebuild team Elo ratings."""
+    """Rebuild team Elo ratings.
+    
+    NOTE: Full rebuild processes ~40k matches and takes ~2 hours.
+    Timeout set to 7200s (2h) to allow completion.
+    """
     logger.info("Rebuilding team ratings")
     start = datetime.utcnow()
     
-    success = _run_module("betting_app.scripts.rebuild_ratings", timeout=300)
+    success = _run_module("betting_app.scripts.rebuild_ratings", timeout=7200)
     duration = (datetime.utcnow() - start).total_seconds()
     
     logger.info(f"Ratings rebuild: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
@@ -48,7 +52,7 @@ def rebuild_rolling_features() -> dict:
     logger.info("Rebuilding rolling features")
     start = datetime.utcnow()
     
-    success = _run_module("betting_app.scripts.rebuild_rolling_features", timeout=300)
+    success = _run_module("betting_app.scripts.rebuild_w20_features", timeout=300)
     duration = (datetime.utcnow() - start).total_seconds()
     
     logger.info(f"Features rebuild: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
