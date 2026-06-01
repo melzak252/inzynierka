@@ -92,8 +92,11 @@ def list_matches(
         FROM latest l
         JOIN canonical_matches cm ON cm.id=l.canonical_match_id
         JOIN bookmakers b ON b.id=l.bookmaker_id
-        LEFT JOIN upcoming_matches um ON um.canonical_match_id=l.canonical_match_id
-          AND um.bookmaker_id=l.bookmaker_id
+        LEFT JOIN LATERAL (
+            SELECT offer_url FROM upcoming_matches
+            WHERE canonical_match_id=l.canonical_match_id AND bookmaker_id=l.bookmaker_id
+            LIMIT 1
+        ) um ON true
         WHERE cm.start_time_normalized IS NOT NULL
           AND cm.status = 'upcoming'
           AND REPLACE(cm.start_time_normalized, 'T', ' ') > REPLACE(:now, 'T', ' ')
