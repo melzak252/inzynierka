@@ -98,6 +98,101 @@ def migrate_table(pg_session: Session, table: str, pg_table: str, cols: str, bat
     return inserted
 
 
+def migrate_upcoming_matches(pg_session: Session) -> int:
+    """Migrate upcoming_matches from SQLite to PostgreSQL with schema transformation."""
+    sqlite_db = sqlite_path()
+    if not sqlite_db or not sqlite_db.exists():
+        log(f"  SKIP upcoming_matches: SQLite file not found at {sqlite_db}")
+        return 0
+    
+    src = sqlite3.connect(str(sqlite_db))
+    src.row_factory = sqlite3.Row
+    try:
+        cursor = src.execute("""
+            SELECT id, canonical_team_a, canonical_team_b, raw_team_a, raw_team_b, 
+                   match_start_time, league, bookmaker_match_key, offer_url, canonical_match_id
+            FROM upcoming_matches
+        """)
+        all_rows = cursor.fetchall()
+    except Exception as e:
+        log(f"  SKIP upcoming_matches: {e}")
+        src.close()
+        return 0
+
+    if not all_rows:
+        src.close()
+        return 0
+
+    # Build bookmaker name -> id mapping
+    bookmaker_map = {}
+    result = pg_session.execute(text("SELECT id, name FROM bookmakers"))
+    for row in result:
+        bookmaker_map[row[1]] = row[0]
+    
+    log(f"  Bookmaker mapping: {bookmaker_map}")
+
+    inserted = 0
+    skipped = 0
+    
+    for row in all_rows:
+        # Extract bookmaker name from bookmaker_match_key (format: "betclic|team_a|team_b|time")
+        key_parts = row["bookmaker_match_key"].split("|")
+        bookmaker_name = key_parts[0] if key_parts else "unknown"
+        
+        bookmaker_id = bookmaker_map.get(bookmaker_name)
+        if not bookmaker_id:
+            log(f"  SKIP row {row['id']}: unknown bookmaker '{bookmaker_name}'")
+            skipped += 1
+            continue
+        
+        # Use canonical_team_a/b as normalized_team_a/b
+        normalized_a = row["canonical_team_a"] or row["raw_team_a"]
+        normalized_b = row["canonical_team_b"] or row["raw_team_b"]
+        
+        try:
+            pg_session.execute(
+                text("""
+                    INSERT INTO upcoming_matches 
+                    (bookmaker_id, bookmaker_match_key, canonical_match_id, raw_team_a, raw_team_b, 
+                     normalized_team_a, normalized_team_b, match_start_time, league, source_url, offer_url, is_live)
+                    VALUES (:bookmaker_id, :bookmaker_match_key, :canonical_match_id, :raw_team_a, :raw_team_b,
+                            :normalized_team_a, :normalized_team_b, :match_start_time, :league, :source_url, :offer_url, :is_live)
+                    ON CONFLICT (bookmaker_match_key) DO NOTHING
+                """),
+                {
+                    "bookmaker_id": bookmaker_id,
+                    "bookmaker_match_key": row["bookmaker_match_key"],
+                    "canonical_match_id": row["canonical_match_id"],
+                    "raw_team_a": row["raw_team_a"],
+                    "raw_team_b": row["raw_team_b"],
+                    "normalized_team_a": normalized_a,
+                    "normalized_team_b": normalized_b,
+                    "match_start_time": row["match_start_time"],
+                    "league": row["league"],
+                    "source_url": None,
+                    "offer_url": row["offer_url"],
+                    "is_live": 0,
+                }
+            )
+            inserted += 1
+        except Exception as e:
+            log(f"  ERROR row {row['id']}: {e}")
+            pg_session.rollback()
+            continue
+        
+        if inserted % 50 == 0:
+            pg_session.commit()
+            log(f"  {inserted}/{len(all_rows)}")
+    
+    pg_session.commit()
+    src.close()
+    
+    if skipped > 0:
+        log(f"  Skipped {skipped} rows with unknown bookmakers")
+    
+    return inserted
+
+
 def main() -> None:
     pg_url = os.environ.get("DATABASE_URL", "")
     if not pg_url:
@@ -118,6 +213,11 @@ def main() -> None:
             log(f"Migrating {table} -> {pg_table} ...")
             done = migrate_table(session, table, pg_table, cols, batch_size)
             log(f"  done ({done} rows)")
+
+        # Migrate upcoming_matches with special handling
+        log("Migrating upcoming_matches -> upcoming_matches ...")
+        done = migrate_upcoming_matches(session)
+        log(f"  done ({done} rows)")
 
         # Re-enable FK triggers
         session.execute(text("SET session_replication_role = 'origin';"))
