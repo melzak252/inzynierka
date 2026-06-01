@@ -14,7 +14,7 @@ import psycopg2
 from pathlib import Path
 
 SQLITE_PATH = Path("/app/data/betting_app.sqlite3")
-PG_DSN = "postgresql://betting:betting@timescaledb:5432/betting"
+PG_DSN = "postgresql://betting:betting_local_password@timescaledb:5432/betting"
 
 
 def main():
