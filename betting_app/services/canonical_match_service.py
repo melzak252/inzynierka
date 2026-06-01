@@ -192,11 +192,8 @@ def normalize_start_time(value: str | None) -> str | None:
         target = today + timedelta(days=1)
         hour, minute = map(int, rel.groups())
         return datetime(target.year, target.month, target.day, hour, minute, tzinfo=UTC).isoformat()
-    countdown = re.match(r"^(\d{1,2}):(\d{2}):(\d{2})$", raw)
-    if countdown:
-        hours, minutes, seconds = map(int, countdown.groups())
-        target = datetime.now(UTC) + timedelta(hours=hours, minutes=minutes, seconds=seconds)
-        return target.replace(second=0, microsecond=0).isoformat()
+    # Skip countdown format (HH:MM:SS) - Betfan sometimes shows countdown instead of start time
+    # This would create duplicate canonical_matches with wrong times
     parsed = parse_iso(raw)
     if parsed:
         return parsed.replace(microsecond=0).isoformat()
