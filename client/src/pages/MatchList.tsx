@@ -125,15 +125,23 @@ export default function MatchList() {
                 <span className="bookmakers">
                   {m.bookmaker_count} bukmacher{m.bookmaker_count !== 1 ? 'ów' : ''}
                 </span>
-                {m.best_bookmaker_a && (
-                  <span className="best-bookmaker" title="Najlepszy kurs na {m.team_a_name}">
+                {m.best_bookmaker_a && m.best_bookmaker_b && m.best_bookmaker_a === m.best_bookmaker_b ? (
+                  <span className="best-bookmaker" title="Najlepsze kursy na obie strony">
                     {m.best_bookmaker_a}
                   </span>
-                )}
-                {m.best_bookmaker_b && (
-                  <span className="best-bookmaker" title="Najlepszy kurs na {m.team_b_name}">
-                    {m.best_bookmaker_b}
-                  </span>
+                ) : (
+                  <>
+                    {m.best_bookmaker_a && (
+                      <span className="best-bookmaker" title="Najlepszy kurs na {m.team_a_name}">
+                        {m.best_bookmaker_a}
+                      </span>
+                    )}
+                    {m.best_bookmaker_b && (
+                      <span className="best-bookmaker" title="Najlepszy kurs na {m.team_b_name}">
+                        {m.best_bookmaker_b}
+                      </span>
+                    )}
+                  </>
                 )}
                 {m.arb_after_tax && (
                   <span className="arb-badge">ARB</span>
