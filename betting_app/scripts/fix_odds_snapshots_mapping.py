@@ -96,14 +96,33 @@ def main():
     inserted = 0
     skipped = 0
     
+    # Mapowanie bookmaker_id: SQLite -> PG
+    bookmaker_mapping = {
+        1: None,    # manual - skip
+        2: 2,       # sts
+        3: 3,       # betclic
+        4: 6,       # fortuna
+        391: 4,     # superbet
+        392: 5,     # efortuna
+        520: 7,     # betfan
+        521: 8,     # totalbet
+        522: 9,     # lebull
+    }
+    
     for row in rows:
         sqlite_cm_id = row[0]
+        sqlite_bk_id = row[1]
         
         if sqlite_cm_id not in id_mapping:
             skipped += 1
             continue
         
+        if sqlite_bk_id not in bookmaker_mapping or bookmaker_mapping[sqlite_bk_id] is None:
+            skipped += 1
+            continue
+        
         pg_cm_id = id_mapping[sqlite_cm_id]
+        pg_bk_id = bookmaker_mapping[sqlite_bk_id]
         
         pg_cur.execute("""
             INSERT INTO odds_snapshots (
@@ -114,7 +133,7 @@ def main():
             ON CONFLICT DO NOTHING
         """, (
             pg_cm_id,
-            row[1],  # bookmaker_id
+            pg_bk_id,  # bookmaker_id (mapped)
             row[2],  # market_type
             row[3],  # raw_team_a
             row[4],  # raw_team_b
