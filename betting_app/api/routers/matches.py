@@ -95,6 +95,7 @@ def list_matches(
         LEFT JOIN upcoming_matches um ON um.canonical_match_id=l.canonical_match_id
           AND um.bookmaker_id=l.bookmaker_id
         WHERE cm.start_time_normalized IS NOT NULL
+          AND cm.status = 'upcoming'
           AND REPLACE(cm.start_time_normalized, 'T', ' ') > REPLACE(:now, 'T', ' ')
           AND REPLACE(cm.start_time_normalized, 'T', ' ') <= REPLACE(:max_dt, 'T', ' ')
         ORDER BY cm.start_time_normalized, cm.id
