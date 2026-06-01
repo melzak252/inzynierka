@@ -249,8 +249,11 @@ def match_detail(match_id: int, db=Depends(get_db)):
                um.offer_url
         FROM latest l
         JOIN bookmakers b ON b.id=l.bookmaker_id
-        LEFT JOIN upcoming_matches um ON um.canonical_match_id=l.canonical_match_id
-                                        AND um.bookmaker_id=l.bookmaker_id
+        LEFT JOIN LATERAL (
+            SELECT offer_url FROM upcoming_matches
+            WHERE canonical_match_id=l.canonical_match_id AND bookmaker_id=l.bookmaker_id
+            LIMIT 1
+        ) um ON true
         ORDER BY b.name
         """,
         {"mid": match_id},
