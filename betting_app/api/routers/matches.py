@@ -87,10 +87,13 @@ def list_matches(
                b.name AS bookmaker,
                l.raw_team_a, l.raw_team_b,
                l.odds_a, l.odds_b,
-               l.scraped_at, l.source_url, l.offer_url
+               l.scraped_at, l.source_url,
+               um.offer_url
         FROM latest l
         JOIN canonical_matches cm ON cm.id=l.canonical_match_id
         JOIN bookmakers b ON b.id=l.bookmaker_id
+        LEFT JOIN upcoming_matches um ON um.canonical_match_id=l.canonical_match_id
+          AND um.bookmaker_id=l.bookmaker_id
         WHERE cm.start_time_normalized IS NOT NULL
           AND REPLACE(cm.start_time_normalized, 'T', ' ') > REPLACE(:now, 'T', ' ')
           AND REPLACE(cm.start_time_normalized, 'T', ' ') <= REPLACE(:max_dt, 'T', ' ')
