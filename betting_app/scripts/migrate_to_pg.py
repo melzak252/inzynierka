@@ -35,6 +35,7 @@ TABLES: list[tuple[str, str, str, int]] = [
     ("team_aliases",        "team_aliases",         "(normalized_name, alias, source)",  200),
     ("canonical_matches",   "canonical_matches",    "(canonical_key, team_a_name, team_b_name, normalized_team_a, normalized_team_b, start_time_normalized, league, status, match_confidence)", 200),
     ("odds_snapshots",      "odds_snapshots",       "(bookmaker_id, canonical_match_id, market_type, raw_team_a, raw_team_b, odds_a, odds_b, is_live, scraped_at, source_url, offer_url)", 1000),
+    # Note: manual bookmaker entries are filtered out during migration
     ("scrape_runs",         "scrape_runs",          "(bookmaker_id, scraper_name, scraper_version, started_at, finished_at, status, source_url, request_url, items_seen, items_inserted, error)", 200),
     ("bookmaker_events",    "bookmaker_events",     "(bookmaker_id, bookmaker_event_id, canonical_match_id, raw_team_a, raw_team_b, match_start_time, sport_id, sport_name, category_id, category_name, league_id, league_name, offer_url)", 200),
     ("entity_ratings",      "entity_ratings",       "(ratings_version, entity_type, entity_name, normalized_entity_name, team_name, role, rating_system, rating_value, rd, sigma, games_played, last_match_at, state_json)", 2000),
@@ -57,7 +58,16 @@ def migrate_table(pg_session: Session, table: str, pg_table: str, cols: str, bat
         # Build SELECT for only the columns we need
         cols_stripped = cols.strip("()")
         select_cols = ", ".join(c.strip().split()[0] for c in cols_stripped.split(","))
-        cursor = src.execute(f"SELECT {select_cols} FROM {table}")
+        
+        # Filter out manual bookmaker entries for odds_snapshots
+        if table == "odds_snapshots":
+            cursor = src.execute(f"""
+                SELECT {select_cols} FROM {table} 
+                WHERE bookmaker_id NOT IN (SELECT id FROM bookmakers WHERE name = 'manual')
+            """)
+        else:
+            cursor = src.execute(f"SELECT {select_cols} FROM {table}")
+        
         all_rows = cursor.fetchall()
         col_names = [desc[0] for desc in cursor.description]
     except Exception as e:
@@ -138,6 +148,11 @@ def migrate_upcoming_matches(pg_session: Session) -> int:
         # Extract bookmaker name from bookmaker_match_key (format: "betclic|team_a|team_b|time")
         key_parts = row["bookmaker_match_key"].split("|")
         bookmaker_name = key_parts[0] if key_parts else "unknown"
+        
+        # Skip manual bookmaker entries
+        if bookmaker_name == "manual":
+            skipped += 1
+            continue
         
         bookmaker_id = bookmaker_map.get(bookmaker_name)
         if not bookmaker_id:
