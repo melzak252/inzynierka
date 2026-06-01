@@ -21,6 +21,8 @@ from betting_app.api.schemas import (
     RosterInfo,
     RosterPlayer,
     OddsHistoryPoint,
+    TeamComparisonInfo,
+    TeamMappingInfo,
 )
 from betting_app.services.canonical_match_service import align_snapshot_odds
 from betting_app.services.market_service import (
@@ -264,18 +266,48 @@ def match_detail(match_id: int, db=Depends(get_db)):
 
     n_a = m.get("normalized_team_a") or ""
     n_b = m.get("normalized_team_b") or ""
+    
+    # Get hybrid prediction for EV/Kelly calculation
+    hybrid_pred = query_df(
+        db,
+        """
+        SELECT prob_a, prob_b
+        FROM canonical_predictions
+        WHERE canonical_match_id=:mid AND prediction_status='active'
+          AND model_name=:hn AND model_version=:hv
+        ORDER BY predicted_at DESC
+        LIMIT 1
+        """,
+        {"mid": match_id, "hn": HYBRID_MODEL_NAME, "hv": HYBRID_MODEL_VERSION},
+    )
+    hybrid_prob_a = none_or_float(hybrid_pred[0].get("prob_a")) if hybrid_pred else None
+    hybrid_prob_b = none_or_float(hybrid_pred[0].get("prob_b")) if hybrid_pred else None
+    
     odds_rows: list[BookmakerOddsRow] = []
     for row in odds:
         aligned = _align(row, n_a, n_b)
+        odds_a = aligned[0]
+        odds_b = aligned[1]
+        
+        # Calculate EV and Kelly per bookmaker
+        ev_a = expected_value(hybrid_prob_a, odds_a, TAX_RATE) if hybrid_prob_a is not None and odds_a else None
+        ev_b = expected_value(hybrid_prob_b, odds_b, TAX_RATE) if hybrid_prob_b is not None and odds_b else None
+        kelly_a = kelly_fraction(hybrid_prob_a, odds_a, TAX_RATE) if hybrid_prob_a is not None and odds_a else None
+        kelly_b = kelly_fraction(hybrid_prob_b, odds_b, TAX_RATE) if hybrid_prob_b is not None and odds_b else None
+        
         odds_rows.append(BookmakerOddsRow(
             bookmaker=row["bookmaker"],
             raw_team_a=row.get("raw_team_a"),
             raw_team_b=row.get("raw_team_b"),
-            canonical_odds_a=aligned[0],
-            canonical_odds_b=aligned[1],
+            canonical_odds_a=odds_a,
+            canonical_odds_b=odds_b,
             scraped_at=row.get("scraped_at"),
             source_url=row.get("source_url"),
             offer_url=row.get("offer_url"),
+            ev_a=ev_a,
+            ev_b=ev_b,
+            kelly_a=kelly_a,
+            kelly_b=kelly_b,
         ))
 
     preds = query_df(
@@ -310,6 +342,8 @@ def match_detail(match_id: int, db=Depends(get_db)):
     # Rosters from features_json
     roster_a: RosterInfo | None = None
     roster_b: RosterInfo | None = None
+    team_comparison: TeamComparisonInfo | None = None
+    
     feat = query_df(
         db,
         """
@@ -326,6 +360,48 @@ def match_detail(match_id: int, db=Depends(get_db)):
                 f = json.loads(f)
             except Exception:
                 f = {}
+
+        # Extract team mapping info
+        mapping = safe_json_get(f, ["mapping"])
+        if isinstance(mapping, dict):
+            team_a_info = TeamMappingInfo(
+                canonical_name=m.get("team_a_name"),
+                golgg_name=mapping.get("team_a_golgg_name"),
+                confidence=none_or_float(mapping.get("team_a_confidence")),
+            )
+            team_b_info = TeamMappingInfo(
+                canonical_name=m.get("team_b_name"),
+                golgg_name=mapping.get("team_b_golgg_name"),
+                confidence=none_or_float(mapping.get("team_b_confidence")),
+            )
+            
+            # Get team ratings for comparison
+            ratings = safe_json_get(f, ["ratings"])
+            team_a_rating = None
+            team_b_rating = None
+            rating_system = None
+            
+            if isinstance(ratings, dict):
+                team_a_ratings = ratings.get("team_a", {})
+                team_b_ratings = ratings.get("team_b", {})
+                
+                # Prefer Glicko rating system
+                if "gl" in team_a_ratings and "gl" in team_b_ratings:
+                    team_a_rating = none_or_float(team_a_ratings["gl"].get("rating_value"))
+                    team_b_rating = none_or_float(team_b_ratings["gl"].get("rating_value"))
+                    rating_system = "Glicko"
+                elif "elo" in team_a_ratings and "elo" in team_b_ratings:
+                    team_a_rating = none_or_float(team_a_ratings["elo"].get("rating_value"))
+                    team_b_rating = none_or_float(team_b_ratings["elo"].get("rating_value"))
+                    rating_system = "Elo"
+            
+            team_comparison = TeamComparisonInfo(
+                team_a=team_a_info,
+                team_b=team_b_info,
+                team_a_rating=team_a_rating,
+                team_b_rating=team_b_rating,
+                rating_system=rating_system,
+            )
 
         for side_key, side_label, out in [
             ("team_a_roster", m.get("team_a_name", "Team A"), "a"),
@@ -365,6 +441,7 @@ def match_detail(match_id: int, db=Depends(get_db)):
         predictions=pred_rows,
         roster_a=roster_a,
         roster_b=roster_b,
+        team_comparison=team_comparison,
     )
 
 

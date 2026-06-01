@@ -73,6 +73,10 @@ class BookmakerOddsRow(BaseModel):
     scraped_at: str | None = None
     source_url: str | None = None
     offer_url: str | None = None
+    ev_a: float | None = None
+    ev_b: float | None = None
+    kelly_a: float | None = None
+    kelly_b: float | None = None
 
 
 class PredictionRow(BaseModel):
@@ -103,6 +107,20 @@ class RosterInfo(BaseModel):
     players: list[RosterPlayer] = []
 
 
+class TeamMappingInfo(BaseModel):
+    canonical_name: str | None = None
+    golgg_name: str | None = None
+    confidence: float | None = None
+
+
+class TeamComparisonInfo(BaseModel):
+    team_a: TeamMappingInfo | None = None
+    team_b: TeamMappingInfo | None = None
+    team_a_rating: float | None = None
+    team_b_rating: float | None = None
+    rating_system: str | None = None
+
+
 class MatchDetailResponse(BaseModel):
     canonical_match_id: int
     team_a_name: str | None = None
@@ -115,6 +133,7 @@ class MatchDetailResponse(BaseModel):
     predictions: list[PredictionRow] = []
     roster_a: RosterInfo | None = None
     roster_b: RosterInfo | None = None
+    team_comparison: TeamComparisonInfo | None = None
 
 
 # ── Odds history (line movement) ────────────────────────────────────────────

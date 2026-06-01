@@ -41,6 +41,10 @@ export interface BookmakerOddsRow {
   scraped_at: string | null;
   source_url: string | null;
   offer_url: string | null;
+  ev_a: number | null;
+  ev_b: number | null;
+  kelly_a: number | null;
+  kelly_b: number | null;
 }
 
 export interface PredictionRow {
@@ -71,6 +75,20 @@ export interface RosterInfo {
   players: RosterPlayer[];
 }
 
+export interface TeamMappingInfo {
+  canonical_name: string | null;
+  golgg_name: string | null;
+  confidence: number | null;
+}
+
+export interface TeamComparisonInfo {
+  team_a: TeamMappingInfo | null;
+  team_b: TeamMappingInfo | null;
+  team_a_rating: number | null;
+  team_b_rating: number | null;
+  rating_system: string | null;
+}
+
 export interface MatchDetailResponse {
   canonical_match_id: number;
   team_a_name: string | null;
@@ -82,4 +100,5 @@ export interface MatchDetailResponse {
   predictions: PredictionRow[];
   roster_a: RosterInfo | null;
   roster_b: RosterInfo | null;
+  team_comparison: TeamComparisonInfo | null;
 }

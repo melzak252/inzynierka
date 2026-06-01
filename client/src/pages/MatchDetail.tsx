@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { fetchMatchDetail } from '../api/client';
-import type { MatchDetailResponse } from '../types';
+import type { MatchDetailResponse, BookmakerOddsRow } from '../types';
 import './MatchDetail.css';
 
 export default function MatchDetail() {
@@ -84,7 +84,11 @@ export default function MatchDetail() {
             <div className="odds-header">
               <span>Bukmacher</span>
               <span>{match.team_a_name}</span>
+              <span>EV A</span>
+              <span>Kelly A</span>
               <span>{match.team_b_name}</span>
+              <span>EV B</span>
+              <span>Kelly B</span>
               <span>Aktualizacja</span>
               <span>Link</span>
             </div>
@@ -94,8 +98,20 @@ export default function MatchDetail() {
                 <span className="odds-value">
                   {odd.canonical_odds_a ? odd.canonical_odds_a.toFixed(2) : '—'}
                 </span>
+                <span className={`ev-value ${odd.ev_a && odd.ev_a > 0 ? 'positive' : ''}`}>
+                  {odd.ev_a ? `${(odd.ev_a * 100).toFixed(1)}%` : '—'}
+                </span>
+                <span className={`kelly-value ${odd.kelly_a && odd.kelly_a > 0 ? 'positive' : ''}`}>
+                  {odd.kelly_a ? `${(odd.kelly_a * 100).toFixed(1)}%` : '—'}
+                </span>
                 <span className="odds-value">
                   {odd.canonical_odds_b ? odd.canonical_odds_b.toFixed(2) : '—'}
+                </span>
+                <span className={`ev-value ${odd.ev_b && odd.ev_b > 0 ? 'positive' : ''}`}>
+                  {odd.ev_b ? `${(odd.ev_b * 100).toFixed(1)}%` : '—'}
+                </span>
+                <span className={`kelly-value ${odd.kelly_b && odd.kelly_b > 0 ? 'positive' : ''}`}>
+                  {odd.kelly_b ? `${(odd.kelly_b * 100).toFixed(1)}%` : '—'}
                 </span>
                 <span className="scraped-at">{formatScrapedAt(odd.scraped_at)}</span>
                 <span className="link-cell">
@@ -121,6 +137,8 @@ export default function MatchDetail() {
               <span>Prawd. B</span>
               <span>EV A</span>
               <span>EV B</span>
+              <span>Kelly A</span>
+              <span>Kelly B</span>
             </div>
             {match.predictions.map((pred, idx) => (
               <div key={idx} className="predictions-row">
@@ -139,8 +157,84 @@ export default function MatchDetail() {
                 <span className={`ev-value ${pred.ev_b && pred.ev_b > 0 ? 'positive' : ''}`}>
                   {pred.ev_b ? `${(pred.ev_b * 100).toFixed(1)}%` : '—'}
                 </span>
+                <span className={`kelly-value ${pred.kelly_a && pred.kelly_a > 0 ? 'positive' : ''}`}>
+                  {pred.kelly_a ? `${(pred.kelly_a * 100).toFixed(1)}%` : '—'}
+                </span>
+                <span className={`kelly-value ${pred.kelly_b && pred.kelly_b > 0 ? 'positive' : ''}`}>
+                  {pred.kelly_b ? `${(pred.kelly_b * 100).toFixed(1)}%` : '—'}
+                </span>
               </div>
             ))}
+          </div>
+        </section>
+      )}
+
+      {match.team_comparison && (
+        <section className="comparison-section">
+          <h2>Porównanie drużyn</h2>
+          <div className="comparison-table">
+            <div className="comparison-header">
+              <span></span>
+              <span>{match.team_a_name}</span>
+              <span>{match.team_b_name}</span>
+            </div>
+            <div className="comparison-row">
+              <span className="comparison-label">Nazwa kanoniczna</span>
+              <span>{match.team_comparison.team_a?.canonical_name || '—'}</span>
+              <span>{match.team_comparison.team_b?.canonical_name || '—'}</span>
+            </div>
+            <div className="comparison-row">
+              <span className="comparison-label">Nazwa gol.gg</span>
+              <span>{match.team_comparison.team_a?.golgg_name || '—'}</span>
+              <span>{match.team_comparison.team_b?.golgg_name || '—'}</span>
+            </div>
+            <div className="comparison-row">
+              <span className="comparison-label">Pewność mapowania</span>
+              <span>
+                {match.team_comparison.team_a?.confidence
+                  ? `${(match.team_comparison.team_a.confidence * 100).toFixed(0)}%`
+                  : '—'}
+              </span>
+              <span>
+                {match.team_comparison.team_b?.confidence
+                  ? `${(match.team_comparison.team_b.confidence * 100).toFixed(0)}%`
+                  : '—'}
+              </span>
+            </div>
+            <div className="comparison-row">
+              <span className="comparison-label">
+                Rating {match.team_comparison.rating_system || ''}
+              </span>
+              <span className={`rating-value ${
+                match.team_comparison.team_a_rating && match.team_comparison.team_b_rating
+                  ? match.team_comparison.team_a_rating > match.team_comparison.team_b_rating
+                    ? 'rating-higher' : 'rating-lower'
+                  : ''
+              }`}>
+                {match.team_comparison.team_a_rating
+                  ? match.team_comparison.team_a_rating.toFixed(1)
+                  : '—'}
+              </span>
+              <span className={`rating-value ${
+                match.team_comparison.team_a_rating && match.team_comparison.team_b_rating
+                  ? match.team_comparison.team_b_rating > match.team_comparison.team_a_rating
+                    ? 'rating-higher' : 'rating-lower'
+                  : ''
+              }`}>
+                {match.team_comparison.team_b_rating
+                  ? match.team_comparison.team_b_rating.toFixed(1)
+                  : '—'}
+              </span>
+            </div>
+            {match.team_comparison.team_a_rating && match.team_comparison.team_b_rating && (
+              <div className="comparison-row">
+                <span className="comparison-label">Różnica ratingów</span>
+                <span className="rating-diff" colSpan={2}>
+                  {(match.team_comparison.team_a_rating - match.team_comparison.team_b_rating) > 0 ? '+' : ''}
+                  {(match.team_comparison.team_a_rating - match.team_comparison.team_b_rating).toFixed(1)}
+                </span>
+              </div>
+            )}
           </div>
         </section>
       )}
