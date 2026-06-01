@@ -32,10 +32,12 @@ class MatchBoardItem(BaseModel):
 
     best_odds_a: float | None = None
     best_bookmaker_a: str | None = None
+    best_offer_url_a: str | None = None
     avg_odds_a: float | None = None
 
     best_odds_b: float | None = None
     best_bookmaker_b: str | None = None
+    best_offer_url_b: str | None = None
     avg_odds_b: float | None = None
 
     arb_no_tax: bool = False

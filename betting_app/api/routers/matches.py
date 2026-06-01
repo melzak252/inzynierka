@@ -160,9 +160,11 @@ def list_matches(
         record = {
             "best_odds_a": round(float(best_a["_odds_a"]), 3),
             "best_bookmaker_a": best_a["bookmaker"],
+            "best_offer_url_a": best_a.get("offer_url"),
             "avg_odds_a": avg_a,
             "best_odds_b": round(float(best_b["_odds_b"]), 3),
             "best_bookmaker_b": best_b["bookmaker"],
+            "best_offer_url_b": best_b.get("offer_url"),
             "avg_odds_b": avg_b,
         }
         enrich_arbitrage(record, tax_rate=tax_rate)
@@ -187,9 +189,11 @@ def list_matches(
             bookmaker_count=books,
             best_odds_a=record["best_odds_a"],
             best_bookmaker_a=record["best_bookmaker_a"],
+            best_offer_url_a=record["best_offer_url_a"],
             avg_odds_a=record["avg_odds_a"],
             best_odds_b=record["best_odds_b"],
             best_bookmaker_b=record["best_bookmaker_b"],
+            best_offer_url_b=record["best_offer_url_b"],
             avg_odds_b=record["avg_odds_b"],
             arb_no_tax=record.get("arb_no_tax", False),
             arb_after_tax=record.get("arb_after_tax", False),
