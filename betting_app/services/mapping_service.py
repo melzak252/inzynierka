@@ -51,8 +51,8 @@ def load_golgg_team_candidates() -> list[str]:
         if isinstance(value, str) and value.strip():
             candidates.add(value.strip())
     if candidates:
-        alias_df = query_df("SELECT DISTINCT golgg_team_name FROM team_aliases WHERE golgg_team_name IS NOT NULL")
-        for value in alias_df.get("golgg_team_name", []):
+        alias_df = query_df("SELECT DISTINCT alias FROM team_aliases WHERE alias IS NOT NULL")
+        for value in alias_df.get("alias", []):
             if isinstance(value, str) and value.strip():
                 candidates.add(value.strip())
         return sorted(candidates)
@@ -89,8 +89,8 @@ def load_golgg_team_candidates() -> list[str]:
                     value = game.get(key)
                     if isinstance(value, str) and value.strip():
                         candidates.add(value.strip())
-    alias_df = query_df("SELECT DISTINCT golgg_team_name FROM team_aliases WHERE golgg_team_name IS NOT NULL")
-    for value in alias_df.get("golgg_team_name", []):
+    alias_df = query_df("SELECT DISTINCT alias FROM team_aliases WHERE alias IS NOT NULL")
+    for value in alias_df.get("alias", []):
         if isinstance(value, str) and value.strip():
             candidates.add(value.strip())
     return sorted(candidates)
@@ -124,11 +124,11 @@ def suggest_mapping(raw_name: str) -> tuple[str | None, float]:
     """Suggest a canonical GOL.GG team for a raw bookmaker name."""
 
     confirmed = query_df(
-        "SELECT golgg_team_name, confidence FROM team_aliases WHERE normalized_name = ? AND golgg_team_name IS NOT NULL ORDER BY confirmed_manually DESC LIMIT 1",
+        "SELECT alias FROM team_aliases WHERE normalized_name = ? AND alias IS NOT NULL LIMIT 1",
         (normalize_team_name(raw_name),),
     )
     if not confirmed.empty:
-        return str(confirmed.iloc[0]["golgg_team_name"]), float(confirmed.iloc[0]["confidence"])
+        return str(confirmed.iloc[0]["alias"]), 1.0
 
     normalized = normalize_team_name(raw_name)
     alias_target = BOOKMAKER_TO_GOLGG_ALIASES.get(normalized) or BOOKMAKER_TO_GOLGG_ALIASES.get(
@@ -151,31 +151,15 @@ def upsert_alias(raw_name: str, golgg_team_name: str, source: str = "manual", co
     """Create/update a raw-name alias mapping."""
 
     normalized = normalize_team_name(raw_name)
-    confidence = similarity(raw_name, golgg_team_name)
     with transaction() as connection:
-        team = connection.execute(
-            "SELECT id FROM golgg_teams WHERE normalized_name = ?", (normalize_team_name(golgg_team_name),)
-        ).fetchone()
-        if team is None:
-            connection.execute(
-                "INSERT INTO golgg_teams(team_name, normalized_name) VALUES (?, ?)",
-                (golgg_team_name, normalize_team_name(golgg_team_name)),
-            )
-            team = connection.execute(
-                "SELECT id FROM golgg_teams WHERE normalized_name = ?", (normalize_team_name(golgg_team_name),)
-            ).fetchone()
         connection.execute(
             """
-            INSERT INTO team_aliases(raw_name, normalized_name, golgg_team_id, golgg_team_name, confidence, confirmed_manually, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO team_aliases(normalized_name, alias, source)
+            VALUES (?, ?, ?)
             ON CONFLICT(normalized_name, source) DO UPDATE SET
-                raw_name = excluded.raw_name,
-                golgg_team_id = excluded.golgg_team_id,
-                golgg_team_name = excluded.golgg_team_name,
-                confidence = excluded.confidence,
-                confirmed_manually = excluded.confirmed_manually
+                alias = excluded.alias
             """,
-            (raw_name, normalized, int(team["id"]), golgg_team_name, confidence, int(confirmed), source),
+            (normalized, golgg_team_name, source),
         )
         row = connection.execute(
             "SELECT id FROM team_aliases WHERE normalized_name = ? AND source = ?", (normalized, source)
@@ -196,7 +180,7 @@ def unmapped_raw_teams() -> pd.DataFrame:
         SELECT raw_name
         FROM raw_names
         WHERE lower(trim(raw_name)) NOT IN (
-            SELECT lower(trim(raw_name)) FROM team_aliases WHERE confirmed_manually = 1
+            SELECT lower(trim(normalized_name)) FROM team_aliases
         )
         ORDER BY raw_name
         """
