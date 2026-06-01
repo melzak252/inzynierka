@@ -284,7 +284,7 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
         return None
     matches = query_df(
         """
-        SELECT DISTINCT gm.match_id, gm.date, gm.tournament_name
+        SELECT gm.match_id, gm.date, gm.tournament_name
         FROM golgg_matches gm
         JOIN golgg_game_players gp ON gp.match_id = gm.match_id
         WHERE gp.team_name = ?
@@ -297,7 +297,7 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
         # Fallback for exact-name drift: scan candidate team names and compare with Python normalization.
         candidates = query_df(
             """
-            SELECT DISTINCT gp.team_name, gm.match_id, gm.date, gm.tournament_name
+            SELECT gp.team_name, gm.match_id, gm.date, gm.tournament_name
             FROM golgg_game_players gp
             JOIN golgg_matches gm ON gm.match_id = gp.match_id
             WHERE gp.team_name IS NOT NULL
