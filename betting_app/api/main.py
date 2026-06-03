@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from betting_app.api.routers import matches, predictions, bets
 from betting_app.api.routers.system import router as system_router
 from betting_app.api.routers.scheduler import router as scheduler_router
+from betting_app.api.routers.timing import router as timing_router
 
 
 @asynccontextmanager
@@ -37,3 +38,4 @@ app.include_router(scheduler_router)
 app.include_router(matches.router)
 app.include_router(predictions.router)
 app.include_router(bets.router)
+app.include_router(timing_router)

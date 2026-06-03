@@ -102,3 +102,149 @@ export interface MatchDetailResponse {
   roster_b: RosterInfo | null;
   team_comparison: TeamComparisonInfo | null;
 }
+
+// System status types
+export interface SystemStatusResponse {
+  counts: Record<string, number>;
+  last_scrape_runs: Array<{
+    name: string;
+    last_scraped_at: string | null;
+    snapshot_count: number;
+  }>;
+  last_automation_runs: Array<{
+    run_type: string;
+    status: string;
+    started_at: string | null;
+    finished_at: string | null;
+    summary: string | null;
+  }>;
+}
+
+export interface BookmakerStatus {
+  id: number;
+  name: string;
+  base_url: string | null;
+  last_scraped_at: string | null;
+  snapshot_count: number;
+}
+
+// Scheduler types
+export interface SchedulerTask {
+  id: string;
+  name: string;
+  description: string;
+  interval_minutes: number | null;
+  cron_trigger: string | null;
+  enabled: boolean;
+}
+
+export interface SchedulerJob {
+  id: string;
+  name: string;
+  enabled: boolean;
+  next_run_time: string | null;
+  last_run_at: string | null;
+  last_run_status: string | null;
+  is_running: boolean;
+}
+
+export interface SchedulerRun {
+  id: number;
+  run_type: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  duration_seconds: number | null;
+}
+
+export interface SchedulerCommand {
+  id: number;
+  command: string;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+}
+
+export interface SchedulerTriggerResponse {
+  task_id: string;
+  status: string;
+  message: string;
+}
+
+// Timing analysis types
+export interface TimingBucket {
+  bucket: string;
+  snapshot_count: number;
+  avg_odds_a: number;
+  avg_odds_b: number;
+  std_odds_a: number;
+  std_odds_b: number;
+  min_odds_a: number;
+  max_odds_a: number;
+  min_odds_b: number;
+  max_odds_b: number;
+}
+
+export interface DriftAnalysis {
+  early_bucket: string;
+  late_bucket: string;
+  drift_odds_a: number;
+  drift_odds_b: number;
+  interpretation: string;
+}
+
+export interface BestBettingWindow {
+  bucket: string;
+  avg_volatility: number;
+  sample_size: number;
+  recommendation: string;
+}
+
+export interface TimingAnalysisResponse {
+  total_matches: number;
+  total_snapshots: number;
+  time_buckets: TimingBucket[];
+  drift_analysis: DriftAnalysis | null;
+  best_betting_window: BestBettingWindow | null;
+  summary: {
+    period_days?: number;
+    min_snapshots_per_match?: number;
+    message?: string;
+  };
+}
+
+export interface OddsMovementPoint {
+  scraped_at: string;
+  hours_before_match: number | null;
+  bookmaker: string;
+  odds_a: number;
+  odds_b: number;
+}
+
+export interface MatchMovementResponse {
+  match_id: number;
+  team_a: string | null;
+  team_b: string | null;
+  start_time: string | null;
+  movement_points: OddsMovementPoint[];
+  summary: {
+    total_snapshots?: number;
+    first_snapshot?: string;
+    last_snapshot?: string;
+    opening_odds_a?: number;
+    opening_odds_b?: number;
+    closing_odds_a?: number;
+    closing_odds_b?: number;
+    total_drift_a?: number;
+    total_drift_b?: number;
+    max_odds_a?: number;
+    min_odds_a?: number;
+    range_odds_a?: number;
+    max_odds_b?: number;
+    min_odds_b?: number;
+    range_odds_b?: number;
+    message?: string;
+  };
+}

@@ -4,46 +4,48 @@ Lokalna aplikacja do ręcznej bukmacherki/analityki LoL. Aplikacja **nie stawia 
 
 ## Status
 
-MVP v0.1 na branchu `private/betting-playground`:
+MVP v0.2:
 
 - SQLite schema i lokalna baza `data/betting_app.sqlite3`,
-- główny ekran **LoL Odds Hub**: nadchodzące mecze, max/średnie kursy A/B, arbitraż, model, hybryda i karta szczegółów meczu,
-- ręczne dodawanie snapshotów kursów i predykcji jako tryb pomocniczy,
-- generowanie sygnałów EV+ jako diagnostyka, nie główny widok,
+- **FastAPI backend** (`betting_app/api/`) — REST API dla frontendu React,
+- **React frontend** (`client/`) — dashboard z listą meczów, szczegółami, statusem systemu, schedulerem i analizą timingową,
+- nadchodzące mecze, max/średnie kursy A/B, arbitraż, model, hybryda i karta szczegółów meczu,
+- generowanie sygnałów EV+ jako diagnostyka,
 - manualny bet tracker,
 - osobne portfele/konta per bukmacher i historia transakcji,
 - rozliczanie zakładów i bankroll events,
-- panel mapowania nazw drużyn,
 - znormalizowany tracking kursów: `scrape_runs` → `bookmaker_events` → `bookmaker_markets` → `odds_outcome_snapshots`,
 - scraper STS League of Legends prematch przez `sbk-exporter/v1/sports/ssr`,
 - scrapery NoDriver/API dla Betclic, Superbet, eFortuna, Betfan, TOTALbet i Lebull.
 
 ## Uruchomienie
 
-Z katalogu repozytorium:
+### Docker Compose (rekomendowane)
+
+```bash
+docker compose up --build -d betting-api betting-scheduler client
+```
+
+Frontend będzie dostępny na `http://localhost:3000`, API na `http://localhost:8000`.
+
+### Lokalnie (bez Dockera)
+
+Backend:
 
 ```bash
 python -m betting_app.scripts.init_db
-streamlit run betting_app/app.py
+uvicorn betting_app.api.main:app --reload --port 8000
 ```
 
-Najważniejszy ekran do bieżącej pracy to **strona główna** `betting_app/app.py` / **LoL Odds Hub**:
-
-- pokazuje listę najbliższych meczów,
-- dla każdego meczu pokazuje `max kurs A`, `max kurs B`, średnie kursy, liczbę bukmacherów i arbitraż brutto/po podatku,
-- po kliknięciu/wybraniu meczu pokazuje kartę: kursy u bukmacherów, linki do ofert, prawdopodobieństwa modelu i hybrydy, EV oraz składy z ostatniego meczu GOL.GG.
-
-Pozostałe ekrany multipage:
-
-- `07_model_opportunities.py` / **Wycena upcoming meczów LoL** — pokazuje status danych, predykcje modelu i hybrydy, best odds po obu stronach, średnie kursy, EV po podatku 12%, liczbę bukmacherów, linki do ofert oraz diagnostykę rosterów użytych z ostatniego meczu GOL.GG.
-- `08_system_status.py` / **System status** — pokazuje czy automat działa bez SSH: ostatnie cykle schedulera, komendy, błędy, ostatni scrape per bookmaker, liczność tabel, backup SQLite i przyciski do ręcznego przeliczenia pipeline’u.
-- `03_bets.py` / **Bets / portfele bukmacherów** — konta/portfele per bukmacher, wpłaty/wypłaty/korekty, ręczne wpisanie zakładu z kursem i późniejsze rozliczenie.
-
-Jeżeli `streamlit` nie jest zainstalowany:
+Frontend:
 
 ```bash
-pip install streamlit
+cd client
+npm install
+npm run dev
 ```
+
+Frontend będzie dostępny na `http://localhost:3000`.
 
 Docelowo do scrapowania:
 
@@ -79,9 +81,8 @@ System składa się z pięciu warstw:
    - `model_ev_signals`: EV po podatku 12%.
 
 5. **UI / operacja**
-   - Strona główna Streamlit `app.py` jest agregatorem kursów: upcoming matches, max/avg odds, arbitraż i karta meczu.
-   - Streamlit `07_model_opportunities.py` pozostaje bardziej technicznym widokiem opportunities/EV.
-   - Streamlit `03_bets.py` trzyma portfele per bukmacher oraz ręcznie wpisane zakłady.
+   - React frontend (`client/`) — lista meczów, szczegóły, status systemu, scheduler, analiza timingowa.
+   - FastAPI backend (`betting_app/api/`) — REST API z endpointami dla matches, predictions, bets, system, scheduler, timing.
 
 ## Kiedy co uruchamiać
 
@@ -121,32 +122,31 @@ Dodane są pliki:
 
 - `Dockerfile.betting` — obraz Python 3.12 + Chromium + zależności scraperów/modelu,
 - `requirements-betting.txt` — zależności aplikacji bettingowej,
-- `docker-compose.yml` — aplikacja Streamlit, lekki scheduler i opcjonalny heavy maintenance,
+- `docker-compose.yml` — API backend, scheduler, frontend React i opcjonalny heavy maintenance,
 - `.dockerignore` — mniejszy kontekst buildu.
 
 Najprostszy start:
 
 ```bash
-docker compose up --build -d betting-app betting-scheduler
+docker compose up --build -d betting-api betting-scheduler client
 ```
 
-Panel będzie dostępny na:
+Frontend będzie dostępny na:
 
 ```text
-http://localhost:8501
+http://localhost:3000
 ```
 
-Jeżeli laptop stoi w rogu pokoju i chcesz patrzeć z innego urządzenia w tej samej sieci, wejdź na:
+API backend na:
 
 ```text
-http://IP_LAPTOPA:8501
+http://localhost:8000
 ```
-
-Adres IP sprawdzisz jednorazowo np. przez `ip addr` / ustawienia routera. Streamlit w kontenerze słucha na `0.0.0.0`, więc UI jest dostępne w LAN, o ile firewall laptopa nie blokuje portu 8501.
 
 Co robią kontenery:
 
-- `betting-app` — Streamlit UI,
+- `betting-api` — FastAPI backend (REST API),
+- `client` — React frontend (Vite dev server),
 - `betting-scheduler` — co `BETTING_SCHEDULER_INTERVAL_SECONDS` sekund odpala lekki cykl; domyślnie co 2h, żeby nie spamować bukmacherów:
   1. scrape kursów: STS, Betclic, Superbet, eFortuna, Betfan, TOTALbet, Lebull,
   2. rebuild canonical matches,
@@ -192,7 +192,6 @@ Zmienna `EMBEDDED_RIFT_ESPORT_DIR` może jeszcze występować w starych komendac
 Zmienne środowiskowe:
 
 ```text
-BETTING_APP_PORT=8501
 BETTING_APP_TAX_RATE=0.12
 BETTING_APP_MIN_EV=0.05
 BETTING_APP_BANKROLL=100.0
@@ -214,7 +213,7 @@ Docelowy tryb użycia:
 2. Uruchamiasz raz:
 
 ```bash
-docker compose up --build -d betting-app betting-scheduler
+docker compose up --build -d betting-api betting-scheduler client
 ```
 
 3. Upewniasz się, że Docker startuje po restarcie systemu:
@@ -223,10 +222,12 @@ docker compose up --build -d betting-app betting-scheduler
 sudo systemctl enable docker
 ```
 
-4. Od tej pory kontenery mają `restart: unless-stopped`, więc po restarcie laptopa Docker powinien sam podnieść UI i scheduler.
-5. Bez SSH korzystasz głównie z paneli:
-   - **Wycena upcoming meczów LoL** — wyniki, EV, best odds, linki do ofert,
-   - **System status** — czy scheduler żyje, ostatnie błędy, ostatnie scrape’y, backup i ręczne przyciski.
+4. Od tej pory kontenery mają `restart: unless-stopped`, więc po restarcie laptopa Docker powinien sam podnieść API i scheduler.
+5. Korzystasz z frontendu React:
+   - **Lista meczów** — wyniki, EV, best odds, linki do ofert,
+   - **System status** — czy scheduler żyje, ostatnie błędy, ostatnie scrape'y,
+   - **Scheduler** — status zadań, ręczne triggery, historia runów,
+   - **Timing Analysis** — analiza zmian kursów w czasie, najlepsze okno do obstawiania.
 
 Scheduler zapisuje swoje cykle do tabel:
 
@@ -241,7 +242,7 @@ Backup lokalnej bazy:
 python -m betting_app.scripts.backup_sqlite
 ```
 
-W UI jest też przycisk **Backup SQLite**. Backupy trafiają do:
+Backupy trafiają do:
 
 ```text
 data/backups/
@@ -252,7 +253,7 @@ Rekomendowany praktyczny model:
 - lekki scheduler działa sam co 2h,
 - GOL.GG / ratingi / W20 robisz co 2–3 dni przez maintenance,
 - close odds odpalasz selektywnie z panelu przy interesujących EV+,
-- wyniki oglądasz w Streamlit, nie w terminalu.
+- wyniki oglądasz w React froncie, nie w terminalu.
 
 ## Testowy flow bez bukmachera
 
@@ -268,13 +269,13 @@ python -m betting_app.scripts.init_db
 python -m betting_app.scripts.scrape_odds --bookmaker dry-run
 ```
 
-3. W Streamlit, na stronie `Opportunities`, dodaj ręcznie predykcję dla meczu.
+3. Uruchom pipeline predykcji:
 
-4. Kliknij `Przelicz sygnały EV+`.
+```bash
+python -m betting_app.scripts.run_upcoming_prediction_pipeline --hybrid --min-ev 0.05
+```
 
-5. Jeżeli EV przekroczy próg, oznacz sygnał jako postawiony.
-
-6. Na stronie `Bets` rozlicz zakład jako `won/lost/void/cancelled`.
+4. Sprawdź wyniki w froncie React na `http://localhost:3000`.
 
 ## Portfele per bukmacher i ręczne logowanie zakładów
 
@@ -284,19 +285,11 @@ Każdy bukmacher może mieć osobne konto/portfel:
 - tabela `bookmaker_wallet_transactions` — wpłaty, wypłaty, stake postawiony, zwrot/wygrana,
 - tabela `bets` — historia ręcznie wpisanych zakładów, kurs, stake, strona, wynik, profit.
 
-Workflow:
+Workflow przez REST API:
 
-1. Wejdź w Streamlit → **Bets / portfele bukmacherów**.
-2. Dodaj portfel, np. `STS / main`, `Betclic / main`, `Superbet / main`.
-3. Po faktycznym ręcznym postawieniu kuponu wpisz:
-   - portfel,
-   - mecz,
-   - stronę `a/b`,
-   - stake,
-   - rzeczywisty kurs,
-   - opcjonalnie wybierz sygnał modelu/EV z listy.
-4. Aplikacja odejmie stake z konkretnego portfela.
-5. Po wyniku rozliczasz zakład jako `won/lost/void/cancelled`; przy wygranej aplikacja dolicza payout po podatku 12%.
+1. Utwórz portfel: `POST /api/wallets`
+2. Po faktycznym ręcznym postawieniu kuponu: `POST /api/bets`
+3. Rozlicz zakład: `POST /api/bets/{id}/settle`
 
 To pozwala analizować osobno saldo i wyniki na każdym bukmacherze, a nie tylko jeden globalny bankroll.
 
@@ -378,7 +371,7 @@ Kanoniczny tracking kursów jest w nowych tabelach:
 1. `scrape_runs` — jeden job scrapera: kiedy, z jakiego URL-a, ile rekordów widział i ile zapisał.
 2. `bookmaker_events` — wydarzenie u bukmachera: bookmaker event ID, drużyny, liga, start, kategoria.
 3. `bookmaker_markets` — rynek w obrębie wydarzenia: zwycięzca meczu, handicap, dokładny wynik, mapa itd.
-4. `odds_outcome_snapshots` — pojedynczy tick kursu dla outcome’u z timestampem `scraped_at`.
+4. `odds_outcome_snapshots` — pojedynczy tick kursu dla outcome'u z timestampem `scraped_at`.
 
 Stara tabela `odds_snapshots` zostaje dla prostego MVP/UI, gdzie mamy pełny dwustronny rynek match-winner (`odds_a`, `odds_b`). Dla realnych API preferuj `odds_outcome_snapshots`, bo pozwala liczyć line movement i CLV per outcome.
 
@@ -533,71 +526,6 @@ python -m betting_app.scripts.run_upcoming_prediction_pipeline --hybrid --min-ev
 # cięższy tryb po odświeżeniu zakończonych meczów GOL.GG
 python -m betting_app.scripts.run_daily_automation \
   --refresh-golgg --reimport-golgg --rebuild-ratings --rebuild-w20 --min-ev 0.05
-```
-
-Po pipeline uruchom panel:
-
-```bash
-streamlit run betting_app/app.py
-```
-
-W zakładce **Wycena upcoming meczów LoL** można też odpalić lekki pipeline z UI (`skip scrape` domyślnie włączone) i filtrować opportunities po minimalnym EV oraz liczbie bukmacherów.
-
-Przebudowa ratingów mirroruje historyczny pipeline
-`scripts/05_ratingi_baseline/03_generate_ratings.py`: chronologiczny przebieg po
-GOL.GG, aktualizacja dopiero po grze/meczu, systemy `elo`, `gl` (Glicko-2), `ts`,
-`os`, `pl`, `tm`, osobno dla teamów i graczy. Wyniki trafiają do `rating_runs` i
-`entity_ratings`.
-
-Smoke test ratingów:
-
-```bash
-python -m betting_app.scripts.rebuild_ratings --limit 100 --ratings-version smoke-ratings
-```
-
-Przebudowa W20:
-
-```bash
-python -m betting_app.scripts.rebuild_w20_features --feature-version w20-latest --window-size 20
-```
-
-W20 zapisuje najnowszy leakage-safe kontekst drużynowy do `team_rolling_features`:
-`win_rate`, `kills`, `deaths`, `gd15`, `dpm`, `vspm`, `towers`, `dragons`,
-`nashors`, `gold`, `duration` oraz pełny `features_json` z `team_id` i
-`last_match_at`.
-
-Automatyczna predykcja upcoming:
-
-```bash
-python -m betting_app.scripts.build_upcoming_features
-python -m betting_app.scripts.predict_upcoming_matches
-python -m betting_app.scripts.generate_hybrid_predictions --alpha 0.50 --temperature 0.80
-python -m betting_app.scripts.generate_model_ev_signals --min-ev 0.05
-python -m betting_app.scripts.list_upcoming_model_predictions --positive-only
-```
-
-Na tym etapie model automatyczny `Operational-PlayerTeamRatings-W20/v0.2` używa
-player-based ratingów, team-level ratingów i W20. Ponieważ bukmacherzy nie
-podają pewnych składów, roster upcoming jest aproksymowany ostatnim zaobserwowanym
-składem tej drużyny w GOL.GG. Nie jest to jeszcze finalny Sym-Cal z pracy, ale
-jest już w pełni automatyczny i diagnostyka źródła rosteru/braków trafia do
-`upcoming_match_features.features_json`.
-
-Hybryda model--rynek jest zgodna z ideą z eksperymentów EXP-032/033/041:
-
-```text
-p_hybrid = alpha * temperature(p_model, T) + (1 - alpha) * p_market
-```
-
-gdzie `p_market` to średnia no-vig probability z aktualnych kursów bukmacherów.
-Domyślnie używamy kompromisu `alpha=0.50`, `T=0.80`, który w historycznych
-eksperymentach dawał bardzo dobry LogLoss; dla maksymalizacji LogLoss testowany
-był też obszar `alpha≈0.60--0.80`, `T=0.80`.
-
-Kontrola, czy artefakty modelu z pracy nadal reprodukują metryki EXP-039:
-
-```bash
-python -m betting_app.scripts.validate_thesis_model
 ```
 
 ## Zasada parserów HTML

@@ -1,0 +1,219 @@
+.timing-analysis {
+  padding: 1rem 0;
+}
+
+.timing-analysis h1 {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+  color: #4fc3f7;
+}
+
+.timing-analysis .subtitle {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.timing-analysis h2 {
+  font-size: 1.2rem;
+  margin: 2rem 0 1rem;
+  color: rgba(255, 255, 255, 0.9);
+  border-bottom: 1px solid #2a2a4a;
+  padding-bottom: 0.5rem;
+}
+
+/* Controls */
+.timing-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.timing-controls label {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+}
+
+.timing-controls select {
+  background: #16213e;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 0.4rem 0.8rem;
+  font-size: 0.9rem;
+}
+
+/* Best window highlight */
+.best-window {
+  background: #1a1a2e;
+  border: 1px solid #4caf50;
+  border-radius: 8px;
+  padding: 1.2rem;
+  margin-bottom: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.best-window .window-icon {
+  font-size: 2.5rem;
+}
+
+.best-window .window-info h3 {
+  color: #4caf50;
+  font-size: 1.1rem;
+  margin: 0 0 0.3rem;
+}
+
+.best-window .window-info p {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.best-window .window-range {
+  margin-left: auto;
+  text-align: center;
+  background: #16213e;
+  padding: 0.8rem 1.2rem;
+  border-radius: 8px;
+}
+
+.best-window .window-range .range-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #4fc3f7;
+}
+
+.best-window .window-range .range-label {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+}
+
+/* Buckets table */
+.buckets-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+}
+
+.buckets-table th,
+.buckets-table td {
+  padding: 0.7rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.buckets-table th {
+  background: #16213e;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.buckets-table td {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.buckets-table tr:hover td {
+  background: rgba(79, 195, 247, 0.05);
+}
+
+.buckets-table tr.best-row td {
+  background: rgba(76, 175, 80, 0.1);
+  border-left: 3px solid #4caf50;
+}
+
+.buckets-table .bucket-label {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.buckets-table .odds-value {
+  font-family: monospace;
+}
+
+.buckets-table .sample-count {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.8rem;
+}
+
+/* Drift cards */
+.drift-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.drift-card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1.2rem;
+}
+
+.drift-card .drift-label {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.drift-card .drift-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #4fc3f7;
+}
+
+.drift-card .drift-value.positive {
+  color: #4caf50;
+}
+
+.drift-card .drift-value.negative {
+  color: #ef5350;
+}
+
+.drift-card .drift-description {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 0.5rem;
+  line-height: 1.4;
+}
+
+/* Insights */
+.insights-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.insights-list li {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.5rem;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.insights-list li::before {
+  content: "💡";
+  margin-right: 0.5rem;
+}
+
+.loading-text {
+  color: rgba(255, 255, 255, 0.5);
+  font-style: italic;
+}
+
+.error-text {
+  color: #ef5350;
+}
