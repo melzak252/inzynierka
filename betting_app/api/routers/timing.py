@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from numpy import clip, mean, sum as np_sum
+import numpy as np
 from sklearn.metrics import log_loss, roc_auc_score
 
 from betting_app.api.deps import get_db, query_df
@@ -396,8 +396,10 @@ def _compute_logloss(y_true: list[int], y_prob: list[float], eps: float = 1e-15)
         n = len(y_true)
         if n == 0:
             return None
-        y_prob = clip(y_prob, eps, 1 - eps)
-        ll = -mean(y_true * log(y_prob) + (1 - y_true) * log(1 - y_prob))
+        arr_true = np.array(y_true, dtype=float)
+        arr_prob = np.array(y_prob, dtype=float)
+        arr_prob = np.clip(arr_prob, eps, 1 - eps)
+        ll = -np.mean(arr_true * np.log(arr_prob) + (1 - arr_true) * np.log(1 - arr_prob))
         return round(float(ll), 4)
     except Exception:
         return None
@@ -576,8 +578,8 @@ def horizon_accuracy(
         # Compute metrics
         auc_val = _compute_auc(bd["y_true"], bd["y_score"])
         ll_val = _compute_logloss(bd["y_true"], bd["y_score"])
-        avg_prob_winner = round(mean(bd["prob_winner_list"]), 4) if bd["prob_winner_list"] else None
-        avg_prob_loser = round(mean(bd["prob_loser_list"]), 4) if bd["prob_loser_list"] else None
+        avg_prob_winner = round(np.mean(bd["prob_winner_list"]), 4) if bd["prob_winner_list"] else None
+        avg_prob_loser = round(np.mean(bd["prob_loser_list"]), 4) if bd["prob_loser_list"] else None
 
         bins.append({
             "label": label,
