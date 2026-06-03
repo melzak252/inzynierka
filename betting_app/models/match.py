@@ -27,6 +27,13 @@ class CanonicalMatch(Base):
     start_time_normalized: Mapped[str | None] = mapped_column(String(50))
     league: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(50), server_default="'upcoming'")
+    winner_name: Mapped[str | None] = mapped_column(String(200))
+    loser_name: Mapped[str | None] = mapped_column(String(200))
+    winner_normalized: Mapped[str | None] = mapped_column(String(200))
+    winner_side: Mapped[str | None] = mapped_column(String(20))
+    result_source: Mapped[str | None] = mapped_column(String(50))
+    result_source_match_id: Mapped[str | None] = mapped_column(String(50))
+    result_recorded_at: Mapped[str | None] = mapped_column(String(50))
     match_confidence: Mapped[float] = mapped_column(Integer, server_default="1")
 
 

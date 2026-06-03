@@ -280,6 +280,134 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
     }
 
 
+def mark_mapped_matches_finished(match_ids: list[str] | None = None) -> dict[str, int]:
+    """Mark canonical matches as finished when a mapped GOL.GG result exists.
+
+    GOL.GG is our source of truth for completed results.  Once a GOL.GG match is
+    linked to a `canonical_matches` row, update the canonical row from
+    `upcoming`/`expired` (or any non-finished status) to `finished` and persist
+    the winner/loser names so downstream code can settle/evaluate predictions.
+    """
+    from betting_app.core.db import get_session, query_df
+    from betting_app.core.matching import normalize_team_name, similarity
+    from sqlalchemy import text as _sql_text
+
+    def _sql_escape(value: str) -> str:
+        return value.replace("'", "''")
+
+    # Existing deployed DBs predate result columns, so keep this migration
+    # idempotent and cheap.  init.sql/model are also updated for fresh DBs.
+    with get_session() as session:
+        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS winner_name VARCHAR(200)"))
+        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS loser_name VARCHAR(200)"))
+        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS winner_normalized VARCHAR(200)"))
+        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS winner_side VARCHAR(20)"))
+        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS result_source VARCHAR(50)"))
+        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS result_source_match_id VARCHAR(50)"))
+        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS result_recorded_at TIMESTAMPTZ"))
+        session.commit()
+
+    where_ids = ""
+    if match_ids:
+        ids_str = ",".join(f"'{_sql_escape(str(mid))}'" for mid in match_ids if str(mid).strip())
+        if ids_str:
+            where_ids = f"AND gm.match_id IN ({ids_str})"
+
+    df = query_df(f"""
+        SELECT
+            cm.id AS canonical_match_id,
+            cm.normalized_team_a,
+            cm.normalized_team_b,
+            gm.match_id AS golgg_match_id,
+            gm.team1_name,
+            gm.team2_name,
+            gm.team1_win,
+            gm.team2_win,
+            gm.draw,
+            gm.winner_name,
+            gm.loser_name
+        FROM golgg_match_mappings gmm
+        JOIN golgg_matches gm ON gm.match_id = gmm.golgg_match_id
+        JOIN canonical_matches cm ON cm.id = gmm.canonical_match_id
+        WHERE COALESCE(gm.draw, 0) = 0
+          AND (COALESCE(gm.team1_win, 0) = 1 OR COALESCE(gm.team2_win, 0) = 1 OR gm.winner_name IS NOT NULL)
+          {where_ids}
+    """)
+
+    checked = len(df)
+    updated = 0
+    skipped = 0
+    errors = 0
+
+    for _, row in df.iterrows():
+        try:
+            team1_win = int(row.get("team1_win") or 0) == 1
+            team2_win = int(row.get("team2_win") or 0) == 1
+            team1 = str(row.get("team1_name") or "")
+            team2 = str(row.get("team2_name") or "")
+            winner = str(row.get("winner_name") or "").strip()
+            loser = str(row.get("loser_name") or "").strip()
+
+            if not winner:
+                winner = team1 if team1_win else team2 if team2_win else ""
+            if not loser:
+                loser = team2 if team1_win else team1 if team2_win else ""
+            if not winner:
+                skipped += 1
+                continue
+
+            winner_norm = normalize_team_name(winner)
+            ca = str(row.get("normalized_team_a") or "")
+            cb = str(row.get("normalized_team_b") or "")
+            score_a = max(similarity(winner, ca), similarity(winner_norm, ca)) if ca else 0.0
+            score_b = max(similarity(winner, cb), similarity(winner_norm, cb)) if cb else 0.0
+            winner_side = "team_a" if score_a >= score_b else "team_b"
+
+            with get_session() as session:
+                result = session.execute(
+                    _sql_text(
+                        """
+                        UPDATE canonical_matches
+                        SET status = 'finished',
+                            winner_name = :winner_name,
+                            loser_name = :loser_name,
+                            winner_normalized = :winner_normalized,
+                            winner_side = :winner_side,
+                            result_source = 'golgg',
+                            result_source_match_id = :golgg_match_id,
+                            result_recorded_at = NOW()
+                        WHERE id = :canonical_match_id
+                          AND (
+                              status IS DISTINCT FROM 'finished'
+                              OR winner_name IS DISTINCT FROM :winner_name
+                              OR loser_name IS DISTINCT FROM :loser_name
+                              OR winner_normalized IS DISTINCT FROM :winner_normalized
+                              OR winner_side IS DISTINCT FROM :winner_side
+                              OR result_source_match_id IS DISTINCT FROM :golgg_match_id
+                          )
+                        """
+                    ),
+                    {
+                        "canonical_match_id": int(row["canonical_match_id"]),
+                        "golgg_match_id": str(row["golgg_match_id"]),
+                        "winner_name": winner,
+                        "loser_name": loser or None,
+                        "winner_normalized": winner_norm,
+                        "winner_side": winner_side,
+                    },
+                )
+                session.commit()
+                if result.rowcount:
+                    updated += int(result.rowcount)
+                else:
+                    skipped += 1
+        except Exception as exc:
+            logger.warning("Auto-finish error for match_id %s: %s", row.get("golgg_match_id"), exc)
+            errors += 1
+
+    return {"checked": checked, "updated": updated, "skipped": skipped, "errors": errors}
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -520,6 +648,14 @@ async def main() -> None:
                 f"mapped={map_stats['mapped']}, "
                 f"already_mapped={map_stats['already_mapped']}, "
                 f"unmatched={map_stats['errors']}"
+            )
+
+            finish_stats = mark_mapped_matches_finished(new_match_ids)
+            print(
+                f"Auto-finish result: checked={finish_stats['checked']}, "
+                f"updated={finish_stats['updated']}, "
+                f"skipped={finish_stats['skipped']}, "
+                f"errors={finish_stats['errors']}"
             )
 
         print(

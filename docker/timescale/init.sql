@@ -26,6 +26,13 @@ CREATE TABLE IF NOT EXISTS canonical_matches (
     start_time_normalized VARCHAR(50),
     league                VARCHAR(100),
     status                VARCHAR(50) DEFAULT 'upcoming',
+    winner_name           VARCHAR(200),
+    loser_name            VARCHAR(200),
+    winner_normalized     VARCHAR(200),
+    winner_side           VARCHAR(20),
+    result_source         VARCHAR(50),
+    result_source_match_id VARCHAR(50),
+    result_recorded_at    TIMESTAMPTZ,
     match_confidence      REAL DEFAULT 1.0
 );
 
