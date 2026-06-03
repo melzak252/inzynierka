@@ -405,8 +405,8 @@ async def main() -> None:
         # ------------------------------------------------------------------ #
         print("Auto-mapping newly imported GOL.GG matches to canonical_matches...")
         new_match_ids = [
-            str(m["match_id"]) for m in fetched_match_docs
-            if m.get("match_id") and m.get("games")
+            str(m["match_id"]) for m in selected_matches
+            if m.get("match_id")
         ]
         if new_match_ids:
             map_stats = auto_map_new_matches(new_match_ids)
