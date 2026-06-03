@@ -26,6 +26,10 @@ from betting_app.services.upcoming_inference_service import (
     predict_all_upcoming,
 )
 from betting_app.services.thesis_inference_service import (
+    THESIS_HYBRID_ALPHA,
+    THESIS_HYBRID_MODEL_NAME,
+    THESIS_HYBRID_TEMPERATURE,
+    generate_thesis_hybrid_predictions,
     predict_upcoming_with_thesis_model,
 )
 
@@ -41,6 +45,9 @@ def main() -> None:
     parser.add_argument("--hybrid-alpha", type=float, default=DEFAULT_HYBRID_ALPHA)
     parser.add_argument("--hybrid-temperature", type=float, default=DEFAULT_HYBRID_TEMPERATURE)
     parser.add_argument("--thesis", action="store_true", help="Also run thesis model (Sym-Cal LR-ElasticNet-W20-Binomial).")
+    parser.add_argument("--thesis-hybrid", action="store_true", help="Generate thesis+market hybrid predictions.")
+    parser.add_argument("--thesis-hybrid-alpha", type=float, default=THESIS_HYBRID_ALPHA)
+    parser.add_argument("--thesis-hybrid-temperature", type=float, default=THESIS_HYBRID_TEMPERATURE)
     parser.add_argument("--tax-rate", type=float, default=0.12)
     parser.add_argument("--min-ev", type=float, default=0.0)
     parser.add_argument("--bankroll", type=float, default=100.0)
@@ -78,6 +85,15 @@ def main() -> None:
             limit=args.limit,
         )
         print(f"Thesis predictions: {len(thesis_preds)}")
+
+    if args.thesis_hybrid:
+        thesis_hybrid_version = f"a{args.thesis_hybrid_alpha:.2f}-t{args.thesis_hybrid_temperature:.2f}"
+        thesis_hybrid_preds = generate_thesis_hybrid_predictions(
+            alpha=args.thesis_hybrid_alpha,
+            temperature=args.thesis_hybrid_temperature,
+            hybrid_model_version=thesis_hybrid_version,
+        )
+        print(f"Thesis hybrid predictions: {len(thesis_hybrid_preds)} | alpha={args.thesis_hybrid_alpha:.2f} T={args.thesis_hybrid_temperature:.2f}")
 
     ev_model_name = args.model_name
     ev_model_version = args.model_version

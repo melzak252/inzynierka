@@ -26,7 +26,7 @@ def run_prediction_pipeline() -> dict:
         "rematch": rematch_canonical(),
         "predict": _run_module(
             "betting_app.scripts.run_upcoming_prediction_pipeline",
-            args=["--include-partial", "--hybrid", "--thesis"],
+            args=["--include-partial", "--hybrid", "--thesis", "--thesis-hybrid"],
             timeout=300,
         ),
     }

@@ -24,8 +24,11 @@ import numpy as np
 
 from betting_app.core.db import query_df, transaction
 from betting_app.core.matching import normalize_team_name
+from betting_app.core.ev import fair_market_probabilities
+from betting_app.services.canonical_match_service import align_snapshot_odds
 from betting_app.services.upcoming_inference_service import (
     RATING_SYSTEMS,
+    apply_temperature_probability,
     load_team_ratings,
     load_w20,
     rating_probabilities,
@@ -36,6 +39,9 @@ from betting_app.services.upcoming_inference_service import (
 # ---------------------------------------------------------------------------
 THESIS_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
 THESIS_MODEL_VERSION = "exp-039"
+THESIS_HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
+THESIS_HYBRID_ALPHA = 0.50
+THESIS_HYBRID_TEMPERATURE = 0.80
 EPSILON = 0.001
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -551,3 +557,195 @@ def _register_thesis_model() -> int:
             (THESIS_MODEL_NAME, THESIS_MODEL_VERSION),
         ).fetchone()
         return int(row["id"])
+
+
+# ---------------------------------------------------------------------------
+# Thesis Hybrid (thesis model + market odds)
+# ---------------------------------------------------------------------------
+
+def _register_thesis_hybrid_model(
+    *, alpha: float, temperature: float, version: str
+) -> int:
+    """Register the thesis hybrid model in model_artifacts."""
+    feature_schema = {
+        "base_model": f"{THESIS_MODEL_NAME}/{THESIS_MODEL_VERSION}",
+        "market_signal": "average no-vig probability from latest bookmaker odds",
+        "formula": "alpha * temperature(thesis_model_probability) + (1-alpha) * market_probability",
+        "historical_reference": "thesis EXP-039 hybrid with market",
+    }
+    params = {"alpha": alpha, "temperature": temperature}
+    with transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO model_artifacts(
+                model_name, model_version, feature_schema_json, model_params_json, status
+            ) VALUES (?, ?, ?, ?, 'active')
+            ON CONFLICT(model_name, model_version) DO UPDATE SET
+                feature_schema_json = excluded.feature_schema_json,
+                model_params_json = excluded.model_params_json,
+                status = 'active'
+            """,
+            (
+                THESIS_HYBRID_MODEL_NAME,
+                version,
+                json.dumps(feature_schema, ensure_ascii=False, sort_keys=True),
+                json.dumps(params, ensure_ascii=False, sort_keys=True),
+            ),
+        )
+        row = conn.execute(
+            "SELECT id FROM model_artifacts WHERE model_name = ? AND model_version = ?",
+            (THESIS_HYBRID_MODEL_NAME, version),
+        ).fetchone()
+        return int(row["id"])
+
+
+def generate_thesis_hybrid_predictions(
+    *,
+    alpha: float = THESIS_HYBRID_ALPHA,
+    temperature: float = THESIS_HYBRID_TEMPERATURE,
+    hybrid_model_name: str = THESIS_HYBRID_MODEL_NAME,
+    hybrid_model_version: str | None = None,
+) -> list[dict[str, Any]]:
+    """Blend thesis model probabilities with average no-vig bookmaker market.
+
+    Formula mirrors the existing hybrid approach:
+
+    ``p_hybrid = alpha * temperature(thesis_prob, T) + (1-alpha) * p_market``.
+    """
+    if not 0 <= alpha <= 1:
+        raise ValueError("alpha must be in [0, 1]")
+    if hybrid_model_version is None:
+        hybrid_model_version = f"a{alpha:.2f}-t{temperature:.2f}"
+
+    model_artifact_id = _register_thesis_hybrid_model(
+        alpha=alpha, temperature=temperature, version=hybrid_model_version
+    )
+
+    # Get latest thesis predictions + odds
+    rows = query_df(
+        """
+        WITH latest_predictions AS (
+            SELECT p.*
+            FROM canonical_predictions p
+            JOIN (
+                SELECT canonical_match_id, model_name, model_version, MAX(predicted_at) AS predicted_at
+                FROM canonical_predictions
+                WHERE prediction_status = 'active' AND model_name = ? AND model_version = ?
+                GROUP BY canonical_match_id, model_name, model_version
+            ) lp ON lp.canonical_match_id = p.canonical_match_id
+                AND lp.model_name = p.model_name
+                AND lp.model_version = p.model_version
+                AND lp.predicted_at = p.predicted_at
+        ), latest_odds AS (
+            SELECT os.*
+            FROM odds_snapshots os
+            JOIN (
+                SELECT canonical_match_id, bookmaker_id, MAX(scraped_at) AS scraped_at
+                FROM odds_snapshots
+                WHERE market_type = 'match_winner' AND COALESCE(is_live, 0) = 0
+                GROUP BY canonical_match_id, bookmaker_id
+            ) lo ON lo.canonical_match_id = os.canonical_match_id
+                 AND lo.bookmaker_id = os.bookmaker_id
+                 AND lo.scraped_at = os.scraped_at
+        )
+        SELECT lp.id AS base_prediction_id, lp.canonical_match_id, lp.prob_a AS model_prob_a,
+               lp.features_version, lp.ratings_version, lp.data_cutoff_at,
+               cm.normalized_team_a, cm.normalized_team_b,
+               os.raw_team_a, os.raw_team_b, os.odds_a, os.odds_b
+        FROM latest_predictions lp
+        JOIN canonical_matches cm ON cm.id = lp.canonical_match_id
+        JOIN latest_odds os ON os.canonical_match_id = lp.canonical_match_id
+        """,
+        (THESIS_MODEL_NAME, THESIS_MODEL_VERSION),
+    )
+
+    if rows.empty:
+        return []
+
+    results: list[dict[str, Any]] = []
+    with transaction() as connection:
+        # Mark old hybrid predictions as stale
+        connection.execute(
+            """
+            UPDATE canonical_predictions
+            SET prediction_status = 'stale'
+            WHERE prediction_status = 'active' AND model_name = ? AND model_version = ?
+            """,
+            (hybrid_model_name, hybrid_model_version),
+        )
+
+        for canonical_match_id, group in rows.groupby("canonical_match_id"):
+            market_probs: list[float] = []
+            first = group.iloc[0].to_dict()
+
+            for row in group.to_dict("records"):
+                aligned = align_snapshot_odds(
+                    str(row.get("normalized_team_a") or ""),
+                    str(row.get("normalized_team_b") or ""),
+                    str(row.get("raw_team_a") or ""),
+                    str(row.get("raw_team_b") or ""),
+                    row.get("odds_a"),
+                    row.get("odds_b"),
+                )
+                if aligned is None:
+                    continue
+                market_a, _ = fair_market_probabilities(*aligned)
+                market_probs.append(market_a)
+
+            if not market_probs:
+                continue
+
+            model_prob = float(first["model_prob_a"])
+            model_t = apply_temperature_probability(model_prob, temperature)
+            market_prob = sum(market_probs) / len(market_probs)
+            hybrid_prob = max(0.001, min(0.999, alpha * model_t + (1.0 - alpha) * market_prob))
+
+            diagnostics = {
+                "base_model_name": THESIS_MODEL_NAME,
+                "base_model_version": THESIS_MODEL_VERSION,
+                "base_prediction_id": int(first["base_prediction_id"]),
+                "alpha": alpha,
+                "temperature": temperature,
+                "model_prob_a": model_prob,
+                "model_prob_a_temperature": model_t,
+                "market_prob_a_avg_no_vig": market_prob,
+                "bookmakers_used": len(market_probs),
+                "formula": "alpha * temp(thesis_model) + (1-alpha) * average_no_vig_market",
+            }
+
+            connection.execute(
+                """
+                INSERT INTO canonical_predictions(
+                    canonical_match_id, model_artifact_id, model_name, model_version, predicted_at,
+                    prob_a, prob_b, features_version, ratings_version, data_cutoff_at, diagnostics_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(canonical_match_id),
+                    model_artifact_id,
+                    hybrid_model_name,
+                    hybrid_model_version,
+                    datetime.now(UTC).isoformat(),
+                    hybrid_prob,
+                    1.0 - hybrid_prob,
+                    first.get("features_version"),
+                    first.get("ratings_version"),
+                    first.get("data_cutoff_at"),
+                    json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+
+            row = connection.execute(
+                "SELECT id FROM canonical_predictions WHERE canonical_match_id = ? AND model_name = ? AND model_version = ? ORDER BY predicted_at DESC LIMIT 1",
+                (int(canonical_match_id), hybrid_model_name, hybrid_model_version),
+            ).fetchone()
+
+            results.append({
+                "prediction_id": int(row["id"]),
+                "canonical_match_id": int(canonical_match_id),
+                "prob_a": hybrid_prob,
+                "prob_b": 1.0 - hybrid_prob,
+                "diagnostics": diagnostics,
+            })
+
+    return results
