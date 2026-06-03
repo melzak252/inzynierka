@@ -25,6 +25,9 @@ from betting_app.services.upcoming_inference_service import (
     generate_model_ev_signals,
     predict_all_upcoming,
 )
+from betting_app.services.thesis_inference_service import (
+    predict_upcoming_with_thesis_model,
+)
 
 
 def main() -> None:
@@ -37,6 +40,7 @@ def main() -> None:
     parser.add_argument("--hybrid", action="store_true", help="Generate model+market hybrid predictions and EV.")
     parser.add_argument("--hybrid-alpha", type=float, default=DEFAULT_HYBRID_ALPHA)
     parser.add_argument("--hybrid-temperature", type=float, default=DEFAULT_HYBRID_TEMPERATURE)
+    parser.add_argument("--thesis", action="store_true", help="Also run thesis model (Sym-Cal LR-ElasticNet-W20-Binomial).")
     parser.add_argument("--tax-rate", type=float, default=0.12)
     parser.add_argument("--min-ev", type=float, default=0.0)
     parser.add_argument("--bankroll", type=float, default=100.0)
@@ -65,6 +69,15 @@ def main() -> None:
         include_partial=args.include_partial,
     )
     print(f"Predictions: {len(predictions)}")
+
+    if args.thesis:
+        thesis_preds = predict_upcoming_with_thesis_model(
+            ratings_version=args.ratings_version,
+            w20_version=args.w20_version,
+            include_past=args.include_past,
+            limit=args.limit,
+        )
+        print(f"Thesis predictions: {len(thesis_preds)}")
 
     ev_model_name = args.model_name
     ev_model_version = args.model_version
