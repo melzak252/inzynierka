@@ -13,17 +13,10 @@ from collections import Counter
 from betting_app.core.db import init_db, query_df
 from betting_app.services.upcoming_inference_service import (
     DEFAULT_FEATURE_VERSION,
-    DEFAULT_HYBRID_ALPHA,
-    DEFAULT_HYBRID_MODEL_NAME,
-    DEFAULT_HYBRID_TEMPERATURE,
-    DEFAULT_MODEL_NAME,
-    DEFAULT_MODEL_VERSION,
     DEFAULT_RATINGS_VERSION,
     DEFAULT_W20_VERSION,
     build_all_upcoming_features,
-    generate_hybrid_predictions,
     generate_model_ev_signals,
-    predict_all_upcoming,
 )
 from betting_app.services.thesis_inference_service import (
     THESIS_HYBRID_ALPHA,
@@ -39,12 +32,7 @@ def main() -> None:
     parser.add_argument("--feature-version", default=DEFAULT_FEATURE_VERSION)
     parser.add_argument("--ratings-version", default=DEFAULT_RATINGS_VERSION)
     parser.add_argument("--w20-version", default=DEFAULT_W20_VERSION)
-    parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
-    parser.add_argument("--model-version", default=DEFAULT_MODEL_VERSION)
-    parser.add_argument("--hybrid", action="store_true", help="Generate model+market hybrid predictions and EV.")
-    parser.add_argument("--hybrid-alpha", type=float, default=DEFAULT_HYBRID_ALPHA)
-    parser.add_argument("--hybrid-temperature", type=float, default=DEFAULT_HYBRID_TEMPERATURE)
-    parser.add_argument("--thesis", action="store_true", help="Also run thesis model (Sym-Cal LR-ElasticNet-W20-Binomial).")
+    parser.add_argument("--thesis", action="store_true", help="Run thesis model (Sym-Cal LR-ElasticNet-W20-Binomial).")
     parser.add_argument("--thesis-hybrid", action="store_true", help="Generate thesis+market hybrid predictions.")
     parser.add_argument("--thesis-hybrid-alpha", type=float, default=THESIS_HYBRID_ALPHA)
     parser.add_argument("--thesis-hybrid-temperature", type=float, default=THESIS_HYBRID_TEMPERATURE)
@@ -68,15 +56,6 @@ def main() -> None:
     feature_counts = Counter(row["status"] for row in features)
     print(f"Features: {len(features)} | {dict(feature_counts)}")
 
-    predictions = predict_all_upcoming(
-        feature_version=args.feature_version,
-        ratings_version=args.ratings_version,
-        model_name=args.model_name,
-        model_version=args.model_version,
-        include_partial=args.include_partial,
-    )
-    print(f"Predictions: {len(predictions)}")
-
     if args.thesis:
         thesis_preds = predict_upcoming_with_thesis_model(
             ratings_version=args.ratings_version,
@@ -95,20 +74,8 @@ def main() -> None:
         )
         print(f"Thesis hybrid predictions: {len(thesis_hybrid_preds)} | alpha={args.thesis_hybrid_alpha:.2f} T={args.thesis_hybrid_temperature:.2f}")
 
-    ev_model_name = args.model_name
-    ev_model_version = args.model_version
-    if args.hybrid:
-        hybrid_version = f"a{args.hybrid_alpha:.2f}-t{args.hybrid_temperature:.2f}"
-        hybrid_predictions = generate_hybrid_predictions(
-            base_model_name=args.model_name,
-            base_model_version=args.model_version,
-            alpha=args.hybrid_alpha,
-            temperature=args.hybrid_temperature,
-            hybrid_model_version=hybrid_version,
-        )
-        print(f"Hybrid predictions: {len(hybrid_predictions)} | alpha={args.hybrid_alpha:.2f} T={args.hybrid_temperature:.2f}")
-        ev_model_name = DEFAULT_HYBRID_MODEL_NAME
-        ev_model_version = hybrid_version
+    ev_model_name = THESIS_HYBRID_MODEL_NAME
+    ev_model_version = f"a{args.thesis_hybrid_alpha:.2f}-t{args.thesis_hybrid_temperature:.2f}"
 
     signals = generate_model_ev_signals(
         model_name=ev_model_name,
