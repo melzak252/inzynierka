@@ -4,7 +4,7 @@
 
 .timing-analysis h1 {
   font-size: 1.8rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.3rem;
   color: #4fc3f7;
 }
 
@@ -14,15 +14,26 @@
   margin-bottom: 1.5rem;
 }
 
+.timing-analysis .section {
+  margin-bottom: 2rem;
+}
+
 .timing-analysis h2 {
-  font-size: 1.2rem;
-  margin: 2rem 0 1rem;
+  font-size: 1.15rem;
+  margin: 0 0 0.8rem;
   color: rgba(255, 255, 255, 0.9);
   border-bottom: 1px solid #2a2a4a;
   padding-bottom: 0.5rem;
 }
 
-/* Controls */
+.timing-analysis .section-desc {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.85rem;
+  margin: -0.3rem 0 1rem;
+  line-height: 1.4;
+}
+
+/* ─── Controls ───────────────────────────────────── */
 .timing-controls {
   display: flex;
   align-items: center;
@@ -33,6 +44,9 @@
 .timing-controls label {
   color: rgba(255, 255, 255, 0.7);
   font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .timing-controls select {
@@ -44,109 +58,206 @@
   font-size: 0.9rem;
 }
 
-/* Best window highlight */
-.best-window {
-  background: #1a1a2e;
-  border: 1px solid #4caf50;
-  border-radius: 8px;
-  padding: 1.2rem;
+.btn {
+  background: transparent;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.8);
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.btn:hover {
+  border-color: #4fc3f7;
+}
+
+.btn-secondary {
+  border-color: #4fc3f7;
+  color: #4fc3f7;
+}
+
+/* ─── Spotlight (Best Window) ────────────────────── */
+.spotlight-card {
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.12), rgba(79, 195, 247, 0.08));
+  border: 1.5px solid #4caf50;
+  border-radius: 12px;
+  padding: 1.2rem 1.5rem;
   margin-bottom: 2rem;
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1.2rem;
 }
 
-.best-window .window-icon {
-  font-size: 2.5rem;
+.spotlight-icon {
+  font-size: 2.8rem;
+  line-height: 1;
 }
 
-.best-window .window-info h3 {
+.spotlight-body {
+  flex: 1;
+}
+
+.spotlight-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
   color: #4caf50;
-  font-size: 1.1rem;
-  margin: 0 0 0.3rem;
+  font-weight: 600;
 }
 
-.best-window .window-info p {
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 0.9rem;
-  margin: 0;
+.spotlight-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.95);
+  margin: 0.2rem 0 0.3rem;
+}
+
+.spotlight-desc {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
   line-height: 1.4;
 }
 
-.best-window .window-range {
-  margin-left: auto;
-  text-align: center;
-  background: #16213e;
-  padding: 0.8rem 1.2rem;
-  border-radius: 8px;
+.spotlight-meta {
+  display: flex;
+  gap: 1.5rem;
+  flex-shrink: 0;
 }
 
-.best-window .window-range .range-value {
-  font-size: 1.4rem;
+.spotlight-stat {
+  text-align: center;
+}
+
+.spotlight-stat-value {
+  display: block;
+  font-size: 1.5rem;
   font-weight: 700;
   color: #4fc3f7;
 }
 
-.best-window .window-range .range-label {
-  font-size: 0.75rem;
-  color: rgba(255, 255, 255, 0.5);
+.spotlight-stat-label {
+  font-size: 0.7rem;
   text-transform: uppercase;
-}
-
-/* Buckets table */
-.buckets-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 0.5rem;
-}
-
-.buckets-table th,
-.buckets-table td {
-  padding: 0.7rem 1rem;
-  text-align: left;
-  border-bottom: 1px solid #2a2a4a;
-}
-
-.buckets-table th {
-  background: #16213e;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 0.8rem;
-  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
   letter-spacing: 0.5px;
 }
 
-.buckets-table td {
-  font-size: 0.9rem;
-  color: rgba(255, 255, 255, 0.8);
+/* ─── SVG Chart ──────────────────────────────────── */
+.odds-chart-container {
+  position: relative;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 0.5rem;
 }
 
-.buckets-table tr:hover td {
-  background: rgba(79, 195, 247, 0.05);
+.odds-chart {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 
-.buckets-table tr.best-row td {
-  background: rgba(76, 175, 80, 0.1);
-  border-left: 3px solid #4caf50;
+.chart-y-label {
+  position: absolute;
+  left: 0.2rem;
+  top: 50%;
+  transform: translateY(-50%) rotate(-90deg);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.3);
+  transform-origin: center;
 }
 
-.buckets-table .bucket-label {
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
+/* ─── Trend Cards Grid ───────────────────────────── */
+.trend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.6rem;
 }
 
-.buckets-table .odds-value {
-  font-family: monospace;
+.trend-card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 0.8rem;
+  text-align: center;
+  transition: border-color 0.2s;
 }
 
-.buckets-table .sample-count {
+.trend-card:hover {
+  border-color: #4fc3f7;
+}
+
+.trend-card.trend-best {
+  border-color: #4caf50;
+  background: rgba(76, 175, 80, 0.08);
+}
+
+.trend-time {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
   color: rgba(255, 255, 255, 0.5);
-  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid #2a2a4a;
 }
 
-/* Drift cards */
+.trend-odds-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.2rem 0;
+}
+
+.trend-team-label {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.4);
+  text-transform: uppercase;
+}
+
+.trend-odds-value {
+  font-family: monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.trend-odds-value.trend-up {
+  color: #4caf50;
+}
+
+.trend-odds-value.trend-down {
+  color: #ef5350;
+}
+
+.trend-odds-value.trend-flat {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.trend-icon {
+  font-size: 0.85rem;
+}
+
+.trend-samples {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.35);
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid #2a2a4a;
+}
+
+/* ─── Drift Grid ─────────────────────────────────── */
 .drift-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 1rem;
 }
 
@@ -154,39 +265,46 @@
   background: #1a1a2e;
   border: 1px solid #2a2a4a;
   border-radius: 8px;
-  padding: 1.2rem;
+  padding: 1rem;
 }
 
-.drift-card .drift-label {
-  font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.5);
+.drift-label {
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 0.5rem;
+  color: rgba(255, 255, 255, 0.45);
+  margin-bottom: 0.3rem;
 }
 
-.drift-card .drift-value {
-  font-size: 1.4rem;
+.drift-value {
+  font-size: 1.6rem;
   font-weight: 700;
   color: #4fc3f7;
+  margin-bottom: 0.4rem;
 }
 
-.drift-card .drift-value.positive {
+.drift-value.positive {
   color: #4caf50;
 }
 
-.drift-card .drift-value.negative {
+.drift-value.negative {
   color: #ef5350;
 }
 
-.drift-card .drift-description {
-  font-size: 0.85rem;
-  color: rgba(255, 255, 255, 0.6);
-  margin-top: 0.5rem;
+.drift-interpretation {
+  font-size: 1rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 0.4rem;
+}
+
+.drift-desc {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.55);
   line-height: 1.4;
 }
 
-/* Insights */
+/* ─── Insights ───────────────────────────────────── */
 .insights-list {
   list-style: none;
   padding: 0;
@@ -201,14 +319,83 @@
   margin-bottom: 0.5rem;
   color: rgba(255, 255, 255, 0.8);
   font-size: 0.9rem;
-  line-height: 1.4;
+  line-height: 1.5;
 }
 
-.insights-list li::before {
-  content: "💡";
-  margin-right: 0.5rem;
+.insights-list li strong {
+  color: #4fc3f7;
 }
 
+.insights-list li .positive {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.insights-list li .negative {
+  color: #ef5350;
+  font-weight: 600;
+}
+
+/* ─── Raw data table ─────────────────────────────── */
+.raw-data-details {
+  margin-top: 1.5rem;
+}
+
+.raw-data-summary {
+  cursor: pointer;
+  color: #4fc3f7;
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
+  user-select: none;
+}
+
+.buckets-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.8rem;
+  font-size: 0.85rem;
+}
+
+.buckets-table th,
+.buckets-table td {
+  padding: 0.6rem 0.8rem;
+  text-align: left;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.buckets-table th {
+  background: #16213e;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.buckets-table td {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.buckets-table tr.best-row td {
+  background: rgba(76, 175, 80, 0.1);
+  border-left: 3px solid #4caf50;
+}
+
+.buckets-table .bucket-label {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+}
+
+.buckets-table .sample-count {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.8rem;
+}
+
+.buckets-table tr:hover td {
+  background: rgba(79, 195, 247, 0.04);
+}
+
+/* ─── States ─────────────────────────────────────── */
 .loading-text {
   color: rgba(255, 255, 255, 0.5);
   font-style: italic;
