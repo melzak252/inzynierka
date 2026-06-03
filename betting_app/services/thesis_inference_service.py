@@ -421,12 +421,17 @@ def predict_upcoming_with_thesis_model(
     results: list[dict[str, Any]] = []
 
     with transaction() as conn:
-        # Mark old predictions as stale
+        # Mark old predictions as stale (but keep finished matches active)
         conn.execute(
             """
             UPDATE canonical_predictions
             SET prediction_status = 'stale'
-            WHERE prediction_status = 'active' AND model_name = ? AND model_version = ?
+            WHERE prediction_status = 'active' 
+              AND model_name = ? AND model_version = ?
+              AND canonical_match_id NOT IN (
+                SELECT id FROM canonical_matches 
+                WHERE status IN ('finished', 'completed')
+              )
             """,
             (THESIS_MODEL_NAME, THESIS_MODEL_VERSION),
         )
@@ -664,12 +669,16 @@ def generate_thesis_hybrid_predictions(
 
     results: list[dict[str, Any]] = []
     with transaction() as connection:
-        # Mark old hybrid predictions as stale
+        # Mark old hybrid predictions as stale (but keep finished matches active)
         connection.execute(
             """
             UPDATE canonical_predictions
             SET prediction_status = 'stale'
             WHERE prediction_status = 'active' AND model_name = ? AND model_version = ?
+              AND canonical_match_id NOT IN (
+                SELECT id FROM canonical_matches 
+                WHERE status IN ('finished', 'completed')
+              )
             """,
             (hybrid_model_name, hybrid_model_version),
         )
