@@ -169,7 +169,7 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
                        cm.start_time_normalized, cm.league, cm.status,
                        COALESCE(os.odds_snapshots, 0) AS odds_snapshots,
                        COALESCE(be.bookmaker_events, 0) AS bookmaker_events
-                FROM canonical_matches
+                FROM canonical_matches cm
                 LEFT JOIN (
                     SELECT canonical_match_id, COUNT(*) AS odds_snapshots
                     FROM odds_snapshots
