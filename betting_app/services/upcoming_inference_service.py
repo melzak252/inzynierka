@@ -288,7 +288,7 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
         FROM golgg_matches gm
         JOIN golgg_game_players gp ON gp.match_id = gm.match_id
         WHERE gp.team_name = ?
-        ORDER BY gm.date DESC, CAST(gm.match_id AS INTEGER) DESC
+        ORDER BY gm.date DESC, gm.match_id DESC
         LIMIT 1
         """,
         (team_name,),
@@ -863,6 +863,9 @@ def generate_model_ev_signals(
             (model_name, model_version),
         )
         for row in rows.to_dict("records"):
+            # Skip rows without odds_snapshot_id (no matching odds found)
+            if row.get("odds_snapshot_id") is None:
+                continue
             aligned = align_snapshot_odds(
                 str(row.get("normalized_team_a") or ""),
                 str(row.get("normalized_team_b") or ""),

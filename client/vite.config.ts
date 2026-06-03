@@ -9,7 +9,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: process.env.VITE_API_PROXY_TARGET || 'http://192.168.1.17:8000',
+        target: process.env.VITE_API_PROXY_TARGET || 'http://ensemblelegends-betting-api:8000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },

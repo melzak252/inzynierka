@@ -96,21 +96,13 @@ def finish_command(command_id: int | None, *, returncode: int) -> None:
             (command_id,),
         ).fetchone()
         finished_at = utc_now_iso()
-        duration = None
-        if row and row["started_at"]:
-            try:
-                started = datetime.fromisoformat(str(row["started_at"]))
-                finished = datetime.fromisoformat(finished_at)
-                duration = max((finished - started).total_seconds(), 0.0)
-            except ValueError:
-                duration = None
         connection.execute(
             """
             UPDATE automation_commands
-            SET status = ?, returncode = ?, finished_at = ?, duration_seconds = ?
+            SET status = ?, exit_code = ?, finished_at = ?
             WHERE id = ?
             """,
-            (status, returncode, finished_at, duration, command_id),
+            (status, returncode, finished_at, command_id),
         )
         if row and returncode != 0:
             connection.execute(
