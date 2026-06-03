@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import logging
 
 from betting_app.scrapers.golgg import GolggScraper
@@ -97,58 +97,141 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
                 already_mapped += 1
                 continue
 
-            # For each golgg team, find the mapped canonical name
-            # try both orientations
-            g1_canonical, _ = suggest_mapping(team1)
-            g2_canonical, _ = suggest_mapping(team2)
-            if not g1_canonical or not g2_canonical:
-                errors += 1
-                continue
+            from betting_app.core.matching import normalize_team_name as _ntn, similarity as _sim
 
-            # Search canonical_matches for matching teams + nearby date
-            # Normalize both sides using normalize_team_name() to ensure consistent
-            # stop-word removal (e.g., "Team Liquid" → "liquid") and comparison
-            # against canonical_matches.normalized_team_a (which was also normalized).
-            # Try both orientations: (team_a, team_b) and (team_b, team_a)
-            from betting_app.core.matching import normalize_team_name as _ntn
+            def _sql_escape(value: str) -> str:
+                return value.replace("'", "''")
+
+            def _team_keys(raw_team_name: str) -> set[str]:
+                """Return normalized names/aliases that may identify a team.
+
+                `suggest_mapping()` returns a display alias (for example "JD Gaming"),
+                while `canonical_matches.normalized_team_*` may store either a short
+                alias key ("jd") or a normalized display name ("top esports").  For
+                auto-mapping we therefore consider both directions from team_aliases:
+                exact alias -> normalized_name, and normalized_name -> alias.
+                """
+
+                keys = {_ntn(raw_team_name)}
+                suggested, _ = suggest_mapping(raw_team_name)
+                if suggested:
+                    keys.add(_ntn(suggested))
+
+                raw_lower = raw_team_name.strip().lower()
+                norm = _ntn(raw_team_name)
+                suggested_lower = (suggested or "").strip().lower()
+                alias_rows = query_df(
+                    """
+                    SELECT DISTINCT normalized_name, alias
+                    FROM team_aliases
+                    WHERE LOWER(alias) IN (?, ?)
+                       OR LOWER(normalized_name) = ?
+                    """,
+                    (raw_lower, suggested_lower, norm),
+                )
+                for _, alias_row in alias_rows.iterrows():
+                    normalized_name = str(alias_row.get("normalized_name") or "")
+                    alias = str(alias_row.get("alias") or "")
+                    if normalized_name:
+                        keys.add(normalized_name.strip().lower())
+                        keys.add(_ntn(normalized_name))
+                    if alias:
+                        keys.add(_ntn(alias))
+                return {key for key in keys if key}
+
+            def _team_score(raw_team_name: str, canonical_normalized: str, keys: set[str]) -> float:
+                canonical = (canonical_normalized or "").strip().lower()
+                canonical_norm = _ntn(canonical)
+                if not canonical:
+                    return 0.0
+                if canonical in keys or canonical_norm in keys:
+                    return 1.0
+                scores = [_sim(raw_team_name, canonical), _sim(raw_team_name, canonical_norm)]
+                scores.extend(_sim(key, canonical) for key in keys)
+                scores.extend(_sim(key, canonical_norm) for key in keys)
+                return max(scores) if scores else 0.0
+
             start_date = match_date[:10] if len(match_date) >= 10 else match_date
-            g1_lower = _ntn(g1_canonical).replace("'", "''")
-            g2_lower = _ntn(g2_canonical).replace("'", "''")
+            team1_keys = _team_keys(team1)
+            team2_keys = _team_keys(team2)
+
+            try:
+                gd = datetime.strptime(start_date, "%Y-%m-%d")
+                window_start = (gd - timedelta(days=2)).strftime("%Y-%m-%d")
+                window_end = (gd + timedelta(days=2)).strftime("%Y-%m-%d")
+            except ValueError:
+                gd = None
+                window_start = start_date
+                window_end = start_date
 
             candidates = query_df(f"""
                 SELECT id, normalized_team_a, normalized_team_b, 
                        start_time_normalized, league, status
                 FROM canonical_matches
-                WHERE (LOWER(normalized_team_a) = '{g1_lower}' 
-                       AND LOWER(normalized_team_b) = '{g2_lower}')
-                   OR (LOWER(normalized_team_a) = '{g2_lower}' 
-                       AND LOWER(normalized_team_b) = '{g1_lower}')
+                WHERE LEFT(start_time_normalized, 10) >= '{_sql_escape(window_start)}'
+                  AND LEFT(start_time_normalized, 10) <= '{_sql_escape(window_end)}'
             """)
 
             if candidates.empty:
                 errors += 1
                 continue
 
-            # Pick the best match by date proximity
+            # Score both team orientations and pick the best safe candidate.
             best_id = None
-            best_diff = 999999
+            best_score = 0.0
+            best_diff = 999999.0
+            second_score = 0.0
             for _, c in candidates.iterrows():
                 cid = c["id"]
+                ca = str(c.get("normalized_team_a") or "")
+                cb = str(c.get("normalized_team_b") or "")
                 cdate = str(c.get("start_time_normalized", ""))[:10]
+                diff = 999999.0
                 if start_date and cdate:
                     try:
-                        from datetime import datetime as _dt
-                        gd = _dt.strptime(start_date, "%Y-%m-%d")
-                        cd = _dt.strptime(cdate, "%Y-%m-%d") if cdate else gd
+                        cd = datetime.strptime(cdate, "%Y-%m-%d") if cdate else gd
                         diff = abs((gd - cd).days)
-                        if diff < best_diff:
-                            best_diff = diff
-                            best_id = cid
-                    except ValueError:
-                        if best_id is None:
-                            best_id = cid
+                    except (TypeError, ValueError):
+                        diff = 0.0
+
+                a1 = _team_score(team1, ca, team1_keys)
+                b1 = _team_score(team2, cb, team2_keys)
+                a2 = _team_score(team1, cb, team1_keys)
+                b2 = _team_score(team2, ca, team2_keys)
+
+                orient1_score = (a1 + b1) / 2.0
+                orient2_score = (a2 + b2) / 2.0
+                orient_score = max(orient1_score, orient2_score)
+                min_team_score = min((a1, b1) if orient1_score >= orient2_score else (a2, b2))
+
+                # Date is only a tie-breaker/light penalty; team names dominate.
+                score = orient_score - min(diff, 2.0) * 0.03
+                safe = orient_score >= 0.82 and min_team_score >= 0.68
+                if not safe:
+                    continue
+
+                if score > best_score or (score == best_score and diff < best_diff):
+                    second_score = best_score
+                    best_score = score
+                    best_diff = diff
+                    best_id = cid
+                elif score > second_score:
+                    second_score = score
 
             if best_id is None:
+                errors += 1
+                continue
+
+            # Avoid ambiguous auto-mapping when two candidates are similarly good.
+            if second_score and best_score - second_score < 0.04:
+                logger.warning(
+                    "Auto-map ambiguous for GOL.GG %s (%s vs %s): best=%.3f second=%.3f",
+                    gmid,
+                    team1,
+                    team2,
+                    best_score,
+                    second_score,
+                )
                 errors += 1
                 continue
 
@@ -157,7 +240,7 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
                 session.execute(_sql_text(f"""
                     INSERT INTO golgg_match_mappings 
                         (canonical_match_id, golgg_match_id, confidence, mapped_by)
-                    VALUES ({best_id}, '{gmid}', 1.0, 'auto')
+                    VALUES ({best_id}, '{gmid}', {max(0.0, min(1.0, best_score)):.4f}, 'auto-fuzzy')
                     ON CONFLICT (golgg_match_id) DO NOTHING
                 """))
                 session.commit()
