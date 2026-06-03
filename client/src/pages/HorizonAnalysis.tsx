@@ -322,7 +322,15 @@ export default function HorizonAnalysis() {
         metricKey="avg_logloss"
         color={COLORS.logloss}
         yLabel="Avg LogLoss"
-        domain={[0, 1]}
+        domain={(() => {
+          const vals = shownBins.map(b => b.avg_logloss).filter(v => v !== null) as number[];
+          data?.model_references?.forEach(r => { if (r.avg_logloss !== null) vals.push(r.avg_logloss); });
+          if (vals.length === 0) return [0, 1] as [number, number];
+          const min = Math.min(...vals);
+          const max = Math.max(...vals);
+          const pad = (max - min) * 0.15 || 0.05;
+          return [Math.max(0, +(min - pad).toFixed(4)), +(max + pad).toFixed(4)] as [number, number];
+        })()}
       />
 
       {/* ─── Chart 3: AUC ────────────────────────────────── */}
