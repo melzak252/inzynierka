@@ -374,6 +374,91 @@
   background: rgba(79, 195, 247, 0.05);
 }
 
+/* ─── Ranking Section ────────────────────────────────────── */
+
+.ranking-section {
+  margin-bottom: 1.5rem;
+}
+
+.ranking-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.6rem;
+}
+
+.ranking-card {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  position: relative;
+}
+
+.ranking-card.best {
+  border-color: #2ecc71;
+  background: linear-gradient(135deg, #0d2818, #1a2a1e);
+}
+
+.ranking-card.worst {
+  border-color: #ef5350;
+  background: linear-gradient(135deg, #2a1010, #1a1a2e);
+}
+
+.ranking-pos {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.6rem;
+  font-size: 0.7rem;
+  color: #666;
+  font-weight: 600;
+}
+
+.ranking-bucket {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #ddd;
+}
+
+.ranking-value {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.ranking-value.positive {
+  color: #4caf50;
+}
+
+.ranking-value.negative {
+  color: #ef5350;
+}
+
+.ranking-bar-wrapper {
+  width: 100%;
+  height: 4px;
+  background: #2a2a4a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.ranking-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.ranking-detail {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.ranking-meta {
+  font-size: 0.7rem;
+  color: #666;
+}
+
 /* ─── Responsive ─────────────────────────────────────────── */
 
 @media (max-width: 640px) {

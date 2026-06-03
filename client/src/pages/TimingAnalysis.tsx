@@ -69,6 +69,17 @@ export default function TimingAnalysis() {
 
   const { time_buckets, drift_summary, best_betting_window } = data;
 
+  // Compute combined market deviation per bucket (avg of A and B)
+  const bucketsWithMarket = time_buckets.map(b => ({
+    ...b,
+    avg_market_deviation_pct: (b.avg_deviation_a_pct + b.avg_deviation_b_pct) / 2,
+  }));
+
+  // Sort by market deviation descending (best = most positive first)
+  const sortedByMarket = [...bucketsWithMarket].sort(
+    (a, z) => z.avg_market_deviation_pct - a.avg_market_deviation_pct
+  );
+
   return (
     <div className="timing-page">
       <h1>⏱ Timing Analysis</h1>
@@ -123,11 +134,56 @@ export default function TimingAnalysis() {
         <h2>Odds Deviation from Closing</h2>
         <p className="chart-subtitle">
           Positive % = odds better than closing · Negative % = odds worse than closing
+          · Dashed line = market average (Team A + Team B) / 2
         </p>
         <div className="chart-container">
-          <OddsDeviationChart buckets={time_buckets} />
+          <OddsDeviationChart buckets={bucketsWithMarket} />
         </div>
       </div>
+
+      {/* Overall Market Ranking */}
+      {sortedByMarket.length >= 2 && (
+        <div className="ranking-section">
+          <h2>📊 Market Overview — When to Bet</h2>
+          <div className="ranking-grid">
+            {sortedByMarket.map((b, i) => {
+              const isBest = i === 0;
+              const isWorst = i === sortedByMarket.length - 1;
+              return (
+                <div
+                  key={b.bucket}
+                  className={`ranking-card ${isBest ? 'best' : ''} ${isWorst ? 'worst' : ''}`}
+                >
+                  <span className="ranking-pos">#{i + 1}</span>
+                  <span className="ranking-bucket">{b.bucket}</span>
+                  <span className={`ranking-value ${b.avg_market_deviation_pct >= 0 ? 'positive' : 'negative'}`}>
+                    {b.avg_market_deviation_pct > 0 ? '+' : ''}
+                    {b.avg_market_deviation_pct.toFixed(2)}%
+                  </span>
+                  <div className="ranking-bar-wrapper">
+                    <div
+                      className="ranking-bar"
+                      style={{
+                        width: `${Math.abs(b.avg_market_deviation_pct) / Math.max(...sortedByMarket.map(x => Math.abs(x.avg_market_deviation_pct))) * 100}%`,
+                        background: b.avg_market_deviation_pct >= 0
+                          ? 'linear-gradient(90deg, #2ecc71, #4caf50)'
+                          : 'linear-gradient(90deg, #ef5350, #e53935)',
+                      }}
+                    />
+                  </div>
+                  <div className="ranking-detail">
+                    A {b.avg_deviation_a_pct > 0 ? '+' : ''}{b.avg_deviation_a_pct.toFixed(1)}%
+                    · B {b.avg_deviation_b_pct > 0 ? '+' : ''}{b.avg_deviation_b_pct.toFixed(1)}%
+                  </div>
+                  <div className="ranking-meta">
+                    {b.match_count} meczów · {b.snapshot_count} snap
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Trend Cards */}
       {time_buckets.length >= 2 && (
@@ -225,7 +281,7 @@ export default function TimingAnalysis() {
 
 /* ─── SVG Deviation Chart ──────────────────────────────── */
 
-function OddsDeviationChart({ buckets }: { buckets: TimingBucket[] }) {
+function OddsDeviationChart({ buckets }: { buckets: (TimingBucket & { avg_market_deviation_pct?: number })[] }) {
   const chartW = 700;
   const chartH = 320;
   const pad = { top: 30, right: 30, bottom: 50, left: 60 };
@@ -237,7 +293,11 @@ function OddsDeviationChart({ buckets }: { buckets: TimingBucket[] }) {
   }
 
   // Find max absolute deviation for Y scale
-  const allDevs = buckets.flatMap(b => [b.avg_deviation_a_pct, b.avg_deviation_b_pct]);
+  const allDevs = buckets.flatMap(b => [
+    b.avg_deviation_a_pct,
+    b.avg_deviation_b_pct,
+    b.avg_market_deviation_pct ?? 0,
+  ]);
   const maxAbsDev = Math.max(Math.abs(Math.min(...allDevs)), Math.abs(Math.max(...allDevs)), 0.5);
   const yMax = Math.ceil(maxAbsDev * 1.15); // +15% headroom
   const yMin = -yMax;
@@ -254,18 +314,17 @@ function OddsDeviationChart({ buckets }: { buckets: TimingBucket[] }) {
     return pad.top + plotH - ((pct - yMin) / (yMax - yMin)) * plotH;
   }
 
-  // Build path strings
-  const pathA = buckets.map((b, i) => {
-    const x = xPos(b.hours_start + (b.hours_end - b.hours_start) / 2);
-    const y = yPos(b.avg_deviation_a_pct);
-    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
+  // Helper to build path
+  const buildPath = (getVal: (b: typeof buckets[number]) => number) =>
+    buckets.map((b, i) => {
+      const x = xPos(b.hours_start + (b.hours_end - b.hours_start) / 2);
+      const y = yPos(getVal(b));
+      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
 
-  const pathB = buckets.map((b, i) => {
-    const x = xPos(b.hours_start + (b.hours_end - b.hours_start) / 2);
-    const y = yPos(b.avg_deviation_b_pct);
-    return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-  }).join(' ');
+  const pathA = buildPath(b => b.avg_deviation_a_pct);
+  const pathB = buildPath(b => b.avg_deviation_b_pct);
+  const pathM = buildPath(b => b.avg_market_deviation_pct ?? 0);
 
   // Y-axis ticks
   const yTicks = [];
@@ -326,11 +385,25 @@ function OddsDeviationChart({ buckets }: { buckets: TimingBucket[] }) {
         % Deviation from closing
       </text>
 
+      {/* Data line — Market average (dashed, behind others) */}
+      <path d={pathM} fill="none" stroke="#e040fb" strokeWidth={2} strokeDasharray="6 4" opacity={0.8} />
+
       {/* Data line — Team A */}
       <path d={pathA} fill="none" stroke="#4fc3f7" strokeWidth={2.5} />
 
       {/* Data line — Team B */}
       <path d={pathB} fill="none" stroke="#ff9800" strokeWidth={2.5} />
+
+      {/* Data points — Market */}
+      {buckets.map((b) => {
+        const cx = xPos(b.hours_start + (b.hours_end - b.hours_start) / 2);
+        const cy = yPos(b.avg_market_deviation_pct ?? 0);
+        return (
+          <circle key={`m-${b.bucket}`} cx={cx} cy={cy} r={3} fill="#e040fb" stroke="#1a1a2e" strokeWidth={1.5}>
+            <title>Market avg: {b.avg_market_deviation_pct !== undefined ? `${b.avg_market_deviation_pct > 0 ? '+' : ''}${b.avg_market_deviation_pct.toFixed(2)}%` : 'N/A'}</title>
+          </circle>
+        );
+      })}
 
       {/* Data points — Team A */}
       {buckets.map((b) => {
@@ -373,12 +446,14 @@ function OddsDeviationChart({ buckets }: { buckets: TimingBucket[] }) {
       })}
 
       {/* Legend */}
-      <g transform={`translate(${chartW - pad.right - 160}, 8)`}>
-        <rect x={0} y={0} width={160} height={44} rx={6} fill="#1a1a2e" stroke="#2a2a4a" />
+      <g transform={`translate(${chartW - pad.right - 180}, 8)`}>
+        <rect x={0} y={0} width={180} height={60} rx={6} fill="#1a1a2e" stroke="#2a2a4a" />
         <circle cx={16} cy={16} r={5} fill="#4fc3f7" />
         <text x={28} y={20} fill="#ccc" fontSize={12}>Team A deviation</text>
         <circle cx={16} cy={36} r={5} fill="#ff9800" />
         <text x={28} y={40} fill="#ccc" fontSize={12}>Team B deviation</text>
+        <line x1={11} y1={52} x2={21} y2={52} stroke="#e040fb" strokeWidth={2} strokeDasharray="4 3" />
+        <text x={28} y={56} fill="#ccc" fontSize={12}>Market avg</text>
       </g>
     </svg>
   );
