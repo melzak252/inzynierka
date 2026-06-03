@@ -33,6 +33,9 @@ if str(PROJECT_ROOT) not in sys.path:
 from betting_app.core.db import connect, init_db, transaction  # noqa: E402
 from betting_app.core.matching import normalize_team_name  # noqa: E402
 from src.ratings.manager import RatingManager  # noqa: E402
+from glicko2 import Player as GlickoPlayer  # noqa: E402
+from trueskill import Rating as TrueSkillState  # noqa: E402
+
 
 
 RATING_SYSTEM_PARAMS: dict[str, dict[str, Any]] = {
@@ -62,15 +65,20 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=None, help="Process only first N chronological matches for a smoke test.")
-    parser.add_argument("--ratings-version", default=None, help="Override ratings version label.")
+    parser.add_argument("--ratings-version", default="latest-full", help="Ratings version label to update.")
     parser.add_argument("--source", default="golgg_sqlite_rating_manager", help="Source label stored in rating_runs.")
+    parser.add_argument("--mode", choices=["incremental", "full"], default="incremental", help="Incrementally update existing ratings, or rebuild from scratch.")
     args = parser.parse_args()
 
     init_db()
     version = args.ratings_version or datetime.now(UTC).strftime("ratings-%Y%m%dT%H%M%SZ")
+    previous_state = load_existing_rating_state(version) if args.mode == "incremental" else None
     run_id = create_rating_run(version, args.source)
     try:
-        stats = rebuild_ratings(version, run_id, limit=args.limit)
+        if args.mode == "incremental":
+            stats = update_ratings_incremental(version, run_id, previous_state=previous_state, limit=args.limit)
+        else:
+            stats = rebuild_ratings(version, run_id, limit=args.limit)
     except Exception as exc:
         finish_rating_run(run_id, status="failed", error=str(exc))
         raise
@@ -83,8 +91,9 @@ def main() -> None:
         data_cutoff_at=stats.get("data_cutoff_at"),
     )
     print(
-        "Rebuilt ratings:",
+        f"{'Updated' if args.mode == 'incremental' else 'Rebuilt'} ratings:",
         f"version={version}",
+        f"mode={args.mode}",
         f"matches={stats['matches']}",
         f"games={stats['games']}",
         f"entities={stats['entities']}",
@@ -94,17 +103,32 @@ def main() -> None:
 
 
 def create_rating_run(version: str, source: str) -> int:
-    """Create a rating run metadata row, replacing stale rows of the same version."""
+    """Create or mark a rating run as running without deleting the previous snapshot.
+
+    `ratings_version` is the stable key consumed by feature/prediction code (usually
+    `latest-full`).  For incremental updates we must not delete the old
+    entity_ratings at the start of the job; otherwise a failed job would leave the
+    app without ratings.  Existing rows are replaced atomically in
+    persist_entity_ratings() only after the new state has been computed.
+    """
 
     with transaction() as connection:
         existing = connection.execute("SELECT id FROM rating_runs WHERE ratings_version = ?", (version,)).fetchone()
         if existing:
-            connection.execute("DELETE FROM entity_ratings WHERE ratings_version = ?", (version,))
-            connection.execute("DELETE FROM rating_runs WHERE id = ?", (existing["id"],))
+            connection.execute(
+                """
+                UPDATE rating_runs
+                SET source = ?, systems_json = ?, status = 'running', error = NULL,
+                    started_at = CURRENT_TIMESTAMP, finished_at = NULL
+                WHERE id = ?
+                """,
+                (source, json.dumps(RATING_SYSTEM_PARAMS, sort_keys=True), existing["id"]),
+            )
+            return int(existing["id"])
         cursor = connection.execute(
             """
-            INSERT INTO rating_runs(ratings_version, source, systems_json, status)
-            VALUES (?, ?, ?, 'running')
+            INSERT INTO rating_runs(ratings_version, source, systems_json, status, started_at)
+            VALUES (?, ?, ?, 'running', CURRENT_TIMESTAMP)
             """,
             (version, source, json.dumps(RATING_SYSTEM_PARAMS, sort_keys=True)),
         )
@@ -206,7 +230,7 @@ def rebuild_ratings(version: str, run_id: int, limit: int | None = None) -> dict
     }
 
 
-def load_matches(limit: int | None = None) -> list[MatchForRatings]:
+def load_matches(limit: int | None = None, after_date: str | None = None) -> list[MatchForRatings]:
     """Load finished non-draw matches and rosters from SQLite."""
 
     query = """
@@ -214,12 +238,16 @@ def load_matches(limit: int | None = None) -> list[MatchForRatings]:
         FROM golgg_matches
         WHERE COALESCE(draw, 0) = 0
           AND date IS NOT NULL
-        ORDER BY date ASC, CAST(match_id AS INTEGER) ASC
     """
+    params: list[Any] = []
+    if after_date:
+        query += " AND date > ?"
+        params.append(after_date)
+    query += " ORDER BY date ASC, CAST(match_id AS INTEGER) ASC"
     if limit:
         query += f" LIMIT {int(limit)}"
     with connect() as connection:
-        match_rows = connection.execute(query).fetchall()
+        match_rows = connection.execute(query, params).fetchall()
         matches: list[MatchForRatings] = []
         for row in match_rows:
             games = [dict(game) for game in connection.execute(
@@ -323,6 +351,201 @@ def game_score_for_match_team1(match: MatchForRatings, game: dict[str, Any]) -> 
     return int(bool(game.get("team1_win")))
 
 
+def update_ratings_incremental(
+    version: str,
+    run_id: int,
+    *,
+    previous_state: dict[str, Any] | None,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """Update ratings from the previous persisted snapshot using only new GOL.GG matches."""
+
+    if previous_state is None:
+        print(f"No completed {version!r} rating snapshot found; falling back to full rebuild.")
+        return rebuild_ratings(version, run_id, limit=limit)
+
+    cutoff = previous_state.get("data_cutoff_at")
+    manager: RatingManager = previous_state["manager"]
+    team_names: dict[str, str] = previous_state["team_names"]
+    player_names: dict[str, str] = previous_state["player_names"]
+    player_teams: dict[str, str] = previous_state["player_teams"]
+    team_games: Counter[str] = previous_state["team_games"]
+    player_games: Counter[str] = previous_state["player_games"]
+    team_last_match: dict[str, str] = previous_state["team_last_match"]
+    player_last_match: dict[str, str] = previous_state["player_last_match"]
+
+    matches = load_matches(limit=limit, after_date=cutoff)
+    games_processed = 0
+
+    for match in tqdm(matches, desc=f"Incremental ratings since {cutoff}"):
+        if not match.players1 or not match.players2 or not match.games:
+            continue
+        team_names[match.team1_id] = match.team1_name
+        team_names[match.team2_id] = match.team2_name
+        match_info_date = match.match_date.isoformat()
+
+        manager.update_before_match(match.team1_id, match.team2_id, match.players1, match.players2, match.match_date)
+        scores: list[int] = []
+        for game in match.games:
+            score_1 = game_score_for_match_team1(match, game)
+            score_2 = 1 - score_1
+            scores.append(score_1)
+            manager.update_after_game(match.team1_id, match.team2_id, match.players1, match.players2, score_1, score_2)
+            games_processed += 1
+
+        manager.update_after_match(match.team1_id, match.team2_id, match.players1, match.players2, scores)
+        team_games[match.team1_id] += len(scores)
+        team_games[match.team2_id] += len(scores)
+        team_last_match[match.team1_id] = match_info_date
+        team_last_match[match.team2_id] = match_info_date
+        for player_id in match.players1:
+            player_games[player_id] += len(scores)
+            player_last_match[player_id] = match_info_date
+            player_teams[player_id] = match.team1_name
+        for player_id in match.players2:
+            player_games[player_id] += len(scores)
+            player_last_match[player_id] = match_info_date
+            player_teams[player_id] = match.team2_name
+
+        for game in match.games[:1]:
+            player_names.update(load_player_display_names(game["game_id"]))
+
+    previous_cutoff = date.fromisoformat(cutoff) if cutoff else None
+    processed_cutoff = max((m.match_date for m in matches), default=None)
+    data_cutoff = max([d for d in [previous_cutoff, processed_cutoff] if d is not None], default=None)
+    if not matches:
+        # Nothing changed; keep the existing entity_ratings snapshot intact.
+        rows = count_entity_ratings(version)
+    else:
+        rows = persist_entity_ratings(
+            manager=manager,
+            version=version,
+            run_id=run_id,
+            snapshot_at=data_cutoff.isoformat() if data_cutoff else datetime.now(UTC).date().isoformat(),
+            team_names=team_names,
+            player_names=player_names,
+            player_teams=player_teams,
+            team_games=team_games,
+            player_games=player_games,
+            team_last_match=team_last_match,
+            player_last_match=player_last_match,
+        )
+    return {
+        "matches": len(matches),
+        "games": games_processed,
+        "players": len(player_games),
+        "entities": len(team_names) + len(player_games),
+        "rows": rows,
+        "data_cutoff_at": data_cutoff.isoformat() if data_cutoff else cutoff,
+    }
+
+
+def load_existing_rating_state(version: str) -> dict[str, Any] | None:
+    """Hydrate RatingManager and metadata from the latest completed persisted snapshot."""
+
+    with connect() as connection:
+        run = connection.execute(
+            """
+            SELECT id, data_cutoff_at
+            FROM rating_runs
+            WHERE ratings_version = ? AND status = 'completed'
+            ORDER BY finished_at DESC NULLS LAST, id DESC
+            LIMIT 1
+            """,
+            (version,),
+        ).fetchone()
+        if not run:
+            return None
+        rows = connection.execute(
+            """
+            SELECT entity_type, entity_name, normalized_entity_name, team_name,
+                   rating_system, rating_value, rd, sigma, games_played,
+                   last_match_at, state_json
+            FROM entity_ratings
+            WHERE ratings_version = ?
+            """,
+            (version,),
+        ).fetchall()
+
+    manager = RatingManager(RATING_SYSTEM_PARAMS)
+    team_names: dict[str, str] = {}
+    player_names: dict[str, str] = {}
+    player_teams: dict[str, str] = {}
+    team_games: Counter[str] = Counter()
+    player_games: Counter[str] = Counter()
+    team_last_match: dict[str, str] = {}
+    player_last_match: dict[str, str] = {}
+
+    for row in rows:
+        state = json.loads(row.get("state_json") or "{}")
+        entity_type = str(row["entity_type"])
+        system_name = str(row["rating_system"])
+        system = manager.systems.get(system_name)
+        if system is None:
+            continue
+
+        if entity_type == "team":
+            entity_id = str(state.get("team_id") or row["normalized_entity_name"])
+            team_names[entity_id] = str(row["entity_name"])
+            team_games[entity_id] = max(team_games[entity_id], int(row.get("games_played") or 0))
+            if row.get("last_match_at"):
+                team_last_match[entity_id] = str(row["last_match_at"])
+        elif entity_type == "player":
+            entity_id = str(state.get("player_id") or row["normalized_entity_name"])
+            player_names[entity_id] = str(row["entity_name"])
+            player_teams[entity_id] = row.get("team_name")
+            player_games[entity_id] = max(player_games[entity_id], int(row.get("games_played") or 0))
+            if row.get("last_match_at"):
+                player_last_match[entity_id] = str(row["last_match_at"])
+        else:
+            continue
+
+        rating = rating_from_row(system_name, system, row, state)
+        if entity_type == "team":
+            system.team_ratings[entity_id] = rating
+        else:
+            system.player_ratings[entity_id] = rating
+
+    gl = manager.systems["gl"]
+    for team_id, last_at in team_last_match.items():
+        gl.team_last_played[team_id] = date.fromisoformat(last_at[:10])
+        manager.last_match_date[team_id] = date.fromisoformat(last_at[:10])
+    for player_id, last_at in player_last_match.items():
+        gl.player_last_played[player_id] = date.fromisoformat(last_at[:10])
+
+    return {
+        "data_cutoff_at": run.get("data_cutoff_at"),
+        "manager": manager,
+        "team_names": team_names,
+        "player_names": player_names,
+        "player_teams": player_teams,
+        "team_games": team_games,
+        "player_games": player_games,
+        "team_last_match": team_last_match,
+        "player_last_match": player_last_match,
+    }
+
+
+def rating_from_row(system_name: str, system: Any, row: dict[str, Any], state: dict[str, Any]) -> Any:
+    """Deserialize one persisted rating row into the rating object expected by a system."""
+
+    if system_name == "elo":
+        return float(state.get("rating", row.get("rating_value") or 1500.0))
+    if system_name == "gl":
+        return GlickoPlayer(
+            rating=float(state.get("rating", row.get("rating_value") or 1500.0)),
+            rd=float(state.get("rd", row.get("rd") or 350.0)),
+            vol=float(state.get("volatility", 0.06)),
+        )
+    mu = float(state.get("mu", row.get("rating_value") or 25.0))
+    sigma = float(state.get("sigma", row.get("sigma") or 8.333))
+    if system_name == "ts":
+        return TrueSkillState(mu=mu, sigma=sigma)
+    # OpenSkill, Plackett-Luce and Thurstone systems expose compatible model.rating().
+    model = getattr(system, "model", None) or getattr(system, "pl_model", None) or getattr(system, "tm_model", None)
+    return model.rating(mu=mu, sigma=sigma)
+
+
 def persist_entity_ratings(
     *,
     manager: RatingManager,
@@ -355,31 +578,28 @@ def persist_entity_ratings(
                 system_name, rating, player_games[player_key], player_last_match.get(player_key), {"player_id": player_key},
             ))
 
+    insert_sql = """
+        INSERT INTO entity_ratings(
+            rating_run_id, ratings_version, snapshot_at, entity_type, entity_name,
+            normalized_entity_name, team_name, role, rating_system, rating_value,
+            rd, sigma, games_played, last_match_at, state_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
     with transaction() as connection:
-        connection.executemany(
-            """
-            INSERT INTO entity_ratings(
-                rating_run_id, ratings_version, snapshot_at, entity_type, entity_name,
-                normalized_entity_name, team_name, role, rating_system, rating_value,
-                rd, sigma, games_played, last_match_at, state_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(ratings_version, entity_type, normalized_entity_name, rating_system)
-            DO UPDATE SET
-                rating_run_id = excluded.rating_run_id,
-                snapshot_at = excluded.snapshot_at,
-                entity_name = excluded.entity_name,
-                team_name = excluded.team_name,
-                role = excluded.role,
-                rating_value = excluded.rating_value,
-                rd = excluded.rd,
-                sigma = excluded.sigma,
-                games_played = excluded.games_played,
-                last_match_at = excluded.last_match_at,
-                state_json = excluded.state_json
-            """,
-            rows,
-        )
+        # entity_ratings has no UNIQUE constraint suitable for ON CONFLICT.  Replace
+        # the stable version snapshot atomically at the end of a successful run.
+        connection.execute("DELETE FROM entity_ratings WHERE ratings_version = ?", (version,))
+        for row in rows:
+            connection.execute(insert_sql, row)
     return len(rows)
+
+
+def count_entity_ratings(version: str) -> int:
+    """Return the number of currently persisted rating rows for a version."""
+
+    with connect() as connection:
+        row = connection.execute("SELECT COUNT(*) AS n FROM entity_ratings WHERE ratings_version = ?", (version,)).fetchone()
+    return int(row["n"] if row else 0)
 
 
 def entity_rating_row(

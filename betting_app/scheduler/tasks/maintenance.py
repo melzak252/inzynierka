@@ -22,19 +22,15 @@ def refresh_golgg() -> dict:
 
 
 def rebuild_ratings() -> dict:
-    """Rebuild team Elo ratings.
-    
-    NOTE: Full rebuild processes ~40k matches and takes ~2 hours.
-    Timeout set to 7200s (2h) to allow completion.
-    """
-    logger.info("Rebuilding team ratings")
+    """Incrementally update Elo/Glicko/etc. ratings after GOL.GG refresh."""
+    logger.info("Updating ratings incrementally")
     start = datetime.utcnow()
-    
-    success = _run_module("betting_app.scripts.rebuild_ratings", timeout=7200)
+
+    success = _run_module("betting_app.scripts.rebuild_ratings", timeout=900)
     duration = (datetime.utcnow() - start).total_seconds()
-    
-    logger.info(f"Ratings rebuild: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
-    
+
+    logger.info(f"Ratings incremental update: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+
     return {"success": success, "duration_s": duration}
 
 
