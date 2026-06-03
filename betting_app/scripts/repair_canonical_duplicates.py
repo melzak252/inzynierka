@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 from sqlalchemy import text as sql_text
@@ -137,6 +138,55 @@ def find_duplicate_groups(rows: list[CanonicalRow]) -> list[list[CanonicalRow]]:
     return [group for group in groups.values() if len(group) > 1]
 
 
+def _parse_date_key(value: str) -> date | None:
+    try:
+        return date.fromisoformat(value[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def find_mapped_window_groups(rows: list[CanonicalRow], *, window_days: int) -> list[list[CanonicalRow]]:
+    """Find date-shift duplicates around one GOL.GG-mapped row.
+
+    Same-day repair is not enough for feeds that saved the same bookmaker match
+    under a wrong/unstable start date (for example countdown/timezone labels).
+    This mode is intentionally conservative: it only proposes a group when a
+    pair has exactly one mapped canonical row and one or more unmapped rows for
+    the same canonical team pair within +/- `window_days` of that mapped row.
+    """
+
+    by_pair: dict[tuple[str, str], list[CanonicalRow]] = defaultdict(list)
+    for row in rows:
+        by_pair[row.pair_key].append(row)
+
+    groups: list[list[CanonicalRow]] = []
+    seen: set[tuple[int, ...]] = set()
+    for pair_rows in by_pair.values():
+        mapped_rows = [row for row in pair_rows if row.mappings > 0]
+        if len(mapped_rows) != 1:
+            continue
+        keeper = mapped_rows[0]
+        keeper_day = _parse_date_key(keeper.date_key)
+        if keeper_day is None:
+            continue
+        duplicates: list[CanonicalRow] = []
+        for row in pair_rows:
+            if row.id == keeper.id or row.mappings > 0:
+                continue
+            row_day = _parse_date_key(row.date_key)
+            if row_day is None:
+                continue
+            if abs((row_day - keeper_day).days) <= window_days:
+                duplicates.append(row)
+        if duplicates:
+            group = [keeper, *duplicates]
+            key = tuple(sorted(row.id for row in group))
+            if key not in seen:
+                seen.add(key)
+                groups.append(group)
+    return groups
+
+
 def choose_keeper(group: list[CanonicalRow]) -> CanonicalRow:
     return max(group, key=keeper_sort_key)
 
@@ -203,8 +253,30 @@ def merge_duplicate(session, keeper_id: int, duplicate_id: int) -> None:
     session.execute(sql_text("DELETE FROM canonical_matches WHERE id = :duplicate_id"), {"duplicate_id": duplicate_id})
 
 
-def repair_duplicates(*, execute: bool = False, limit_groups: int | None = None) -> dict[str, int]:
-    groups = find_duplicate_groups(load_rows())
+def repair_duplicates(
+    *,
+    execute: bool = False,
+    limit_groups: int | None = None,
+    merge_mapped_window_days: int = 0,
+) -> dict[str, int]:
+    rows = load_rows()
+    groups = find_duplicate_groups(rows)
+    if merge_mapped_window_days > 0:
+        for group in find_mapped_window_groups(rows, window_days=merge_mapped_window_days):
+            key = tuple(sorted(row.id for row in group))
+            overlapping_indexes = [
+                index
+                for index, existing in enumerate(groups)
+                if set(row.id for row in existing) & set(key)
+            ]
+            if not overlapping_indexes:
+                groups.append(group)
+                continue
+
+            merged_by_id = {row.id: row for row in group}
+            for index in sorted(overlapping_indexes, reverse=True):
+                merged_by_id.update({row.id: row for row in groups.pop(index)})
+            groups.append(list(merged_by_id.values()))
     groups.sort(key=lambda group: (group[0].date_key, group[0].pair_key))
     if limit_groups is not None:
         groups = groups[:limit_groups]
@@ -252,8 +324,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Repair duplicate canonical match rows")
     parser.add_argument("--execute", action="store_true", help="Apply changes; default is dry-run")
     parser.add_argument("--limit-groups", type=int, default=None, help="Process only first N duplicate groups")
+    parser.add_argument(
+        "--merge-mapped-window-days",
+        type=int,
+        default=0,
+        help="Also merge unmapped same-pair rows within +/-N days into the single mapped row for that pair.",
+    )
     args = parser.parse_args()
-    stats = repair_duplicates(execute=args.execute, limit_groups=args.limit_groups)
+    stats = repair_duplicates(
+        execute=args.execute,
+        limit_groups=args.limit_groups,
+        merge_mapped_window_days=args.merge_mapped_window_days,
+    )
     print("Result:", stats)
 
 
