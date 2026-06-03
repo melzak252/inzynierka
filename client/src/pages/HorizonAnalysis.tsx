@@ -14,6 +14,8 @@ const COLORS = {
   title:  '#fff',
   modelHybrid:  '#00e676',
   modelBase:    '#fdd835',
+  modelThesis:  '#ff6b9d',
+  modelThesisHybrid: '#00d4ff',
 };
 
 /* ─── Chart dimensions ──────────────────────────────────── */
@@ -185,9 +187,22 @@ export default function HorizonAnalysis() {
           const val = r[metricKey];
           if (val === null || val === undefined) return null;
           const cy = y(val);
-          const isHybrid = r.model_name.toLowerCase().includes('hybrid');
-          const color = isHybrid ? COLORS.modelHybrid : COLORS.modelBase;
-          const label = isHybrid ? 'Hybrid' : 'Base model';
+          const nameLower = r.model_name.toLowerCase();
+          let color: string;
+          let label: string;
+          if (nameLower.includes('thesis') && nameLower.includes('hybrid')) {
+            color = COLORS.modelThesisHybrid;
+            label = 'Thesis Hybrid';
+          } else if (nameLower.includes('thesis') || nameLower.includes('sym-cal')) {
+            color = COLORS.modelThesis;
+            label = 'Thesis';
+          } else if (nameLower.includes('hybrid')) {
+            color = COLORS.modelHybrid;
+            label = 'Hybrid';
+          } else {
+            color = COLORS.modelBase;
+            label = 'Base model';
+          }
           return (
             <g key={r.model_name}>
               {/* Dashed reference line */}
