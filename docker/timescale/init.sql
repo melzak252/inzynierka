@@ -152,6 +152,18 @@ CREATE TABLE IF NOT EXISTS bookmaker_accounts (
     UNIQUE(bookmaker_id, account_name)
 );
 
+/* ── GOL.GG → canonical match linking ───────────────────────────────────── */
+CREATE TABLE IF NOT EXISTS golgg_match_mappings (
+    id                  SERIAL PRIMARY KEY,
+    canonical_match_id  INTEGER NOT NULL REFERENCES canonical_matches(id),
+    golgg_match_id      VARCHAR(50) NOT NULL REFERENCES golgg_matches(match_id),
+    confidence          REAL DEFAULT 1.0,
+    mapped_by           VARCHAR(50) DEFAULT 'auto',
+    mapped_at           TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(canonical_match_id),
+    UNIQUE(golgg_match_id)
+);
+
 CREATE TABLE IF NOT EXISTS upcoming_matches (
     id                  SERIAL PRIMARY KEY,
     bookmaker_id        INTEGER NOT NULL REFERENCES bookmakers(id),
