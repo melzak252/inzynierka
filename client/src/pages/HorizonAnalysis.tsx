@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { HorizonAccuracyResponse, HorizonBin, ModelReferenceMetrics } from '../types';
+import { useState, useEffect, useCallback } from 'react';
+import { HorizonAccuracyResponse } from '../types';
 import { fetchHorizonAccuracy } from '../api/client';
 import './HorizonAnalysis.css';
 
@@ -79,8 +79,7 @@ export default function HorizonAnalysis() {
     setError(null);
     try {
       const res = await fetchHorizonAccuracy(daysBack, minMatches);
-      if (res.error) { setError(res.error); setData(null); }
-      else           { setData(res); }
+      setData(res);
     } catch (e: any) {
       setError(e.message ?? 'Failed to load');
     } finally {
@@ -93,7 +92,6 @@ export default function HorizonAnalysis() {
   /* ─── Bin availability info ──────────────────────────── */
   const allBins = data?.bins ?? [];
   const shownBins = allBins.filter(b => b.match_count >= minMatches);
-  const skippedBins = allBins.filter(b => b.match_count < minMatches);
   const shownCount = shownBins.length;
   const skippedCount = allBins.length - shownCount;
 
@@ -126,7 +124,6 @@ export default function HorizonAnalysis() {
     const y = yScale(domain);
     const ticks = yAxisTicks(domain);
     const barW = Math.min(50, (CHART_W - PAD.left - PAD.right) / n * 0.7);
-    const gap = (CHART_W - PAD.left - PAD.right) / n;
 
     return (
       <div className="chart-section">
@@ -172,7 +169,7 @@ export default function HorizonAnalysis() {
     );
   }
 
-  /* ─── Model reference lines ──────────────────────────── */
+  /* ─── Model reference lines (pure models only) ───────── */
   function ModelRefLines({ metricKey, domain }: {
     metricKey: 'avg_logloss' | 'avg_auc';
     domain: [number, number];
@@ -188,17 +185,14 @@ export default function HorizonAnalysis() {
           if (val === null || val === undefined) return null;
           const cy = y(val);
           const nameLower = r.model_name.toLowerCase();
+          // Skip hybrid models — they're drawn as dynamic lines
+          if (nameLower.includes('hybrid')) return null;
+          
           let color: string;
           let label: string;
-          if (nameLower.includes('thesis') && nameLower.includes('hybrid')) {
-            color = COLORS.modelThesisHybrid;
-            label = 'Thesis Hybrid';
-          } else if (nameLower.includes('thesis') || nameLower.includes('sym-cal')) {
+          if (nameLower.includes('thesis') || nameLower.includes('sym-cal')) {
             color = COLORS.modelThesis;
             label = 'Thesis';
-          } else if (nameLower.includes('hybrid')) {
-            color = COLORS.modelHybrid;
-            label = 'Hybrid';
           } else {
             color = COLORS.modelBase;
             label = 'Base model';
@@ -209,14 +203,72 @@ export default function HorizonAnalysis() {
               <line x1={PAD.left} y1={cy} x2={CHART_W - PAD.right + 80} y2={cy}
                 stroke={color} strokeWidth={1.5} strokeDasharray="6,4" opacity={0.8} />
               {/* Label + value */}
-              <text x={CHART_W - PAD.right + 4} y={cy - 4} fill={color} fontSize={10}
-                dominantBaseline="end">
+              <text x={CHART_W - PAD.right + 4} y={cy - 4} fill={color} fontSize={10}>
                 {label}
               </text>
               <text x={CHART_W - PAD.right + 4} y={cy + 8} fill={color} fontSize={9}
                 opacity={0.8}>
                 {fmt(val)} ({r.n_matches} matches)
               </text>
+            </g>
+          );
+        })}
+      </>
+    );
+  }
+
+  /* ─── Dynamic hybrid lines (per-bin metrics) ─────────── */
+  function HybridDynamicLines({ metricKey, domain }: {
+    metricKey: 'avg_logloss' | 'avg_auc';
+    domain: [number, number];
+  }) {
+    const hybridBins = data?.hybrid_model_bins ?? [];
+    if (hybridBins.length === 0) return null;
+    const y = yScale(domain);
+    const shownBins = data?.bins ?? [];
+    const n = shownBins.length;
+    if (n === 0) return null;
+
+    return (
+      <>
+        {hybridBins.map(hb => {
+          const nameLower = hb.model_name.toLowerCase();
+          const color = nameLower.includes('thesis') ? COLORS.modelThesisHybrid : COLORS.modelHybrid;
+          const label = nameLower.includes('thesis') ? 'Thesis Hybrid' : 'Hybrid';
+          
+          // Build path from bins
+          const points: { x: number; y: number; bin: any }[] = [];
+          hb.bins.forEach((bin, i) => {
+            const val = bin[metricKey];
+            if (val !== null && val !== undefined && bin.match_count >= minMatches) {
+              const cx = xPos(i, n);
+              const cy = y(val);
+              points.push({ x: cx, y: cy, bin });
+            }
+          });
+          
+          if (points.length === 0) return null;
+          
+          const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+          
+          return (
+            <g key={hb.model_name}>
+              {/* Dashed line connecting bins */}
+              <path d={pathD} fill="none" stroke={color} strokeWidth={1.5} 
+                strokeDasharray="6,4" opacity={0.8} />
+              {/* Points at each bin */}
+              {points.map((p, i) => (
+                <circle key={i} cx={p.x} cy={p.y} r={3} fill={color} stroke="#1a1a2e" strokeWidth={1}>
+                  <title>{p.bin.label}: {metricKey}={fmt(p.bin[metricKey] ?? 0)} ({p.bin.match_count} matches, {p.bin.snapshot_count} snapshots)</title>
+                </circle>
+              ))}
+              {/* Label at last point */}
+              {points.length > 0 && (
+                <text x={points[points.length - 1].x + 8} y={points[points.length - 1].y - 6} 
+                  fill={color} fontSize={9} opacity={0.9}>
+                  {label}
+                </text>
+              )}
             </g>
           );
         })}
@@ -246,9 +298,11 @@ export default function HorizonAnalysis() {
 
     const pathD = bins.map((b, i) => {
       const cx = xPos(i, n);
-      const cy = y(b[metricKey]);
+      const val = b[metricKey];
+      if (val === null || val === undefined) return '';
+      const cy = y(val);
       return `${i === 0 ? 'M' : 'L'}${cx},${cy}`;
-    }).join(' ');
+    }).filter(d => d !== '').join(' ');
 
     return (
       <div className="chart-section">
@@ -261,21 +315,25 @@ export default function HorizonAnalysis() {
               <text x={PAD.left - 6} y={y(v) + 4} textAnchor="end" fill={COLORS.axis} fontSize={11}>{fmt(v)}</text>
             </g>
           ))}
-          {/* Model reference lines */}
+          {/* Model reference lines (pure models) */}
           <ModelRefLines metricKey={metricKey} domain={domain} />
+          {/* Dynamic hybrid lines (per-bin) */}
+          <HybridDynamicLines metricKey={metricKey} domain={domain} />
           {/* Line */}
           <path d={pathD} fill="none" stroke={color} strokeWidth={2.5} />
           {/* Points + labels */}
           {bins.map((b, i) => {
             const cx = xPos(i, n);
-            const cy = y(b[metricKey]);
+            const val = b[metricKey];
+            if (val === null || val === undefined) return null;
+            const cy = y(val);
             return (
               <g key={b.label}>
                 <circle cx={cx} cy={cy} r={4} fill={color} stroke="#1a1a2e" strokeWidth={1.5}>
-                  <title>{b.label}: {metricKey}={fmt(b[metricKey])} ({b.match_count} matches)</title>
+                  <title>{b.label}: {metricKey}={fmt(val)} ({b.match_count} matches)</title>
                 </circle>
                 <text x={cx + 8} y={cy - 6} fill={color} fontSize={10}>
-                  {fmt(b[metricKey])}
+                  {fmt(val)}
                 </text>
                 <text x={cx} y={CHART_H - 10} textAnchor="end" fill={COLORS.axis} fontSize={9}
                   transform={`rotate(-30, ${cx}, ${CHART_H - 10})`}>
@@ -386,8 +444,8 @@ export default function HorizonAnalysis() {
                 <div key={r.model_name} className="model-ref-card">
                   <span className="model-dot" style={{ backgroundColor: color }} />
                   <span className="model-name">{label}</span>
-                  <span className="model-metric">LogLoss: {fmt(r.avg_logloss)}</span>
-                  <span className="model-metric">AUC: {fmt(r.avg_auc)}</span>
+                  <span className="model-metric">LogLoss: {fmt(r.avg_logloss ?? 0)}</span>
+                  <span className="model-metric">AUC: {fmt(r.avg_auc ?? 0)}</span>
                   <span className="model-matches">({r.n_matches} matches)</span>
                 </div>
               );
@@ -432,10 +490,10 @@ export default function HorizonAnalysis() {
                   <td>{b.hours_start}–{b.hours_end ?? '∞'}</td>
                   <td>{b.snapshot_count}</td>
                   <td>{b.match_count}</td>
-                  <td>{fmt(b.avg_logloss)}</td>
-                  <td>{fmt(b.avg_auc)}</td>
-                  <td>{fmt(b.avg_prob_winner, 3)}</td>
-                  <td>{fmt(b.avg_prob_loser, 3)}</td>
+                  <td>{fmt(b.avg_logloss ?? 0)}</td>
+                  <td>{fmt(b.avg_auc ?? 0)}</td>
+                  <td>{fmt(b.avg_prob_winner ?? 0, 3)}</td>
+                  <td>{fmt(b.avg_prob_loser ?? 0, 3)}</td>
                 </tr>
               ))}
             </tbody>

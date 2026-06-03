@@ -256,6 +256,22 @@ export interface ModelReferenceMetrics {
   n_matches: number;
 }
 
+export interface HybridBinMetrics {
+  label: string;
+  hours_start: number;
+  hours_end: number | null;
+  snapshot_count: number;
+  match_count: number;
+  avg_logloss: number | null;
+  avg_auc: number | null;
+}
+
+export interface HybridModelBins {
+  model_name: string;
+  model_version: string;
+  bins: HybridBinMetrics[];
+}
+
 export interface HorizonAccuracyResponse {
   total_matches_with_odds: number;
   total_finished_matches: number;
@@ -263,6 +279,7 @@ export interface HorizonAccuracyResponse {
   bins: HorizonBin[];
   min_matches_per_bin: number;
   model_references: ModelReferenceMetrics[];
+  hybrid_model_bins: HybridModelBins[];
 }
 
 export interface MatchMovementResponse {

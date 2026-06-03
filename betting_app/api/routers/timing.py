@@ -594,7 +594,7 @@ def horizon_accuracy(
         })
 
     # --- 5. Compute overall model accuracy reference lines ---
-    model_refs = _compute_model_reference_metrics(db, cutoff)
+    model_refs, hybrid_model_bins = _compute_model_reference_metrics(db, cutoff)
 
     return {
         "total_matches_with_odds": len(matches_with_odds),
@@ -603,17 +603,32 @@ def horizon_accuracy(
         "bins": bins,
         "min_matches_per_bin": min_matches_per_bin,
         "model_references": model_refs,
+        "hybrid_model_bins": hybrid_model_bins,
     }
 
 
-def _compute_model_reference_metrics(db, cutoff: str) -> list[dict]:
+def _compute_model_reference_metrics(db, cutoff: str) -> tuple[list[dict], list[dict]]:
     """Compute overall LogLoss & AUC for each registered prediction model.
 
-    Queries canonical_predictions joined with canonical_matches to evaluate
-    model probability accuracy against actual match outcomes. Returns a list
-    of dicts with model_name, model_version, avg_logloss, avg_auc, n_matches.
+    For pure models (thesis, operational): returns single LogLoss/AUC values.
+    For hybrid models: returns per-bin metrics computed dynamically using
+    thesis_prob + market_prob from each time bin.
+
+    Returns:
+        tuple of (pure_model_refs, hybrid_model_bins)
     """
     refs: list[dict] = []
+    hybrid_bins: list[dict] = []
+
+    # Bin definitions (same as in horizon_accuracy)
+    BIN_DEFS = [
+        ("0-2h",    0,   2),
+        ("2-6h",    2,   6),
+        ("6-12h",   6,  12),
+        ("12-24h", 12,  24),
+        ("24-48h", 24,  48),
+        ("48h+",   48, 9999),
+    ]
 
     model_defs = query_df(
         db,
@@ -631,56 +646,277 @@ def _compute_model_reference_metrics(db, cutoff: str) -> list[dict]:
     )
 
     for md in model_defs:
-        preds = query_df(
-            db,
-            """
-            SELECT cp.prob_a, cp.prob_b,
-                   cm.winner_side,
-                   cm.normalized_team_a, cm.normalized_team_b
-            FROM canonical_predictions cp
-            JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
-            WHERE cp.model_name = :mname
-              AND cp.model_version = :mver
-              AND cp.prediction_status = 'active'
-              AND cm.status IN ('finished', 'completed')
-              AND cm.winner_side IS NOT NULL
-              AND cm.start_time_normalized > :cutoff
-            """,
-            {"mname": md["model_name"], "mver": md["model_version"], "cutoff": cutoff},
+        model_name = md["model_name"]
+        model_version = md["model_version"]
+        
+        # Check if this is a hybrid model
+        is_hybrid = "hybrid" in model_name.lower()
+        
+        if is_hybrid:
+            # For hybrid models: compute per-bin metrics dynamically
+            # Need: thesis_prob (from canonical_predictions) + market_prob (from odds_snapshots per bin)
+            hybrid_bin_metrics = _compute_hybrid_bins_dynamic(
+                db, cutoff, model_name, model_version, BIN_DEFS
+            )
+            if hybrid_bin_metrics:
+                hybrid_bins.append({
+                    "model_name": model_name,
+                    "model_version": model_version,
+                    "bins": hybrid_bin_metrics,
+                })
+        else:
+            # For pure models: compute single LogLoss/AUC
+            preds = query_df(
+                db,
+                """
+                SELECT cp.prob_a, cp.prob_b,
+                       cm.winner_side,
+                       cm.normalized_team_a, cm.normalized_team_b
+                FROM canonical_predictions cp
+                JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+                WHERE cp.model_name = :mname
+                  AND cp.model_version = :mver
+                  AND cp.prediction_status = 'active'
+                  AND cm.status IN ('finished', 'completed')
+                  AND cm.winner_side IS NOT NULL
+                  AND cm.start_time_normalized > :cutoff
+                """,
+                {"mname": model_name, "mver": model_version, "cutoff": cutoff},
+            )
+            if not preds:
+                continue
+
+            y_true: list[int] = []
+            y_score: list[float] = []
+            for p in preds:
+                winner = str(p.get("winner_side") or "")
+                if winner not in ("team_a", "team_b"):
+                    continue
+                prob_a = p.get("prob_a")
+                if prob_a is None:
+                    continue
+                prob_a = float(prob_a)
+                if not (0 < prob_a < 1):
+                    continue
+                y_score.append(prob_a)
+                y_true.append(1 if winner == "team_a" else 0)
+
+            if len(y_true) < 2 or len(set(y_true)) < 2:
+                continue
+
+            ll = _compute_logloss(y_true, y_score)
+            auc = _compute_auc(y_true, y_score)
+            refs.append({
+                "model_name": model_name,
+                "model_version": model_version,
+                "avg_logloss": ll,
+                "avg_auc": auc,
+                "n_matches": len(y_true),
+            })
+
+    return refs, hybrid_bins
+
+
+def _compute_hybrid_bins_dynamic(
+    db, cutoff: str, model_name: str, model_version: str, bin_defs: list
+) -> list[dict]:
+    """Compute hybrid model metrics per time bin dynamically.
+    
+    For each bin:
+    1. Get thesis model predictions for finished matches
+    2. Get average market probabilities from odds_snapshots in that bin
+    3. Compute hybrid_prob = alpha * thesis_prob + (1-alpha) * market_prob
+    4. Calculate LogLoss/AUC for that bin
+    
+    Returns list of bin dicts with metrics.
+    """
+    # Extract alpha and temperature from model_version (format: "a0.50-t0.80")
+    alpha = 0.50  # default
+    temperature = 0.80  # default
+    if model_version.startswith("a") and "-t" in model_version:
+        try:
+            parts = model_version.split("-t")
+            alpha = float(parts[0][1:])  # remove 'a' prefix
+            temperature = float(parts[1])
+        except (IndexError, ValueError):
+            pass
+    
+    # Get thesis model predictions for finished matches
+    thesis_preds = query_df(
+        db,
+        """
+        SELECT cp.canonical_match_id, cp.prob_a as thesis_prob_a,
+               cm.winner_side, cm.start_time_normalized
+        FROM canonical_predictions cp
+        JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+        WHERE cp.model_name = :mname
+          AND cp.model_version = :mver
+          AND cp.prediction_status = 'active'
+          AND cm.status IN ('finished', 'completed')
+          AND cm.winner_side IS NOT NULL
+          AND cm.start_time_normalized > :cutoff
+        """,
+        {"mname": model_name, "mver": model_version, "cutoff": cutoff},
+    )
+    
+    if not thesis_preds:
+        return []
+    
+    # Build match_id -> thesis_prob mapping
+    match_thesis = {p["canonical_match_id"]: float(p["thesis_prob_a"]) for p in thesis_preds}
+    match_ids = list(match_thesis.keys())
+    
+    # Get odds snapshots for these matches
+    placeholders = ",".join(f":mid{i}" for i in range(len(match_ids)))
+    params = {f"mid{i}": mid for i, mid in enumerate(match_ids)}
+    
+    snapshots = query_df(
+        db,
+        f"""
+        SELECT os.canonical_match_id, os.scraped_at,
+               os.odds_a, os.odds_b,
+               os.raw_team_a, os.raw_team_b
+        FROM odds_snapshots os
+        WHERE os.canonical_match_id IN ({placeholders})
+          AND os.market_type = 'match_winner'
+          AND COALESCE(os.is_live, 0) = 0
+          AND os.odds_a IS NOT NULL
+          AND os.odds_b IS NOT NULL
+        ORDER BY os.canonical_match_id, os.scraped_at
+        """,
+        params,
+    )
+    
+    # Get match metadata (start_time, winner_side, team names)
+    match_meta = query_df(
+        db,
+        f"""
+        SELECT id, start_time_normalized, winner_side,
+               normalized_team_a, normalized_team_b
+        FROM canonical_matches
+        WHERE id IN ({placeholders})
+        """,
+        params,
+    )
+    meta_map = {m["id"]: m for m in match_meta}
+    
+    # Accumulate per bin
+    bin_data = {
+        label: {"y_true": [], "y_score": [], "match_ids": set()}
+        for label, _, _ in bin_defs
+    }
+    
+    for snap in snapshots:
+        mid = snap["canonical_match_id"]
+        if mid not in match_thesis:
+            continue
+        
+        meta = meta_map.get(mid)
+        if not meta:
+            continue
+        
+        match_start = _parse_dt(meta.get("start_time_normalized"))
+        scraped = _parse_dt(snap.get("scraped_at"))
+        if not match_start or not scraped:
+            continue
+        
+        hours_before = (match_start - scraped).total_seconds() / 3600.0
+        if hours_before < 0:
+            continue
+        
+        # Align odds to canonical sides
+        aligned = _align(
+            str(meta.get("normalized_team_a") or ""),
+            str(meta.get("normalized_team_b") or ""),
+            str(snap.get("raw_team_a") or ""),
+            str(snap.get("raw_team_b") or ""),
+            snap.get("odds_a"),
+            snap.get("odds_b"),
         )
-        if not preds:
+        if not aligned:
             continue
-
-        y_true: list[int] = []
-        y_score: list[float] = []
-        for p in preds:
-            winner = str(p.get("winner_side") or "")
-            if winner not in ("team_a", "team_b"):
-                continue
-            prob_a = p.get("prob_a")
-            if prob_a is None:
-                continue
-            prob_a = float(prob_a)
-            if not (0 < prob_a < 1):
-                continue
-            # prob_a is team_a win probability; y_score = prob_a, y_true = 1 if team_a won
-            y_score.append(prob_a)
-            y_true.append(1 if winner == "team_a" else 0)
-
-        if len(y_true) < 2 or len(set(y_true)) < 2:
+        
+        odds_a, odds_b = aligned
+        
+        # Convert to implied probabilities (margin-removed)
+        prob_a = _implied_prob(odds_a)
+        prob_b = _implied_prob(odds_b)
+        market_prob_a, market_prob_b = _remove_margin(prob_a, prob_b)
+        
+        # Apply temperature scaling to market probs
+        market_prob_a = apply_temperature_probability(market_prob_a, temperature)
+        market_prob_b = apply_temperature_probability(market_prob_b, temperature)
+        
+        # Get thesis probability
+        thesis_prob_a = match_thesis[mid]
+        thesis_prob_b = 1.0 - thesis_prob_a
+        
+        # Compute hybrid probability
+        hybrid_prob_a = alpha * thesis_prob_a + (1 - alpha) * market_prob_a
+        hybrid_prob_b = alpha * thesis_prob_b + (1 - alpha) * market_prob_b
+        
+        # Normalize to sum to 1
+        total = hybrid_prob_a + hybrid_prob_b
+        if total > 0:
+            hybrid_prob_a /= total
+            hybrid_prob_b /= total
+        
+        # Ground truth
+        winner_side = str(meta.get("winner_side") or "")
+        if winner_side not in ("team_a", "team_b"):
             continue
-
-        ll = _compute_logloss(y_true, y_score)
-        auc = _compute_auc(y_true, y_score)
-        refs.append({
-            "model_name": md["model_name"],
-            "model_version": md["model_version"],
+        
+        y_true = 1 if winner_side == "team_a" else 0
+        y_score = hybrid_prob_a
+        
+        # Find bin
+        for label, hmin, hmax in bin_defs:
+            if hmin <= hours_before < hmax:
+                bd = bin_data[label]
+                bd["y_true"].append(y_true)
+                bd["y_score"].append(y_score)
+                bd["match_ids"].add(mid)
+                break
+    
+    # Compute metrics per bin
+    result_bins = []
+    for label, hmin, hmax in bin_defs:
+        bd = bin_data[label]
+        n_matches = len(bd["match_ids"])
+        n_snapshots = len(bd["y_true"])
+        
+        if n_matches < 5:  # lower threshold for hybrid bins
+            continue
+        
+        if len(set(bd["y_true"])) < 2:
+            continue
+        
+        ll = _compute_logloss(bd["y_true"], bd["y_score"])
+        auc = _compute_auc(bd["y_true"], bd["y_score"])
+        
+        result_bins.append({
+            "label": label,
+            "hours_start": hmin,
+            "hours_end": hmax if hmax < 9999 else None,
+            "snapshot_count": n_snapshots,
+            "match_count": n_matches,
             "avg_logloss": ll,
             "avg_auc": auc,
-            "n_matches": len(y_true),
         })
+    
+    return result_bins
 
-    return refs
+
+def apply_temperature_probability(prob: float, temperature: float) -> float:
+    """Apply temperature scaling to a probability."""
+    if temperature == 1.0:
+        return prob
+    # Convert to log-odds, scale, convert back
+    eps = 1e-15
+    prob = max(eps, min(1 - eps, prob))
+    log_odds = math.log(prob / (1 - prob))
+    scaled_log_odds = log_odds / temperature
+    return 1.0 / (1.0 + math.exp(-scaled_log_odds))
 
 
 def _empty_horizon_result(total_matches: int = 0) -> dict:
