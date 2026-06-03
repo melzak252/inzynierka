@@ -11,7 +11,11 @@ import pandas as pd
 
 from betting_app.core.db import query_df, transaction
 from betting_app.core.matching import normalize_team_name
-from betting_app.services.canonical_match_service import normalize_start_time, resolve_canonical_match
+from betting_app.services.canonical_match_service import (
+    is_countdown_start_label,
+    normalize_start_time,
+    resolve_canonical_match,
+)
 
 
 def utc_now_iso() -> str:
@@ -59,15 +63,23 @@ def upsert_upcoming_match(
     """Create or update an upcoming match and return its ID."""
 
     key = make_match_key(bookmaker, raw_team_a, raw_team_b, match_start_time)
-    canonical_match_id = resolve_canonical_match(
-        raw_team_a=canonical_team_a or raw_team_a,
-        raw_team_b=canonical_team_b or raw_team_b,
-        match_start_time=match_start_time,
-        league=league,
-    )
     bookmaker_id = get_or_create_bookmaker(bookmaker)
     norm_a = normalize_team_name(raw_team_a)
     norm_b = normalize_team_name(raw_team_b)
+    canonical_match_id = _find_existing_canonical_for_unstable_start(
+        bookmaker_id=bookmaker_id,
+        norm_a=norm_a,
+        norm_b=norm_b,
+        match_start_time=match_start_time,
+        league=league,
+    )
+    if canonical_match_id is None:
+        canonical_match_id = resolve_canonical_match(
+            raw_team_a=canonical_team_a or raw_team_a,
+            raw_team_b=canonical_team_b or raw_team_b,
+            match_start_time=match_start_time,
+            league=league,
+        )
     with transaction() as connection:
         connection.execute(
             """
@@ -101,6 +113,64 @@ def upsert_upcoming_match(
         )
         row = connection.execute("SELECT id FROM upcoming_matches WHERE bookmaker_match_key = ?", (key,)).fetchone()
         return int(row["id"])
+
+
+def _find_existing_canonical_for_unstable_start(
+    *,
+    bookmaker_id: int,
+    norm_a: str,
+    norm_b: str,
+    match_start_time: str | None,
+    league: str | None = None,
+) -> int | None:
+    """Reuse a known canonical row when a feed only sends an unstable countdown.
+
+    Some bookmakers switch a real kickoff label (for example "Dziś 22:00") to a
+    changing countdown ("04:55:53") shortly before the event starts.  The
+    countdown has no date, so resolving it globally can create orphan canonical
+    rows.  If the same bookmaker already emitted the same team pair with a
+    parseable/non-countdown start label, reuse that canonical id and keep the
+    odds history attached to the real match.
+    """
+
+    if not is_countdown_start_label(match_start_time):
+        return None
+
+    league_norm = normalize_team_name(league or "")
+    with transaction() as connection:
+        rows = connection.execute(
+            """
+            SELECT um.canonical_match_id, um.match_start_time, um.league, cm.status
+            FROM upcoming_matches um
+            JOIN canonical_matches cm ON cm.id = um.canonical_match_id
+            WHERE um.bookmaker_id = ?
+              AND um.canonical_match_id IS NOT NULL
+              AND (
+                    (um.normalized_team_a = ? AND um.normalized_team_b = ?)
+                 OR (um.normalized_team_a = ? AND um.normalized_team_b = ?)
+              )
+            ORDER BY
+              CASE WHEN cm.status = 'finished' THEN 3 WHEN cm.status = 'upcoming' THEN 2 WHEN cm.status = 'expired' THEN 1 ELSE 0 END DESC,
+              um.id DESC
+            LIMIT 25
+            """,
+            (bookmaker_id, norm_a, norm_b, norm_b, norm_a),
+        ).fetchall()
+
+    best_id: int | None = None
+    best_score = -1
+    for row in rows:
+        existing_start = str(row["match_start_time"] or "")
+        if is_countdown_start_label(existing_start) or normalize_start_time(existing_start) is None:
+            continue
+        existing_league_norm = normalize_team_name(str(row["league"] or ""))
+        league_score = 1 if not league_norm or not existing_league_norm or league_norm == existing_league_norm else 0
+        status_score = {"finished": 3, "upcoming": 2, "expired": 1}.get(str(row["status"] or ""), 0)
+        score = status_score * 10 + league_score
+        if score > best_score:
+            best_score = score
+            best_id = int(row["canonical_match_id"])
+    return best_id
 
 
 def insert_odds_snapshot(snapshot: dict[str, Any]) -> int:

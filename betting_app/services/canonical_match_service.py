@@ -215,6 +215,13 @@ def normalize_start_time(value: str | None) -> str | None:
     raw = str(value).strip()
     if not raw:
         return None
+    # Explicitly reject countdown labels before any other parser gets a chance
+    # to interpret them as clock times. Betfan and similar feeds can emit a
+    # changing HH:MM:SS countdown shortly before kickoff; treating that as a
+    # start time creates a new match key/canonical row on every scrape and
+    # corrupts odds history used for CLV analysis.
+    if is_countdown_start_label(raw):
+        return None
     if raw.isdigit() and len(raw) >= 12:
         return datetime.fromtimestamp(int(raw) / 1000, tz=UTC).replace(microsecond=0).isoformat()
     match = re.match(r"^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{1,2}):(\d{2})$", raw)
@@ -231,12 +238,23 @@ def normalize_start_time(value: str | None) -> str | None:
         target = today + timedelta(days=1)
         hour, minute = map(int, rel.groups())
         return datetime(target.year, target.month, target.day, hour, minute, tzinfo=UTC).isoformat()
-    # Skip countdown format (HH:MM:SS) - Betfan sometimes shows countdown instead of start time
-    # This would create duplicate canonical_matches with wrong times
     parsed = parse_iso(raw)
     if parsed:
         return parsed.replace(microsecond=0).isoformat()
     return None
+
+
+def is_countdown_start_label(value: str | None) -> bool:
+    """Return True for unstable countdown labels such as HH:MM:SS."""
+
+    if not value:
+        return False
+    raw = str(value).strip()
+    match = re.match(r"^(\d{1,2}):(\d{2}):(\d{2})$", raw)
+    if not match:
+        return False
+    hours, minutes, seconds = map(int, match.groups())
+    return minutes < 60 and seconds < 60 and hours < 48
 
 
 def parse_iso(value: str | None) -> datetime | None:
