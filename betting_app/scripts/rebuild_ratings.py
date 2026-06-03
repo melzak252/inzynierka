@@ -71,6 +71,7 @@ def main() -> None:
     args = parser.parse_args()
 
     init_db()
+    ensure_rating_processed_matches_table()
     version = args.ratings_version or datetime.now(UTC).strftime("ratings-%Y%m%dT%H%M%SZ")
     previous_state = load_existing_rating_state(version) if args.mode == "incremental" else None
     run_id = create_rating_run(version, args.source)
@@ -89,6 +90,7 @@ def main() -> None:
         games_processed=stats["games"],
         players_processed=stats["players"],
         data_cutoff_at=stats.get("data_cutoff_at"),
+        processed_match_ids=stats.get("processed_match_ids"),
     )
     print(
         f"{'Updated' if args.mode == 'incremental' else 'Rebuilt'} ratings:",
@@ -135,6 +137,96 @@ def create_rating_run(version: str, source: str) -> int:
         return int(cursor.lastrowid)
 
 
+def ensure_rating_processed_matches_table() -> None:
+    """Create the per-version processed-match ledger used by incremental ratings."""
+
+    with transaction() as connection:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS rating_processed_matches (
+                ratings_version VARCHAR(100) NOT NULL,
+                match_id VARCHAR(64) NOT NULL,
+                match_date VARCHAR(50),
+                processed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (ratings_version, match_id)
+            )
+            """
+        )
+
+
+def load_processed_match_ids(version: str, cutoff: str | None) -> set[str]:
+    """Return processed match ids, bootstrapping old snapshots when no ledger exists."""
+
+    ensure_rating_processed_matches_table()
+    with connect() as connection:
+        rows = connection.execute(
+            "SELECT match_id FROM rating_processed_matches WHERE ratings_version = ?",
+            (version,),
+        ).fetchall()
+    processed = {str(row["match_id"]) for row in rows}
+    if processed or not cutoff:
+        return processed
+
+    # Backfill for snapshots created before the ledger existed.  The snapshot's
+    # cutoff tells us those historical matches were already folded into ratings.
+    matches = load_match_identity_rows(until_date=cutoff)
+    persist_processed_match_ids(version, matches)
+    return {str(row["match_id"]) for row in matches}
+
+
+def load_match_identity_rows(until_date: str | None = None, match_ids: list[str] | None = None) -> list[dict[str, Any]]:
+    """Load match_id/date pairs for the processed-match ledger."""
+
+    query = """
+        SELECT match_id, date
+        FROM golgg_matches
+        WHERE COALESCE(draw, 0) = 0
+          AND date IS NOT NULL
+    """
+    params: list[Any] = []
+    if until_date:
+        query += " AND date <= ?"
+        params.append(until_date)
+    if match_ids:
+        placeholders = ",".join("?" for _ in match_ids)
+        query += f" AND match_id IN ({placeholders})"
+        params.extend(match_ids)
+    with connect() as connection:
+        return [dict(row) for row in connection.execute(query, params).fetchall()]
+
+
+def persist_processed_match_ids(version: str, matches: list[MatchForRatings] | list[dict[str, Any]]) -> None:
+    """Append processed matches to the per-version incremental ledger."""
+
+    if not matches:
+        return
+    insert_sql = """
+        INSERT INTO rating_processed_matches(ratings_version, match_id, match_date)
+        VALUES (?, ?, ?)
+        ON CONFLICT (ratings_version, match_id) DO UPDATE
+        SET match_date = EXCLUDED.match_date, processed_at = CURRENT_TIMESTAMP
+    """
+    with transaction() as connection:
+        for match in matches:
+            if isinstance(match, MatchForRatings):
+                match_id = match.match_id
+                match_date = match.match_date.isoformat()
+            else:
+                match_id = str(match["match_id"])
+                match_date = str(match["date"])
+            connection.execute(insert_sql, (version, match_id, match_date))
+
+
+def version_for_run(run_id: int) -> str:
+    """Look up the stable ratings_version for a rating_runs id."""
+
+    with connect() as connection:
+        row = connection.execute("SELECT ratings_version FROM rating_runs WHERE id = ?", (run_id,)).fetchone()
+    if not row:
+        raise ValueError(f"rating_runs id={run_id} does not exist")
+    return str(row["ratings_version"])
+
+
 def finish_rating_run(
     run_id: int,
     *,
@@ -144,8 +236,12 @@ def finish_rating_run(
     players_processed: int = 0,
     data_cutoff_at: str | None = None,
     error: str | None = None,
+    processed_match_ids: list[str] | None = None,
 ) -> None:
     """Finish a rating run metadata row."""
+
+    if status == "completed" and processed_match_ids:
+        persist_processed_match_ids(version_for_run(run_id), load_match_identity_rows(match_ids=processed_match_ids))
 
     with transaction() as connection:
         connection.execute(
@@ -227,10 +323,15 @@ def rebuild_ratings(version: str, run_id: int, limit: int | None = None) -> dict
         "entities": len(team_names) + len(player_games),
         "rows": rows,
         "data_cutoff_at": data_cutoff.isoformat() if data_cutoff else None,
+        "processed_match_ids": [m.match_id for m in matches],
     }
 
 
-def load_matches(limit: int | None = None, after_date: str | None = None) -> list[MatchForRatings]:
+def load_matches(
+    limit: int | None = None,
+    after_date: str | None = None,
+    processed_match_ids: set[str] | None = None,
+) -> list[MatchForRatings]:
     """Load finished non-draw matches and rosters from SQLite."""
 
     query = """
@@ -241,7 +342,7 @@ def load_matches(limit: int | None = None, after_date: str | None = None) -> lis
     """
     params: list[Any] = []
     if after_date:
-        query += " AND date > ?"
+        query += " AND date >= ?"
         params.append(after_date)
     query += " ORDER BY date ASC, CAST(match_id AS INTEGER) ASC"
     if limit:
@@ -249,7 +350,10 @@ def load_matches(limit: int | None = None, after_date: str | None = None) -> lis
     with connect() as connection:
         match_rows = connection.execute(query, params).fetchall()
         matches: list[MatchForRatings] = []
+        processed_match_ids = processed_match_ids or set()
         for row in match_rows:
+            if str(row["match_id"]) in processed_match_ids:
+                continue
             games = [dict(game) for game in connection.execute(
                 """
                 SELECT game_id, team1_id, team2_id, team1_name, team2_name,
@@ -374,7 +478,8 @@ def update_ratings_incremental(
     team_last_match: dict[str, str] = previous_state["team_last_match"]
     player_last_match: dict[str, str] = previous_state["player_last_match"]
 
-    matches = load_matches(limit=limit, after_date=cutoff)
+    processed_match_ids: set[str] = previous_state["processed_match_ids"]
+    matches = load_matches(limit=limit, after_date=cutoff, processed_match_ids=processed_match_ids)
     games_processed = 0
 
     for match in tqdm(matches, desc=f"Incremental ratings since {cutoff}"):
@@ -437,6 +542,7 @@ def update_ratings_incremental(
         "entities": len(team_names) + len(player_games),
         "rows": rows,
         "data_cutoff_at": data_cutoff.isoformat() if data_cutoff else cutoff,
+        "processed_match_ids": [m.match_id for m in matches],
     }
 
 
@@ -523,6 +629,7 @@ def load_existing_rating_state(version: str) -> dict[str, Any] | None:
         "player_games": player_games,
         "team_last_match": team_last_match,
         "player_last_match": player_last_match,
+        "processed_match_ids": load_processed_match_ids(version, run.get("data_cutoff_at")),
     }
 
 
