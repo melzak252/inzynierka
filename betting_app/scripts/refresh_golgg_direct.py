@@ -165,9 +165,21 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
                 window_end = start_date
 
             candidates = query_df(f"""
-                SELECT id, normalized_team_a, normalized_team_b, 
-                       start_time_normalized, league, status
+                SELECT cm.id, cm.normalized_team_a, cm.normalized_team_b,
+                       cm.start_time_normalized, cm.league, cm.status,
+                       COALESCE(os.odds_snapshots, 0) AS odds_snapshots,
+                       COALESCE(be.bookmaker_events, 0) AS bookmaker_events
                 FROM canonical_matches
+                LEFT JOIN (
+                    SELECT canonical_match_id, COUNT(*) AS odds_snapshots
+                    FROM odds_snapshots
+                    GROUP BY canonical_match_id
+                ) os ON os.canonical_match_id = cm.id
+                LEFT JOIN (
+                    SELECT canonical_match_id, COUNT(*) AS bookmaker_events
+                    FROM bookmaker_events
+                    GROUP BY canonical_match_id
+                ) be ON be.canonical_match_id = cm.id
                 WHERE LEFT(start_time_normalized, 10) >= '{_sql_escape(window_start)}'
                   AND LEFT(start_time_normalized, 10) <= '{_sql_escape(window_end)}'
             """)
@@ -180,11 +192,14 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
             best_id = None
             best_score = 0.0
             best_diff = 999999.0
+            best_evidence = 0
             second_score = 0.0
+            second_evidence = 0
             for _, c in candidates.iterrows():
                 cid = c["id"]
                 ca = str(c.get("normalized_team_a") or "")
                 cb = str(c.get("normalized_team_b") or "")
+                evidence = int(c.get("odds_snapshots") or 0) + int(c.get("bookmaker_events") or 0)
                 cdate = str(c.get("start_time_normalized", ""))[:10]
                 diff = 999999.0
                 if start_date and cdate:
@@ -210,20 +225,27 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
                 if not safe:
                     continue
 
-                if score > best_score or (score == best_score and diff < best_diff):
+                if (
+                    evidence > best_evidence
+                    or (evidence == best_evidence and score > best_score)
+                    or (evidence == best_evidence and score == best_score and diff < best_diff)
+                ):
                     second_score = best_score
+                    second_evidence = best_evidence
                     best_score = score
                     best_diff = diff
+                    best_evidence = evidence
                     best_id = cid
                 elif score > second_score:
                     second_score = score
+                    second_evidence = evidence
 
             if best_id is None:
                 errors += 1
                 continue
 
             # Avoid ambiguous auto-mapping when two candidates are similarly good.
-            if second_score and best_score - second_score < 0.04:
+            if best_evidence == 0 and second_evidence == 0 and second_score and best_score - second_score < 0.04:
                 logger.warning(
                     "Auto-map ambiguous for GOL.GG %s (%s vs %s): best=%.3f second=%.3f",
                     gmid,
