@@ -9,25 +9,16 @@ logger = logging.getLogger(__name__)
 
 
 def refresh_golgg() -> dict:
-    """Refresh GolGG data (scrape + import)."""
-    logger.info("Starting GolGG refresh")
+    """Refresh GolGG data (direct scrape → DB, no JSON cache)."""
+    logger.info("Starting GolGG direct refresh")
     start = datetime.utcnow()
     
-    steps = {
-        "refresh": _run_module("betting_app.scripts.refresh_golgg_results", timeout=600),
-        "import": _run_module("betting_app.scripts.import_golgg_to_db", timeout=300),
-    }
-    
+    success = _run_module("betting_app.scripts.refresh_golgg_direct", timeout=900)
     duration = (datetime.utcnow() - start).total_seconds()
-    all_ok = all(steps.values())
     
-    logger.info(f"GolGG refresh: {'OK' if all_ok else 'FAIL'} ({duration:.1f}s)")
+    logger.info(f"GolGG direct refresh: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
     
-    return {
-        "success": all_ok,
-        "steps": steps,
-        "duration_s": duration,
-    }
+    return {"success": success, "duration_s": duration}
 
 
 def rebuild_ratings() -> dict:
