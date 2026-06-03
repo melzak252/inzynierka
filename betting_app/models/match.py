@@ -8,6 +8,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    DateTime,
     text as sa_text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -33,7 +34,7 @@ class CanonicalMatch(Base):
     winner_side: Mapped[str | None] = mapped_column(String(20))
     result_source: Mapped[str | None] = mapped_column(String(50))
     result_source_match_id: Mapped[str | None] = mapped_column(String(50))
-    result_recorded_at: Mapped[str | None] = mapped_column(String(50))
+    result_recorded_at: Mapped[str | None] = mapped_column(DateTime(timezone=True))
     match_confidence: Mapped[float] = mapped_column(Integer, server_default="1")
 
 
