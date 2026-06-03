@@ -4,6 +4,7 @@ import MatchDetail from './pages/MatchDetail'
 import SystemStatus from './pages/SystemStatus'
 import SchedulerPanel from './pages/SchedulerPanel'
 import TimingAnalysis from './pages/TimingAnalysis'
+import HorizonAnalysis from './pages/HorizonAnalysis'
 import './App.css'
 
 function Nav() {
@@ -12,6 +13,7 @@ function Nav() {
   const links = [
     { to: '/', label: 'Mecze' },
     { to: '/timing', label: 'Timing' },
+    { to: '/horizon', label: 'Horizon' },
     { to: '/system', label: 'System' },
     { to: '/scheduler', label: 'Scheduler' },
   ]
@@ -47,6 +49,7 @@ function App() {
           <Route path="/system" element={<SystemStatus />} />
           <Route path="/scheduler" element={<SchedulerPanel />} />
           <Route path="/timing" element={<TimingAnalysis />} />
+          <Route path="/horizon" element={<HorizonAnalysis />} />
         </Routes>
       </main>
     </BrowserRouter>

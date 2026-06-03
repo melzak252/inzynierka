@@ -10,6 +10,7 @@ import type {
   SchedulerTriggerResponse,
   TimingAnalysisResponse,
   MatchMovementResponse,
+  HorizonAccuracyResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -111,5 +112,18 @@ export async function fetchTimingAnalysis(daysBack: number = 30): Promise<Timing
 export async function fetchMatchMovement(matchId: number): Promise<MatchMovementResponse> {
   const response = await fetch(`${API_BASE}/timing/match/${matchId}/movement`);
   if (!response.ok) throw new Error(`Failed to fetch match movement: ${response.statusText}`);
+  return response.json();
+}
+
+export async function fetchHorizonAccuracy(
+  daysBack: number = 90,
+  minMatchesPerBin: number = 10
+): Promise<HorizonAccuracyResponse> {
+  const params = new URLSearchParams({
+    days_back: daysBack.toString(),
+    min_matches_per_bin: minMatchesPerBin.toString(),
+  });
+  const response = await fetch(`${API_BASE}/timing/horizon-accuracy?${params}`);
+  if (!response.ok) throw new Error(`Failed to fetch horizon accuracy: ${response.statusText}`);
   return response.json();
 }

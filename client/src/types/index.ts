@@ -235,6 +235,27 @@ export interface OddsMovementPoint {
   deviation_b_pct?: number;
 }
 
+// Horizon accuracy types
+export interface HorizonBin {
+  label: string;                 // e.g. "0-2h", "2-6h", "6-12h"
+  hours_start: number;
+  hours_end: number | null;      // null for 48h+ (unbounded)
+  snapshot_count: number;
+  match_count: number;
+  avg_logloss: number | null;
+  avg_auc: number | null;
+  avg_prob_winner: number | null;
+  avg_prob_loser: number | null;
+}
+
+export interface HorizonAccuracyResponse {
+  total_matches_with_odds: number;
+  total_finished_matches: number;
+  total_odds_processed: number;
+  bins: HorizonBin[];
+  min_matches_per_bin: number;
+}
+
 export interface MatchMovementResponse {
   match_id: number;
   team_a: string | null;

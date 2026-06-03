@@ -5,14 +5,19 @@ Key metrics:
   - % deviation from closing odds (last pre-match snapshot)
   - Shows whether earlier odds are better/worse than closing
   - Convergence pattern analysis
+  - Horizon accuracy: LogLoss & AUC by hours-before-match bin
 """
 
 from __future__ import annotations
 
+import math
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from numpy import clip, mean, sum as np_sum
+from sklearn.metrics import log_loss, roc_auc_score
 
 from betting_app.api.deps import get_db, query_df
 
@@ -357,6 +362,252 @@ def _build_recommendation(bucket: dict) -> str:
         f"{'; '.join(parts)}. "
         f"This window shows the most favorable odds vs closing prices."
     )
+
+
+def _implied_prob(odds: float) -> float:
+    """Convert decimal odds to implied probability (no-margin)."""
+    if odds is None or odds <= 1.0:
+        return 0.5
+    return 1.0 / odds
+
+
+def _remove_margin(prob_a: float, prob_b: float) -> tuple[float, float]:
+    """Remove bookmaker margin by normalizing probabilities to sum to 1."""
+    total = prob_a + prob_b
+    if total <= 0:
+        return (0.5, 0.5)
+    return (prob_a / total, prob_b / total)
+
+
+def _compute_auc(y_true: list[int], y_score: list[float]) -> float | None:
+    """Compute AUC-ROC, return None if degenerate."""
+    try:
+        if len(set(y_true)) < 2:
+            return None
+        val = roc_auc_score(y_true, y_score)
+        return round(float(val), 4)
+    except Exception:
+        return None
+
+
+def _compute_logloss(y_true: list[int], y_prob: list[float], eps: float = 1e-15) -> float | None:
+    """Compute LogLoss, return None if degenerate."""
+    try:
+        n = len(y_true)
+        if n == 0:
+            return None
+        y_prob = clip(y_prob, eps, 1 - eps)
+        ll = -mean(y_true * log(y_prob) + (1 - y_true) * log(1 - y_prob))
+        return round(float(ll), 4)
+    except Exception:
+        return None
+
+
+@router.get("/horizon-accuracy")
+def horizon_accuracy(
+    min_matches_per_bin: int = 10,
+    max_days_back: int = 90,
+    db=Depends(get_db),
+):
+    """Analyze prediction accuracy (LogLoss, AUC) by hours-before-match.
+
+    Uses odds as implied probabilities.  Groups snapshots into time bins
+    relative to match start.  Each bin reflects the market's implied
+    probability accuracy at that horizon.
+
+    Returns:
+      - bins: list of {label, hours_start, hours_end,
+               snapshot_count, match_count,
+               avg_logloss, avg_auc,
+               avg_prob_winner, avg_prob_loser}
+      - Only bins with >= min_matches_per_bin are included.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
+
+    # --- 1. Get finished matches with result and start time ---
+    matches = query_df(
+        db,
+        """
+        SELECT cm.id, cm.start_time_normalized,
+               cm.normalized_team_a, cm.normalized_team_b,
+               cm.winner_side
+        FROM canonical_matches cm
+        WHERE cm.status IN ('finished', 'completed')
+          AND cm.winner_side IS NOT NULL
+          AND cm.start_time_normalized IS NOT NULL
+          AND cm.start_time_normalized > :cutoff
+        ORDER BY cm.start_time_normalized DESC
+        """,
+        {"cutoff": cutoff},
+    )
+    if not matches:
+        return _empty_horizon_result()
+
+    match_map = {m["id"]: m for m in matches}
+    match_ids = list(match_map.keys())
+
+    # --- 2. Get all pre-match odds snapshots ---
+    placeholders = ",".join(f":mid{i}" for i in range(len(match_ids)))
+    params: dict[str, Any] = {f"mid{i}": mid for i, mid in enumerate(match_ids)}
+
+    snapshots = query_df(
+        db,
+        f"""
+        SELECT os.canonical_match_id, os.scraped_at,
+               os.odds_a, os.odds_b,
+               os.raw_team_a, os.raw_team_b
+        FROM odds_snapshots os
+        WHERE os.canonical_match_id IN ({placeholders})
+          AND os.market_type = 'match_winner'
+          AND COALESCE(os.is_live, 0) = 0
+          AND os.odds_a IS NOT NULL
+          AND os.odds_b IS NOT NULL
+        ORDER BY os.canonical_match_id, os.scraped_at
+        """,
+        params,
+    )
+
+    # --- 3. Build bins ---
+    # Bin definitions: (label, min_hours, max_hours)
+    # max_hours is exclusive (except the last bin)
+    BIN_DEFS = [
+        ("0-2h",    0,   2),
+        ("2-6h",    2,   6),
+        ("6-12h",   6,  12),
+        ("12-24h", 12,  24),
+        ("24-48h", 24,  48),
+        ("48h+",   48, 9999),
+    ]
+
+    # Accumulate per bin: match_ids (set), y_true (int), y_score (float)
+    bin_data: dict[str, dict] = {
+        label: {
+            "match_ids": set(),
+            "y_true": [],
+            "y_score": [],
+            "prob_winner_list": [],
+            "prob_loser_list": [],
+        }
+        for label, _, _ in BIN_DEFS
+    }
+
+    matches_with_odds = set()
+    odds_processed = 0
+
+    for snap in snapshots:
+        mid = snap["canonical_match_id"]
+        m = match_map.get(mid)
+        if not m:
+            continue
+
+        match_start = _parse_dt(m.get("start_time_normalized"))
+        scraped = _parse_dt(snap.get("scraped_at"))
+        if not match_start or not scraped:
+            continue
+
+        hours_before = (match_start - scraped).total_seconds() / 3600.0
+        if hours_before < 0:
+            continue  # post-match / in-play
+
+        # Align odds to canonical sides
+        aligned = _align(
+            str(m.get("normalized_team_a") or ""),
+            str(m.get("normalized_team_b") or ""),
+            str(snap.get("raw_team_a") or ""),
+            str(snap.get("raw_team_b") or ""),
+            snap.get("odds_a"),
+            snap.get("odds_b"),
+        )
+        if not aligned:
+            continue
+
+        odds_a, odds_b = aligned
+
+        # Convert to implied probabilities (margin-removed)
+        prob_a = _implied_prob(odds_a)
+        prob_b = _implied_prob(odds_b)
+        prob_a_norm, prob_b_norm = _remove_margin(prob_a, prob_b)
+
+        # Ground truth: which side won?
+        winner_side = str(m.get("winner_side") or "")
+        if winner_side not in ("team_a", "team_b"):
+            continue
+
+        # y_true: 1 if team_a won, 0 if team_b won
+        # y_score: implied probability that team_a wins
+        y_true = 1 if winner_side == "team_a" else 0
+        y_score = prob_a_norm
+
+        # Probability assigned to the actual winner / loser
+        if winner_side == "team_a":
+            prob_winner = prob_a_norm
+            prob_loser = prob_b_norm
+        else:
+            prob_winner = prob_b_norm
+            prob_loser = prob_a_norm
+
+        # Find bin
+        for label, hmin, hmax in BIN_DEFS:
+            if hmin <= hours_before < hmax:
+                bd = bin_data[label]
+                bd["match_ids"].add(mid)
+                bd["y_true"].append(y_true)
+                bd["y_score"].append(y_score)
+                bd["prob_winner_list"].append(prob_winner)
+                bd["prob_loser_list"].append(prob_loser)
+                matches_with_odds.add(mid)
+                odds_processed += 1
+                break
+
+    if odds_processed == 0:
+        return _empty_horizon_result(len(matches))
+
+    # --- 4. Compute metrics per bin ---
+    bins = []
+    for label, hmin, hmax in BIN_DEFS:
+        bd = bin_data[label]
+        n_matches = len(bd["match_ids"])
+        n_snapshots = len(bd["y_true"])
+
+        # Skip bins with insufficient matches
+        if n_matches < min_matches_per_bin:
+            continue
+
+        # Compute metrics
+        auc_val = _compute_auc(bd["y_true"], bd["y_score"])
+        ll_val = _compute_logloss(bd["y_true"], bd["y_score"])
+        avg_prob_winner = round(mean(bd["prob_winner_list"]), 4) if bd["prob_winner_list"] else None
+        avg_prob_loser = round(mean(bd["prob_loser_list"]), 4) if bd["prob_loser_list"] else None
+
+        bins.append({
+            "label": label,
+            "hours_start": hmin,
+            "hours_end": hmax if hmax < 9999 else None,
+            "snapshot_count": n_snapshots,
+            "match_count": n_matches,
+            "avg_logloss": ll_val,
+            "avg_auc": auc_val,
+            "avg_prob_winner": avg_prob_winner,
+            "avg_prob_loser": avg_prob_loser,
+        })
+
+    return {
+        "total_matches_with_odds": len(matches_with_odds),
+        "total_finished_matches": len(matches),
+        "total_odds_processed": odds_processed,
+        "bins": bins,
+        "min_matches_per_bin": min_matches_per_bin,
+    }
+
+
+def _empty_horizon_result(total_matches: int = 0) -> dict:
+    return {
+        "total_matches_with_odds": 0,
+        "total_finished_matches": total_matches,
+        "total_odds_processed": 0,
+        "bins": [],
+        "min_matches_per_bin": 10,
+    }
 
 
 def _empty_result(matches_found: int = 0) -> dict:
