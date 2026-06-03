@@ -593,13 +593,94 @@ def horizon_accuracy(
             "avg_prob_loser": avg_prob_loser,
         })
 
+    # --- 5. Compute overall model accuracy reference lines ---
+    model_refs = _compute_model_reference_metrics(db, cutoff)
+
     return {
         "total_matches_with_odds": len(matches_with_odds),
         "total_finished_matches": len(matches),
         "total_odds_processed": odds_processed,
         "bins": bins,
         "min_matches_per_bin": min_matches_per_bin,
+        "model_references": model_refs,
     }
+
+
+def _compute_model_reference_metrics(db, cutoff: str) -> list[dict]:
+    """Compute overall LogLoss & AUC for each registered prediction model.
+
+    Queries canonical_predictions joined with canonical_matches to evaluate
+    model probability accuracy against actual match outcomes. Returns a list
+    of dicts with model_name, model_version, avg_logloss, avg_auc, n_matches.
+    """
+    refs: list[dict] = []
+
+    model_defs = query_df(
+        db,
+        """
+        SELECT DISTINCT cp.model_name, cp.model_version
+        FROM canonical_predictions cp
+        JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+        WHERE cp.prediction_status = 'active'
+          AND cm.status IN ('finished', 'completed')
+          AND cm.winner_side IS NOT NULL
+          AND cm.start_time_normalized > :cutoff
+        ORDER BY cp.model_name
+        """,
+        {"cutoff": cutoff},
+    )
+
+    for md in model_defs:
+        preds = query_df(
+            db,
+            """
+            SELECT cp.prob_a, cp.prob_b,
+                   cm.winner_side,
+                   cm.normalized_team_a, cm.normalized_team_b
+            FROM canonical_predictions cp
+            JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+            WHERE cp.model_name = :mname
+              AND cp.model_version = :mver
+              AND cp.prediction_status = 'active'
+              AND cm.status IN ('finished', 'completed')
+              AND cm.winner_side IS NOT NULL
+              AND cm.start_time_normalized > :cutoff
+            """,
+            {"mname": md["model_name"], "mver": md["model_version"], "cutoff": cutoff},
+        )
+        if not preds:
+            continue
+
+        y_true: list[int] = []
+        y_score: list[float] = []
+        for p in preds:
+            winner = str(p.get("winner_side") or "")
+            if winner not in ("team_a", "team_b"):
+                continue
+            prob_a = p.get("prob_a")
+            if prob_a is None:
+                continue
+            prob_a = float(prob_a)
+            if not (0 < prob_a < 1):
+                continue
+            # prob_a is team_a win probability; y_score = prob_a, y_true = 1 if team_a won
+            y_score.append(prob_a)
+            y_true.append(1 if winner == "team_a" else 0)
+
+        if len(y_true) < 2 or len(set(y_true)) < 2:
+            continue
+
+        ll = _compute_logloss(y_true, y_score)
+        auc = _compute_auc(y_true, y_score)
+        refs.append({
+            "model_name": md["model_name"],
+            "model_version": md["model_version"],
+            "avg_logloss": ll,
+            "avg_auc": auc,
+            "n_matches": len(y_true),
+        })
+
+    return refs
 
 
 def _empty_horizon_result(total_matches: int = 0) -> dict:
@@ -609,6 +690,7 @@ def _empty_horizon_result(total_matches: int = 0) -> dict:
         "total_odds_processed": 0,
         "bins": [],
         "min_matches_per_bin": 10,
+        "model_references": [],
     }
 
 

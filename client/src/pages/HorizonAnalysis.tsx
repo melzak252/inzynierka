@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { HorizonAccuracyResponse, HorizonBin } from '../types';
+import { HorizonAccuracyResponse, HorizonBin, ModelReferenceMetrics } from '../types';
 import { fetchHorizonAccuracy } from '../api/client';
 import './HorizonAnalysis.css';
 
@@ -12,12 +12,14 @@ const COLORS = {
   axis:   '#888',
   label:  '#aaa',
   title:  '#fff',
+  modelHybrid:  '#00e676',
+  modelBase:    '#fdd835',
 };
 
 /* ─── Chart dimensions ──────────────────────────────────── */
-const CHART_W = 700;
+const CHART_W = 800;
 const CHART_H = 340;
-const PAD = { top: 30, right: 30, bottom: 70, left: 60 };
+const PAD = { top: 30, right: 120, bottom: 70, left: 60 };
 
 /* ─── Helpers ───────────────────────────────────────────── */
 function fmt(v: number, d = 3): string {
@@ -168,6 +170,45 @@ export default function HorizonAnalysis() {
     );
   }
 
+  /* ─── Model reference lines ──────────────────────────── */
+  function ModelRefLines({ metricKey, domain }: {
+    metricKey: 'avg_logloss' | 'avg_auc';
+    domain: [number, number];
+  }) {
+    const refs = data?.model_references ?? [];
+    if (refs.length === 0) return null;
+    const y = yScale(domain);
+
+    return (
+      <>
+        {refs.map(r => {
+          const val = r[metricKey];
+          if (val === null || val === undefined) return null;
+          const cy = y(val);
+          const isHybrid = r.model_name.toLowerCase().includes('hybrid');
+          const color = isHybrid ? COLORS.modelHybrid : COLORS.modelBase;
+          const label = isHybrid ? 'Hybrid' : 'Base model';
+          return (
+            <g key={r.model_name}>
+              {/* Dashed reference line */}
+              <line x1={PAD.left} y1={cy} x2={CHART_W - PAD.right + 80} y2={cy}
+                stroke={color} strokeWidth={1.5} strokeDasharray="6,4" opacity={0.8} />
+              {/* Label + value */}
+              <text x={CHART_W - PAD.right + 4} y={cy - 4} fill={color} fontSize={10}
+                dominantBaseline="end">
+                {label}
+              </text>
+              <text x={CHART_W - PAD.right + 4} y={cy + 8} fill={color} fontSize={9}
+                opacity={0.8}>
+                {fmt(val)} ({r.n_matches} matches)
+              </text>
+            </g>
+          );
+        })}
+      </>
+    );
+  }
+
   /* ─── Shared line chart ───────────────────────────────── */
   function MetricLineChart({
     title,
@@ -205,6 +246,8 @@ export default function HorizonAnalysis() {
               <text x={PAD.left - 6} y={y(v) + 4} textAnchor="end" fill={COLORS.axis} fontSize={11}>{fmt(v)}</text>
             </g>
           ))}
+          {/* Model reference lines */}
+          <ModelRefLines metricKey={metricKey} domain={domain} />
           {/* Line */}
           <path d={pathD} fill="none" stroke={color} strokeWidth={2.5} />
           {/* Points + labels */}
@@ -291,6 +334,31 @@ export default function HorizonAnalysis() {
         domain={[0.4, 1]}
       />
 
+      {/* ─── Model Reference Summary ──────────────────────── */}
+      {data.model_references.length > 0 && (
+        <div className="model-refs-section">
+          <h3>Overall model prediction accuracy</h3>
+          <p className="model-refs-subtitle">
+            Horizontal dashed lines show each model&apos;s overall LogLoss / AUC across all finished matches.
+          </p>
+          <div className="model-refs-grid">
+            {data.model_references.map(r => {
+              const isHybrid = r.model_name.toLowerCase().includes('hybrid');
+              const color = isHybrid ? '#00e676' : '#fdd835';
+              return (
+                <div key={r.model_name} className="model-ref-card">
+                  <span className="model-dot" style={{ backgroundColor: color }} />
+                  <span className="model-name">{isHybrid ? 'Hybrid-PlayerTeam-W20-Market' : 'Operational-PlayerTeam-Ratings-W20'}</span>
+                  <span className="model-metric">LogLoss: {fmt(r.avg_logloss)}</span>
+                  <span className="model-metric">AUC: {fmt(r.avg_auc)}</span>
+                  <span className="model-matches">({r.n_matches} matches)</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ─── Legend ──────────────────────────────────────── */}
       <div className="legend-section">
         <h3>Legend</h3>
@@ -298,6 +366,7 @@ export default function HorizonAnalysis() {
           <li><strong>LogLoss</strong> — lower = better calibrated predictions. Random guessing = 0.69 (for 50/50).</li>
           <li><strong>AUC</strong> — higher = better discrimination between winners/losers. 0.5 = random, 1.0 = perfect.</li>
           <li>Each point aggregates all pre-match odds snapshots across all bookmakers for finished matches.</li>
+          <li>Dashed horizontal lines indicate overall model prediction accuracy (all horizons combined).</li>
           <li>Bins with fewer than {minMatches} matches are hidden but visible in the histogram.</li>
         </ul>
       </div>

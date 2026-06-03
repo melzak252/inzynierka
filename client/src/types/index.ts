@@ -248,12 +248,21 @@ export interface HorizonBin {
   avg_prob_loser: number | null;
 }
 
+export interface ModelReferenceMetrics {
+  model_name: string;
+  model_version: string;
+  avg_logloss: number | null;
+  avg_auc: number | null;
+  n_matches: number;
+}
+
 export interface HorizonAccuracyResponse {
   total_matches_with_odds: number;
   total_finished_matches: number;
   total_odds_processed: number;
   bins: HorizonBin[];
   min_matches_per_bin: number;
+  model_references: ModelReferenceMetrics[];
 }
 
 export interface MatchMovementResponse {

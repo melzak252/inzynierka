@@ -128,6 +128,67 @@
   padding: 1rem 0;
 }
 
+/* ─── Model Reference Lines Section ──────────────────────── */
+.model-refs-section {
+  background: #141428;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.model-refs-section h3 {
+  font-size: 1rem;
+  color: #c0c0e0;
+  margin-bottom: 0.25rem;
+}
+
+.model-refs-subtitle {
+  color: #888;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.model-refs-grid {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.model-ref-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #1a1a32;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem;
+  flex-wrap: wrap;
+}
+
+.model-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.model-name {
+  color: #e0e0ff;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.model-metric {
+  color: #aaa;
+  font-size: 0.8rem;
+}
+
+.model-matches {
+  color: #666;
+  font-size: 0.75rem;
+}
+
 /* ─── Legend ───────────────────────────────────────────── */
 .legend-section {
   background: #141428;
