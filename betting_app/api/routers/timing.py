@@ -1,4 +1,11 @@
-"""Router: /api/timing — odds timing analysis for betting strategy."""
+"""Router: /api/timing — odds timing analysis for betting strategy.
+
+Key metrics:
+  - Fixed 2-hour time buckets (0-2h, 2-4h, 4-6h, ..., up to 72h+)
+  - % deviation from closing odds (last pre-match snapshot)
+  - Shows whether earlier odds are better/worse than closing
+  - Convergence pattern analysis
+"""
 
 from __future__ import annotations
 
@@ -12,30 +19,63 @@ from betting_app.api.deps import get_db, query_df
 router = APIRouter(prefix="/timing", tags=["timing"])
 
 
+def _parse_dt(val: Any) -> datetime | None:
+    """Parse datetime from various formats."""
+    if val is None:
+        return None
+    if isinstance(val, str):
+        try:
+            return datetime.fromisoformat(val.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            return None
+    if isinstance(val, datetime):
+        if val.tzinfo is None:
+            return val.replace(tzinfo=UTC)
+        return val
+    return None
+
+
+def _align(
+    n_a: str, n_b: str,
+    raw_a: str, raw_b: str,
+    odds_a: float | None, odds_b: float | None,
+) -> tuple[float, float] | None:
+    """Align odds to canonical sides."""
+    from betting_app.services.canonical_match_service import align_snapshot_odds
+    aligned = align_snapshot_odds(n_a, n_b, raw_a, raw_b, odds_a, odds_b)
+    if aligned and aligned[0] and aligned[1]:
+        return (float(aligned[0]), float(aligned[1]))
+    return None
+
+
 @router.get("/analysis")
 def timing_analysis(
-    days_back: int = 30,
-    min_snapshots: int = 3,
+    days_back: int = 60,
+    min_snapshots: int = 2,
     db=Depends(get_db),
 ):
-    """Analyze how odds change over time before matches.
-    
-    Returns aggregated statistics about odds movement patterns:
-    - Average odds drift by time bucket (hours before match)
-    - Best time to bet based on historical patterns
-    - Volatility metrics per time bucket
+    """Analyze odds movement relative to closing odds.
+
+    For each finished/expired match, finds the closing odds (last snapshot
+    before match start) and measures how earlier odds deviated from closing.
+    Results are grouped into fixed 2-hour time buckets.
+
+    Returns:
+      - time_buckets: avg % deviation from closing per 2h window
+      - drift_summary: convergence/divergence pattern
+      - best_window: most favorable betting window
     """
     now = datetime.now(UTC)
     cutoff = (now - timedelta(days=days_back)).isoformat(timespec="seconds")
 
-    # Get all finished matches with odds history
+    # --- 1. Get finished/expired matches ---
     matches = query_df(
         db,
         """
-        SELECT cm.id, cm.start_time_normalized, cm.team_a_name, cm.team_b_name,
+        SELECT cm.id, cm.start_time_normalized,
                cm.normalized_team_a, cm.normalized_team_b
         FROM canonical_matches cm
-        WHERE cm.status IN ('finished', 'completed')
+        WHERE cm.status IN ('finished', 'completed', 'expired')
           AND cm.start_time_normalized IS NOT NULL
           AND cm.start_time_normalized > :cutoff
         ORDER BY cm.start_time_normalized DESC
@@ -43,244 +83,303 @@ def timing_analysis(
         """,
         {"cutoff": cutoff},
     )
-
     if not matches:
-        return {
-            "total_matches": 0,
-            "time_buckets": [],
-            "summary": {
-                "message": "No finished matches with odds history found in the specified period."
-            }
-        }
+        return _empty_result()
 
-    # Collect odds snapshots with time-to-match calculation
-    all_snapshots = []
-    for match in matches:
-        match_id = match["id"]
-        start_time = match.get("start_time_normalized")
-        if not start_time:
+    match_map = {m["id"]: m for m in matches}
+    match_ids = list(match_map.keys())
+
+    # --- 2. Get all odds snapshots for these matches ---
+    placeholders = ",".join(f":mid{i}" for i in range(len(match_ids)))
+    params: dict[str, Any] = {f"mid{i}": mid for i, mid in enumerate(match_ids)}
+
+    snapshots = query_df(
+        db,
+        f"""
+        SELECT os.canonical_match_id, os.scraped_at,
+               os.odds_a, os.odds_b,
+               os.raw_team_a, os.raw_team_b,
+               b.name AS bookmaker
+        FROM odds_snapshots os
+        JOIN bookmakers b ON b.id = os.bookmaker_id
+        WHERE os.canonical_match_id IN ({placeholders})
+          AND os.market_type = 'match_winner'
+          AND COALESCE(os.is_live, 0) = 0
+          AND os.odds_a IS NOT NULL
+          AND os.odds_b IS NOT NULL
+        ORDER BY os.canonical_match_id, os.scraped_at
+        """,
+        params,
+    )
+
+    # Group by match
+    match_snaps: dict[int, list[dict]] = {}
+    for s in snapshots:
+        mid = s["canonical_match_id"]
+        match_snaps.setdefault(mid, []).append(s)
+
+    # --- 3. Process each match ---
+    BUCKET_SIZE = 2  # hours
+    buckets_raw: dict[str, list[dict]] = {}
+    matches_with_data = 0
+
+    for mid in match_ids:
+        m = match_map.get(mid)
+        s_list = match_snaps.get(mid)
+        if not m or not s_list or len(s_list) < min_snapshots:
             continue
 
-        # Parse match start time
-        try:
-            if isinstance(start_time, str):
-                match_start = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-            else:
+        match_start = _parse_dt(m.get("start_time_normalized"))
+        if not match_start:
+            continue
+
+        n_a = str(m.get("normalized_team_a") or "")
+        n_b = str(m.get("normalized_team_b") or "")
+
+        # Parse and filter pre-match only
+        pre_match: list[tuple[float, dict]] = []
+        for s in s_list:
+            st = _parse_dt(s["scraped_at"])
+            if not st:
                 continue
-        except (ValueError, TypeError):
+            hours_before = (match_start - st).total_seconds() / 3600.0
+            if hours_before < 0:
+                continue
+            pre_match.append((hours_before, s))
+
+        if len(pre_match) < min_snapshots:
             continue
 
-        # Get odds history for this match
-        odds = query_df(
-            db,
-            """
-            SELECT os.scraped_at, os.odds_a, os.odds_b,
-                   os.raw_team_a, os.raw_team_b,
-                   b.name AS bookmaker
-            FROM odds_snapshots os
-            JOIN bookmakers b ON b.id=os.bookmaker_id
-            WHERE os.canonical_match_id=:mid 
-              AND os.market_type='match_winner'
-              AND COALESCE(os.is_live,0)=0
-              AND os.odds_a IS NOT NULL 
-              AND os.odds_b IS NOT NULL
-            ORDER BY os.scraped_at
-            """,
-            {"mid": match_id},
+        # Sort by hours_before ascending (closest to match first)
+        pre_match.sort(key=lambda x: x[0])
+
+        # --- Closing odds = last snapshot before match ---
+        closing_hours, closing_snap = pre_match[0]
+        closing_aligned = _align(
+            n_a, n_b,
+            str(closing_snap.get("raw_team_a") or ""),
+            str(closing_snap.get("raw_team_b") or ""),
+            closing_snap.get("odds_a"),
+            closing_snap.get("odds_b"),
         )
-
-        if len(odds) < min_snapshots:
+        if not closing_aligned:
             continue
 
-        n_a = match.get("normalized_team_a") or ""
-        n_b = match.get("normalized_team_b") or ""
+        closing_a, closing_b = closing_aligned
+        matches_with_data += 1
 
-        # Import alignment function
-        from betting_app.services.canonical_match_service import align_snapshot_odds
-
-        for row in odds:
-            scraped_at = row.get("scraped_at")
-            if not scraped_at:
-                continue
-
-            try:
-                if isinstance(scraped_at, str):
-                    scrape_time = datetime.fromisoformat(scraped_at.replace("Z", "+00:00"))
-                elif isinstance(scraped_at, datetime):
-                    scrape_time = scraped_at
-                    if scrape_time.tzinfo is None:
-                        scrape_time = scrape_time.replace(tzinfo=UTC)
-                else:
-                    continue
-            except (ValueError, TypeError):
-                continue
-
-            # Calculate hours before match
-            hours_before = (match_start - scrape_time).total_seconds() / 3600
-            if hours_before < 0:  # Skip post-match snapshots
-                continue
-
-            # Align odds to canonical sides
-            aligned = align_snapshot_odds(
+        # --- Process each snapshot ---
+        for hours_before, s in pre_match:
+            aligned = _align(
                 n_a, n_b,
-                str(row.get("raw_team_a") or ""),
-                str(row.get("raw_team_b") or ""),
-                row.get("odds_a"),
-                row.get("odds_b"),
+                str(s.get("raw_team_a") or ""),
+                str(s.get("raw_team_b") or ""),
+                s.get("odds_a"),
+                s.get("odds_b"),
             )
+            if not aligned:
+                continue
 
-            if aligned and aligned[0] and aligned[1]:
-                all_snapshots.append({
-                    "match_id": match_id,
-                    "hours_before": hours_before,
-                    "odds_a": aligned[0],
-                    "odds_b": aligned[1],
-                    "bookmaker": row.get("bookmaker"),
-                })
+            odds_a, odds_b = aligned
 
-    if not all_snapshots:
-        return {
-            "total_matches": len(matches),
-            "total_snapshots": 0,
-            "time_buckets": [],
-            "summary": {
-                "message": "No odds snapshots found for finished matches."
-            }
-        }
+            # % deviation from closing
+            dev_a_pct = ((odds_a - closing_a) / closing_a) * 100.0 if closing_a else 0.0
+            dev_b_pct = ((odds_b - closing_b) / closing_b) * 100.0 if closing_b else 0.0
 
-    # Bucket by hours before match
-    buckets = {}
-    for snap in all_snapshots:
-        hours = snap["hours_before"]
-        
-        # Create time buckets: 0-1h, 1-3h, 3-6h, 6-12h, 12-24h, 24-48h, 48h+
-        if hours <= 1:
-            bucket = "0-1h"
-        elif hours <= 3:
-            bucket = "1-3h"
-        elif hours <= 6:
-            bucket = "3-6h"
-        elif hours <= 12:
-            bucket = "6-12h"
-        elif hours <= 24:
-            bucket = "12-24h"
-        elif hours <= 48:
-            bucket = "24-48h"
-        else:
-            bucket = "48h+"
+            # Assign to 2h bucket
+            bucket_start = int(hours_before) // BUCKET_SIZE * BUCKET_SIZE
+            bucket_end = bucket_start + BUCKET_SIZE
+            bucket_label = f"{bucket_start}-{bucket_end}h"
 
-        if bucket not in buckets:
-            buckets[bucket] = {"odds_a": [], "odds_b": [], "count": 0}
+            buckets_raw.setdefault(bucket_label, []).append({
+                "match_id": mid,
+                "hours_before": hours_before,
+                "odds_a": odds_a,
+                "odds_b": odds_b,
+                "closing_a": closing_a,
+                "closing_b": closing_b,
+                "deviation_a_pct": dev_a_pct,
+                "deviation_b_pct": dev_b_pct,
+                "bookmaker": s.get("bookmaker"),
+            })
 
-        buckets[bucket]["odds_a"].append(snap["odds_a"])
-        buckets[bucket]["odds_b"].append(snap["odds_b"])
-        buckets[bucket]["count"] += 1
+    if not buckets_raw:
+        return _empty_result(matches_with_data)
 
-    # Calculate statistics per bucket
+    # --- 4. Aggregate buckets ---
+    # Determine max bucket range (round up to even, min 48h)
+    all_hours = []
+    for items in buckets_raw.values():
+        for item in items:
+            all_hours.append(item["hours_before"])
+    if not all_hours:
+        return _empty_result(matches_with_data)
+
+    max_hours = max(all_hours)
+    max_bucket_end = int(max_hours) + BUCKET_SIZE
+    if max_bucket_end % BUCKET_SIZE != 0:
+        max_bucket_end += BUCKET_SIZE
+    max_bucket_end = max(max_bucket_end, 48)
+
+    # Create all 2h bucket slots
+    ordered_slots = []
+    for start_h in range(0, max_bucket_end, BUCKET_SIZE):
+        end_h = start_h + BUCKET_SIZE
+        label = f"{start_h}-{end_h}h"
+        ordered_slots.append(label)
+
     time_buckets = []
-    bucket_order = ["0-1h", "1-3h", "3-6h", "6-12h", "12-24h", "24-48h", "48h+"]
-    
-    for bucket_name in bucket_order:
-        if bucket_name not in buckets:
+    for label in ordered_slots:
+        items = buckets_raw.get(label, [])
+        if not items:
             continue
 
-        data = buckets[bucket_name]
-        odds_a_list = data["odds_a"]
-        odds_b_list = data["odds_b"]
+        n = len(items)
+        dev_a = [it["deviation_a_pct"] for it in items]
+        dev_b = [it["deviation_b_pct"] for it in items]
+        odds_a_list = [it["odds_a"] for it in items]
+        odds_b_list = [it["odds_b"] for it in items]
+        closing_a_list = [it["closing_a"] for it in items]
+        closing_b_list = [it["closing_b"] for it in items]
+        unique_matches = len(set(it["match_id"] for it in items))
 
-        if not odds_a_list or not odds_b_list:
-            continue
+        avg_dev_a = sum(dev_a) / n
+        avg_dev_b = sum(dev_b) / n
 
-        # Calculate statistics
-        avg_a = sum(odds_a_list) / len(odds_a_list)
-        avg_b = sum(odds_b_list) / len(odds_b_list)
-        
-        # Volatility (standard deviation)
-        var_a = sum((x - avg_a) ** 2 for x in odds_a_list) / len(odds_a_list)
-        var_b = sum((x - avg_b) ** 2 for x in odds_b_list) / len(odds_b_list)
-        std_a = var_a ** 0.5
-        std_b = var_b ** 0.5
-
-        # Min/Max
-        min_a = min(odds_a_list)
-        max_a = max(odds_a_list)
-        min_b = min(odds_b_list)
-        max_b = max(odds_b_list)
+        # Std dev of deviation
+        if n > 1:
+            std_dev_a = (sum((d - avg_dev_a) ** 2 for d in dev_a) / (n - 1)) ** 0.5
+            std_dev_b = (sum((d - avg_dev_b) ** 2 for d in dev_b) / (n - 1)) ** 0.5
+        else:
+            std_dev_a = std_dev_b = 0.0
 
         time_buckets.append({
-            "bucket": bucket_name,
-            "snapshot_count": data["count"],
-            "avg_odds_a": round(avg_a, 3),
-            "avg_odds_b": round(avg_b, 3),
-            "std_odds_a": round(std_a, 3),
-            "std_odds_b": round(std_b, 3),
-            "min_odds_a": round(min_a, 3),
-            "max_odds_a": round(max_a, 3),
-            "min_odds_b": round(min_b, 3),
-            "max_odds_b": round(max_b, 3),
+            "bucket": label,
+            "hours_start": int(label.split("-")[0]),
+            "hours_end": int(label.split("-")[1].rstrip("h")),
+            "snapshot_count": n,
+            "match_count": unique_matches,
+            "avg_deviation_a_pct": round(avg_dev_a, 2),
+            "avg_deviation_b_pct": round(avg_dev_b, 2),
+            "std_deviation_a_pct": round(std_dev_a, 2),
+            "std_deviation_b_pct": round(std_dev_b, 2),
+            "avg_odds_a": round(sum(odds_a_list) / n, 3),
+            "avg_odds_b": round(sum(odds_b_list) / n, 3),
+            "avg_closing_odds_a": round(sum(closing_a_list) / n, 3),
+            "avg_closing_odds_b": round(sum(closing_b_list) / n, 3),
         })
 
-    # Calculate odds drift (compare early vs late buckets)
-    early_bucket = next((b for b in time_buckets if b["bucket"] in ["24-48h", "48h+"]), None)
-    late_bucket = next((b for b in time_buckets if b["bucket"] in ["0-1h", "1-3h"]), None)
+    # --- 5. Drift summary ---
+    drift_summary = None
+    if len(time_buckets) >= 2:
+        earliest = time_buckets[-1]  # farthest from match
+        latest = time_buckets[0]     # closest to match
 
-    drift_analysis = None
-    if early_bucket and late_bucket:
-        drift_a = late_bucket["avg_odds_a"] - early_bucket["avg_odds_a"]
-        drift_b = late_bucket["avg_odds_b"] - early_bucket["avg_odds_b"]
-        
-        drift_analysis = {
-            "early_bucket": early_bucket["bucket"],
-            "late_bucket": late_bucket["bucket"],
-            "drift_odds_a": round(drift_a, 3),
-            "drift_odds_b": round(drift_b, 3),
-            "interpretation": (
-                "Odds tend to decrease closer to match start" if drift_a < 0 and drift_b < 0
-                else "Odds tend to increase closer to match start" if drift_a > 0 and drift_b > 0
-                else "Mixed odds movement patterns"
-            )
+        drift_summary = {
+            "earliest_bucket": earliest["bucket"],
+            "latest_bucket": latest["bucket"],
+            "open_deviation_a_pct": earliest["avg_deviation_a_pct"],
+            "open_deviation_b_pct": earliest["avg_deviation_b_pct"],
+            "close_deviation_a_pct": latest["avg_deviation_a_pct"],
+            "close_deviation_b_pct": latest["avg_deviation_b_pct"],
+            "convergence_a_pct": round(
+                earliest["avg_deviation_a_pct"] - latest["avg_deviation_a_pct"], 2
+            ),
+            "convergence_b_pct": round(
+                earliest["avg_deviation_b_pct"] - latest["avg_deviation_b_pct"], 2
+            ),
         }
 
-    # Find best betting window (lowest volatility + reasonable odds)
+    # --- 6. Best betting window ---
+    # The best window is where deviation is highest (odds furthest above closing)
+    # For each side independently, then combined
     best_window = None
     if time_buckets:
-        # Score each bucket: lower volatility is better
         scored = []
         for b in time_buckets:
-            volatility_score = (b["std_odds_a"] + b["std_odds_b"]) / 2
-            scored.append((b["bucket"], volatility_score, b["snapshot_count"]))
-        
-        # Sort by volatility (lower is better), but require minimum sample size
-        scored = [s for s in scored if s[2] >= 10]
+            # "Favorable deviation" = max positive deviation from closing
+            # Positive = odds better than closing
+            fav_dev = max(b["avg_deviation_a_pct"], b["avg_deviation_b_pct"])
+            # Also consider stability
+            stability = (b["std_deviation_a_pct"] + b["std_deviation_b_pct"]) / 2
+            scored.append((b["bucket"], fav_dev, stability, b["match_count"], b))
+
+        # Filter to buckets with reasonable sample
+        scored = [s for s in scored if s[3] >= 3]
         if scored:
-            scored.sort(key=lambda x: x[1])
+            # Find bucket where favorable deviation is highest
+            scored.sort(key=lambda x: x[1], reverse=True)
+            best = scored[0][4]
             best_window = {
-                "bucket": scored[0][0],
-                "avg_volatility": round(scored[0][1], 3),
-                "sample_size": scored[0][2],
-                "recommendation": f"Most stable odds in the {scored[0][0]} window before match start"
+                "bucket": best["bucket"],
+                "hours_start": best["hours_start"],
+                "hours_end": best["hours_end"],
+                "avg_favorable_deviation_pct": max(
+                    best["avg_deviation_a_pct"], best["avg_deviation_b_pct"]
+                ),
+                "avg_deviation_a_pct": best["avg_deviation_a_pct"],
+                "avg_deviation_b_pct": best["avg_deviation_b_pct"],
+                "match_count": best["match_count"],
+                "snapshot_count": best["snapshot_count"],
+                "recommendation": _build_recommendation(best),
             }
 
     return {
-        "total_matches": len(matches),
-        "total_snapshots": len(all_snapshots),
+        "total_matches": matches_with_data,
+        "total_snapshots": sum(len(v) for v in buckets_raw.values()),
         "time_buckets": time_buckets,
-        "drift_analysis": drift_analysis,
+        "drift_summary": drift_summary,
         "best_betting_window": best_window,
+    }
+
+
+def _build_recommendation(bucket: dict) -> str:
+    """Generate human-readable betting recommendation."""
+    dev_a = bucket["avg_deviation_a_pct"]
+    dev_b = bucket["avg_deviation_b_pct"]
+
+    parts = []
+    if dev_a > 1:
+        parts.append(f"Team A odds average {dev_a:+.1f}% above closing")
+    elif dev_a < -1:
+        parts.append(f"Team A odds average {dev_a:+.1f}% below closing")
+
+    if dev_b > 1:
+        parts.append(f"Team B odds average {dev_b:+.1f}% above closing")
+    elif dev_b < -1:
+        parts.append(f"Team B odds average {dev_b:+.1f}% below closing")
+
+    if not parts:
+        return f"Odds in the {bucket['bucket']} window are near closing levels."
+
+    return (
+        f"In the {bucket['bucket']} window before match: "
+        f"{'; '.join(parts)}. "
+        f"This window shows the most favorable odds vs closing prices."
+    )
+
+
+def _empty_result(matches_found: int = 0) -> dict:
+    return {
+        "total_matches": 0,
+        "total_snapshots": 0,
+        "time_buckets": [],
+        "drift_summary": None,
+        "best_betting_window": None,
         "summary": {
-            "period_days": days_back,
-            "min_snapshots_per_match": min_snapshots,
-        }
+            "message": "No finished matches with sufficient odds history found."
+            if matches_found == 0
+            else "Not enough data after processing."
+        },
     }
 
 
 @router.get("/match/{match_id}/movement")
 def match_odds_movement(match_id: int, db=Depends(get_db)):
-    """Get detailed odds movement for a specific match over time.
-    
-    Returns time series of odds changes with calculated metrics.
+    """Get detailed odds movement for a specific match.
+
+    Returns time series of odds with % deviation from closing.
     """
-    # Get match metadata
     match = query_df(
         db,
         "SELECT * FROM canonical_matches WHERE id=:id",
@@ -290,18 +389,10 @@ def match_odds_movement(match_id: int, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail="Match not found")
 
     m = match[0]
-    start_time = m.get("start_time_normalized")
-    
-    # Parse match start time
-    match_start = None
-    if start_time:
-        try:
-            if isinstance(start_time, str):
-                match_start = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            pass
+    match_start = _parse_dt(m.get("start_time_normalized"))
+    n_a = str(m.get("normalized_team_a") or "")
+    n_b = str(m.get("normalized_team_b") or "")
 
-    # Get all odds snapshots
     odds = query_df(
         db,
         """
@@ -309,11 +400,11 @@ def match_odds_movement(match_id: int, db=Depends(get_db)):
                os.raw_team_a, os.raw_team_b,
                b.name AS bookmaker
         FROM odds_snapshots os
-        JOIN bookmakers b ON b.id=os.bookmaker_id
-        WHERE os.canonical_match_id=:mid 
-          AND os.market_type='match_winner'
-          AND COALESCE(os.is_live,0)=0
-          AND os.odds_a IS NOT NULL 
+        JOIN bookmakers b ON b.id = os.bookmaker_id
+        WHERE os.canonical_match_id = :mid
+          AND os.market_type = 'match_winner'
+          AND COALESCE(os.is_live, 0) = 0
+          AND os.odds_a IS NOT NULL
           AND os.odds_b IS NOT NULL
         ORDER BY os.scraped_at
         """,
@@ -326,94 +417,82 @@ def match_odds_movement(match_id: int, db=Depends(get_db)):
             "team_a": m.get("team_a_name"),
             "team_b": m.get("team_b_name"),
             "movement_points": [],
-            "summary": {"message": "No odds history available"}
+            "summary": {"message": "No odds history available"},
         }
 
-    n_a = m.get("normalized_team_a") or ""
-    n_b = m.get("normalized_team_b") or ""
+    # Align all snapshots
+    points = []
+    closing_a = closing_b = None
 
-    from betting_app.services.canonical_match_service import align_snapshot_odds
-
-    movement_points = []
     for row in odds:
-        scraped_at = row.get("scraped_at")
-        if not scraped_at:
+        st = _parse_dt(row["scraped_at"])
+        if not st or not match_start:
+            continue
+        hours_before = (match_start - st).total_seconds() / 3600.0
+        if hours_before < 0:
             continue
 
-        try:
-            if isinstance(scraped_at, str):
-                scrape_time = datetime.fromisoformat(scraped_at.replace("Z", "+00:00"))
-            elif isinstance(scraped_at, datetime):
-                scrape_time = scraped_at
-                if scrape_time.tzinfo is None:
-                    scrape_time = scrape_time.replace(tzinfo=UTC)
-            else:
-                continue
-        except (ValueError, TypeError):
-            continue
-
-        hours_before = None
-        if match_start:
-            hours_before = round((match_start - scrape_time).total_seconds() / 3600, 2)
-            if hours_before < 0:
-                continue
-
-        aligned = align_snapshot_odds(
+        aligned = _align(
             n_a, n_b,
             str(row.get("raw_team_a") or ""),
             str(row.get("raw_team_b") or ""),
             row.get("odds_a"),
             row.get("odds_b"),
         )
+        if not aligned:
+            continue
 
-        if aligned and aligned[0] and aligned[1]:
-            movement_points.append({
-                "scraped_at": str(scraped_at),
-                "hours_before_match": hours_before,
-                "bookmaker": row.get("bookmaker"),
-                "odds_a": round(aligned[0], 3),
-                "odds_b": round(aligned[1], 3),
-            })
+        points.append({
+            "scraped_at": str(st),
+            "hours_before_match": round(hours_before, 2),
+            "bookmaker": row.get("bookmaker"),
+            "odds_a": round(aligned[0], 3),
+            "odds_b": round(aligned[1], 3),
+        })
 
-    # Calculate movement statistics
-    if movement_points:
-        first = movement_points[0]
-        last = movement_points[-1]
-        
-        total_drift_a = last["odds_a"] - first["odds_a"]
-        total_drift_b = last["odds_b"] - first["odds_b"]
-        
-        # Find max/min odds
-        max_odds_a = max(p["odds_a"] for p in movement_points)
-        min_odds_a = min(p["odds_a"] for p in movement_points)
-        max_odds_b = max(p["odds_b"] for p in movement_points)
-        min_odds_b = min(p["odds_b"] for p in movement_points)
-
-        summary = {
-            "total_snapshots": len(movement_points),
-            "first_snapshot": first["scraped_at"],
-            "last_snapshot": last["scraped_at"],
-            "opening_odds_a": first["odds_a"],
-            "opening_odds_b": first["odds_b"],
-            "closing_odds_a": last["odds_a"],
-            "closing_odds_b": last["odds_b"],
-            "total_drift_a": round(total_drift_a, 3),
-            "total_drift_b": round(total_drift_b, 3),
-            "max_odds_a": max_odds_a,
-            "min_odds_a": min_odds_a,
-            "range_odds_a": round(max_odds_a - min_odds_a, 3),
-            "max_odds_b": max_odds_b,
-            "min_odds_b": min_odds_b,
-            "range_odds_b": round(max_odds_b - min_odds_b, 3),
+    if not points:
+        return {
+            "match_id": match_id,
+            "team_a": m.get("team_a_name"),
+            "team_b": m.get("team_b_name"),
+            "movement_points": [],
+            "summary": {"message": "No valid pre-match odds data"},
         }
-    else:
-        summary = {"message": "No valid odds data"}
+
+    # Sort by hours_before descending (earliest first)
+    points.sort(key=lambda p: p["hours_before_match"], reverse=True)
+    closing = points[0]  # closest to match start
+    closing_a = closing["odds_a"]
+    closing_b = closing["odds_b"]
+
+    # Add deviation % to each point
+    for p in points:
+        p["deviation_a_pct"] = round(
+            ((p["odds_a"] - closing_a) / closing_a) * 100.0, 2
+        )
+        p["deviation_b_pct"] = round(
+            ((p["odds_b"] - closing_b) / closing_b) * 100.0, 2
+        )
+
+    first = points[-1]  # farthest from match
 
     return {
         "match_id": match_id,
         "team_a": m.get("team_a_name"),
         "team_b": m.get("team_b_name"),
-        "start_time": start_time,
-        "movement_points": movement_points,
-        "summary": summary,
+        "start_time": m.get("start_time_normalized"),
+        "movement_points": points,
+        "summary": {
+            "total_snapshots": len(points),
+            "first_snapshot": first["scraped_at"],
+            "last_snapshot": closing["scraped_at"],
+            "opening_odds_a": first["odds_a"],
+            "opening_odds_b": first["odds_b"],
+            "closing_odds_a": closing_a,
+            "closing_odds_b": closing_b,
+            "opening_deviation_a_pct": first["deviation_a_pct"],
+            "opening_deviation_b_pct": first["deviation_b_pct"],
+            "total_drift_a": round(closing_a - first["odds_a"], 3),
+            "total_drift_b": round(closing_b - first["odds_b"], 3),
+        },
     }

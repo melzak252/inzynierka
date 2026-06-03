@@ -173,32 +173,43 @@ export interface SchedulerTriggerResponse {
   message: string;
 }
 
-// Timing analysis types
+// Timing analysis types — NEW FORMAT (2h fixed buckets, % dev from closing)
 export interface TimingBucket {
-  bucket: string;
+  bucket: string;                // e.g. "0-2h", "2-4h", "4-6h"
+  hours_start: number;           // e.g. 0, 2, 4
+  hours_end: number;             // e.g. 2, 4, 6
   snapshot_count: number;
+  match_count: number;
+  avg_deviation_a_pct: number;   // avg % diff from closing odds for team A
+  avg_deviation_b_pct: number;   // avg % diff from closing odds for team B
+  std_deviation_a_pct: number;
+  std_deviation_b_pct: number;
   avg_odds_a: number;
   avg_odds_b: number;
-  std_odds_a: number;
-  std_odds_b: number;
-  min_odds_a: number;
-  max_odds_a: number;
-  min_odds_b: number;
-  max_odds_b: number;
+  avg_closing_odds_a: number;
+  avg_closing_odds_b: number;
 }
 
-export interface DriftAnalysis {
-  early_bucket: string;
-  late_bucket: string;
-  drift_odds_a: number;
-  drift_odds_b: number;
-  interpretation: string;
+export interface DriftSummary {
+  earliest_bucket: string;
+  latest_bucket: string;
+  open_deviation_a_pct: number;
+  open_deviation_b_pct: number;
+  close_deviation_a_pct: number;
+  close_deviation_b_pct: number;
+  convergence_a_pct: number;     // how much deviation shrunk (positive = converging)
+  convergence_b_pct: number;
 }
 
 export interface BestBettingWindow {
   bucket: string;
-  avg_volatility: number;
-  sample_size: number;
+  hours_start: number;
+  hours_end: number;
+  avg_favorable_deviation_pct: number;
+  avg_deviation_a_pct: number;
+  avg_deviation_b_pct: number;
+  match_count: number;
+  snapshot_count: number;
   recommendation: string;
 }
 
@@ -206,21 +217,22 @@ export interface TimingAnalysisResponse {
   total_matches: number;
   total_snapshots: number;
   time_buckets: TimingBucket[];
-  drift_analysis: DriftAnalysis | null;
+  drift_summary: DriftSummary | null;
   best_betting_window: BestBettingWindow | null;
-  summary: {
-    period_days?: number;
-    min_snapshots_per_match?: number;
+  summary?: {
     message?: string;
   };
 }
 
+// Match movement — NEW FORMAT with deviation % from closing
 export interface OddsMovementPoint {
   scraped_at: string;
   hours_before_match: number | null;
   bookmaker: string;
   odds_a: number;
   odds_b: number;
+  deviation_a_pct?: number;
+  deviation_b_pct?: number;
 }
 
 export interface MatchMovementResponse {
@@ -237,14 +249,10 @@ export interface MatchMovementResponse {
     opening_odds_b?: number;
     closing_odds_a?: number;
     closing_odds_b?: number;
+    opening_deviation_a_pct?: number;
+    opening_deviation_b_pct?: number;
     total_drift_a?: number;
     total_drift_b?: number;
-    max_odds_a?: number;
-    min_odds_a?: number;
-    range_odds_a?: number;
-    max_odds_b?: number;
-    min_odds_b?: number;
-    range_odds_b?: number;
     message?: string;
   };
 }
