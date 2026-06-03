@@ -86,14 +86,31 @@ def resolve_canonical_match(
     start_norm = normalize_start_time(match_start_time)
     league_norm = normalize_league(league)
 
+    # With a parsed start time we can safely reuse expired/finished rows; this
+    # prevents creating duplicate canonical rows when a bookmaker re-emits odds
+    # for a match that already moved out of `upcoming`.  Without a trustworthy
+    # time (for example a countdown label) keep the search to upcoming rows so a
+    # new feed item is not accidentally attached to an old finished match with
+    # the same teams.
+    candidate_where = "WHERE status IN ('upcoming', 'expired', 'finished')" if start_norm else "WHERE status = 'upcoming'"
+    candidate_params: tuple[str, str] | tuple[()] = ()
+    if start_norm:
+        start_dt = parse_iso(start_norm)
+        if start_dt:
+            window_start = (start_dt - timedelta(days=2)).date().isoformat()
+            window_end = (start_dt + timedelta(days=2)).date().isoformat()
+            candidate_where += " AND (start_time_normalized IS NULL OR (LEFT(start_time_normalized, 10) >= ? AND LEFT(start_time_normalized, 10) <= ?))"
+            candidate_params = (window_start, window_end)
+
     with transaction() as connection:
         candidates = connection.execute(
-            """
+            f"""
             SELECT * FROM canonical_matches
-            WHERE status = 'upcoming'
+            {candidate_where}
             ORDER BY id DESC
-            LIMIT 500
-            """
+            LIMIT 1000
+            """,
+            candidate_params,
         ).fetchall()
         best_id: int | None = None
         best_score = 0.0

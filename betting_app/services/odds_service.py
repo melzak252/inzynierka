@@ -11,7 +11,7 @@ import pandas as pd
 
 from betting_app.core.db import query_df, transaction
 from betting_app.core.matching import normalize_team_name
-from betting_app.services.canonical_match_service import resolve_canonical_match
+from betting_app.services.canonical_match_service import normalize_start_time, resolve_canonical_match
 
 
 def utc_now_iso() -> str:
@@ -35,8 +35,14 @@ def get_or_create_bookmaker(name: str, base_url: str | None = None) -> int:
 def make_match_key(bookmaker: str, raw_team_a: str, raw_team_b: str, start_time: str | None) -> str:
     """Build a stable bookmaker match key from raw data."""
 
+    # Use the normalized start when possible and collapse unparseable labels
+    # (notably countdowns such as HH:MM:SS) to "unknown".  Otherwise every
+    # changing countdown string becomes a different bookmaker_match_key and can
+    # cascade into duplicate upcoming/canonical rows.
+    normalized_start = normalize_start_time(start_time)
+
     return "|".join(
-        [bookmaker, normalize_team_name(raw_team_a), normalize_team_name(raw_team_b), start_time or "unknown"]
+        [bookmaker, normalize_team_name(raw_team_a), normalize_team_name(raw_team_b), normalized_start or "unknown"]
     )
 
 
