@@ -55,7 +55,8 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
 
     Returns a dict with stats about what was mapped.
     """
-    from betting_app.core.db import query_df, execute_sql
+    from betting_app.core.db import query_df, get_session
+    from sqlalchemy import text as _sql_text
 
     if not match_ids:
         return {"checked": 0, "mapped": 0, "already_mapped": 0, "errors": 0}
@@ -105,12 +106,14 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
                 continue
 
             # Search canonical_matches for matching teams + nearby date
-            # Use LOWER() because canonical_matches stores normalized names lowercased
-            # while golgg_teams may use original case
+            # Normalize both sides using normalize_team_name() to ensure consistent
+            # stop-word removal (e.g., "Team Liquid" → "liquid") and comparison
+            # against canonical_matches.normalized_team_a (which was also normalized).
             # Try both orientations: (team_a, team_b) and (team_b, team_a)
+            from betting_app.core.matching import normalize_team_name as _ntn
             start_date = match_date[:10] if len(match_date) >= 10 else match_date
-            g1_lower = g1_canonical.lower().replace("'", "''")
-            g2_lower = g2_canonical.lower().replace("'", "''")
+            g1_lower = _ntn(g1_canonical).replace("'", "''")
+            g2_lower = _ntn(g2_canonical).replace("'", "''")
 
             candidates = query_df(f"""
                 SELECT id, normalized_team_a, normalized_team_b, 
@@ -150,12 +153,14 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
                 continue
 
             # Create mapping record
-            execute_sql(f"""
-                INSERT INTO golgg_match_mappings 
-                    (canonical_match_id, golgg_match_id, confidence, mapped_by)
-                VALUES ({best_id}, '{gmid}', 1.0, 'auto')
-                ON CONFLICT (golgg_match_id) DO NOTHING
-            """)
+            with get_session() as session:
+                session.execute(_sql_text(f"""
+                    INSERT INTO golgg_match_mappings 
+                        (canonical_match_id, golgg_match_id, confidence, mapped_by)
+                    VALUES ({best_id}, '{gmid}', 1.0, 'auto')
+                    ON CONFLICT (golgg_match_id) DO NOTHING
+                """))
+                session.commit()
             mapped += 1
 
         except Exception as exc:
@@ -216,7 +221,7 @@ def load_db_games_per_tournament() -> dict[str, int]:
 
     df = query_df(
         """
-        SELECT gm.tournament_name, COUNT(gg.id) AS game_count
+        SELECT gm.tournament_name, COUNT(gg.game_id) AS game_count
         FROM golgg_matches gm
         LEFT JOIN golgg_games gg ON gg.match_id = gm.match_id
         GROUP BY gm.tournament_name
@@ -233,7 +238,7 @@ def load_db_games_per_match() -> dict[str, int]:
 
     df = query_df(
         """
-        SELECT gm.match_id, COUNT(gg.id) AS game_count
+        SELECT gm.match_id, COUNT(gg.game_id) AS game_count
         FROM golgg_matches gm
         LEFT JOIN golgg_games gg ON gg.match_id = gm.match_id
         GROUP BY gm.match_id
