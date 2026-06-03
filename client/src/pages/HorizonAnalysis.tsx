@@ -366,12 +366,26 @@ export default function HorizonAnalysis() {
           </p>
           <div className="model-refs-grid">
             {data.model_references.map(r => {
-              const isHybrid = r.model_name.toLowerCase().includes('hybrid');
-              const color = isHybrid ? '#00e676' : '#fdd835';
+              const nameLower = r.model_name.toLowerCase();
+              let color: string;
+              let label: string;
+              if (nameLower.includes('thesis') && nameLower.includes('hybrid')) {
+                color = '#00d4ff';
+                label = 'Hybrid-Thesis-Market';
+              } else if (nameLower.includes('thesis') || nameLower.includes('sym-cal')) {
+                color = '#ff6b9d';
+                label = 'Sym-Cal LR-ElasticNet-W20-Binomial';
+              } else if (nameLower.includes('hybrid')) {
+                color = '#00e676';
+                label = 'Hybrid-PlayerTeam-W20-Market';
+              } else {
+                color = '#fdd835';
+                label = 'Operational-PlayerTeamRatings-W20';
+              }
               return (
                 <div key={r.model_name} className="model-ref-card">
                   <span className="model-dot" style={{ backgroundColor: color }} />
-                  <span className="model-name">{isHybrid ? 'Hybrid-PlayerTeam-W20-Market' : 'Operational-PlayerTeam-Ratings-W20'}</span>
+                  <span className="model-name">{label}</span>
                   <span className="model-metric">LogLoss: {fmt(r.avg_logloss)}</span>
                   <span className="model-metric">AUC: {fmt(r.avg_auc)}</span>
                   <span className="model-matches">({r.n_matches} matches)</span>

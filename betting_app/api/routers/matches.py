@@ -36,7 +36,7 @@ from betting_app.services.market_service import (
 router = APIRouter(prefix="/matches", tags=["matches"])
 
 TAX_RATE = 0.12
-HYBRID_MODEL_NAME = "Hybrid-PlayerTeam-W20-Market"
+HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
 HYBRID_MODEL_VERSION = "a0.50-t0.80"
 SPORT_MODEL_NAME = "Operational-PlayerTeamRatings-W20"
 SPORT_MODEL_VERSION = "v0.2"
