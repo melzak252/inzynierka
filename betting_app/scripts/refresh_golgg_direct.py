@@ -101,6 +101,7 @@ def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | N
                 continue
 
             from betting_app.core.matching import normalize_team_name as _ntn, similarity as _sim
+            from betting_app.services.canonical_match_service import canonical_team_key as _ctk
 
             def _sql_escape(value: str) -> str:
                 return value.replace("'", "''")
@@ -115,10 +116,11 @@ def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | N
                 exact alias -> normalized_name, and normalized_name -> alias.
                 """
 
-                keys = {_ntn(raw_team_name)}
+                keys = {_ntn(raw_team_name), _ctk(raw_team_name)}
                 suggested, _ = suggest_mapping(raw_team_name)
                 if suggested:
                     keys.add(_ntn(suggested))
+                    keys.add(_ctk(suggested))
 
                 raw_lower = raw_team_name.strip().lower()
                 norm = _ntn(raw_team_name)
@@ -138,8 +140,10 @@ def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | N
                     if normalized_name:
                         keys.add(normalized_name.strip().lower())
                         keys.add(_ntn(normalized_name))
+                        keys.add(_ctk(normalized_name))
                     if alias:
                         keys.add(_ntn(alias))
+                        keys.add(_ctk(alias))
                 return {key for key in keys if key}
 
             def _team_score(raw_team_name: str, canonical_normalized: str, keys: set[str]) -> float:
