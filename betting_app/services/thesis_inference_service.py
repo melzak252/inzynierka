@@ -39,7 +39,7 @@ THESIS_MODEL_VERSION = "exp-039"
 EPSILON = 0.001
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-ARTEFACT_DIR = PROJECT_ROOT / "docs" / "assets" / "final_symmetric_calibrated_market_comparison"
+ARTEFACT_DIR = Path(__file__).resolve().parent.parent / "models"
 PIPELINE_PATH = ARTEFACT_DIR / "sym_cal_lr_elasticnet_w20_binomial_pipeline.joblib"
 CALIBRATOR_PATH = ARTEFACT_DIR / "sym_cal_lr_elasticnet_w20_binomial_calibrator.joblib"
 METADATA_PATH = ARTEFACT_DIR / "sym_cal_lr_elasticnet_w20_binomial_metadata.json"
