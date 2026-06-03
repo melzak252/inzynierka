@@ -46,7 +46,7 @@ from betting_app.services.mapping_service import suggest_mapping, load_golgg_tea
 #  Auto-mapping: link imported GOL.GG results to canonical_matches     #
 # -------------------------------------------------------------------- #
 
-def auto_map_new_matches(match_ids: list[str]) -> dict:
+def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | None = None) -> dict:
     """Find canonical_matches that correspond to newly imported golgg matches.
 
     For each golgg match ID, query the DB for the match's team names + date,
@@ -62,8 +62,11 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
         return {"checked": 0, "mapped": 0, "already_mapped": 0, "errors": 0}
 
     # Build WHERE clause for match IDs
-    import json as _json
     ids_str = ",".join(f"'{mid}'" for mid in match_ids)
+    status_filter = ""
+    if candidate_statuses:
+        statuses = ",".join(f"'{str(status).replace("'", "''")}'" for status in candidate_statuses)
+        status_filter = f"AND cm.status IN ({statuses})"
     
     # Fetch newly imported golgg matches with team names + date
     df = query_df(f"""
@@ -170,6 +173,8 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
                        COALESCE(os.odds_snapshots, 0) AS odds_snapshots,
                        COALESCE(be.bookmaker_events, 0) AS bookmaker_events
                 FROM canonical_matches cm
+                LEFT JOIN golgg_match_mappings existing_gmm
+                  ON existing_gmm.canonical_match_id = cm.id
                 LEFT JOIN (
                     SELECT canonical_match_id, COUNT(*) AS odds_snapshots
                     FROM odds_snapshots
@@ -182,6 +187,8 @@ def auto_map_new_matches(match_ids: list[str]) -> dict:
                 ) be ON be.canonical_match_id = cm.id
                 WHERE LEFT(start_time_normalized, 10) >= '{_sql_escape(window_start)}'
                   AND LEFT(start_time_normalized, 10) <= '{_sql_escape(window_end)}'
+                  AND existing_gmm.canonical_match_id IS NULL
+                  {status_filter}
             """)
 
             if candidates.empty:
@@ -408,6 +415,90 @@ def mark_mapped_matches_finished(match_ids: list[str] | None = None) -> dict[str
     return {"checked": checked, "updated": updated, "skipped": skipped, "errors": errors}
 
 
+def backfill_finished_expired_matches(limit: int | None = None) -> dict[str, int]:
+    """Try to resolve expired canonical matches using existing GOL.GG results.
+
+    `auto_map_new_matches()` normally runs only for newly imported GOL.GG IDs.
+    This backfill finds completed, not-yet-mapped GOL.GG matches in the date range
+    covered by currently expired canonical matches, maps them with the same fuzzy
+    logic, and then marks mapped canonical rows as `finished` with winners.
+    """
+    from betting_app.core.db import query_df
+
+    window = query_df(
+        """
+        SELECT
+            MIN(LEFT(start_time_normalized, 10)) AS min_day,
+            MAX(LEFT(start_time_normalized, 10)) AS max_day,
+            COUNT(*) AS expired_count
+        FROM canonical_matches
+        WHERE status = 'expired'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM golgg_match_mappings gmm
+              WHERE gmm.canonical_match_id = canonical_matches.id
+          )
+        """
+    )
+    if window.empty or int(window.iloc[0].get("expired_count") or 0) == 0:
+        finish_stats = mark_mapped_matches_finished(None)
+        return {
+            "expired_candidates": 0,
+            "golgg_candidates": 0,
+            "mapped": 0,
+            "already_mapped": 0,
+            "unmatched": 0,
+            "finished_updated": finish_stats["updated"],
+            "finished_checked": finish_stats["checked"],
+            "finished_errors": finish_stats["errors"],
+        }
+
+    min_day = str(window.iloc[0]["min_day"])
+    max_day = str(window.iloc[0]["max_day"])
+    expired_count = int(window.iloc[0]["expired_count"] or 0)
+    start_day = (datetime.strptime(min_day, "%Y-%m-%d") - timedelta(days=2)).strftime("%Y-%m-%d")
+    end_day = (datetime.strptime(max_day, "%Y-%m-%d") + timedelta(days=2)).strftime("%Y-%m-%d")
+    limit_sql = f"LIMIT {int(limit)}" if limit and int(limit) > 0 else ""
+
+    golgg = query_df(
+        f"""
+        SELECT gm.match_id, gm.date
+        FROM golgg_matches gm
+        LEFT JOIN golgg_match_mappings gmm ON gmm.golgg_match_id = gm.match_id
+        WHERE gmm.golgg_match_id IS NULL
+          AND gm.date >= '{start_day}'
+          AND gm.date <= '{end_day}'
+          AND COALESCE(gm.draw, 0) = 0
+          AND (
+              COALESCE(gm.team1_win, 0) = 1
+              OR COALESCE(gm.team2_win, 0) = 1
+              OR gm.winner_name IS NOT NULL
+          )
+        ORDER BY gm.date, gm.match_id
+        {limit_sql}
+        """
+    )
+
+    match_ids = [str(row["match_id"]) for _, row in golgg.iterrows() if row.get("match_id")]
+    map_stats = auto_map_new_matches(match_ids, candidate_statuses=["expired"]) if match_ids else {
+        "checked": 0,
+        "mapped": 0,
+        "already_mapped": 0,
+        "errors": 0,
+    }
+    finish_stats = mark_mapped_matches_finished(match_ids if match_ids else None)
+    return {
+        "expired_candidates": expired_count,
+        "golgg_candidates": len(match_ids),
+        "mapped": map_stats["mapped"],
+        "already_mapped": map_stats["already_mapped"],
+        "unmatched": map_stats["errors"],
+        "finished_updated": finish_stats["updated"],
+        "finished_checked": finish_stats["checked"],
+        "finished_errors": finish_stats["errors"],
+    }
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -435,6 +526,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--match-id", help="Fetch/refetch only one match ID.")
     parser.add_argument("--dry-run", action="store_true", help="Discover missing matches but do not write to DB.")
+    parser.add_argument(
+        "--backfill-finished",
+        action="store_true",
+        help="Map expired canonical matches to existing GOL.GG results and mark them finished, then exit.",
+    )
+    parser.add_argument(
+        "--backfill-limit",
+        type=int,
+        default=None,
+        help="Optional limit for GOL.GG candidate rows processed by --backfill-finished.",
+    )
     return parser.parse_args()
 
 
@@ -528,6 +630,22 @@ async def main() -> None:
     args = parse_args()
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] Starting GOL.GG direct refresh...")
+
+    if args.backfill_finished:
+        print("Backfilling expired canonical matches from existing GOL.GG results...")
+        stats = backfill_finished_expired_matches(limit=args.backfill_limit)
+        print(
+            "Backfill result: "
+            f"expired_candidates={stats['expired_candidates']}, "
+            f"golgg_candidates={stats['golgg_candidates']}, "
+            f"mapped={stats['mapped']}, "
+            f"already_mapped={stats['already_mapped']}, "
+            f"unmatched={stats['unmatched']}, "
+            f"finished_checked={stats['finished_checked']}, "
+            f"finished_updated={stats['finished_updated']}, "
+            f"finished_errors={stats['finished_errors']}"
+        )
+        return
 
     # ------------------------------------------------------------------ #
     # 1. Load existing state from DB
