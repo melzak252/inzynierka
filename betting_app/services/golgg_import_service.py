@@ -244,8 +244,8 @@ def upsert_golgg_team(connection, team_name: Any, last_seen_at: Any = None) -> i
         """
         INSERT INTO golgg_teams(team_name, normalized_name)
         VALUES (?, ?)
-        ON CONFLICT(normalized_name) DO UPDATE SET
-            team_name = excluded.team_name
+        ON CONFLICT(team_name) DO UPDATE SET
+            normalized_name = excluded.normalized_name
         """,
         (team_name.strip(), normalize_team_name(team_name)),
     )

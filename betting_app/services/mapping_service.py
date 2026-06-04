@@ -157,8 +157,8 @@ def sync_golgg_teams() -> int:
                 """
                 INSERT INTO golgg_teams(team_name, normalized_name)
                 VALUES (?, ?)
-                ON CONFLICT(normalized_name) DO UPDATE SET
-                    team_name = excluded.team_name
+                ON CONFLICT(team_name) DO UPDATE SET
+                    normalized_name = excluded.normalized_name
                 """,
                 (team, normalize_team_name(team)),
             )
