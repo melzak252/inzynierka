@@ -460,7 +460,7 @@ def horizon_accuracy(
         db,
         f"""
         SELECT os.canonical_match_id, os.scraped_at,
-               os.odds_a, os.odds_b,
+               os.bookmaker_id, os.odds_a, os.odds_b,
                os.raw_team_a, os.raw_team_b
         FROM odds_snapshots os
         WHERE os.canonical_match_id IN ({placeholders})
@@ -485,14 +485,20 @@ def horizon_accuracy(
         ("48h+",   48, 9999),
     ]
 
-    # Accumulate per bin: match_ids (set), y_true (int), y_score (float)
+    # Accumulate per bin at match level.
+    # A match may have many bookmaker snapshots in the same horizon bin.  We
+    # first average the market probability for that match/bin, then compute
+    # metrics across matches.  This prevents matches covered by many
+    # bookmakers/scrapes from dominating LogLoss/AUC.
     bin_data: dict[str, dict] = {
         label: {
-            "match_ids": set(),
-            "y_true": [],
-            "y_score": [],
-            "prob_winner_list": [],
-            "prob_loser_list": [],
+            "per_match": defaultdict(lambda: {
+                "y_true": None,
+                "bookmaker_scores": defaultdict(list),
+                "bookmaker_prob_winner": defaultdict(list),
+                "bookmaker_prob_loser": defaultdict(list),
+            }),
+            "snapshot_count": 0,
         }
         for label, _, _ in BIN_DEFS
     }
@@ -556,11 +562,13 @@ def horizon_accuracy(
         for label, hmin, hmax in BIN_DEFS:
             if hmin <= hours_before < hmax:
                 bd = bin_data[label]
-                bd["match_ids"].add(mid)
-                bd["y_true"].append(y_true)
-                bd["y_score"].append(y_score)
-                bd["prob_winner_list"].append(prob_winner)
-                bd["prob_loser_list"].append(prob_loser)
+                md = bd["per_match"][mid]
+                bookmaker_key = snap.get("bookmaker_id") or "unknown"
+                md["y_true"] = y_true
+                md["bookmaker_scores"][bookmaker_key].append(y_score)
+                md["bookmaker_prob_winner"][bookmaker_key].append(prob_winner)
+                md["bookmaker_prob_loser"][bookmaker_key].append(prob_loser)
+                bd["snapshot_count"] += 1
                 matches_with_odds.add(mid)
                 odds_processed += 1
                 break
@@ -572,18 +580,39 @@ def horizon_accuracy(
     bins = []
     for label, hmin, hmax in BIN_DEFS:
         bd = bin_data[label]
-        n_matches = len(bd["match_ids"])
-        n_snapshots = len(bd["y_true"])
+        per_match = bd["per_match"]
+        n_matches = len(per_match)
+        n_snapshots = bd["snapshot_count"]
 
         # Skip bins with insufficient matches
         if n_matches < min_matches_per_bin:
             continue
 
-        # Compute metrics
-        auc_val = _compute_auc(bd["y_true"], bd["y_score"])
-        ll_val = _compute_logloss(bd["y_true"], bd["y_score"])
-        avg_prob_winner = round(np.mean(bd["prob_winner_list"]), 4) if bd["prob_winner_list"] else None
-        avg_prob_loser = round(np.mean(bd["prob_loser_list"]), 4) if bd["prob_loser_list"] else None
+        # One observation per match: mean bookmaker/snapshot probability in
+        # this bin, then metrics across matches.
+        y_true: list[int] = []
+        y_score: list[float] = []
+        prob_winner_by_match: list[float] = []
+        prob_loser_by_match: list[float] = []
+        for md in per_match.values():
+            if md["y_true"] is None or not md["bookmaker_scores"]:
+                continue
+            bookmaker_scores = [float(np.mean(vals)) for vals in md["bookmaker_scores"].values() if vals]
+            bookmaker_winner = [float(np.mean(vals)) for vals in md["bookmaker_prob_winner"].values() if vals]
+            bookmaker_loser = [float(np.mean(vals)) for vals in md["bookmaker_prob_loser"].values() if vals]
+            if not bookmaker_scores:
+                continue
+            y_true.append(int(md["y_true"]))
+            y_score.append(float(np.mean(bookmaker_scores)))
+            if bookmaker_winner:
+                prob_winner_by_match.append(float(np.mean(bookmaker_winner)))
+            if bookmaker_loser:
+                prob_loser_by_match.append(float(np.mean(bookmaker_loser)))
+
+        auc_val = _compute_auc(y_true, y_score)
+        ll_val = _compute_logloss(y_true, y_score)
+        avg_prob_winner = round(np.mean(prob_winner_by_match), 4) if prob_winner_by_match else None
+        avg_prob_loser = round(np.mean(prob_loser_by_match), 4) if prob_loser_by_match else None
 
         bins.append({
             "label": label,
@@ -806,7 +835,7 @@ def _compute_hybrid_bins_dynamic(
         db,
         f"""
         SELECT os.canonical_match_id, os.scraped_at,
-               os.odds_a, os.odds_b,
+               os.bookmaker_id, os.odds_a, os.odds_b,
                os.raw_team_a, os.raw_team_b
         FROM odds_snapshots os
         WHERE os.canonical_match_id IN ({placeholders})
@@ -832,9 +861,16 @@ def _compute_hybrid_bins_dynamic(
     )
     meta_map = {m["id"]: m for m in match_meta}
     
-    # Accumulate per bin
+    # Accumulate per bin at match level.  Average market/hybrid predictions
+    # inside each match/bin first, then compute metrics across matches.
     bin_data = {
-        label: {"y_true": [], "y_score": [], "match_ids": set()}
+        label: {
+            "per_match": defaultdict(lambda: {
+                "y_true": None,
+                "bookmaker_scores": defaultdict(list),
+            }),
+            "snapshot_count": 0,
+        }
         for label, _, _ in bin_defs
     }
     
@@ -905,26 +941,40 @@ def _compute_hybrid_bins_dynamic(
         for label, hmin, hmax in bin_defs:
             if hmin <= hours_before < hmax:
                 bd = bin_data[label]
-                bd["y_true"].append(y_true)
-                bd["y_score"].append(y_score)
-                bd["match_ids"].add(mid)
+                md = bd["per_match"][mid]
+                bookmaker_key = snap.get("bookmaker_id") or "unknown"
+                md["y_true"] = y_true
+                md["bookmaker_scores"][bookmaker_key].append(y_score)
+                bd["snapshot_count"] += 1
                 break
     
     # Compute metrics per bin
     result_bins = []
     for label, hmin, hmax in bin_defs:
         bd = bin_data[label]
-        n_matches = len(bd["match_ids"])
-        n_snapshots = len(bd["y_true"])
+        per_match = bd["per_match"]
+        n_matches = len(per_match)
+        n_snapshots = bd["snapshot_count"]
         
         if n_matches < 5:  # lower threshold for hybrid bins
             continue
         
-        if len(set(bd["y_true"])) < 2:
+        y_true: list[int] = []
+        y_score: list[float] = []
+        for md in per_match.values():
+            if md["y_true"] is None or not md["bookmaker_scores"]:
+                continue
+            bookmaker_scores = [float(np.mean(vals)) for vals in md["bookmaker_scores"].values() if vals]
+            if not bookmaker_scores:
+                continue
+            y_true.append(int(md["y_true"]))
+            y_score.append(float(np.mean(bookmaker_scores)))
+
+        if len(set(y_true)) < 2:
             continue
         
-        ll = _compute_logloss(bd["y_true"], bd["y_score"])
-        auc = _compute_auc(bd["y_true"], bd["y_score"])
+        ll = _compute_logloss(y_true, y_score)
+        auc = _compute_auc(y_true, y_score)
         
         result_bins.append({
             "label": label,
