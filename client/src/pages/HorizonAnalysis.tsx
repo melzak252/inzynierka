@@ -114,12 +114,12 @@ export default function HorizonAnalysis() {
     );
   }
 
-  /* ─── Histogram chart (snapshot count per bin) ────────── */
+  /* ─── Histogram chart (match count per bin) ────────── */
   function HistogramChart() {
     const bins = allBins;
     const n = bins.length;
     if (n === 0) return <p className="no-data">No bins returned.</p>;
-    const maxCount = Math.max(...bins.map(b => b.snapshot_count));
+    const maxCount = Math.max(...bins.map(b => b.match_count));
     const domain: [number, number] = [0, maxCount * 1.15 || 1];
     const y = yScale(domain);
     const ticks = yAxisTicks(domain);
@@ -127,7 +127,7 @@ export default function HorizonAnalysis() {
 
     return (
       <div className="chart-section">
-        <h3>Histogram — Snapshot count per horizon bin</h3>
+        <h3>Histogram — Match count per horizon bin</h3>
         <svg viewBox={`0 0 ${CHART_W} ${CHART_H}`} className="horizon-chart">
           {/* Y grid */}
           {ticks.map(v => (
@@ -139,20 +139,20 @@ export default function HorizonAnalysis() {
           {/* Bars */}
           {bins.map((b, i) => {
             const cx = xPos(i, n);
-            const barH = CHART_H - PAD.top - PAD.bottom - (y(b.snapshot_count) - PAD.top);
-            const barY = y(b.snapshot_count);
+            const barH = CHART_H - PAD.top - PAD.bottom - (y(b.match_count) - PAD.top);
+            const barY = y(b.match_count);
             const isSkipped = b.match_count < minMatches;
             return (
               <g key={b.label}>
                 <rect x={cx - barW / 2} y={barY} width={barW} height={barH}
                   fill={isSkipped ? '#555' : COLORS.bar} opacity={isSkipped ? 0.5 : 0.85} rx={2}>
                   <title>
-                    {b.label}: {b.snapshot_count} snapshots, {b.match_count} matches
+                    {b.label}: {b.match_count} matches, {b.snapshot_count} snapshots
                     {isSkipped ? ' (SKIPPED — <10 matches)' : ''}
                   </title>
                 </rect>
                 <text x={cx} y={barY - 6} textAnchor="middle" fill={COLORS.label} fontSize={10}>
-                  {b.snapshot_count}
+                  {b.match_count}
                 </text>
                 <text x={cx} y={CHART_H - 10} textAnchor="end" fill={COLORS.axis} fontSize={9}
                   transform={`rotate(-30, ${cx}, ${CHART_H - 10})`}>
@@ -163,7 +163,7 @@ export default function HorizonAnalysis() {
           })}
           {/* Y-axis title */}
           <text x={14} y={CHART_H / 2} textAnchor="middle" fill={COLORS.label} fontSize={11}
-            transform={`rotate(-90, 14, ${CHART_H / 2})`}>Snapshots</text>
+            transform={`rotate(-90, 14, ${CHART_H / 2})`}>Matches</text>
         </svg>
       </div>
     );
