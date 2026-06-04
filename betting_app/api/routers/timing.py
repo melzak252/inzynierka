@@ -23,6 +23,10 @@ from betting_app.api.deps import get_db, query_df
 
 router = APIRouter(prefix="/timing", tags=["timing"])
 
+THESIS_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
+THESIS_MODEL_VERSION = "exp-039"
+THESIS_HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
+
 
 def _parse_dt(val: Any) -> datetime | None:
     """Parse datetime from various formats."""
@@ -636,13 +640,17 @@ def _compute_model_reference_metrics(db, cutoff: str) -> tuple[list[dict], list[
         SELECT DISTINCT cp.model_name, cp.model_version
         FROM canonical_predictions cp
         JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
-        WHERE cp.prediction_status = 'active'
+        WHERE cp.model_name IN (:thesis_model, :hybrid_model)
           AND cm.status IN ('finished', 'completed')
           AND cm.winner_side IS NOT NULL
           AND cm.start_time_normalized > :cutoff
         ORDER BY cp.model_name
         """,
-        {"cutoff": cutoff},
+        {
+            "cutoff": cutoff,
+            "thesis_model": THESIS_MODEL_NAME,
+            "hybrid_model": THESIS_HYBRID_MODEL_NAME,
+        },
     )
 
     for md in model_defs:
@@ -669,17 +677,25 @@ def _compute_model_reference_metrics(db, cutoff: str) -> tuple[list[dict], list[
             preds = query_df(
                 db,
                 """
-                SELECT cp.prob_a, cp.prob_b,
-                       cm.winner_side,
-                       cm.normalized_team_a, cm.normalized_team_b
-                FROM canonical_predictions cp
-                JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
-                WHERE cp.model_name = :mname
-                  AND cp.model_version = :mver
-                  AND cp.prediction_status = 'active'
-                  AND cm.status IN ('finished', 'completed')
-                  AND cm.winner_side IS NOT NULL
-                  AND cm.start_time_normalized > :cutoff
+                WITH ranked AS (
+                    SELECT cp.prob_a, cp.prob_b,
+                           cm.winner_side,
+                           cm.normalized_team_a, cm.normalized_team_b,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY cp.canonical_match_id
+                               ORDER BY cp.predicted_at DESC NULLS LAST, cp.id DESC
+                           ) AS rn
+                    FROM canonical_predictions cp
+                    JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+                    WHERE cp.model_name = :mname
+                      AND cp.model_version = :mver
+                      AND cm.status IN ('finished', 'completed')
+                      AND cm.winner_side IS NOT NULL
+                      AND cm.start_time_normalized > :cutoff
+                )
+                SELECT prob_a, prob_b, winner_side, normalized_team_a, normalized_team_b
+                FROM ranked
+                WHERE rn = 1
                 """,
                 {"mname": model_name, "mver": model_version, "cutoff": cutoff},
             )
@@ -741,22 +757,38 @@ def _compute_hybrid_bins_dynamic(
         except (IndexError, ValueError):
             pass
     
-    # Get thesis model predictions for finished matches
+    # Get latest pure thesis model predictions for finished matches.
+    # Do not filter by prediction_status here: for historical evaluation the
+    # last prediction made before/around a match is still the valid forecast,
+    # even if later scheduler runs marked it as stale while the match was not
+    # yet auto-finished.
     thesis_preds = query_df(
         db,
         """
-        SELECT cp.canonical_match_id, cp.prob_a as thesis_prob_a,
-               cm.winner_side, cm.start_time_normalized
-        FROM canonical_predictions cp
-        JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
-        WHERE cp.model_name = :mname
-          AND cp.model_version = :mver
-          AND cp.prediction_status = 'active'
-          AND cm.status IN ('finished', 'completed')
-          AND cm.winner_side IS NOT NULL
-          AND cm.start_time_normalized > :cutoff
+        WITH ranked AS (
+            SELECT cp.canonical_match_id, cp.prob_a as thesis_prob_a,
+                   cm.winner_side, cm.start_time_normalized,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY cp.canonical_match_id
+                       ORDER BY cp.predicted_at DESC NULLS LAST, cp.id DESC
+                   ) AS rn
+            FROM canonical_predictions cp
+            JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+            WHERE cp.model_name = :base_model
+              AND cp.model_version = :base_version
+              AND cm.status IN ('finished', 'completed')
+              AND cm.winner_side IS NOT NULL
+              AND cm.start_time_normalized > :cutoff
+        )
+        SELECT canonical_match_id, thesis_prob_a, winner_side, start_time_normalized
+        FROM ranked
+        WHERE rn = 1
         """,
-        {"mname": model_name, "mver": model_version, "cutoff": cutoff},
+        {
+            "base_model": THESIS_MODEL_NAME,
+            "base_version": THESIS_MODEL_VERSION,
+            "cutoff": cutoff,
+        },
     )
     
     if not thesis_preds:
