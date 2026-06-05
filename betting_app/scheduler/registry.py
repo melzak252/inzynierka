@@ -106,4 +106,15 @@ def register_all_tasks():
         enabled=True
     ))
     
+    # Expire old matches - every 2 hours, 5 min after scraping
+    registry.register(TaskDefinition(
+        id="expire_matches",
+        name="Expire Old Matches",
+        func=maintenance.expire_matches,
+        cron_trigger="0 */2 * * *",  # At minute 0, every 2nd hour
+        kwargs={"grace_hours": 3},
+        description="Mark matches as expired when start_time has passed (3h grace)",
+        enabled=True
+    ))
+    
     logger.info(f"Registered {len(registry.list_all())} tasks")

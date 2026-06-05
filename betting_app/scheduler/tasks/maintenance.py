@@ -47,6 +47,27 @@ def rebuild_rolling_features() -> dict:
     return {"success": success, "duration_s": duration}
 
 
+def expire_matches(grace_hours: int = 3) -> dict:
+    """Expire old matches whose start time has passed.
+
+    Marks canonical_matches with status='upcoming' as 'expired' when
+    start_time_normalized < NOW() - grace_hours.
+    """
+    logger.info(f"Expiring old matches (grace_hours={grace_hours})")
+    start = datetime.utcnow()
+
+    success = _run_module(
+        "betting_app.scripts.expire_old_matches",
+        args=["--grace-hours", str(grace_hours)],
+        timeout=120,
+    )
+    duration = (datetime.utcnow() - start).total_seconds()
+
+    logger.info(f"Match expiration: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+
+    return {"success": success, "duration_s": duration}
+
+
 def run_heavy_cycle() -> dict:
     """Run the full heavy maintenance cycle:
     1. Refresh GolGG

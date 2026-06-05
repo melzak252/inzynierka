@@ -60,11 +60,13 @@ def list_matches(
     min_books: int = 1,
     days_ahead: int = 14,
     tax_rate: float = TAX_RATE,
+    stale_hours: float = 6,
     db=Depends(get_db),
 ):
     now = datetime.now(UTC)
     max_dt = (now + timedelta(days=days_ahead)).isoformat(timespec="seconds")
     now_iso = now.isoformat(timespec="seconds")
+    stale_cutoff = (now - timedelta(hours=stale_hours)).isoformat(timespec="seconds")
 
     odds = query_df(
         db,
@@ -77,6 +79,7 @@ def list_matches(
                 FROM odds_snapshots
                 WHERE market_type='match_winner' AND COALESCE(is_live,0)=0
                   AND canonical_match_id IS NOT NULL
+                  AND scraped_at > REPLACE(:stale_cutoff, 'T', ' ')
                 GROUP BY canonical_match_id, bookmaker_id
             ) lo ON lo.canonical_match_id=os.canonical_match_id
                  AND lo.bookmaker_id=os.bookmaker_id
@@ -105,7 +108,7 @@ def list_matches(
           AND REPLACE(cm.start_time_normalized, 'T', ' ') <= REPLACE(:max_dt, 'T', ' ')
         ORDER BY cm.start_time_normalized, cm.id
         """,
-        {"now": now_iso, "max_dt": max_dt},
+        {"now": now_iso, "max_dt": max_dt, "stale_cutoff": stale_cutoff},
     )
 
     if not odds:
@@ -225,11 +228,14 @@ def list_matches(
 
 
 @router.get("/{match_id}", response_model=MatchDetailResponse)
-def match_detail(match_id: int, db=Depends(get_db)):
+def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
     meta = query_df(db, "SELECT * FROM canonical_matches WHERE id=:id", {"id": match_id})
     if not meta:
         raise HTTPException(status_code=404, detail="Match not found")
     m = meta[0]
+
+    now = datetime.now(UTC)
+    stale_cutoff = (now - timedelta(hours=stale_hours)).isoformat(timespec="seconds")
 
     odds = query_df(
         db,
@@ -242,6 +248,7 @@ def match_detail(match_id: int, db=Depends(get_db)):
                 FROM odds_snapshots
                 WHERE canonical_match_id=:mid AND market_type='match_winner'
                   AND COALESCE(is_live,0)=0
+                  AND scraped_at > REPLACE(:stale_cutoff, 'T', ' ')
                 GROUP BY canonical_match_id, bookmaker_id
             ) lo ON lo.canonical_match_id=os.canonical_match_id
                  AND lo.bookmaker_id=os.bookmaker_id
@@ -261,7 +268,7 @@ def match_detail(match_id: int, db=Depends(get_db)):
         ) um ON true
         ORDER BY b.name
         """,
-        {"mid": match_id},
+        {"mid": match_id, "stale_cutoff": stale_cutoff},
     )
 
     n_a = m.get("normalized_team_a") or ""
