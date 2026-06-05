@@ -70,6 +70,31 @@
   border-radius: 3px;
   margin-left: 0.5rem;
   vertical-align: middle;
+  cursor: pointer;
+}
+
+.best-of-badge:hover {
+  background: #3a3a7a;
+}
+
+.best-of-edit {
+  margin-left: 0.5rem;
+}
+
+.best-of-edit select {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #e0e0e0;
+  background: #2a2a5a;
+  border: 1px solid #4a4a8a;
+  border-radius: 3px;
+  padding: 0.1rem 0.3rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.best-of-edit select:focus {
+  border-color: #4fc3f7;
 }
 
 .datetime {

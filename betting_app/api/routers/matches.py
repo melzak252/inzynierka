@@ -19,6 +19,8 @@ from betting_app.api.schemas import (
     MatchBoardItem,
     MatchBoardResponse,
     MatchDetailResponse,
+    MatchResultItem,
+    MatchResultsResponse,
     PredictionHistoryPoint,
     PredictionRow,
     RosterInfo,
@@ -233,6 +235,63 @@ def list_matches(
 
     items.sort(key=lambda x: (x.start_time_normalized or "", x.canonical_match_id))
     return MatchBoardResponse(total=len(items), matches=items)
+
+
+# ── GET /matches/results ────────────────────────────────────────────────────
+
+
+@router.get("/results", response_model=MatchResultsResponse)
+def list_results(
+    days_back: int = 30,
+    db=Depends(get_db),
+):
+    """Return finished matches with results (scores from golgg_matches)."""
+    now = datetime.now(UTC)
+    min_dt = (now - timedelta(days=days_back)).isoformat(timespec="seconds")
+
+    rows = query_df(
+        db,
+        """
+        SELECT cm.id AS canonical_match_id,
+               cm.team_a_name, cm.team_b_name,
+               cm.league, cm.start_time_normalized,
+               cm.best_of, cm.status,
+               cm.winner_name, cm.loser_name, cm.winner_side,
+               cm.result_source, cm.result_recorded_at,
+               gm.team1_score, gm.team2_score
+        FROM canonical_matches cm
+        LEFT JOIN golgg_match_mappings gmm ON gmm.canonical_match_id = cm.id
+        LEFT JOIN golgg_matches gm ON gm.id = gmm.golgg_match_id
+        WHERE cm.status = 'finished'
+          AND REPLACE(cm.start_time_normalized, 'T', ' ') >= REPLACE(:min_dt, 'T', ' ')
+        ORDER BY cm.start_time_normalized DESC, cm.id DESC
+        """,
+        {"min_dt": min_dt},
+    )
+
+    if not rows:
+        return MatchResultsResponse(total=0, results=[])
+
+    items: list[MatchResultItem] = []
+    for r in rows:
+        items.append(MatchResultItem(
+            canonical_match_id=r["canonical_match_id"],
+            team_a_name=r.get("team_a_name"),
+            team_b_name=r.get("team_b_name"),
+            league=r.get("league"),
+            start_time_normalized=r.get("start_time_normalized"),
+            best_of=r.get("best_of"),
+            status=r.get("status"),
+            winner_name=r.get("winner_name"),
+            loser_name=r.get("loser_name"),
+            winner_side=r.get("winner_side"),
+            team_a_score=r.get("team1_score"),
+            team_b_score=r.get("team2_score"),
+            result_source=r.get("result_source"),
+            result_recorded_at=str(r["result_recorded_at"]) if r.get("result_recorded_at") else None,
+        ))
+
+    return MatchResultsResponse(total=len(items), results=items)
 
 
 # ── GET /matches/{id} ───────────────────────────────────────────────────────

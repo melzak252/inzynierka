@@ -122,6 +122,28 @@ class TeamComparisonInfo(BaseModel):
     rating_system: str | None = None
 
 
+class MatchResultItem(BaseModel):
+    canonical_match_id: int
+    team_a_name: str | None = None
+    team_b_name: str | None = None
+    league: str | None = None
+    start_time_normalized: str | None = None
+    best_of: int | None = None
+    status: str | None = None
+    winner_name: str | None = None
+    loser_name: str | None = None
+    winner_side: str | None = None  # "team_a" or "team_b"
+    team_a_score: int | None = None
+    team_b_score: int | None = None
+    result_source: str | None = None
+    result_recorded_at: str | None = None
+
+
+class MatchResultsResponse(BaseModel):
+    total: int
+    results: list[MatchResultItem]
+
+
 class MatchBestOfUpdate(BaseModel):
     best_of: int = Field(ge=1, le=7)
 

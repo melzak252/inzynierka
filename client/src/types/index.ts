@@ -291,3 +291,27 @@ export interface MatchMovementResponse {
     message?: string;
   };
 }
+
+// Match result types
+export interface MatchResultItem {
+  canonical_match_id: number;
+  team_a_name: string | null;
+  team_b_name: string | null;
+  league: string | null;
+  start_time_normalized: string | null;
+  best_of: number | null;
+  status: string | null;
+  winner_name: string | null;
+  loser_name: string | null;
+  winner_side: string | null;
+  team_a_score: number | null;
+  team_b_score: number | null;
+  result_source: string | null;
+  result_recorded_at: string | null;
+}
+
+export interface MatchResultsResponse {
+  total: number;
+  days_back: number;
+  results: MatchResultItem[];
+}

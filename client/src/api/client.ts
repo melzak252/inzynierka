@@ -1,6 +1,7 @@
 import type {
   MatchBoardResponse,
   MatchDetailResponse,
+  MatchResultsResponse,
   SystemStatusResponse,
   BookmakerStatus,
   SchedulerTask,
@@ -43,6 +44,13 @@ export async function updateMatchBestOf(matchId: number, bestOf: number): Promis
     body: JSON.stringify({ best_of: bestOf }),
   });
   if (!response.ok) throw new Error(`Failed to update best_of: ${response.statusText}`);
+  return response.json();
+}
+
+export async function fetchMatchResults(daysBack: number = 30): Promise<MatchResultsResponse> {
+  const params = new URLSearchParams({ days_back: daysBack.toString() });
+  const response = await fetch(`${API_BASE}/matches/results?${params}`);
+  if (!response.ok) throw new Error(`Failed to fetch match results: ${response.statusText}`);
   return response.json();
 }
 

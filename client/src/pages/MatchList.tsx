@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchMatches } from '../api/client';
+import { fetchMatches, updateMatchBestOf } from '../api/client';
 import type { MatchBoardItem } from '../types';
 import './MatchList.css';
 
@@ -8,6 +8,8 @@ export default function MatchList() {
   const [matches, setMatches] = useState<MatchBoardItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingBoMatchId, setEditingBoMatchId] = useState<number | null>(null);
+  const [savingBo, setSavingBo] = useState(false);
 
   useEffect(() => {
     fetchMatches()
@@ -78,8 +80,49 @@ export default function MatchList() {
             >
               <div className="match-header">
                 <span className="league">{m.league || 'Nieznana liga'}</span>
-                {m.best_of && (
-                  <span className={`best-of-badge bo${m.best_of}`}>Bo{m.best_of}</span>
+                {editingBoMatchId === m.canonical_match_id ? (
+                  <span className="best-of-edit" onClick={(e) => e.preventDefault()}>
+                    <select
+                      defaultValue={m.best_of || 1}
+                      onChange={async (e) => {
+                        const val = parseInt(e.target.value);
+                        setSavingBo(true);
+                        try {
+                          await updateMatchBestOf(m.canonical_match_id, val);
+                          setMatches(prev => prev.map(mt =>
+                            mt.canonical_match_id === m.canonical_match_id
+                              ? { ...mt, best_of: val }
+                              : mt
+                          ));
+                        } catch {
+                          // silently fail
+                        } finally {
+                          setSavingBo(false);
+                          setEditingBoMatchId(null);
+                        }
+                      }}
+                      onBlur={() => setEditingBoMatchId(null)}
+                      disabled={savingBo}
+                      autoFocus
+                    >
+                      <option value={1}>Bo1</option>
+                      <option value={3}>Bo3</option>
+                      <option value={5}>Bo5</option>
+                      <option value={7}>Bo7</option>
+                    </select>
+                  </span>
+                ) : (
+                  <span
+                    className={`best-of-badge bo${m.best_of || 1}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setEditingBoMatchId(m.canonical_match_id);
+                    }}
+                    title="Kliknij aby zmienić"
+                  >
+                    Bo{m.best_of || 1}
+                  </span>
                 )}
                 <span className="datetime">{formatDateTime(m.start_time_normalized)}</span>
               </div>
