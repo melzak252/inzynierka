@@ -525,13 +525,13 @@ def prediction_history(match_id: int, db=Depends(get_db)):
     if not meta:
         raise HTTPException(status_code=404, detail="Match not found")
 
-    # Fetch all predictions for this match (both models, all time points)
+    # Fetch all predictions for this match (both models, all time points, any status)
     preds = query_df(
         db,
         """
         SELECT predicted_at, model_name, model_version, prob_a, prob_b
         FROM canonical_predictions
-        WHERE canonical_match_id=:mid AND prediction_status='active'
+        WHERE canonical_match_id=:mid
           AND prob_a IS NOT NULL AND prob_b IS NOT NULL
         ORDER BY predicted_at
         """,
