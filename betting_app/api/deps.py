@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 from collections.abc import Generator
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import text
@@ -28,10 +29,12 @@ def query_df(db: Any, sql: str, params: dict[str, Any] | None = None) -> list[di
     out = []
     for row in rows:
         d = dict(row._mapping) if hasattr(row, "_mapping") else dict(zip(columns, row))
-        # Convert datetimes to ISO strings
+        # Convert datetimes to ISO strings, Decimals to float
         for k, v in d.items():
             if isinstance(v, (datetime.datetime, datetime.date)):
                 d[k] = v.isoformat()
+            elif isinstance(v, Decimal):
+                d[k] = float(v)
         out.append(d)
     return out
 
@@ -47,4 +50,6 @@ def query_one(db: Any, sql: str, params: dict[str, Any] | None = None) -> dict[s
     for k, v in d.items():
         if isinstance(v, (datetime.datetime, datetime.date)):
             d[k] = v.isoformat()
+        elif isinstance(v, Decimal):
+            d[k] = float(v)
     return d
