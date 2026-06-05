@@ -54,5 +54,6 @@ class UpcomingMatch(Base):
     source_url: Mapped[str | None] = mapped_column(String(500))
     offer_url: Mapped[str | None] = mapped_column(String(500))
     is_live: Mapped[bool] = mapped_column(Integer, server_default="0")
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (UniqueConstraint("bookmaker_match_key"),)

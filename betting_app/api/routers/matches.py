@@ -71,7 +71,13 @@ def list_matches(
     odds = query_df(
         db,
         """
-        WITH latest AS (
+        WITH seen_matches AS (
+            SELECT DISTINCT canonical_match_id
+            FROM upcoming_matches
+            WHERE canonical_match_id IS NOT NULL
+              AND last_seen_at > :stale_cutoff
+        ),
+        latest AS (
             SELECT os.*
             FROM odds_snapshots os
             JOIN (
@@ -79,7 +85,6 @@ def list_matches(
                 FROM odds_snapshots
                 WHERE market_type='match_winner' AND COALESCE(is_live,0)=0
                   AND canonical_match_id IS NOT NULL
-                  AND scraped_at > :stale_cutoff
                 GROUP BY canonical_match_id, bookmaker_id
             ) lo ON lo.canonical_match_id=os.canonical_match_id
                  AND lo.bookmaker_id=os.bookmaker_id
@@ -96,6 +101,7 @@ def list_matches(
                um.offer_url
         FROM latest l
         JOIN canonical_matches cm ON cm.id=l.canonical_match_id
+        JOIN seen_matches sm ON sm.canonical_match_id=cm.id
         JOIN bookmakers b ON b.id=l.bookmaker_id
         LEFT JOIN LATERAL (
             SELECT offer_url FROM upcoming_matches
@@ -240,7 +246,13 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
     odds = query_df(
         db,
         """
-        WITH latest AS (
+        WITH seen_matches AS (
+            SELECT DISTINCT canonical_match_id
+            FROM upcoming_matches
+            WHERE canonical_match_id IS NOT NULL
+              AND last_seen_at > :stale_cutoff
+        ),
+        latest AS (
             SELECT os.*
             FROM odds_snapshots os
             JOIN (
@@ -248,7 +260,6 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
                 FROM odds_snapshots
                 WHERE canonical_match_id=:mid AND market_type='match_winner'
                   AND COALESCE(is_live,0)=0
-                  AND scraped_at > :stale_cutoff
                 GROUP BY canonical_match_id, bookmaker_id
             ) lo ON lo.canonical_match_id=os.canonical_match_id
                  AND lo.bookmaker_id=os.bookmaker_id
@@ -260,6 +271,7 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
                l.scraped_at, l.source_url,
                um.offer_url
         FROM latest l
+        JOIN seen_matches sm ON sm.canonical_match_id=l.canonical_match_id
         JOIN bookmakers b ON b.id=l.bookmaker_id
         LEFT JOIN LATERAL (
             SELECT offer_url FROM upcoming_matches

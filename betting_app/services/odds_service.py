@@ -100,8 +100,8 @@ def upsert_upcoming_match(
             INSERT INTO upcoming_matches(
                 bookmaker_id, bookmaker_match_key, canonical_match_id,
                 raw_team_a, raw_team_b, normalized_team_a, normalized_team_b,
-                match_start_time, league, offer_url
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                match_start_time, league, offer_url, last_seen_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(bookmaker_match_key) DO UPDATE SET
                 canonical_match_id = excluded.canonical_match_id,
                 raw_team_a = excluded.raw_team_a,
@@ -110,7 +110,8 @@ def upsert_upcoming_match(
                 normalized_team_b = excluded.normalized_team_b,
                 match_start_time = excluded.match_start_time,
                 league = excluded.league,
-                offer_url = COALESCE(excluded.offer_url, upcoming_matches.offer_url)
+                offer_url = COALESCE(excluded.offer_url, upcoming_matches.offer_url),
+                last_seen_at = CURRENT_TIMESTAMP
             """,
             (
                 bookmaker_id,
