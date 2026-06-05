@@ -7,16 +7,62 @@ import logging
 import signal
 import sys
 import os
+import traceback
+from functools import wraps
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
 
 from betting_app.core.db import database_url
+from betting_app.services.automation_service import start_run, finish_run
 
 from .registry import registry, register_all_tasks
 
 logger = logging.getLogger(__name__)
+
+
+def wrap_task_with_run_tracking(task_id: str, func):
+    """Wrap a task function so it creates/updates automation_runs rows.
+    
+    This makes APScheduler tasks visible in the /scheduler/runs API endpoint
+    with proper task names (e.g. 'scrape_sts') instead of the old scheduler's
+    generic run_type ('light'/'heavy').
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        run_id = None
+        try:
+            run_id = start_run(
+                run_type=task_id,
+                trigger_source="apscheduler",
+            )
+            logger.info(f"[{task_id}] Started automation run #{run_id}")
+            result = func(*args, **kwargs)
+            
+            # Determine status from result dict
+            if isinstance(result, dict):
+                success = result.get("success", True)
+                status = "completed" if success else "failed"
+                error = result.get("error") if not success else None
+            else:
+                status = "completed"
+                error = None
+            
+            finish_run(run_id, status=status, error=error)
+            logger.info(f"[{task_id}] Run #{run_id} finished: {status}")
+            return result
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+            tb = traceback.format_exc()
+            logger.error(f"[{task_id}] Run #{run_id} failed: {error_msg}\n{tb}")
+            try:
+                finish_run(run_id, status="failed", error=error_msg)
+            except Exception:
+                logger.error(f"[{task_id}] Failed to mark run #{run_id} as failed")
+            raise
+    
+    return wrapper
 
 
 def create_scheduler() -> BlockingScheduler:
@@ -50,12 +96,19 @@ def create_scheduler() -> BlockingScheduler:
 
 
 def schedule_tasks(scheduler: BlockingScheduler):
-    """Add all registered tasks to the scheduler."""
+    """Add all registered tasks to the scheduler.
+    
+    Each task function is wrapped with automation_runs tracking so that
+    runs appear in the /scheduler/runs API with proper task names.
+    """
     
     for task in registry.list_enabled():
+        # Wrap the task function to create/update automation_runs rows
+        wrapped_func = wrap_task_with_run_tracking(task.id, task.func)
+        
         if task.interval_minutes:
             scheduler.add_job(
-                task.func,
+                wrapped_func,
                 trigger="interval",
                 minutes=task.interval_minutes,
                 id=task.id,
@@ -72,7 +125,7 @@ def schedule_tasks(scheduler: BlockingScheduler):
             parts = task.cron_trigger.split()
             if len(parts) == 5:
                 scheduler.add_job(
-                    task.func,
+                    wrapped_func,
                     trigger="cron",
                     minute=parts[0],
                     hour=parts[1],
