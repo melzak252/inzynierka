@@ -1,46 +1,68 @@
-"""STS League of Legends prematch scraper.
+"""STS League of Legends prematch scraper using nodriver browser automation.
 
-The current implementation uses the same prematch snapshot that the STS web
-frontend uses for initial offer hydration:
+The STS site (www.sts.pl) is a fully client-side rendered Angular SPA. When
+fetched with plain HTTP, the HTML contains no odds data — only the Angular
+bootstrap scripts. However, when a real browser renders the page, the Angular
+app bootstraps and embeds all SBK data in a <script> tag as SSR transfer state
+JSON (key "sbk-exporter-sports-ssr").
 
-    https://sbk.sts.pl/sbk-exporter/v1/sports/ssr
+This scraper uses nodriver to:
+1. Navigate to the STS LoL esport page
+2. Wait for the Angular app to render and populate the DOM
+3. Extract the SSR transfer state JSON from the rendered page's script tags
+4. Parse the compact SBK data structure for LoL match-winner odds
 
-Despite the historic filename, this scraper does not need NoDriver. It fetches
-the public frontend configuration, extracts the SBK exporter headers at runtime,
-downloads the compressed sports snapshot, and parses LoL match-winner markets.
+No API key or CF Access headers are needed — the data comes from the rendered
+DOM, same as what the user sees in the browser.
 
-Scope for the betting MVP: prematch League of Legends, market "Zwycięzca meczu"
-only. The scraper returns both:
-
-* atomic outcome snapshots for odds history / CLV tracking, and
-* a legacy two-sided RawOddsSnapshot so the current EV signal MVP can use it.
+Scope: prematch League of Legends, market "Zwycięzca meczu" only.
+Returns both RawOutcomeOddsSnapshot (atomic) and RawOddsSnapshot (legacy pair).
 """
 
 from __future__ import annotations
 
 import json
 import re
-import urllib.request
 import unicodedata
 from datetime import UTC, datetime
 from typing import Any
 
 from betting_app.scrapers.base import RawOddsSnapshot, RawOutcomeOddsSnapshot
+from betting_app.scrapers.nodriver_client import NoDriverClient
 
 
-STS_LOL_URL = "https://www.sts.pl/zaklady-bukmacherskie/esport/league-of-legends/156/992"
-STS_FRONTEND_CONFIG_URL = "https://www.sts.pl/nextweb-assets/chunk-OL6G7E66.js"
-STS_SBK_EXPORTER_URL = "https://sbk.sts.pl/sbk-exporter/v1/sports/ssr"
+STS_LOL_URL = "https://www.sts.pl/zaklady/esport/league-of-legends"
 STS_ESPORT_SPORT_ID = "156"
 STS_LOL_CATEGORY_ID = "992"
 STS_LOL_CATEGORY_NAME = "League of Legends"
 STS_ESPORT_SPORT_NAME = "Esport"
 STS_MATCH_WINNER_MARKET_NAME = "Zwycięzca meczu"
-SCRAPER_VERSION = "sts-sbk-ssr-lol-match-winner-0.1"
+SCRAPER_VERSION = "sts-nodriver-lol-match-winner-0.3"
+
+# JS to extract SSR transfer state from the rendered page DOM.
+# The Angular app embeds a <script> tag whose text content is a JSON object
+# with key "sbk-exporter-sports-ssr". We find it and return the inner data.
+_EXTRACT_SSR_JS = """
+(() => {
+    const scripts = document.querySelectorAll('script');
+    for (const s of scripts) {
+        try {
+            const text = s.textContent.trim();
+            if (text.startsWith('{') && text.includes('sbk-exporter')) {
+                const parsed = JSON.parse(text);
+                const key = 'sbk-exporter-sports-ssr';
+                if (key in parsed) return JSON.stringify(parsed[key]);
+                if ('B' in parsed && 'P' in parsed) return JSON.stringify(parsed);
+            }
+        } catch(e) {}
+    }
+    return null;
+})()
+"""
 
 
 class STSNoDriverScraper:
-    """Scrape STS LoL prematch match-winner odds from SBK SSR snapshot."""
+    """Scrape STS LoL prematch match-winner odds via nodriver browser automation."""
 
     bookmaker = "sts"
     scraper_version = SCRAPER_VERSION
@@ -55,7 +77,7 @@ class STSNoDriverScraper:
         include_legacy_pair_snapshots: bool = True,
     ) -> None:
         self.start_url = start_url or STS_LOL_URL
-        self.headless = headless  # kept for CLI compatibility
+        self.headless = headless
         self.sport_id = sport_id
         self.category_id = category_id
         self.include_legacy_pair_snapshots = include_legacy_pair_snapshots
@@ -64,77 +86,101 @@ class STSNoDriverScraper:
         self.last_fixture_count: int = 0
 
     async def scrape_upcoming_matches(self) -> list[RawOddsSnapshot | RawOutcomeOddsSnapshot]:
-        """Fetch STS SBK snapshot and return LoL prematch match-winner odds."""
+        """Open STS LoL page in nodriver, extract SSR data, return match-winner odds."""
 
-        _ = self.headless
         scraped_at = datetime.now(UTC).replace(microsecond=0).isoformat()
-        headers = self.build_sbk_headers()
-        self.last_request_url = STS_SBK_EXPORTER_URL
-        data = self.fetch_json(STS_SBK_EXPORTER_URL, headers=headers)
+        self.last_request_url = self.start_url
+
+        async with NoDriverClient(headless=self.headless) as client:
+            tab = await client.open(self.start_url)
+            await self._wait_for_render(tab, 8.0)
+            await self._accept_cookies(tab)
+
+            # Extract SSR data from the rendered DOM
+            data = await self._extract_ssr_data(tab)
+
+            # Save debug artifacts
+            timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+            html_path, screenshot_path = await client.save_debug_artifacts(
+                tab, f"sts_{timestamp}"
+            )
+
+        if data is None:
+            raise RuntimeError(
+                "Could not extract SSR transfer state from STS page DOM. "
+                "The Angular app may not have rendered, or the site structure changed."
+            )
+
         snapshots = self.parse_lol_match_winner_snapshot(
             data,
             scraped_at=scraped_at,
-            source_url=STS_SBK_EXPORTER_URL,
+            source_url=self.start_url,
         )
-        outcome_count = sum(isinstance(snapshot, RawOutcomeOddsSnapshot) for snapshot in snapshots)
-        pair_count = sum(isinstance(snapshot, RawOddsSnapshot) for snapshot in snapshots)
+        outcome_count = sum(
+            isinstance(s, RawOutcomeOddsSnapshot) for s in snapshots
+        )
+        pair_count = sum(isinstance(s, RawOddsSnapshot) for s in snapshots)
         print(
-            "STS SBK SSR captured "
-            f"{self.last_fixture_count} LoL fixtures, {outcome_count} outcome odds, "
-            f"{pair_count} two-sided match-winner snapshots. URL={STS_SBK_EXPORTER_URL}"
+            f"STS nodriver captured {self.last_fixture_count} LoL fixtures, "
+            f"{outcome_count} outcome odds, {pair_count} two-sided match-winner snapshots. "
+            f"URL={self.start_url}"
         )
         return snapshots
 
-    def build_sbk_headers(self) -> dict[str, str]:
-        """Build browser-like headers required by STS SBK exporter.
+    async def _wait_for_render(self, tab: Any, seconds: float = 8.0) -> None:
+        """Wait for the Angular SPA to render content."""
 
-        The auth-like values are public frontend config values. They are extracted
-        at runtime instead of being hardcoded in the repository.
+        import asyncio
+
+        _ = tab
+        await asyncio.sleep(seconds)
+
+    async def _accept_cookies(self, tab: Any) -> None:
+        """Best-effort cookie modal acceptance."""
+
+        try:
+            await tab.evaluate(
+                """Array.from(document.querySelectorAll('button'))
+                .find(button => /akcept|zgadzam|accept/i.test(button.innerText || ''))?.click()"""
+            )
+        except Exception:
+            return
+
+    async def _extract_ssr_data(self, tab: Any) -> dict[str, Any] | None:
+        """Extract the SBK SSR transfer state from the rendered page DOM.
+
+        Uses JavaScript evaluation to find the <script> tag containing
+        the "sbk-exporter-sports-ssr" key and return the inner data structure.
         """
 
-        config_text = self.fetch_text(STS_FRONTEND_CONFIG_URL)
-        match = re.search(
-            r'offer:\{sbkExporter:\{api:vt,token:"([^"]+)",cfAccessClientId:"([^"]+)",cfAccessClientSecret:"([^"]+)"\}',
-            config_text,
-        )
-        if not match:
-            raise RuntimeError("Could not extract STS SBK exporter headers from frontend config")
-        token, cf_access_client_id, cf_access_client_secret = match.groups()
-        return {
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
-            "Accept": "application/json,text/plain,*/*",
-            "Origin": "https://www.sts.pl",
-            "Referer": self.start_url,
-            "Content-Type": "application/json",
-            "X-Api-Key": token,
-            "CF-Access-Client-Id": cf_access_client_id,
-            "CF-Access-Client-Secret": cf_access_client_secret,
-        }
+        result = await tab.evaluate(_EXTRACT_SSR_JS)
+        if result is None:
+            return None
 
-    def fetch_text(self, url: str, headers: dict[str, str] | None = None) -> str:
-        """Fetch text with browser-like headers."""
+        # nodriver may return the result as a string or already-parsed object
+        if isinstance(result, str):
+            try:
+                parsed = json.loads(result)
+            except json.JSONDecodeError:
+                return None
+        elif isinstance(result, dict):
+            parsed = result
+        else:
+            return None
 
-        request_headers = {
-            "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
-            "Accept": "text/javascript,text/plain,*/*",
-            "Referer": self.start_url,
-        }
-        if headers:
-            request_headers.update(headers)
-        request = urllib.request.Request(url, headers=request_headers)
-        with urllib.request.urlopen(request, timeout=45) as response:
-            return response.read().decode("utf-8", errors="replace")
-
-    def fetch_json(self, url: str, headers: dict[str, str]) -> dict[str, Any]:
-        """Fetch and parse JSON from STS."""
-
-        request = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(request, timeout=60) as response:
-            body = response.read().decode("utf-8", errors="replace")
-        parsed = json.loads(body)
         if not isinstance(parsed, dict):
-            raise ValueError(f"Unexpected STS response type: {type(parsed).__name__}")
-        return parsed
+            return None
+
+        # Validate the expected structure
+        if "B" in parsed and "P" in parsed:
+            return parsed
+
+        return None
+
+    # ------------------------------------------------------------------
+    # Parsing logic — unchanged from the original scraper, works with the
+    # compact SBK data structure {B: {S: ...}, P: ...}
+    # ------------------------------------------------------------------
 
     def parse_lol_match_winner_snapshot(
         self,
@@ -214,7 +260,12 @@ class STSNoDriverScraper:
                         decimal_odds = float(outcome["O"])
                         if outcome_side:
                             odds_by_side[outcome_side] = decimal_odds
-                        outcome_name = self.outcome_name(outcome_id=str(outcome_id), outcome_side=outcome_side, home=home, away=away)
+                        outcome_name = self.outcome_name(
+                            outcome_id=str(outcome_id),
+                            outcome_side=outcome_side,
+                            home=home,
+                            away=away,
+                        )
                         snapshot = RawOutcomeOddsSnapshot(
                             bookmaker=self.bookmaker,
                             bookmaker_event_id=fixture_id,
@@ -239,7 +290,7 @@ class STSNoDriverScraper:
                             league_name=league_name,
                             source_url=source_url,
                             offer_url=offer_url,
-                            scraper_name="sts_sbk_ssr_lol_match_winner",
+                            scraper_name="sts_nodriver_lol_match_winner",
                             scraper_version=SCRAPER_VERSION,
                             raw_payload={
                                 "fixture_id": fixture_id,
@@ -254,7 +305,11 @@ class STSNoDriverScraper:
                         outcome_snapshots.append(snapshot)
 
                     snapshots.extend(outcome_snapshots)
-                    if self.include_legacy_pair_snapshots and "a" in odds_by_side and "b" in odds_by_side:
+                    if (
+                        self.include_legacy_pair_snapshots
+                        and "a" in odds_by_side
+                        and "b" in odds_by_side
+                    ):
                         snapshots.append(
                             RawOddsSnapshot(
                                 bookmaker=self.bookmaker,
@@ -269,7 +324,7 @@ class STSNoDriverScraper:
                                 offer_url=offer_url,
                                 market_type="match_winner",
                                 is_live=False,
-                                scraper_name="sts_sbk_ssr_lol_match_winner",
+                                scraper_name="sts_nodriver_lol_match_winner",
                                 scraper_version=SCRAPER_VERSION,
                                 raw_payload={
                                     "fixture_id": fixture_id,
@@ -324,7 +379,9 @@ class STSNoDriverScraper:
         return None
 
     @staticmethod
-    def outcome_name(*, outcome_id: str, outcome_side: str | None, home: str, away: str) -> str:
+    def outcome_name(
+        *, outcome_id: str, outcome_side: str | None, home: str, away: str
+    ) -> str:
         """Build readable outcome name."""
 
         if outcome_side == "a":
@@ -337,6 +394,10 @@ class STSNoDriverScraper:
 def slugify(value: str) -> str:
     """Create a simple STS-compatible-ish URL slug from team names."""
 
-    ascii_value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    ascii_value = (
+        unicodedata.normalize("NFKD", value)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_value.lower()).strip("-")
     return re.sub(r"-+", "-", slug)
