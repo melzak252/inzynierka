@@ -1,8 +1,7 @@
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom'
 import MatchList from './pages/MatchList'
 import MatchDetail from './pages/MatchDetail'
-import SystemStatus from './pages/SystemStatus'
-import SchedulerPanel from './pages/SchedulerPanel'
+import SystemPage from './pages/SystemPage'
 import HorizonAnalysis from './pages/HorizonAnalysis'
 import './App.css'
 
@@ -13,7 +12,6 @@ function Nav() {
     { to: '/', label: 'Mecze' },
     { to: '/horizon', label: 'Horizon' },
     { to: '/system', label: 'System' },
-    { to: '/scheduler', label: 'Scheduler' },
   ]
 
   return (
@@ -44,8 +42,7 @@ function App() {
         <Routes>
           <Route path="/" element={<MatchList />} />
           <Route path="/matches/:id" element={<MatchDetail />} />
-          <Route path="/system" element={<SystemStatus />} />
-          <Route path="/scheduler" element={<SchedulerPanel />} />
+          <Route path="/system" element={<SystemPage />} />
           <Route path="/horizon" element={<HorizonAnalysis />} />
         </Routes>
       </main>
