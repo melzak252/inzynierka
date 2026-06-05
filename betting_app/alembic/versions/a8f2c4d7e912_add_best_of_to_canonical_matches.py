@@ -24,8 +24,8 @@ def upgrade() -> None:
 
     # Populate best_of=3 for Bo3 leagues (everything else stays at default 1)
     # Bo3: LCK, LPL, LEC, LCK Challengers, LCK Road to MSI, CBLOL, LJL,
-    #      LCS NA, LCS, TCL, LCP, TJ Sports LoL / LPL
-    # Exclude NACL / NA Challengers (Bo1) from the LCS catch-all
+    #      LCS NA, LCS, TCL, LCP, TJ Sports LoL / LPL, Japan League
+    # Exclude NACL / NA Challengers (Bo1) and LPLOL (contains "lpl" substring)
     op.execute("""
         UPDATE canonical_matches
         SET best_of = 3
@@ -33,15 +33,17 @@ def upgrade() -> None:
             league ILIKE '%lck%'
             OR league ILIKE '%lpl%'
             OR league ILIKE '%lec%'
-            OR league ILIKE '%cblo l%'
+            OR league ILIKE '%cblo%'
             OR league ILIKE '%ljl%'
             OR league ILIKE '%lcs%'
             OR league ILIKE '%tcl%'
             OR league ILIKE '%lcp%'
             OR league ILIKE '%tj sports%lpl%'
+            OR league = 'Japan League'
         )
         AND league NOT ILIKE '%nacl%'
         AND league NOT ILIKE '%na challengers%'
+        AND league NOT ILIKE '%lpol%'
     """)
 
 

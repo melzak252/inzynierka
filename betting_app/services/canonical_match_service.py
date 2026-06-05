@@ -75,19 +75,29 @@ TEAM_ALIASES = {
 # League → best-of mapping
 # ---------------------------------------------------------------------------
 # Bo3 leagues (major regions + some minor that use Bo3 regular season)
+# NOTE: substring matching is used, so order matters — more specific patterns
+# should come first.  "lpl" would also match "lplol" (LPLOL), so we use
+# "lpl" with an exclusion check inside infer_best_of().
 _BO3_LEAGUE_PATTERNS: list[str] = [
     "lck",
     "lpl",
     "lec",
     "lck challengers",
     "lck road to msi",
-    "cblo l",
+    "cblo",
     "ljl",
     "lcs na",
     "lcs",
     "tcl",
     "lcp",
     "tj sports lol / lpl",
+]
+
+# Leagues whose names contain a Bo3 pattern substring but are actually Bo1.
+_BO1_OVERRIDE_PATTERNS: list[str] = [
+    "lpol",   # LPLOL, Inygon / LPLOL
+    "nacl",   # NACL (contains "lcs" substring via "na challengers league")
+    "na challengers",
 ]
 
 # Bo5 is only for playoffs / finals — we cannot reliably detect that from
@@ -99,11 +109,16 @@ def infer_best_of(league: str | None) -> int:
     """Return the best-of value for a given league name.
 
     Uses substring matching so that variants like "Riot LoL / LCK" still
-    resolve correctly.
+    resolve correctly.  Bo1 overrides take precedence over Bo3 patterns
+    (e.g. LPLOL contains "lpl" but is Bo1).
     """
     if not league:
         return 1
     low = league.lower()
+    # Check Bo1 overrides first — they take precedence
+    for pattern in _BO1_OVERRIDE_PATTERNS:
+        if pattern in low:
+            return 1
     for pattern in _BO3_LEAGUE_PATTERNS:
         if pattern in low:
             return 3
