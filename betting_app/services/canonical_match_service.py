@@ -71,6 +71,45 @@ TEAM_ALIASES = {
 }
 
 
+# ---------------------------------------------------------------------------
+# League → best-of mapping
+# ---------------------------------------------------------------------------
+# Bo3 leagues (major regions + some minor that use Bo3 regular season)
+_BO3_LEAGUE_PATTERNS: list[str] = [
+    "lck",
+    "lpl",
+    "lec",
+    "lck challengers",
+    "lck road to msi",
+    "cblo l",
+    "ljl",
+    "lcs na",
+    "lcs",
+    "tcl",
+    "lcp",
+    "tj sports lol / lpl",
+]
+
+# Bo5 is only for playoffs / finals — we cannot reliably detect that from
+# the league name alone, so default regular-season Bo3 leagues to 3.
+# Everything else defaults to Bo1.
+
+
+def infer_best_of(league: str | None) -> int:
+    """Return the best-of value for a given league name.
+
+    Uses substring matching so that variants like "Riot LoL / LCK" still
+    resolve correctly.
+    """
+    if not league:
+        return 1
+    low = league.lower()
+    for pattern in _BO3_LEAGUE_PATTERNS:
+        if pattern in low:
+            return 3
+    return 1
+
+
 def canonical_team_key(name: str) -> str:
     """Normalize a raw team name into a cross-bookmaker key."""
 
@@ -138,28 +177,31 @@ def resolve_canonical_match(
                 best_score = score
                 best_id = int(candidate["id"])
         if best_id is not None and best_score >= min_confidence:
+            best_of_val = infer_best_of(league)
             connection.execute(
                 """
                 UPDATE canonical_matches
                 SET start_time_normalized = COALESCE(start_time_normalized, ?),
                     league = COALESCE(league, ?),
-                    match_confidence = GREATEST(match_confidence, ?)
+                    match_confidence = GREATEST(match_confidence, ?),
+                    best_of = COALESCE(best_of, ?)
                 WHERE id = ?
                 """,
-                (start_norm, league, best_score, best_id),
+                (start_norm, league, best_score, best_of_val, best_id),
             )
             return best_id
 
         canonical_key = build_canonical_key(team_a_key, team_b_key, start_norm, league_norm)
+        best_of_val = infer_best_of(league)
         connection.execute(
             """
             INSERT INTO canonical_matches(
                 canonical_key, team_a_name, team_b_name, normalized_team_a, normalized_team_b,
-                start_time_normalized, league, match_confidence
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0)
+                start_time_normalized, league, match_confidence, best_of
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1.0, ?)
             ON CONFLICT (canonical_key) DO NOTHING
             """,
-            (canonical_key, raw_team_a, raw_team_b, team_a_key, team_b_key, start_norm, league),
+            (canonical_key, raw_team_a, raw_team_b, team_a_key, team_b_key, start_norm, league, best_of_val),
         )
         row = connection.execute("SELECT id FROM canonical_matches WHERE canonical_key = ?", (canonical_key,)).fetchone()
         return int(row["id"])

@@ -10,6 +10,7 @@ from sqlalchemy import (
     UniqueConstraint,
     DateTime,
     text as sa_text,
+    SmallInteger,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +37,7 @@ class CanonicalMatch(Base):
     result_source_match_id: Mapped[str | None] = mapped_column(String(50))
     result_recorded_at: Mapped[str | None] = mapped_column(DateTime(timezone=True))
     match_confidence: Mapped[float] = mapped_column(Integer, server_default="1")
+    best_of: Mapped[int | None] = mapped_column(SmallInteger, server_default="1")
 
 
 class UpcomingMatch(Base):

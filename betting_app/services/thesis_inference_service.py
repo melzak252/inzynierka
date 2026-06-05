@@ -398,7 +398,7 @@ def predict_upcoming_with_thesis_model(
         params.append(datetime.now(UTC).replace(microsecond=0).isoformat())
 
     sql = f"""
-        SELECT cm.id, cm.team_a_name, cm.team_b_name, cm.start_time_normalized, cm.league
+        SELECT cm.id, cm.team_a_name, cm.team_b_name, cm.start_time_normalized, cm.league, cm.best_of
         FROM canonical_matches cm
         JOIN odds_snapshots os ON os.canonical_match_id = cm.id
         {where}
@@ -440,12 +440,14 @@ def predict_upcoming_with_thesis_model(
             match_id = int(match["id"])
             team_a = str(match["team_a_name"])
             team_b = str(match["team_b_name"])
+            best_of = int(match["best_of"]) if match["best_of"] is not None else 1
 
             # Build features
             feature_vec, diagnostics = build_thesis_features_for_match(
                 team_a, team_b,
                 ratings_version=ratings_version,
                 w20_version=w20_version,
+                best_of=best_of,
             )
 
             if feature_vec is None:
