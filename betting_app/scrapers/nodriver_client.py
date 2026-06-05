@@ -50,6 +50,31 @@ class NoDriverClient:
             raise RuntimeError("Browser is not started")
         return await self.browser.get(url)
 
+    async def scroll_to_bottom(self, tab: Any, step: int = 800, pause: float = 0.5) -> None:
+        """Scroll the page to the bottom to trigger lazy-loaded content.
+
+        Scrolls down in *step*-pixel increments, pausing *pause* seconds
+        between each scroll to allow the SPA to render newly loaded cards.
+        """
+
+        import asyncio
+
+        try:
+            last_height = await tab.evaluate("document.body.scrollHeight")
+            if last_height is None:
+                return
+            last_height = int(last_height)
+            current = 0
+            while current < last_height:
+                current += step
+                await tab.evaluate(f"window.scrollTo(0, {current})")
+                await asyncio.sleep(pause)
+                new_height = await tab.evaluate("document.body.scrollHeight")
+                if new_height is not None:
+                    last_height = int(new_height)
+        except Exception:
+            return
+
     async def save_debug_artifacts(self, tab: Any, prefix: str) -> tuple[str | None, str | None]:
         """Best-effort HTML/screenshot debug capture."""
 
