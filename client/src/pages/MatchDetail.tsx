@@ -30,7 +30,7 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
 
   const modelNames = Array.from(models.keys());
 
-  // Build unique time axis from all data points
+  // Build unique time axis from all data points, bucketed by minute
   const timeLabels = useMemo(() => {
     const tsSet = new Set(data.map(d => d.timestamp));
     return Array.from(tsSet).sort();

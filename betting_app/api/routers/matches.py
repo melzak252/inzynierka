@@ -656,8 +656,21 @@ def prediction_history(match_id: int, db=Depends(get_db)):
         if prob_b is not None and avg_b is not None and avg_b > 1:
             ev_b = expected_value(prob_b, avg_b, TAX_RATE)
 
+        # Truncate timestamp to minute precision so models in the same
+        # time bucket share the same label (avoids zigzag lines in chart)
+        raw_ts = p.get("predicted_at", "")
+        if raw_ts:
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(str(raw_ts))
+                ts_str = dt.strftime("%Y-%m-%dT%H:%M:00+00:00")
+            except Exception:
+                ts_str = str(raw_ts)
+        else:
+            ts_str = ""
+
         result.append(PredictionHistoryPoint(
-            timestamp=str(p.get("predicted_at", "")),
+            timestamp=ts_str,
             model_name=p.get("model_name", ""),
             model_version=p.get("model_version", ""),
             prob_a=prob_a,
