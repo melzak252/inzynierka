@@ -1,5 +1,6 @@
 """Alembic environment configuration — loads SQLAlchemy models for autogenerate."""
 
+import os
 from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool
@@ -18,6 +19,16 @@ import betting_app.models.automation  # noqa: F401
 
 
 config = context.config
+
+# Override sqlalchemy.url with DATABASE_URL env var if present (Docker/production)
+database_url = os.getenv("DATABASE_URL")
+if database_url:
+    # Alembic needs a synchronous driver; convert async URLs if needed
+    database_url = database_url.replace("+asyncpg", "+psycopg2").replace(
+        "+asyncpg", "+psycopg2"
+    )
+    config.set_main_option("sqlalchemy.url", database_url)
+
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
