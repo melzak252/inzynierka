@@ -261,7 +261,7 @@ def list_results(
                gm.team1_score, gm.team2_score
         FROM canonical_matches cm
         LEFT JOIN golgg_match_mappings gmm ON gmm.canonical_match_id = cm.id
-        LEFT JOIN golgg_matches gm ON gm.id = gmm.golgg_match_id
+        LEFT JOIN golgg_matches gm ON gm.match_id = gmm.golgg_match_id
         WHERE cm.status = 'finished'
           AND REPLACE(cm.start_time_normalized, 'T', ' ') >= REPLACE(:min_dt, 'T', ' ')
         ORDER BY cm.start_time_normalized DESC, cm.id DESC
