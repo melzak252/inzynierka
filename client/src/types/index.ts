@@ -173,57 +173,6 @@ export interface SchedulerTriggerResponse {
   message: string;
 }
 
-// Timing analysis types — NEW FORMAT (2h fixed buckets, % dev from closing)
-export interface TimingBucket {
-  bucket: string;                // e.g. "0-2h", "2-4h", "4-6h"
-  hours_start: number;           // e.g. 0, 2, 4
-  hours_end: number;             // e.g. 2, 4, 6
-  snapshot_count: number;
-  match_count: number;
-  avg_deviation_a_pct: number;   // avg % diff from closing odds for team A
-  avg_deviation_b_pct: number;   // avg % diff from closing odds for team B
-  std_deviation_a_pct: number;
-  std_deviation_b_pct: number;
-  avg_odds_a: number;
-  avg_odds_b: number;
-  avg_closing_odds_a: number;
-  avg_closing_odds_b: number;
-}
-
-export interface DriftSummary {
-  earliest_bucket: string;
-  latest_bucket: string;
-  open_deviation_a_pct: number;
-  open_deviation_b_pct: number;
-  close_deviation_a_pct: number;
-  close_deviation_b_pct: number;
-  convergence_a_pct: number;     // how much deviation shrunk (positive = converging)
-  convergence_b_pct: number;
-}
-
-export interface BestBettingWindow {
-  bucket: string;
-  hours_start: number;
-  hours_end: number;
-  avg_favorable_deviation_pct: number;
-  avg_deviation_a_pct: number;
-  avg_deviation_b_pct: number;
-  match_count: number;
-  snapshot_count: number;
-  recommendation: string;
-}
-
-export interface TimingAnalysisResponse {
-  total_matches: number;
-  total_snapshots: number;
-  time_buckets: TimingBucket[];
-  drift_summary: DriftSummary | null;
-  best_betting_window: BestBettingWindow | null;
-  summary?: {
-    message?: string;
-  };
-}
-
 // Match movement — NEW FORMAT with deviation % from closing
 export interface OddsMovementPoint {
   scraped_at: string;

@@ -189,6 +189,136 @@
   font-size: 0.75rem;
 }
 
+/* ─── Bookmaker Results Section ─────────────────────────── */
+.bookmaker-results-section {
+  background: #141428;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.bookmaker-results-section h3 {
+  font-size: 1rem;
+  color: #c0c0e0;
+  margin-bottom: 0.25rem;
+}
+
+.bookmaker-results-subtitle {
+  color: #888;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+}
+
+.bookmaker-results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+}
+
+.bookmaker-result-card {
+  background: #1a1a32;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.bookmaker-result-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.bookmaker-result-rank {
+  font-size: 0.8rem;
+  color: #666;
+  font-weight: 700;
+  min-width: 1.5rem;
+}
+
+.bookmaker-result-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.bookmaker-result-name {
+  color: #e0e0ff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.bookmaker-result-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.bookmaker-result-metric {
+  display: flex;
+  flex-direction: column;
+}
+
+.bookmaker-result-metric .metric-label {
+  font-size: 0.7rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.bookmaker-result-metric .metric-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #e0e0ff;
+}
+
+.bookmaker-bin-details {
+  margin-top: 0.25rem;
+}
+
+.bookmaker-bin-details summary {
+  color: #888;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 0.2rem 0;
+}
+
+.bookmaker-bin-details summary:hover {
+  color: #aaa;
+}
+
+.bookmaker-bin-details table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-top: 0.3rem;
+}
+
+.bookmaker-bin-details th,
+.bookmaker-bin-details td {
+  padding: 0.25rem 0.4rem;
+  text-align: right;
+  border-bottom: 1px solid #1e1e3a;
+}
+
+.bookmaker-bin-details th {
+  color: #888;
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.bookmaker-bin-details td {
+  color: #ccc;
+}
+
+.bookmaker-bin-details td:first-child {
+  text-align: left;
+}
+
 /* ─── Legend ───────────────────────────────────────────── */
 .legend-section {
   background: #141428;

@@ -8,7 +8,6 @@ import type {
   SchedulerRun,
   SchedulerCommand,
   SchedulerTriggerResponse,
-  TimingAnalysisResponse,
   MatchMovementResponse,
   HorizonAccuracyResponse,
 } from '../types';
@@ -101,13 +100,6 @@ export async function triggerSchedulerTask(taskId: string): Promise<SchedulerTri
 }
 
 // ─── Timing Analysis ────────────────────────────────────────
-
-export async function fetchTimingAnalysis(daysBack: number = 30): Promise<TimingAnalysisResponse> {
-  const params = new URLSearchParams({ days_back: daysBack.toString() });
-  const response = await fetch(`${API_BASE}/timing/analysis?${params}`);
-  if (!response.ok) throw new Error(`Failed to fetch timing analysis: ${response.statusText}`);
-  return response.json();
-}
 
 export async function fetchMatchMovement(matchId: number): Promise<MatchMovementResponse> {
   const response = await fetch(`${API_BASE}/timing/match/${matchId}/movement`);

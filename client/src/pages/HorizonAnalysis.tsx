@@ -513,6 +513,94 @@ export default function HorizonAnalysis() {
         </div>
       )}
 
+      {/* ─── Bookmaker Results ─────────────────────────────── */}
+      {data.bookmaker_bins.length > 0 && (
+        <div className="bookmaker-results-section">
+          <h3>📊 Per-bookmaker accuracy</h3>
+          <p className="bookmaker-results-subtitle">
+            Average LogLoss and AUC for each bookmaker across all horizon bins.
+            Dashed lines on the charts above correspond to these bookmakers.
+          </p>
+          <div className="bookmaker-results-grid">
+            {data.bookmaker_bins
+              .map(bk => {
+                // Compute weighted averages across bins
+                const binsWithData = bk.bins.filter(b => b.avg_logloss !== null && b.match_count >= minMatches);
+                if (binsWithData.length === 0) return null;
+                const totalMatches = binsWithData.reduce((s, b) => s + b.match_count, 0);
+                const avgLL = binsWithData.reduce((s, b) => s + (b.avg_logloss ?? 0) * b.match_count, 0) / totalMatches;
+                const avgAUC = binsWithData.reduce((s, b) => s + (b.avg_auc ?? 0) * b.match_count, 0) / totalMatches;
+                const totalSnapshots = binsWithData.reduce((s, b) => s + b.snapshot_count, 0);
+                return { ...bk, avgLL, avgAUC, totalMatches, totalSnapshots, binsWithData: binsWithData.length };
+              })
+              .filter(Boolean)
+              .sort((a, b) => (a?.avgLL ?? 999) - (b?.avgLL ?? 999))
+              .map((bk, i) => {
+                if (!bk) return null;
+                // Color matching the chart lines
+                const bkColors = [
+                  '#8e99a4', '#a3b1bf', '#7c8c9a', '#9ea8b3', '#6b7b8a',
+                  '#b0bec5', '#90a4ae', '#78909c', '#607d8b', '#546e7a',
+                ];
+                const color = bkColors[i % bkColors.length];
+                return (
+                  <div key={bk.bookmaker_id} className="bookmaker-result-card">
+                    <div className="bookmaker-result-header">
+                      <span className="bookmaker-result-rank">#{i + 1}</span>
+                      <span className="bookmaker-result-dot" style={{ backgroundColor: color }} />
+                      <span className="bookmaker-result-name">{bk.bookmaker_name}</span>
+                    </div>
+                    <div className="bookmaker-result-metrics">
+                      <div className="bookmaker-result-metric">
+                        <span className="metric-label">LogLoss</span>
+                        <span className="metric-value">{bk.avgLL.toFixed(4)}</span>
+                      </div>
+                      <div className="bookmaker-result-metric">
+                        <span className="metric-label">AUC</span>
+                        <span className="metric-value">{bk.avgAUC.toFixed(4)}</span>
+                      </div>
+                      <div className="bookmaker-result-metric">
+                        <span className="metric-label">Matches</span>
+                        <span className="metric-value">{bk.totalMatches}</span>
+                      </div>
+                      <div className="bookmaker-result-metric">
+                        <span className="metric-label">Snapshots</span>
+                        <span className="metric-value">{bk.totalSnapshots}</span>
+                      </div>
+                    </div>
+                    {/* Per-bin breakdown */}
+                    <details className="bookmaker-bin-details">
+                      <summary>{bk.binsWithData} bins with data</summary>
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Bin</th>
+                            <th>Matches</th>
+                            <th>LogLoss</th>
+                            <th>AUC</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {bk.bins
+                            .filter(b => b.avg_logloss !== null && b.match_count >= minMatches)
+                            .map(b => (
+                              <tr key={b.label}>
+                                <td>{b.label}</td>
+                                <td>{b.match_count}</td>
+                                <td>{(b.avg_logloss ?? 0).toFixed(4)}</td>
+                                <td>{(b.avg_auc ?? 0).toFixed(4)}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
       {/* ─── Legend ──────────────────────────────────────── */}
       <div className="legend-section">
         <h3>Legend</h3>
@@ -521,6 +609,7 @@ export default function HorizonAnalysis() {
           <li><strong>AUC</strong> — higher = better discrimination between winners/losers. 0.5 = random, 1.0 = perfect.</li>
           <li>Each point aggregates all pre-match odds snapshots across all bookmakers for finished matches.</li>
           <li>Dashed horizontal lines indicate overall model prediction accuracy (all horizons combined).</li>
+          <li>Dashed subtle lines on charts show per-bookmaker accuracy (see table above for details).</li>
           <li>Bins with fewer than {minMatches} matches are hidden but visible in the histogram.</li>
         </ul>
       </div>
