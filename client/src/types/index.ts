@@ -108,14 +108,20 @@ export interface SystemStatusResponse {
   counts: Record<string, number>;
   last_scrape_runs: Array<{
     name: string;
+    task_name: string;
+    status: string;
     last_scraped_at: string | null;
+    started_at: string | null;
+    duration_seconds: number | null;
     snapshot_count: number;
   }>;
   last_automation_runs: Array<{
     run_type: string;
+    task_name: string;
     status: string;
     started_at: string | null;
     finished_at: string | null;
+    duration_seconds: number | null;
     summary: string | null;
   }>;
 }
@@ -125,14 +131,17 @@ export interface BookmakerStatus {
   name: string;
   base_url: string | null;
   last_scraped_at: string | null;
+  last_scrape: string | null;
   snapshot_count: number;
 }
 
 // Scheduler types
 export interface SchedulerTask {
   id: string;
+  task_id: string;
   name: string;
   description: string;
+  schedule: string;
   interval_minutes: number | null;
   cron_trigger: string | null;
   enabled: boolean;
@@ -146,11 +155,14 @@ export interface SchedulerJob {
   last_run_at: string | null;
   last_run_status: string | null;
   is_running: boolean;
+  trigger: string;
+  pending: boolean;
 }
 
 export interface SchedulerRun {
   id: number;
   run_type: string;
+  task_name: string;
   status: string;
   started_at: string | null;
   finished_at: string | null;
@@ -162,9 +174,12 @@ export interface SchedulerCommand {
   id: number;
   command: string;
   status: string;
+  step_order: number;
   started_at: string | null;
   finished_at: string | null;
   error: string | null;
+  duration_seconds: number | null;
+  output: string | null;
 }
 
 export interface SchedulerTriggerResponse {

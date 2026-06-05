@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { fetchMatchDetail } from '../api/client';
-import type { MatchDetailResponse, BookmakerOddsRow } from '../types';
+import type { MatchDetailResponse } from '../types';
 import './MatchDetail.css';
 
 export default function MatchDetail() {
@@ -229,10 +229,10 @@ export default function MatchDetail() {
             {match.team_comparison.team_a_rating && match.team_comparison.team_b_rating && (
               <div className="comparison-row">
                 <span className="comparison-label">Różnica ratingów</span>
-                <span className="rating-diff" colSpan={2}>
+                <td className="rating-diff" colSpan={2}>
                   {(match.team_comparison.team_a_rating - match.team_comparison.team_b_rating) > 0 ? '+' : ''}
                   {(match.team_comparison.team_a_rating - match.team_comparison.team_b_rating).toFixed(1)}
-                </span>
+                </td>
               </div>
             )}
           </div>

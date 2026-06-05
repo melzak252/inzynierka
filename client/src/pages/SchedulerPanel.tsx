@@ -166,7 +166,7 @@ export default function SchedulerPanel() {
                       {run.status}
                     </span>
                   </td>
-                  <td>{new Date(run.started_at).toLocaleString()}</td>
+                  <td>{run.started_at ? new Date(run.started_at).toLocaleString() : '—'}</td>
                   <td>
                     {run.finished_at
                       ? new Date(run.finished_at).toLocaleString()

@@ -238,6 +238,7 @@ CREATE TABLE IF NOT EXISTS odds_snapshots (
 SELECT create_hypertable('odds_snapshots', 'scraped_at', if_not_exists => TRUE, migrate_data => TRUE);
 CREATE INDEX IF NOT EXISTS idx_odds_bookmaker ON odds_snapshots(bookmaker_id, scraped_at DESC);
 CREATE INDEX IF NOT EXISTS idx_odds_canonical ON odds_snapshots(canonical_match_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_odds_unique_snapshot ON odds_snapshots(canonical_match_id, bookmaker_id, scraped_at) WHERE market_type = 'match_winner';
 
 CREATE TABLE IF NOT EXISTS scrape_runs (
     id              SERIAL PRIMARY KEY,
@@ -358,4 +359,21 @@ CREATE TABLE IF NOT EXISTS automation_commands (
     started_at TIMESTAMPTZ, finished_at TIMESTAMPTZ,
     status VARCHAR(50) DEFAULT 'pending',
     exit_code INTEGER, output TEXT, error TEXT
+);
+
+/* ── APScheduler job store ───────────────────────────────────────────────── */
+CREATE TABLE IF NOT EXISTS apscheduler_jobs (
+    id            VARCHAR(191) PRIMARY KEY,
+    next_run_time DOUBLE PRECISION,
+    job_state     BYTEA NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_apscheduler_jobs_next_run_time ON apscheduler_jobs(next_run_time);
+
+/* ── Rating pipeline tracking ────────────────────────────────────────────── */
+CREATE TABLE IF NOT EXISTS rating_processed_matches (
+    ratings_version VARCHAR(100) NOT NULL,
+    match_id        VARCHAR(64) NOT NULL,
+    match_date      VARCHAR(50),
+    processed_at    TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (ratings_version, match_id)
 );

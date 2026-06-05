@@ -132,7 +132,7 @@ export default function SystemStatus() {
                       {run.status}
                     </span>
                   </td>
-                  <td>{new Date(run.started_at).toLocaleString()}</td>
+                  <td>{run.started_at ? new Date(run.started_at).toLocaleString() : '—'}</td>
                   <td>{run.duration_seconds?.toFixed(1)}s</td>
                 </tr>
               ))}
@@ -162,7 +162,7 @@ export default function SystemStatus() {
                       {run.status}
                     </span>
                   </td>
-                  <td>{new Date(run.started_at).toLocaleString()}</td>
+                  <td>{run.started_at ? new Date(run.started_at).toLocaleString() : '—'}</td>
                   <td>{run.duration_seconds?.toFixed(1)}s</td>
                 </tr>
               ))}
