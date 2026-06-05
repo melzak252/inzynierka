@@ -32,6 +32,7 @@ def main() -> None:
 def rematch_odds_snapshots() -> int:
     """Resolve canonical_match_id for existing upcoming_matches and odds_snapshots."""
 
+    # ── Phase 1: rematch upcoming_matches + odds_snapshots ────────────────
     with transaction() as connection:
         rows = connection.execute(
             """
@@ -56,12 +57,38 @@ def rematch_odds_snapshots() -> int:
                 "UPDATE odds_snapshots SET canonical_match_id = ? WHERE match_id = ?",
                 (canonical_match_id, row["id"]),
             )
-            connection.execute(
-                "UPDATE bookmaker_events SET canonical_match_id = ? WHERE match_id = ?",
-                (canonical_match_id, row["id"]),
-            )
         updated += 1
-    return updated
+
+    # ── Phase 2: rematch bookmaker_events ─────────────────────────────────
+    # bookmaker_events has no match_id column (dropped in migration); match
+    # using its own raw_team_a/raw_team_b/match_start_time via the same
+    # canonical resolution used for upcoming_matches.
+    with transaction() as connection:
+        events = connection.execute(
+            """
+            SELECT id, raw_team_a, raw_team_b, match_start_time, league_name
+            FROM bookmaker_events
+            WHERE canonical_match_id IS NULL
+               OR canonical_match_id NOT IN (SELECT id FROM canonical_matches)
+            """
+        ).fetchall()
+    events_updated = 0
+    for event in events:
+        canonical_match_id = resolve_canonical_match(
+            raw_team_a=event["raw_team_a"],
+            raw_team_b=event["raw_team_b"],
+            match_start_time=event["match_start_time"],
+            league=event.get("league_name"),
+        )
+        with transaction() as connection:
+            connection.execute(
+                "UPDATE bookmaker_events SET canonical_match_id = ? WHERE id = ?",
+                (canonical_match_id, event["id"]),
+            )
+        events_updated += 1
+
+    print(f"Rematched upcoming_matches: {updated}, bookmaker_events: {events_updated}")
+    return updated + events_updated
 
 
 def reset_canonical_matches() -> None:
