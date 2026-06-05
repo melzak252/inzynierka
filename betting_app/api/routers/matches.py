@@ -26,6 +26,7 @@ from betting_app.api.schemas import (
     TeamMappingInfo,
 )
 from betting_app.services.canonical_match_service import align_snapshot_odds
+from betting_app.core.ev import fair_market_probabilities
 from betting_app.services.market_service import (
     enrich_arbitrage,
     expected_value,
