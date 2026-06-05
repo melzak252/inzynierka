@@ -177,7 +177,11 @@ def trigger_task(task_id: str):
     def _run():
         try:
             logger.info(f"Manual trigger: {task_id}")
-            task.func(*task.args, **task.kwargs)
+            # Use the wrapped function so automation_runs rows are created
+            from betting_app.scheduler.app import wrap_task_with_run_tracking
+
+            wrapped = wrap_task_with_run_tracking(task_id, task.func)
+            wrapped(*task.args, **task.kwargs)
             logger.info(f"Manual trigger completed: {task_id}")
         except Exception as exc:
             logger.error(f"Manual trigger failed: {task_id}: {exc}")
