@@ -66,7 +66,7 @@ def list_matches(
     now = datetime.now(UTC)
     max_dt = (now + timedelta(days=days_ahead)).isoformat(timespec="seconds")
     now_iso = now.isoformat(timespec="seconds")
-    stale_cutoff = (now - timedelta(hours=stale_hours)).isoformat(timespec="seconds")
+    stale_cutoff = now - timedelta(hours=stale_hours)
 
     odds = query_df(
         db,
@@ -79,7 +79,7 @@ def list_matches(
                 FROM odds_snapshots
                 WHERE market_type='match_winner' AND COALESCE(is_live,0)=0
                   AND canonical_match_id IS NOT NULL
-                  AND scraped_at > REPLACE(:stale_cutoff, 'T', ' ')
+                  AND scraped_at > :stale_cutoff
                 GROUP BY canonical_match_id, bookmaker_id
             ) lo ON lo.canonical_match_id=os.canonical_match_id
                  AND lo.bookmaker_id=os.bookmaker_id
@@ -235,7 +235,7 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
     m = meta[0]
 
     now = datetime.now(UTC)
-    stale_cutoff = (now - timedelta(hours=stale_hours)).isoformat(timespec="seconds")
+    stale_cutoff = now - timedelta(hours=stale_hours)
 
     odds = query_df(
         db,
@@ -248,7 +248,7 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
                 FROM odds_snapshots
                 WHERE canonical_match_id=:mid AND market_type='match_winner'
                   AND COALESCE(is_live,0)=0
-                  AND scraped_at > REPLACE(:stale_cutoff, 'T', ' ')
+                  AND scraped_at > :stale_cutoff
                 GROUP BY canonical_match_id, bookmaker_id
             ) lo ON lo.canonical_match_id=os.canonical_match_id
                  AND lo.bookmaker_id=os.bookmaker_id
