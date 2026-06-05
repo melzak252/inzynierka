@@ -117,4 +117,16 @@ def register_all_tasks():
         enabled=True
     ))
     
+    # Expire stale-seen matches - every hour
+    # Catches cancelled/postponed matches that disappeared from scrapers
+    registry.register(TaskDefinition(
+        id="expire_stale_matches",
+        name="Expire Stale-Seen Matches",
+        func=maintenance.expire_stale_matches,
+        cron_trigger="30 * * * *",  # At minute 30, every hour
+        kwargs={"stale_seen_hours": 6},
+        description="Mark matches as expired when not seen by scrapers for 6h",
+        enabled=True
+    ))
+    
     logger.info(f"Registered {len(registry.list_all())} tasks")

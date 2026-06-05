@@ -68,6 +68,28 @@ def expire_matches(grace_hours: int = 3) -> dict:
     return {"success": success, "duration_s": duration}
 
 
+def expire_stale_matches(stale_seen_hours: int = 6) -> dict:
+    """Expire matches that haven't been seen by scrapers recently.
+
+    Marks canonical_matches with status='upcoming' as 'expired' when
+    ALL their upcoming_matches have last_seen_at older than stale_seen_hours.
+    This catches cancelled/postponed matches that disappeared from scrapers.
+    """
+    logger.info(f"Expiring stale-seen matches (stale_seen_hours={stale_seen_hours})")
+    start = datetime.utcnow()
+
+    success = _run_module(
+        "betting_app.scripts.expire_old_matches",
+        args=["--stale-seen-hours", str(stale_seen_hours)],
+        timeout=120,
+    )
+    duration = (datetime.utcnow() - start).total_seconds()
+
+    logger.info(f"Stale-seen match expiration: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+
+    return {"success": success, "duration_s": duration}
+
+
 def run_heavy_cycle() -> dict:
     """Run the full heavy maintenance cycle:
     1. Refresh GolGG
