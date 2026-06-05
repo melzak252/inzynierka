@@ -626,7 +626,10 @@ def horizon_accuracy(
             "avg_prob_loser": avg_prob_loser,
         })
 
-    # --- 5. Compute overall model accuracy reference lines ---
+    # --- 5. Compute per-bookmaker metrics ---
+    bookmaker_bins = _compute_bookmaker_bins(bin_data, BIN_DEFS, min_matches_per_bin, db)
+
+    # --- 6. Compute overall model accuracy reference lines ---
     model_refs, hybrid_model_bins = _compute_model_reference_metrics(db, cutoff)
 
     return {
@@ -637,7 +640,85 @@ def horizon_accuracy(
         "min_matches_per_bin": min_matches_per_bin,
         "model_references": model_refs,
         "hybrid_model_bins": hybrid_model_bins,
+        "bookmaker_bins": bookmaker_bins,
     }
+
+
+def _compute_bookmaker_bins(
+    bin_data: dict, bin_defs: list, min_matches: int, db,
+) -> list[dict]:
+    """Compute per-bookmaker LogLoss/AUC for each horizon bin.
+
+    Uses the same per-match aggregated data from horizon_accuracy().
+    For each bookmaker in each bin, computes metrics using only that
+    bookmaker's snapshots (one observation per match after averaging
+    same-bookmaker snapshots for that match).
+
+    Returns list of {bookmaker_id, bookmaker_name, bins: [...]}.
+    """
+    # Look up bookmaker names
+    bookmaker_rows = query_df(db, "SELECT id, name FROM bookmakers ORDER BY id")
+    bk_names: dict[int, str] = {}
+    for r in bookmaker_rows:
+        bk_names[int(r["id"])] = str(r["name"])
+
+    # Collect all bookmaker IDs seen across bins
+    all_bk_ids: set[int] = set()
+    for label, _, _ in bin_defs:
+        bd = bin_data[label]
+        for md in bd["per_match"].values():
+            for bk_id in md["bookmaker_scores"].keys():
+                try:
+                    all_bk_ids.add(int(bk_id))
+                except (ValueError, TypeError):
+                    pass
+
+    result: list[dict] = []
+    for bk_id in sorted(all_bk_ids):
+        bk_name = bk_names.get(bk_id, f"bookmaker_{bk_id}")
+        bk_bins: list[dict] = []
+
+        for label, hmin, hmax in bin_defs:
+            bd = bin_data[label]
+            per_match = bd["per_match"]
+
+            y_true: list[int] = []
+            y_score: list[float] = []
+            for md in per_match.values():
+                if md["y_true"] is None:
+                    continue
+                scores = md["bookmaker_scores"].get(bk_id)
+                if not scores:
+                    continue
+                y_true.append(int(md["y_true"]))
+                y_score.append(float(np.mean(scores)))
+
+            n_matches = len(y_true)
+            if n_matches < min_matches:
+                continue
+            if len(set(y_true)) < 2:
+                continue
+
+            ll = _compute_logloss(y_true, y_score)
+            auc = _compute_auc(y_true, y_score)
+
+            bk_bins.append({
+                "label": label,
+                "hours_start": hmin,
+                "hours_end": hmax if hmax < 9999 else None,
+                "match_count": n_matches,
+                "avg_logloss": ll,
+                "avg_auc": auc,
+            })
+
+        if bk_bins:
+            result.append({
+                "bookmaker_id": bk_id,
+                "bookmaker_name": bk_name,
+                "bins": bk_bins,
+            })
+
+    return result
 
 
 def _compute_model_reference_metrics(db, cutoff: str) -> tuple[list[dict], list[dict]]:
@@ -1009,6 +1090,8 @@ def _empty_horizon_result(total_matches: int = 0) -> dict:
         "bins": [],
         "min_matches_per_bin": 10,
         "model_references": [],
+        "hybrid_model_bins": [],
+        "bookmaker_bins": [],
     }
 
 

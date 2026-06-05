@@ -272,6 +272,12 @@ export interface HybridModelBins {
   bins: HybridBinMetrics[];
 }
 
+export interface BookmakerBinMetrics {
+  bookmaker_id: number;
+  bookmaker_name: string;
+  bins: HybridBinMetrics[];  // same shape as hybrid bins (label, hours_start/end, match_count, avg_logloss, avg_auc)
+}
+
 export interface HorizonAccuracyResponse {
   total_matches_with_odds: number;
   total_finished_matches: number;
@@ -280,6 +286,7 @@ export interface HorizonAccuracyResponse {
   min_matches_per_bin: number;
   model_references: ModelReferenceMetrics[];
   hybrid_model_bins: HybridModelBins[];
+  bookmaker_bins: BookmakerBinMetrics[];
 }
 
 export interface MatchMovementResponse {

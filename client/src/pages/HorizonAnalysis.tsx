@@ -276,6 +276,63 @@ export default function HorizonAnalysis() {
     );
   }
 
+  /* ─── Per-bookmaker lines (subtle) ───────────────────── */
+  function BookmakerLines({ metricKey, domain }: {
+    metricKey: 'avg_logloss' | 'avg_auc';
+    domain: [number, number];
+  }) {
+    const bkBins = data?.bookmaker_bins ?? [];
+    if (bkBins.length === 0) return null;
+    const y = yScale(domain);
+    const shownBins = data?.bins ?? [];
+    const n = shownBins.length;
+    if (n === 0) return null;
+
+    // Subtle color palette for bookmakers
+    const bkColors = [
+      '#8e99a4', '#a3b1bf', '#7c8c9a', '#9ea8b3', '#6b7b8a',
+      '#b0bec5', '#90a4ae', '#78909c', '#607d8b', '#546e7a',
+    ];
+
+    return (
+      <>
+        {bkBins.map((bk, bkIdx) => {
+          const color = bkColors[bkIdx % bkColors.length];
+
+          // Build path from bins — match by label to the shown bins x-positions
+          const points: { x: number; y: number; bin: any }[] = [];
+          bk.bins.forEach((bin) => {
+            const val = bin[metricKey];
+            if (val !== null && val !== undefined && bin.match_count >= minMatches) {
+              // Find the x-position by matching the bin label to the shown bins
+              const binIdx = shownBins.findIndex(sb => sb.label === bin.label);
+              if (binIdx < 0) return;
+              const cx = xPos(binIdx, n);
+              const cy = y(val);
+              points.push({ x: cx, y: cy, bin });
+            }
+          });
+
+          if (points.length === 0) return null;
+
+          const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+
+          return (
+            <g key={`bk-${bk.bookmaker_id}`}>
+              <path d={pathD} fill="none" stroke={color} strokeWidth={1}
+                strokeDasharray="3,3" opacity={0.45} />
+              {points.map((p, i) => (
+                <circle key={i} cx={p.x} cy={p.y} r={2} fill={color} opacity={0.4}>
+                  <title>{bk.bookmaker_name} {p.bin.label}: {metricKey}={fmt(p.bin[metricKey] ?? 0)} ({p.bin.match_count} matches)</title>
+                </circle>
+              ))}
+            </g>
+          );
+        })}
+      </>
+    );
+  }
+
   /* ─── Shared line chart ───────────────────────────────── */
   function MetricLineChart({
     title,
@@ -319,6 +376,8 @@ export default function HorizonAnalysis() {
           <ModelRefLines metricKey={metricKey} domain={domain} />
           {/* Dynamic hybrid lines (per-bin) */}
           <HybridDynamicLines metricKey={metricKey} domain={domain} />
+          {/* Per-bookmaker lines (subtle, behind main line) */}
+          <BookmakerLines metricKey={metricKey} domain={domain} />
           {/* Line */}
           <path d={pathD} fill="none" stroke={color} strokeWidth={2.5} />
           {/* Points + labels */}
