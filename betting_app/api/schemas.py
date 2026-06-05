@@ -252,8 +252,10 @@ class BookmakerStatus(BaseModel):
 
 class SchedulerTaskResponse(BaseModel):
     id: str
+    task_id: str
     name: str
     description: str = ""
+    schedule: str
     interval_minutes: int | None = None
     cron_trigger: str | None = None
     enabled: bool = True
@@ -267,6 +269,8 @@ class SchedulerJobResponse(BaseModel):
     last_run_at: str | None = None
     last_run_status: str | None = None
     is_running: bool = False
+    trigger: str
+    pending: bool = False
 
 
 class SchedulerTriggerResponse(BaseModel):

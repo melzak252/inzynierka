@@ -42,11 +42,21 @@ def list_tasks():
     reg = _get_registry()
     tasks = []
     for t in reg.list_all():
+        # Derive human-readable schedule string
+        if t.cron_trigger:
+            schedule = t.cron_trigger
+        elif t.interval_minutes:
+            schedule = f"every {t.interval_minutes} min"
+        else:
+            schedule = "manual"
+
         tasks.append(
             SchedulerTaskResponse(
                 id=t.id,
+                task_id=t.id,
                 name=t.name,
                 description=t.description,
+                schedule=schedule,
                 interval_minutes=t.interval_minutes,
                 cron_trigger=t.cron_trigger,
                 enabled=t.enabled,
@@ -120,6 +130,17 @@ def list_jobs(db=Depends(get_db)):
         with _lock:
             is_running = t.id in _running_tasks
 
+        # Derive trigger string from cron/interval
+        if t.cron_trigger:
+            trigger = t.cron_trigger
+        elif t.interval_minutes:
+            trigger = f"interval:{t.interval_minutes}m"
+        else:
+            trigger = "manual"
+
+        # Pending = has a next_run_time scheduled but not currently running
+        pending = next_run is not None and not is_running
+
         results.append(
             SchedulerJobResponse(
                 id=t.id,
@@ -129,6 +150,8 @@ def list_jobs(db=Depends(get_db)):
                 last_run_at=last_run_at,
                 last_run_status=last_run_status,
                 is_running=is_running,
+                trigger=trigger,
+                pending=pending,
             )
         )
 
@@ -177,7 +200,7 @@ def list_recent_runs(limit: int = 20, db=Depends(get_db)):
     return query_df(
         db,
         """
-        SELECT id, run_type, status, started_at, finished_at, error,
+        SELECT id, run_type, run_type AS task_name, status, started_at, finished_at, error,
                EXTRACT(EPOCH FROM (finished_at::timestamp - started_at::timestamp)) AS duration_seconds
         FROM automation_runs
         ORDER BY started_at DESC
@@ -193,7 +216,10 @@ def list_run_commands(run_id: int, db=Depends(get_db)):
     return query_df(
         db,
         """
-        SELECT id, command, status, started_at, finished_at, error
+        SELECT id, command, status, started_at, finished_at, error,
+               ROW_NUMBER() OVER (ORDER BY started_at) AS step_order,
+               EXTRACT(EPOCH FROM (finished_at::timestamp - started_at::timestamp)) AS duration_seconds,
+               error AS output
         FROM automation_commands
         WHERE run_id = :run_id
         ORDER BY started_at
