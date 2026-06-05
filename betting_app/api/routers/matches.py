@@ -75,7 +75,7 @@ def list_matches(
             SELECT DISTINCT canonical_match_id
             FROM upcoming_matches
             WHERE canonical_match_id IS NOT NULL
-              AND last_seen_at > :stale_cutoff
+              AND (last_seen_at IS NULL OR last_seen_at > :stale_cutoff)
         ),
         latest AS (
             SELECT os.*
@@ -250,7 +250,7 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
             SELECT DISTINCT canonical_match_id
             FROM upcoming_matches
             WHERE canonical_match_id IS NOT NULL
-              AND last_seen_at > :stale_cutoff
+              AND (last_seen_at IS NULL OR last_seen_at > :stale_cutoff)
         ),
         latest AS (
             SELECT os.*
