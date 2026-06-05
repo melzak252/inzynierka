@@ -248,3 +248,81 @@ section h2 {
 .error {
   color: #ef5350;
 }
+
+/* Prediction History Chart */
+.prediction-history-section {
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.prediction-history-section h2 {
+  color: #e0e0e0;
+  font-size: 1.3rem;
+  margin-bottom: 1rem;
+}
+
+.chart-container {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.chart-container svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #2a2a4a;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #bbb;
+}
+
+.legend-line {
+  width: 20px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.legend-line.dashed {
+  background: repeating-linear-gradient(
+    90deg,
+    #888 0px,
+    #888 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.legend-rect {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+}
+
+.chart-tooltip {
+  position: absolute;
+  background: #16213e;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  color: #e0e0e0;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}

@@ -10,6 +10,7 @@ import type {
   SchedulerTriggerResponse,
   MatchMovementResponse,
   HorizonAccuracyResponse,
+  PredictionHistoryPoint,
 } from '../types';
 
 const API_BASE = '/api';
@@ -96,6 +97,14 @@ export async function fetchSchedulerRunCommands(runId: number): Promise<Schedule
 export async function triggerSchedulerTask(taskId: string): Promise<SchedulerTriggerResponse> {
   const response = await fetch(`${API_BASE}/scheduler/trigger/${taskId}`, { method: 'POST' });
   if (!response.ok) throw new Error(`Failed to trigger task: ${response.statusText}`);
+  return response.json();
+}
+
+// ─── Prediction History ──────────────────────────────────────
+
+export async function fetchPredictionHistory(matchId: number): Promise<PredictionHistoryPoint[]> {
+  const response = await fetch(`${API_BASE}/matches/${matchId}/prediction-history`);
+  if (!response.ok) throw new Error(`Failed to fetch prediction history: ${response.statusText}`);
   return response.json();
 }
 

@@ -148,6 +148,23 @@ class OddsHistoryPoint(BaseModel):
     canonical_odds_b: float | None = None
 
 
+# ── Prediction & EV history timeline ────────────────────────────────────────
+
+
+class PredictionHistoryPoint(BaseModel):
+    timestamp: str
+    model_name: str
+    model_version: str
+    prob_a: float | None = None
+    prob_b: float | None = None
+    avg_odds_a: float | None = None
+    avg_odds_b: float | None = None
+    market_prob_a: float | None = None
+    market_prob_b: float | None = None
+    ev_a: float | None = None
+    ev_b: float | None = None
+
+
 # ── Predictions / EV+ signals ───────────────────────────────────────────────
 
 

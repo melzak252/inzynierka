@@ -17,6 +17,7 @@ from betting_app.api.schemas import (
     MatchBoardItem,
     MatchBoardResponse,
     MatchDetailResponse,
+    PredictionHistoryPoint,
     PredictionRow,
     RosterInfo,
     RosterPlayer,
@@ -506,3 +507,166 @@ def odds_history(match_id: int, db=Depends(get_db)):
             canonical_odds_b=aligned[1],
         ))
     return history
+
+
+# ── GET /matches/{id}/prediction-history ────────────────────────────────────
+
+
+@router.get("/{match_id}/prediction-history", response_model=list[PredictionHistoryPoint])
+def prediction_history(match_id: int, db=Depends(get_db)):
+    """Return prediction & EV timeline for a match.
+
+    For each (predicted_at, model) point, compute the average market odds
+    at the closest scrape time, derive fair market probabilities, and
+    calculate EV using the hybrid model's probabilities.
+    """
+    meta = query_df(db, "SELECT id FROM canonical_matches WHERE id=:id", {"id": match_id})
+    if not meta:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    # Fetch all predictions for this match (both models, all time points)
+    preds = query_df(
+        db,
+        """
+        SELECT predicted_at, model_name, model_version, prob_a, prob_b
+        FROM canonical_predictions
+        WHERE canonical_match_id=:mid AND prediction_status='active'
+          AND prob_a IS NOT NULL AND prob_b IS NOT NULL
+        ORDER BY predicted_at
+        """,
+        {"mid": match_id},
+    )
+
+    if not preds:
+        return []
+
+    # Fetch all odds snapshots for this match (aligned)
+    mm = query_df(db, "SELECT normalized_team_a, normalized_team_b FROM canonical_matches WHERE id=:id", {"id": match_id})
+    n_a = mm[0].get("normalized_team_a", "") if mm else ""
+    n_b = mm[0].get("normalized_team_b", "") if mm else ""
+
+    odds_rows = query_df(
+        db,
+        """
+        SELECT os.scraped_at, os.odds_a, os.odds_b,
+               os.raw_team_a, os.raw_team_b,
+               b.name AS bookmaker
+        FROM odds_snapshots os
+        JOIN bookmakers b ON b.id=os.bookmaker_id
+        WHERE os.canonical_match_id=:mid AND os.market_type='match_winner'
+          AND COALESCE(os.is_live,0)=0
+          AND os.odds_a IS NOT NULL AND os.odds_b IS NOT NULL
+        ORDER BY os.scraped_at
+        """,
+        {"mid": match_id},
+    )
+
+    # Align odds and group by scraped_at bucket (truncate to minute)
+    from collections import defaultdict
+    odds_by_time: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for row in odds_rows:
+        aligned = _align(row, n_a, n_b)
+        if aligned[0] is not None and aligned[1] is not None:
+            sa = str(row.get("scraped_at", ""))
+            # Truncate to minute for grouping
+            bucket = sa[:16] if len(sa) >= 16 else sa
+            odds_by_time[bucket].append((float(aligned[0]), float(aligned[1])))
+
+    # Build sorted time buckets with average odds
+    sorted_buckets = sorted(odds_by_time.items())
+    bucket_times: list[str] = []
+    bucket_avg_a: list[float] = []
+    bucket_avg_b: list[float] = []
+    for bt, odds_list in sorted_buckets:
+        avg_a = sum(o[0] for o in odds_list) / len(odds_list)
+        avg_b = sum(o[1] for o in odds_list) / len(odds_list)
+        bucket_times.append(bt)
+        bucket_avg_a.append(round(avg_a, 4))
+        bucket_avg_b.append(round(avg_b, 4))
+
+    # For each prediction point, find the closest odds bucket
+    result: list[PredictionHistoryPoint] = []
+    for p in preds:
+        pred_time = str(p.get("predicted_at", ""))[:16]  # truncate to minute
+        avg_a: float | None = None
+        avg_b: float | None = None
+
+        if bucket_times:
+            # Find closest bucket by string comparison (ISO format sorts lexicographically)
+            best_idx = 0
+            best_diff = abs(ord(pred_time[0]) - ord(bucket_times[0][0])) if pred_time and bucket_times[0] else 999
+            for i, bt in enumerate(bucket_times):
+                # Simple string distance — find closest time
+                diff = 0
+                min_len = min(len(pred_time), len(bt))
+                for c in range(min_len):
+                    if pred_time[c] != bt[c]:
+                        # Approximate distance based on position
+                        diff = abs(i - len(bucket_times) // 2)  # fallback
+                        break
+                if pred_time <= bt:
+                    best_idx = i
+                    break
+            else:
+                best_idx = len(bucket_times) - 1
+
+            # Refine: check neighbours for actual closest
+            candidates = [best_idx]
+            if best_idx > 0:
+                candidates.append(best_idx - 1)
+            if best_idx < len(bucket_times) - 1:
+                candidates.append(best_idx + 1)
+
+            min_dist = float('inf')
+            for ci in candidates:
+                try:
+                    t1 = pred_time.replace('T', ' ') if 'T' in pred_time else pred_time
+                    t2 = bucket_times[ci].replace('T', ' ') if 'T' in bucket_times[ci] else bucket_times[ci]
+                    from datetime import datetime as dt
+                    d1 = dt.fromisoformat(t1)
+                    d2 = dt.fromisoformat(t2)
+                    dist = abs((d1 - d2).total_seconds())
+                except Exception:
+                    dist = float('inf')
+                if dist < min_dist:
+                    min_dist = dist
+                    best_idx = ci
+
+            avg_a = bucket_avg_a[best_idx]
+            avg_b = bucket_avg_b[best_idx]
+
+        # Compute market probabilities and EV
+        market_prob_a: float | None = None
+        market_prob_b: float | None = None
+        ev_a: float | None = None
+        ev_b: float | None = None
+
+        if avg_a is not None and avg_b is not None and avg_a > 1 and avg_b > 1:
+            try:
+                market_prob_a, market_prob_b = fair_market_probabilities(avg_a, avg_b)
+            except Exception:
+                pass
+
+        prob_a = none_or_float(p.get("prob_a"))
+        prob_b = none_or_float(p.get("prob_b"))
+
+        if prob_a is not None and avg_a is not None and avg_a > 1:
+            ev_a = expected_value(prob_a, avg_a, TAX_RATE)
+        if prob_b is not None and avg_b is not None and avg_b > 1:
+            ev_b = expected_value(prob_b, avg_b, TAX_RATE)
+
+        result.append(PredictionHistoryPoint(
+            timestamp=str(p.get("predicted_at", "")),
+            model_name=p.get("model_name", ""),
+            model_version=p.get("model_version", ""),
+            prob_a=prob_a,
+            prob_b=prob_b,
+            avg_odds_a=avg_a,
+            avg_odds_b=avg_b,
+            market_prob_a=round(market_prob_a, 4) if market_prob_a is not None else None,
+            market_prob_b=round(market_prob_b, 4) if market_prob_b is not None else None,
+            ev_a=round(ev_a, 4) if ev_a is not None else None,
+            ev_b=round(ev_b, 4) if ev_b is not None else None,
+        ))
+
+    return result

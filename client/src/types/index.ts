@@ -253,6 +253,21 @@ export interface HorizonAccuracyResponse {
   bookmaker_bins: BookmakerBinMetrics[];
 }
 
+// Prediction & EV history timeline
+export interface PredictionHistoryPoint {
+  timestamp: string;
+  model_name: string;
+  model_version: string;
+  prob_a: number | null;
+  prob_b: number | null;
+  avg_odds_a: number | null;
+  avg_odds_b: number | null;
+  market_prob_a: number | null;
+  market_prob_b: number | null;
+  ev_a: number | null;
+  ev_b: number | null;
+}
+
 export interface MatchMovementResponse {
   match_id: number;
   team_a: string | null;
