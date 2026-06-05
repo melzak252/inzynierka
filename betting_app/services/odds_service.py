@@ -25,14 +25,28 @@ def utc_now_iso() -> str:
 
 
 def get_or_create_bookmaker(name: str, base_url: str | None = None) -> int:
-    """Return bookmaker ID, creating it if needed."""
+    """Return bookmaker ID for an *existing* bookmaker.
+
+    Raises ValueError if the bookmaker name is not in the known whitelist.
+    This prevents phantom bookmaker rows (e.g. "fortuna", "manual") from
+    being auto-created by mistake.
+    """
+
+    _KNOWN_BOOKMAKERS = {
+        "sts", "betclic", "superbet", "efortuna", "betfan", "totalbet", "lebull",
+    }
+
+    if name not in _KNOWN_BOOKMAKERS:
+        raise ValueError(
+            f"Unknown bookmaker '{name}'. Known: {sorted(_KNOWN_BOOKMAKERS)}"
+        )
 
     with transaction() as connection:
-        connection.execute(
-            "INSERT INTO bookmakers(name, base_url) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
-            (name, base_url),
-        )
         row = connection.execute("SELECT id FROM bookmakers WHERE name = ?", (name,)).fetchone()
+        if row is None:
+            raise ValueError(
+                f"Bookmaker '{name}' is known but not seeded in DB. Run seed_bookmakers() first."
+            )
         return int(row["id"])
 
 
