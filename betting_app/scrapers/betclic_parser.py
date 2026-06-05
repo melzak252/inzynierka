@@ -90,6 +90,14 @@ def parse_betclic_lol_body_text(text: str) -> list[ParsedBetclicOffer]:
 
     Live rows under `Teraz` do not have the `+N / zakł.` marker and are skipped
     because the MVP is prematch-only.
+
+    Some prematch cards (typically the first in a date section) may lack the
+    ``+N zakł.`` marker entirely.  The parser therefore tries two strategies:
+
+    1. **Strict** – the classic ``League → +N → zakł. → TeamA → HH:MM → TeamB`` pattern.
+    2. **Relaxed** – ``League → TeamA → HH:MM → TeamB`` without the market-count
+       marker.  This is only attempted when the strict match fails, so that
+       well-formed cards are still parsed with their market count intact.
     """
 
     lines = [normalize_space(line) for line in text.splitlines()]
@@ -97,56 +105,91 @@ def parse_betclic_lol_body_text(text: str) -> list[ParsedBetclicOffer]:
     offers: list[ParsedBetclicOffer] = []
     i = 0
     current_date_label: str | None = None
-    while i < len(lines) - 8:
+    while i < len(lines) - 4:
         if is_date_heading(lines[i]):
             current_date_label = lines[i]
             i += 1
             continue
+
+        # --- Strategy 1: strict (with +N zakł.) ---
         league = lines[i]
         market_count = MARKET_COUNT_LINE_RE.match(lines[i + 1])
-        if not market_count or lines[i + 2].lower() != "zakł.":
-            i += 1
-            continue
+        if market_count and i + 2 < len(lines) and lines[i + 2].lower() == "zakł.":
+            team_a = lines[i + 3]
+            start_time = lines[i + 4]
+            team_b = lines[i + 5]
+            if TIME_LINE_RE.match(start_time):
+                odd_positions = _find_two_odds(lines, i + 6)
+                if len(odd_positions) >= 2:
+                    offers.append(
+                        ParsedBetclicOffer(
+                            league=league,
+                            raw_team_a=team_a,
+                            raw_team_b=team_b,
+                            odds_a=odd_positions[0][1],
+                            odds_b=odd_positions[1][1],
+                            source_url=BETCLIC_LOL_URL,
+                            start_time_label=start_time,
+                            date_label=current_date_label,
+                            market_count_label=market_count.group("count"),
+                            raw_text="\n".join(lines[i : odd_positions[1][0] + 1]),
+                        )
+                    )
+                    i = odd_positions[1][0] + 1
+                    continue
 
-        team_a = lines[i + 3]
-        start_time = lines[i + 4]
-        team_b = lines[i + 5]
-        if not TIME_LINE_RE.match(start_time):
-            i += 1
-            continue
+        # --- Strategy 2: relaxed (no +N zakł.) ---
+        # League line followed by TeamA → HH:MM → TeamB
+        relaxed_team_a = lines[i + 1]
+        relaxed_time = lines[i + 2]
+        if TIME_LINE_RE.match(relaxed_time) and i + 3 < len(lines):
+            relaxed_team_b = lines[i + 3]
+            # Make sure this isn't a false positive: the "league" line should
+            # not look like a time, date heading, or odds value.
+            if (
+                not TIME_LINE_RE.match(league)
+                and not is_date_heading(league)
+                and not ODD_RE.fullmatch(league)
+                and league.lower() != "zakł."
+            ):
+                odd_positions = _find_two_odds(lines, i + 4)
+                if len(odd_positions) >= 2:
+                    offers.append(
+                        ParsedBetclicOffer(
+                            league=league,
+                            raw_team_a=relaxed_team_a,
+                            raw_team_b=relaxed_team_b,
+                            odds_a=odd_positions[0][1],
+                            odds_b=odd_positions[1][1],
+                            source_url=BETCLIC_LOL_URL,
+                            start_time_label=relaxed_time,
+                            date_label=current_date_label,
+                            market_count_label=None,
+                            raw_text="\n".join(lines[i : odd_positions[1][0] + 1]),
+                        )
+                    )
+                    i = odd_positions[1][0] + 1
+                    continue
 
-        odd_positions: list[tuple[int, float]] = []
-        j = i + 6
-        while j < len(lines):
-            # Stop before the next prematch card if only one/no odds were found.
-            if j + 2 < len(lines) and MARKET_COUNT_LINE_RE.match(lines[j + 1]) and lines[j + 2].lower() == "zakł.":
-                break
-            if ODD_RE.fullmatch(lines[j]):
-                odd_positions.append((j, parse_decimal_odd(lines[j])))
-                if len(odd_positions) == 2:
-                    break
-            j += 1
-
-        if len(odd_positions) < 2:
-            i += 1
-            continue
-
-        offers.append(
-            ParsedBetclicOffer(
-                league=league,
-                raw_team_a=team_a,
-                raw_team_b=team_b,
-                odds_a=odd_positions[0][1],
-                odds_b=odd_positions[1][1],
-                source_url=BETCLIC_LOL_URL,
-                start_time_label=start_time,
-                date_label=current_date_label,
-                market_count_label=market_count.group("count"),
-                raw_text="\n".join(lines[i : odd_positions[1][0] + 1]),
-            )
-        )
-        i = odd_positions[1][0] + 1
+        i += 1
     return offers
+
+
+def _find_two_odds(lines: list[str], start: int) -> list[tuple[int, float]]:
+    """Scan forward from *start* and return up to two (index, odd) pairs."""
+
+    odd_positions: list[tuple[int, float]] = []
+    j = start
+    while j < len(lines):
+        # Stop before the next prematch card marker.
+        if j + 2 < len(lines) and MARKET_COUNT_LINE_RE.match(lines[j + 1]) and lines[j + 2].lower() == "zakł.":
+            break
+        if ODD_RE.fullmatch(lines[j]):
+            odd_positions.append((j, parse_decimal_odd(lines[j])))
+            if len(odd_positions) == 2:
+                break
+        j += 1
+    return odd_positions
 
 
 def is_date_heading(line: str) -> bool:

@@ -50,28 +50,45 @@ class NoDriverClient:
             raise RuntimeError("Browser is not started")
         return await self.browser.get(url)
 
-    async def scroll_to_bottom(self, tab: Any, step: int = 800, pause: float = 0.5) -> None:
+    async def scroll_to_bottom(self, tab: Any, step: int = 500, pause: float = 0.8, passes: int = 2) -> None:
         """Scroll the page to the bottom to trigger lazy-loaded content.
 
         Scrolls down in *step*-pixel increments, pausing *pause* seconds
         between each scroll to allow the SPA to render newly loaded cards.
+
+        Multiple *passes* help with SPAs that keep appending content as the
+        user scrolls — the first pass may reveal sections that themselves
+        lazy-load more content below.
         """
 
         import asyncio
 
         try:
-            last_height = await tab.evaluate("document.body.scrollHeight")
-            if last_height is None:
-                return
-            last_height = int(last_height)
-            current = 0
-            while current < last_height:
-                current += step
-                await tab.evaluate(f"window.scrollTo(0, {current})")
-                await asyncio.sleep(pause)
-                new_height = await tab.evaluate("document.body.scrollHeight")
-                if new_height is not None:
-                    last_height = int(new_height)
+            for _pass in range(passes):
+                last_height = await tab.evaluate("document.body.scrollHeight")
+                if last_height is None:
+                    return
+                last_height = int(last_height)
+                current = 0
+                stable_count = 0
+                while current < last_height:
+                    current += step
+                    await tab.evaluate(f"window.scrollTo(0, {current})")
+                    await asyncio.sleep(pause)
+                    new_height = await tab.evaluate("document.body.scrollHeight")
+                    if new_height is not None:
+                        new_height_int = int(new_height)
+                        if new_height_int == last_height:
+                            stable_count += 1
+                            if stable_count >= 3:
+                                break
+                        else:
+                            stable_count = 0
+                        last_height = new_height_int
+                # Scroll back to top before next pass so lazy-load triggers again
+                if _pass < passes - 1:
+                    await tab.evaluate("window.scrollTo(0, 0)")
+                    await asyncio.sleep(1.0)
         except Exception:
             return
 

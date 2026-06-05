@@ -38,7 +38,7 @@ class BetclicNoDriverScraper:
             tab = await client.open(self.start_url)
             await self.wait_for_render(tab)
             await self.accept_cookies(tab)
-            await client.scroll_to_bottom(tab, step=800, pause=0.5)
+            await client.scroll_to_bottom(tab, step=500, pause=0.8, passes=2)
             await self.wait_for_render(tab, seconds=3.0)
             html_path, screenshot_path = await client.save_debug_artifacts(tab, f"betclic_{timestamp}")
             body_text = await self.extract_body_text(tab)
