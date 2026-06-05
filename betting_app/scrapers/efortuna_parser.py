@@ -38,11 +38,60 @@ class ParsedEFortunaOffer:
     offer_url: str | None = None
     start_time_label: str | None = None
     raw_text: str | None = None
+    best_of: int | None = None
 
 
 TIME_RE = re.compile(r"^(dzisiaj|jutro)\s+\d{1,2}:\d{2}$", re.IGNORECASE)
 FULL_DATE_RE = re.compile(r"^[a-ząćęłńóśźż]{2,8}\.,\s*\d{1,2}\.\d{2}\.\d{4},\s*\d{1,2}:\d{2}$", re.IGNORECASE)
 ODD_RE = re.compile(r"^\d+[,.]\d{2}$")
+
+# "liczba map" (number of maps) over/under line detection.
+# eFortuna shows lines like "liczba map -2.5" or "liczba map 2.5" for map totals.
+# -2.5 → under 2.5 maps → Bo3 (2 or 3 maps possible)
+# -4.5 → under 4.5 maps → Bo5 (3, 4, or 5 maps possible)
+# -0.5 or 0.5 → Bo1 (exactly 1 map)
+LICZBA_MAP_RE = re.compile(r"liczba\s+map", re.IGNORECASE)
+MAP_LINE_RE = re.compile(r"^([+-]?\d+[,.]\d+)$")
+
+
+def _infer_best_from_map_line(line_value: str) -> int | None:
+    """Infer best_of from an over/under map total line.
+
+    eFortuna uses half-point lines (e.g. 2.5, 4.5) for map totals.
+    - Line ≤ 1.5 → Bo1 (1 map total)
+    - Line ≤ 2.5 → Bo3 (2-3 maps possible)
+    - Line ≤ 4.5 → Bo5 (3-5 maps possible)
+    """
+    try:
+        val = abs(float(line_value.replace(",", ".")))
+    except ValueError:
+        return None
+    if val <= 1.5:
+        return 1
+    if val <= 2.5:
+        return 3
+    if val <= 4.5:
+        return 5
+    return None
+
+
+def _extract_best_of_from_text(lines: list[str], team_a: str, team_b: str, match_start_idx: int) -> int | None:
+    """Scan surrounding lines for a 'liczba map' line and infer best_of.
+
+    Looks forward from the match start position for a 'liczba map' line
+    followed by a decimal line (the over/under value). Stops after 30 lines
+    to avoid crossing into the next match.
+    """
+    search_limit = min(match_start_idx + 30, len(lines))
+    for j in range(match_start_idx, search_limit):
+        if LICZBA_MAP_RE.match(lines[j]):
+            # Next non-empty line should contain the line value
+            for k in range(j + 1, min(j + 4, len(lines))):
+                m = MAP_LINE_RE.match(lines[k])
+                if m:
+                    return _infer_best_from_map_line(m.group(1))
+            break
+    return None
 
 
 def parse_efortuna_lol_offers(text: str, *, source_url: str, offer_url: str | None = None) -> list[ParsedEFortunaOffer]:
@@ -77,6 +126,7 @@ def parse_efortuna_lol_offers(text: str, *, source_url: str, offer_url: str | No
                 offer_url=offer_url or build_offer_url(source_url, team_a, team_b),
                 start_time_label=start,
                 raw_text="\n".join(lines[i : i + 8]),
+                best_of=_extract_best_of_from_text(lines, team_a, team_b, i),
             )
         )
         i += 8

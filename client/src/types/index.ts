@@ -4,6 +4,7 @@ export interface MatchBoardItem {
   match: string;
   league: string | null;
   start_time_normalized: string | null;
+  best_of: number | null;
   team_a_name: string | null;
   team_b_name: string | null;
   bookmaker_count: number;
@@ -96,6 +97,7 @@ export interface MatchDetailResponse {
   league: string | null;
   start_time_normalized: string | null;
   status: string | null;
+  best_of: number | null;
   odds: BookmakerOddsRow[];
   predictions: PredictionRow[];
   roster_a: RosterInfo | null;

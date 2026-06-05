@@ -73,6 +73,7 @@ def upsert_upcoming_match(
     offer_url: str | None = None,
     canonical_team_a: str | None = None,
     canonical_team_b: str | None = None,
+    best_of: int | None = None,
 ) -> int:
     """Create or update an upcoming match and return its ID."""
 
@@ -93,6 +94,7 @@ def upsert_upcoming_match(
             raw_team_b=canonical_team_b or raw_team_b,
             match_start_time=match_start_time,
             league=league,
+            best_of=best_of,
         )
     with transaction() as connection:
         connection.execute(
@@ -203,6 +205,7 @@ def insert_odds_snapshot(snapshot: dict[str, Any]) -> int:
         offer_url=snapshot.get("offer_url"),
         canonical_team_a=snapshot.get("mapped_team_a"),
         canonical_team_b=snapshot.get("mapped_team_b"),
+        best_of=snapshot.get("best_of"),
     )
     canonical_match_id = get_upcoming_canonical_match_id(match_id)
     raw_payload = snapshot.get("raw_payload")
@@ -313,6 +316,7 @@ def upsert_bookmaker_event(snapshot: dict[str, Any]) -> int:
         offer_url=snapshot.get("offer_url"),
         canonical_team_a=snapshot.get("mapped_team_a"),
         canonical_team_b=snapshot.get("mapped_team_b"),
+        best_of=snapshot.get("best_of"),
     )
     canonical_match_id = get_upcoming_canonical_match_id(match_id)
     with transaction() as connection:

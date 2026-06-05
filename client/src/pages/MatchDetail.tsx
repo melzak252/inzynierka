@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchMatchDetail, fetchPredictionHistory } from '../api/client';
+import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf } from '../api/client';
 import type { MatchDetailResponse, PredictionHistoryPoint } from '../types';
 import './MatchDetail.css';
 
@@ -326,6 +326,9 @@ export default function MatchDetail() {
   const [predHistory, setPredHistory] = useState<PredictionHistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingBestOf, setEditingBestOf] = useState(false);
+  const [selectedBestOf, setSelectedBestOf] = useState<number>(1);
+  const [savingBestOf, setSavingBestOf] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -390,6 +393,44 @@ export default function MatchDetail() {
         <div className="league-info">
           <span className="league">{match.league || 'Nieznana liga'}</span>
           <span className="status">{match.status}</span>
+          {match.best_of && (
+            <span
+              className={`best-of-badge bo${match.best_of}`}
+              onClick={() => { setSelectedBestOf(match.best_of || 1); setEditingBestOf(true); }}
+              title="Kliknij aby zmienić"
+            >
+              Bo{match.best_of}
+            </span>
+          )}
+          {editingBestOf && (
+            <span className="best-of-edit">
+              <select
+                value={selectedBestOf}
+                onChange={async (e) => {
+                  const val = parseInt(e.target.value);
+                  setSelectedBestOf(val);
+                  setSavingBestOf(true);
+                  try {
+                    await updateMatchBestOf(match.canonical_match_id, val);
+                    setMatch({ ...match, best_of: val });
+                  } catch {
+                    // silently fail, keep old value
+                  } finally {
+                    setSavingBestOf(false);
+                    setEditingBestOf(false);
+                  }
+                }}
+                onBlur={() => setEditingBestOf(false)}
+                disabled={savingBestOf}
+                autoFocus
+              >
+                <option value={1}>Bo1</option>
+                <option value={3}>Bo3</option>
+                <option value={5}>Bo5</option>
+                <option value={7}>Bo7</option>
+              </select>
+            </span>
+          )}
         </div>
         <h1>
           {match.team_a_name || '?'} vs {match.team_b_name || '?'}

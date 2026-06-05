@@ -24,6 +24,7 @@ class MatchBoardItem(BaseModel):
     match: str
     league: str | None = None
     start_time_normalized: str | None = None
+    best_of: int | None = None
 
     team_a_name: str | None = None
     team_b_name: str | None = None
@@ -121,6 +122,10 @@ class TeamComparisonInfo(BaseModel):
     rating_system: str | None = None
 
 
+class MatchBestOfUpdate(BaseModel):
+    best_of: int = Field(ge=1, le=7)
+
+
 class MatchDetailResponse(BaseModel):
     canonical_match_id: int
     team_a_name: str | None = None
@@ -128,6 +133,7 @@ class MatchDetailResponse(BaseModel):
     league: str | None = None
     start_time_normalized: str | None = None
     status: str | None = None
+    best_of: int | None = None
 
     odds: list[BookmakerOddsRow] = []
     predictions: list[PredictionRow] = []

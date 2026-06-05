@@ -36,6 +36,16 @@ export async function fetchMatchDetail(matchId: number): Promise<MatchDetailResp
   return response.json();
 }
 
+export async function updateMatchBestOf(matchId: number, bestOf: number): Promise<{ best_of: number }> {
+  const response = await fetch(`${API_BASE}/matches/${matchId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ best_of: bestOf }),
+  });
+  if (!response.ok) throw new Error(`Failed to update best_of: ${response.statusText}`);
+  return response.json();
+}
+
 export async function fetchHealth(): Promise<{ status: string; version: string }> {
   const response = await fetch(`${API_BASE}/health`);
   if (!response.ok) throw new Error(`Failed to fetch health: ${response.statusText}`);

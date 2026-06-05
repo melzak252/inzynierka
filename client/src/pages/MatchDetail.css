@@ -38,6 +38,40 @@
   letter-spacing: 0.5px;
 }
 
+.best-of-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #e0e0e0;
+  background: #2a2a5a;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-left: 0.5rem;
+}
+
+.best-of-badge:hover {
+  background: #3a3a7a;
+}
+
+.best-of-edit select {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #e0e0e0;
+  background: #2a2a5a;
+  border: 1px solid #4a4a8a;
+  border-radius: 3px;
+  padding: 0.15rem 0.3rem;
+  margin-left: 0.5rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.best-of-edit select:focus {
+  border-color: #4fc3f7;
+}
+
 .status {
   font-size: 0.8rem;
   color: #888;

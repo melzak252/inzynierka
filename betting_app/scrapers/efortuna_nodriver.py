@@ -116,4 +116,5 @@ class EFortunaNoDriverScraper:
             raw_payload=raw_payload,
             page_html_path=str(html_path) if html_path else None,
             screenshot_path=str(screenshot_path) if screenshot_path else None,
+            best_of=card.best_of,
         )

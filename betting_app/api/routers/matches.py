@@ -9,11 +9,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from sqlalchemy import text
 from fastapi import APIRouter, Depends, HTTPException
 
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import (
     BookmakerOddsRow,
+    MatchBestOfUpdate,
     MatchBoardItem,
     MatchBoardResponse,
     MatchDetailResponse,
@@ -204,6 +206,7 @@ def list_matches(
             match=f"{group[0].get('team_a_name','?')} vs {group[0].get('team_b_name','?')}",
             league=group[0].get("league"),
             start_time_normalized=group[0].get("start_time_normalized"),
+            best_of=group[0].get("best_of"),
             team_a_name=group[0].get("team_a_name"),
             team_b_name=group[0].get("team_b_name"),
             bookmaker_count=books,
@@ -458,6 +461,7 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
         league=m.get("league"),
         start_time_normalized=m.get("start_time_normalized"),
         status=m.get("status"),
+        best_of=m.get("best_of"),
         odds=odds_rows,
         predictions=pred_rows,
         roster_a=roster_a,
@@ -684,3 +688,19 @@ def prediction_history(match_id: int, db=Depends(get_db)):
         ))
 
     return result
+
+
+# ── PATCH /matches/{id} — update best_of ────────────────────────────────────
+
+
+@router.patch("/{match_id}", response_model=MatchBestOfUpdate)
+def update_match_best_of(match_id: int, body: MatchBestOfUpdate, db=Depends(get_db)):
+    meta = query_df(db, "SELECT id FROM canonical_matches WHERE id=:id", {"id": match_id})
+    if not meta:
+        raise HTTPException(status_code=404, detail="Match not found")
+    db.execute(
+        text("UPDATE canonical_matches SET best_of = :best_of WHERE id = :id"),
+        {"best_of": body.best_of, "id": match_id},
+    )
+    db.commit()
+    return body

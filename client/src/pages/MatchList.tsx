@@ -78,6 +78,9 @@ export default function MatchList() {
             >
               <div className="match-header">
                 <span className="league">{m.league || 'Nieznana liga'}</span>
+                {m.best_of && (
+                  <span className={`best-of-badge bo${m.best_of}`}>Bo{m.best_of}</span>
+                )}
                 <span className="datetime">{formatDateTime(m.start_time_normalized)}</span>
               </div>
 

@@ -144,6 +144,7 @@ def resolve_canonical_match(
     match_start_time: str | None = None,
     league: str | None = None,
     min_confidence: float = 0.78,
+    best_of: int | None = None,
 ) -> int:
     """Find or create a canonical match shared by all bookmakers."""
 
@@ -151,6 +152,10 @@ def resolve_canonical_match(
     team_b_key = canonical_team_key(raw_team_b)
     start_norm = normalize_start_time(match_start_time)
     league_norm = normalize_league(league)
+
+    # Prefer scraper-provided best_of over heuristic; fall back to heuristic
+    # when the scraper did not detect the format (e.g. no "liczba map" line).
+    best_of_val = best_of if best_of is not None else infer_best_of(league)
 
     # With a parsed start time we can safely reuse expired/finished rows; this
     # prevents creating duplicate canonical rows when a bookmaker re-emits odds
@@ -192,22 +197,29 @@ def resolve_canonical_match(
                 best_score = score
                 best_id = int(candidate["id"])
         if best_id is not None and best_score >= min_confidence:
-            best_of_val = infer_best_of(league)
+            # When the scraper provides best_of, always update it (the scraper
+            # has direct evidence from the bookmaker page).  Otherwise only
+            # fill in null values via COALESCE to preserve manual edits.
+            if best_of is not None:
+                best_of_sql = "best_of = ?"
+                best_of_params: tuple[int, ...] = (best_of_val,)
+            else:
+                best_of_sql = "best_of = COALESCE(best_of, ?)"
+                best_of_params = (best_of_val,)
             connection.execute(
-                """
+                f"""
                 UPDATE canonical_matches
                 SET start_time_normalized = COALESCE(start_time_normalized, ?),
                     league = COALESCE(league, ?),
                     match_confidence = GREATEST(match_confidence, ?),
-                    best_of = COALESCE(best_of, ?)
+                    {best_of_sql}
                 WHERE id = ?
                 """,
-                (start_norm, league, best_score, best_of_val, best_id),
+                (start_norm, league, best_score, *best_of_params, best_id),
             )
             return best_id
 
         canonical_key = build_canonical_key(team_a_key, team_b_key, start_norm, league_norm)
-        best_of_val = infer_best_of(league)
         connection.execute(
             """
             INSERT INTO canonical_matches(

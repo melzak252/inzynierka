@@ -28,6 +28,7 @@ class RawOddsSnapshot:
     raw_payload: str | dict | None = None
     page_html_path: str | None = None
     screenshot_path: str | None = None
+    best_of: int | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary and fill scrape timestamp if missing."""
@@ -75,6 +76,7 @@ class RawOutcomeOddsSnapshot:
     scraper_version: str | None = None
     scrape_run_id: int | None = None
     raw_payload: dict[str, Any] | str | None = None
+    best_of: int | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary and fill scrape timestamp if missing."""
