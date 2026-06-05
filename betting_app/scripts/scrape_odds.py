@@ -23,7 +23,6 @@ BOOKMAKER_URLS = {
     "betclic": BETCLIC_LOL_URL,
     "superbet": SUPERBET_LOL_URL,
     "efortuna": EFORTUNA_LOL_URL,
-    "fortuna": EFORTUNA_LOL_URL,
     "betfan": BETFAN_ESPORT_URL,
     "totalbet": TOTALBET_ESPORT_URL,
     "lebull": LEBULL_ESPORT_URL,
@@ -41,8 +40,8 @@ def build_scraper(bookmaker: str, url: str | None, headless: bool | None):
         return BetclicNoDriverScraper(start_url=url or BOOKMAKER_URLS["betclic"], headless=headless)
     if bookmaker == "superbet":
         return SuperbetNoDriverScraper(start_url=url or BOOKMAKER_URLS["superbet"], headless=headless)
-    if bookmaker in {"efortuna", "fortuna"}:
-        return EFortunaNoDriverScraper(start_url=url or BOOKMAKER_URLS[bookmaker], headless=headless)
+    if bookmaker == "efortuna":
+        return EFortunaNoDriverScraper(start_url=url or BOOKMAKER_URLS["efortuna"], headless=headless)
     if bookmaker == "betfan":
         return BetfanNoDriverScraper(start_url=url or BOOKMAKER_URLS["betfan"], headless=headless)
     if bookmaker == "totalbet":
