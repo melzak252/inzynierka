@@ -311,6 +311,8 @@ export interface MatchResultItem {
   best_ev_a: number | null;
   best_ev_b: number | null;
   bookmakers_with_ev: string[];
+  best_odds_a: number | null;
+  best_odds_b: number | null;
 }
 
 export interface MatchResultsResponse {

@@ -4,6 +4,7 @@ import type { MatchResultItem } from '../types'
 import './MatchResults.css'
 
 const DAYS_OPTIONS = [7, 14, 30, 60, 90]
+const BET_SIZE = 10
 
 export default function MatchResults() {
   const [results, setResults] = useState<MatchResultItem[]>([])
@@ -53,6 +54,61 @@ export default function MatchResults() {
   const positiveEvCount = useMemo(() => {
     return results.filter((r) => (r.best_ev_a ?? 0) > 0 || (r.best_ev_b ?? 0) > 0).length
   }, [results])
+
+  // Calculate P&L for +EV bets ($10 per bet)
+  const pnlData = useMemo(() => {
+    let totalPnl = 0
+    let wins = 0
+    let losses = 0
+    let totalBets = 0
+
+    for (const r of results) {
+      const evA = r.best_ev_a ?? 0
+      const evB = r.best_ev_b ?? 0
+
+      // Side A had +EV
+      if (evA > 0 && r.best_odds_a !== null) {
+        totalBets++
+        if (r.winner_side === 'team_a') {
+          // Won: profit = $10 * (odds - 1)
+          totalPnl += BET_SIZE * (r.best_odds_a - 1)
+          wins++
+        } else {
+          // Lost: -$10
+          totalPnl -= BET_SIZE
+          losses++
+        }
+      }
+
+      // Side B had +EV
+      if (evB > 0 && r.best_odds_b !== null) {
+        totalBets++
+        if (r.winner_side === 'team_b') {
+          totalPnl += BET_SIZE * (r.best_odds_b - 1)
+          wins++
+        } else {
+          totalPnl -= BET_SIZE
+          losses++
+        }
+      }
+    }
+
+    return { totalPnl, wins, losses, totalBets }
+  }, [results])
+
+  // Determine EV outcome for a match: 'won' | 'lost' | null
+  const getEvOutcome = (r: MatchResultItem): 'won' | 'lost' | null => {
+    const evA = r.best_ev_a ?? 0
+    const evB = r.best_ev_b ?? 0
+    if (evA <= 0 && evB <= 0) return null
+
+    // Check if any +EV side won
+    if (evA > 0 && r.winner_side === 'team_a') return 'won'
+    if (evB > 0 && r.winner_side === 'team_b') return 'won'
+
+    // If we had +EV but the +EV side didn't win
+    return 'lost'
+  }
 
   // Group results by date
   const groupedResults = useMemo(() => {
@@ -112,6 +168,11 @@ export default function MatchResults() {
     return ev > 0 ? `+${pct}%` : `${pct}%`
   }
 
+  const formatPnl = (amount: number) => {
+    const sign = amount >= 0 ? '+' : ''
+    return `${sign}$${amount.toFixed(2)}`
+  }
+
   return (
     <div className="match-results-page">
       <div className="results-header">
@@ -133,6 +194,20 @@ export default function MatchResults() {
             )}
           </button>
         </div>
+
+        {/* P&L Summary Bar */}
+        {pnlData.totalBets > 0 && (
+          <div className={`pnl-bar ${pnlData.totalPnl >= 0 ? 'pnl-positive' : 'pnl-negative'}`}>
+            <div className="pnl-label">P&L ($10/bet)</div>
+            <div className="pnl-amount">{formatPnl(pnlData.totalPnl)}</div>
+            <div className="pnl-details">
+              <span className="pnl-wins">✓ {pnlData.wins}</span>
+              <span className="pnl-losses">✗ {pnlData.losses}</span>
+              <span className="pnl-bets">{pnlData.totalBets} zakładów</span>
+            </div>
+          </div>
+        )}
+
         <div className="results-controls">
           <span className="controls-label">Okres:</span>
           <div className="days-pills">
@@ -191,9 +266,15 @@ export default function MatchResults() {
               const teamBClass = getWinnerClass(r.winner_side, 'b')
               const hasResult = r.team_a_score !== null && r.team_b_score !== null
               const isPositiveEv = hasPositiveEv(r)
+              const evOutcome = getEvOutcome(r)
+
+              // Determine card class based on EV outcome
+              let cardEvClass = ''
+              if (evOutcome === 'won') cardEvClass = ' ev-won'
+              else if (evOutcome === 'lost') cardEvClass = ' ev-lost'
 
               return (
-                <div key={r.canonical_match_id} className={`result-card${isPositiveEv ? ' has-ev' : ''}`}>
+                <div key={r.canonical_match_id} className={`result-card${cardEvClass}`}>
                   <div className="result-card-header">
                     <span className="result-league">{r.league || 'Nieznana liga'}</span>
                     {r.best_of && (
@@ -202,7 +283,9 @@ export default function MatchResults() {
                       </span>
                     )}
                     {isPositiveEv && (
-                      <span className="result-ev-indicator">⚡ +EV</span>
+                      <span className={`result-ev-indicator${evOutcome === 'won' ? ' ev-won' : evOutcome === 'lost' ? ' ev-lost' : ''}`}>
+                        {evOutcome === 'won' ? '✓' : evOutcome === 'lost' ? '✗' : '⚡'} +EV
+                      </span>
                     )}
                     <span className="result-time">{formatTime(r.start_time_normalized)}</span>
                   </div>
@@ -233,13 +316,15 @@ export default function MatchResults() {
                   {isPositiveEv && (
                     <div className="result-ev-row">
                       {(r.best_ev_a ?? 0) > 0 && (
-                        <span className="result-ev-badge ev-a">
+                        <span className={`result-ev-badge ev-a${r.winner_side === 'team_a' ? ' ev-bet-won' : ' ev-bet-lost'}`}>
                           {r.team_a_name?.split(' ').slice(-1)[0]}: {formatEv(r.best_ev_a)}
+                          {r.best_odds_a !== null && <span className="ev-odds">@{r.best_odds_a.toFixed(2)}</span>}
                         </span>
                       )}
                       {(r.best_ev_b ?? 0) > 0 && (
-                        <span className="result-ev-badge ev-b">
+                        <span className={`result-ev-badge ev-b${r.winner_side === 'team_b' ? ' ev-bet-won' : ' ev-bet-lost'}`}>
                           {r.team_b_name?.split(' ').slice(-1)[0]}: {formatEv(r.best_ev_b)}
+                          {r.best_odds_b !== null && <span className="ev-odds">@{r.best_odds_b.toFixed(2)}</span>}
                         </span>
                       )}
                       {r.bookmakers_with_ev.length > 0 && (
