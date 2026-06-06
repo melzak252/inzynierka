@@ -36,6 +36,86 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
     return Array.from(tsSet).sort();
   }, [data]);
 
+  // Compute dynamic Y range from actual data
+  const { yMin, yMax, yTicks } = useMemo(() => {
+    const allProbs: number[] = [];
+    for (const pt of data) {
+      if (pt.prob_a != null) allProbs.push(pt.prob_a);
+      if (pt.prob_b != null) allProbs.push(pt.prob_b);
+      if (pt.market_prob_a != null) allProbs.push(pt.market_prob_a);
+      if (pt.market_prob_b != null) allProbs.push(pt.market_prob_b);
+    }
+    if (allProbs.length === 0) {
+      return { yMin: 0, yMax: 1, yTicks: [0, 0.25, 0.5, 0.75, 1] };
+    }
+    const dataMin = Math.min(...allProbs);
+    const dataMax = Math.max(...allProbs);
+    // Add 5% padding on each side, but ensure at least 10% range
+    const range = dataMax - dataMin;
+    const padding = Math.max(range * 0.15, 0.05);
+    let lo = Math.max(0, dataMin - padding);
+    let hi = Math.min(1, dataMax + padding);
+    // Ensure minimum 10% visible range
+    if (hi - lo < 0.10) {
+      const center = (lo + hi) / 2;
+      lo = Math.max(0, center - 0.05);
+      hi = Math.min(1, center + 0.05);
+    }
+    // Round to nice tick values (every 5% or 10%)
+    const tickStep = (hi - lo) > 0.4 ? 0.10 : (hi - lo) > 0.2 ? 0.05 : 0.02;
+    const niceLo = Math.floor(lo / tickStep) * tickStep;
+    const niceHi = Math.ceil(hi / tickStep) * tickStep;
+    const ticks: number[] = [];
+    for (let v = niceLo; v <= niceHi + tickStep * 0.01; v += tickStep) {
+      ticks.push(Math.round(v * 1000) / 1000);
+    }
+    return { yMin: niceLo, yMax: niceHi, yTicks: ticks };
+  }, [data]);
+
+  // Compute EV+ stats for the info table
+  const evStats = useMemo(() => {
+    const evPlusPoints = data.filter(
+      pt => (pt.ev_a != null && pt.ev_a > 0) || (pt.ev_b != null && pt.ev_b > 0)
+    );
+
+    // Min/max prob_a and prob_b across all data points
+    const probAs = data.filter(pt => pt.prob_a != null).map(pt => ({ value: pt.prob_a!, ts: pt.timestamp, model: pt.model_name }));
+    const probBs = data.filter(pt => pt.prob_b != null).map(pt => ({ value: pt.prob_b!, ts: pt.timestamp, model: pt.model_name }));
+
+    const minProbA = probAs.length > 0 ? probAs.reduce((a, b) => a.value < b.value ? a : b) : null;
+    const maxProbA = probAs.length > 0 ? probAs.reduce((a, b) => a.value > b.value ? a : b) : null;
+    const minProbB = probBs.length > 0 ? probBs.reduce((a, b) => a.value < b.value ? a : b) : null;
+    const maxProbB = probBs.length > 0 ? probBs.reduce((a, b) => a.value > b.value ? a : b) : null;
+
+    // Current (latest) values per model
+    const currentByModel = new Map<string, PredictionHistoryPoint>();
+    for (const pt of data) {
+      const existing = currentByModel.get(pt.model_name);
+      if (!existing || pt.timestamp > existing.timestamp) {
+        currentByModel.set(pt.model_name, pt);
+      }
+    }
+    const currentPoints = Array.from(currentByModel.values());
+
+    // EV+ periods
+    const evPlusA = evPlusPoints.filter(pt => pt.ev_a != null && pt.ev_a > 0);
+    const evPlusB = evPlusPoints.filter(pt => pt.ev_b != null && pt.ev_b > 0);
+
+    // Max EV seen
+    const maxEvA = evPlusA.length > 0 ? evPlusA.reduce((a, b) => (a.ev_a ?? 0) > (b.ev_a ?? 0) ? a : b) : null;
+    const maxEvB = evPlusB.length > 0 ? evPlusB.reduce((a, b) => (b.ev_b ?? 0) > (a.ev_b ?? 0) ? b : a) : null;
+
+    return {
+      evPlusCount: evPlusPoints.length,
+      evPlusACount: evPlusA.length,
+      evPlusBCount: evPlusB.length,
+      minProbA, maxProbA, minProbB, maxProbB,
+      currentPoints,
+      maxEvA, maxEvB,
+      evPlusA, evPlusB,
+    };
+  }, [data]);
+
   if (timeLabels.length < 2) {
     return (
       <section className="prediction-history-section">
@@ -52,9 +132,6 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
   const plotW = W - margin.left - margin.right;
   const plotH = H - margin.top - margin.bottom;
 
-  // Y axis: probability 0..1
-  const yMin = 0;
-  const yMax = 1;
   const yScale = (v: number) => margin.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
   const xScale = (i: number) => margin.left + (i / (timeLabels.length - 1)) * plotW;
 
@@ -98,9 +175,6 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
     }
     return zones;
   }, [data, timeLabels]);
-
-  // Y grid lines
-  const yTicks = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 
   // Format time label
   const formatTimeLabel = (iso: string) => {
@@ -151,21 +225,23 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
                 fill="#888"
                 fontSize={11}
               >
-                {(v * 100).toFixed(0)}%
+                {v >= 0.01 ? `${(v * 100).toFixed(0)}%` : `${(v * 100).toFixed(1)}%`}
               </text>
             </g>
           ))}
 
-          {/* 50% reference line */}
-          <line
-            x1={margin.left}
-            y1={yScale(0.5)}
-            x2={W - margin.right}
-            y2={yScale(0.5)}
-            stroke="#4a4a6a"
-            strokeWidth={1.5}
-            strokeDasharray="6,4"
-          />
+          {/* 50% reference line (only if within visible range) */}
+          {yMin <= 0.5 && yMax >= 0.5 && (
+            <line
+              x1={margin.left}
+              y1={yScale(0.5)}
+              x2={W - margin.right}
+              y2={yScale(0.5)}
+              stroke="#4a4a6a"
+              strokeWidth={1.5}
+              strokeDasharray="6,4"
+            />
+          )}
 
           {/* Market probability line (team A) */}
           {(() => {
@@ -313,6 +389,80 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
             EV {teamB} &gt; 5%
           </span>
         </div>
+
+        {/* EV+ Info Table */}
+        {evStats.evPlusCount > 0 && (
+          <div className="ev-info-table">
+            <h3>Statystyki EV+</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>{teamA}</th>
+                  <th>{teamB}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="ev-info-label">Punkty EV+</td>
+                  <td className="ev-info-value ev-positive">{evStats.evPlusACount}</td>
+                  <td className="ev-info-value ev-negative">{evStats.evPlusBCount}</td>
+                </tr>
+                {evStats.maxEvA && (
+                  <tr>
+                    <td className="ev-info-label">Max EV</td>
+                    <td className="ev-info-value ev-positive">{((evStats.maxEvA.ev_a ?? 0) * 100).toFixed(1)}%</td>
+                    <td className="ev-info-value ev-negative">{((evStats.maxEvB?.ev_b ?? 0) * 100).toFixed(1)}%</td>
+                  </tr>
+                )}
+                {evStats.minProbA && evStats.maxProbA && (
+                  <tr>
+                    <td className="ev-info-label">Prawd. min</td>
+                    <td className="ev-info-value">{(evStats.minProbA.value * 100).toFixed(1)}% <span className="ev-info-ts">({new Date(evStats.minProbA.ts).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })})</span></td>
+                    <td className="ev-info-value">{(evStats.minProbB!.value * 100).toFixed(1)}% <span className="ev-info-ts">({new Date(evStats.minProbB!.ts).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })})</span></td>
+                  </tr>
+                )}
+                {evStats.minProbA && evStats.maxProbA && (
+                  <tr>
+                    <td className="ev-info-label">Prawd. max</td>
+                    <td className="ev-info-value">{(evStats.maxProbA.value * 100).toFixed(1)}% <span className="ev-info-ts">({new Date(evStats.maxProbA.ts).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })})</span></td>
+                    <td className="ev-info-value">{(evStats.maxProbB!.value * 100).toFixed(1)}% <span className="ev-info-ts">({new Date(evStats.maxProbB!.ts).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })})</span></td>
+                  </tr>
+                )}
+                {evStats.currentPoints.length > 0 && (
+                  <tr>
+                    <td className="ev-info-label">Aktualne prawd.</td>
+                    <td className="ev-info-value">
+                      {evStats.currentPoints.map((pt, i) => (
+                        <span key={i}>{pt.prob_a != null ? `${(pt.prob_a * 100).toFixed(1)}%` : '—'}{i < evStats.currentPoints.length - 1 ? ' / ' : ''}</span>
+                      ))}
+                    </td>
+                    <td className="ev-info-value">
+                      {evStats.currentPoints.map((pt, i) => (
+                        <span key={i}>{pt.prob_b != null ? `${(pt.prob_b * 100).toFixed(1)}%` : '—'}{i < evStats.currentPoints.length - 1 ? ' / ' : ''}</span>
+                      ))}
+                    </td>
+                  </tr>
+                )}
+                {evStats.currentPoints.length > 0 && (
+                  <tr>
+                    <td className="ev-info-label">Aktualne EV</td>
+                    <td className="ev-info-value">
+                      {evStats.currentPoints.map((pt, i) => (
+                        <span key={i} className={pt.ev_a != null && pt.ev_a > 0 ? 'ev-positive' : ''}>{pt.ev_a != null ? `${(pt.ev_a * 100).toFixed(1)}%` : '—'}{i < evStats.currentPoints.length - 1 ? ' / ' : ''}</span>
+                      ))}
+                    </td>
+                    <td className="ev-info-value">
+                      {evStats.currentPoints.map((pt, i) => (
+                        <span key={i} className={pt.ev_b != null && pt.ev_b > 0 ? 'ev-negative' : ''}>{pt.ev_b != null ? `${(pt.ev_b * 100).toFixed(1)}%` : '—'}{i < evStats.currentPoints.length - 1 ? ' / ' : ''}</span>
+                      ))}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </section>
   );

@@ -388,3 +388,65 @@ section h2 {
   z-index: 10;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
+
+/* EV+ Info Table */
+.ev-info-table {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #2a2a4a;
+}
+
+.ev-info-table h3 {
+  color: #e0e0e0;
+  font-size: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.ev-info-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.ev-info-table th {
+  text-align: left;
+  padding: 0.4rem 0.75rem;
+  background: #16213e;
+  color: #888;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 0.8rem;
+  border-bottom: 1px solid #2a2a4a;
+}
+
+.ev-info-table td {
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid #1a1a3a;
+  color: #e0e0e0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ev-info-label {
+  color: #888 !important;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.ev-info-value {
+  font-weight: 600;
+}
+
+.ev-info-ts {
+  color: #666;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.ev-info-table .ev-positive {
+  color: #4caf50;
+}
+
+.ev-info-table .ev-negative {
+  color: #ef5350;
+}
