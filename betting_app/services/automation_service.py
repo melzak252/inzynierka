@@ -26,18 +26,19 @@ def start_run(
     """Create an automation run row and return its id."""
 
     with connect() as connection:
-        cursor = connection.execute(
+        row = connection.execute(
             """
             INSERT INTO automation_runs(
                 run_type, trigger_source, status, started_at,
                 interval_seconds, host, pid
             )
             VALUES (?, ?, 'running', ?, ?, ?, ?)
+            RETURNING id
             """,
             (run_type, trigger_source, utc_now_iso(), interval_seconds, socket.gethostname(), os.getpid()),
-        )
+        ).fetchone()
         connection.commit()
-        return int(cursor.lastrowid)
+        return int(row["id"])
 
 
 def finish_run(
@@ -69,19 +70,20 @@ def start_command(run_id: int | None, command: list[str]) -> int | None:
     if run_id is None:
         return None
     with connect() as connection:
-        cursor = connection.execute(
+        row = connection.execute(
             """
             INSERT INTO automation_commands(run_id, command, status, started_at)
             VALUES (?, ?, 'running', ?)
+            RETURNING id
             """,
             (run_id, " ".join(command), utc_now_iso()),
-        )
+        ).fetchone()
         connection.execute(
             "UPDATE automation_runs SET commands_total = commands_total + 1 WHERE id = ?",
             (run_id,),
         )
         connection.commit()
-        return int(cursor.lastrowid)
+        return int(row["id"])
 
 
 def finish_command(command_id: int | None, *, returncode: int) -> None:
