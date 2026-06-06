@@ -66,35 +66,60 @@
   font-weight: 700;
   color: #e0e0e0;
   background: #2a2a5a;
-  padding: 0.1rem 0.4rem;
-  border-radius: 3px;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
   margin-left: 0.5rem;
   vertical-align: middle;
   cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
 }
 
 .best-of-badge:hover {
   background: #3a3a7a;
+  transform: scale(1.05);
 }
 
-.best-of-edit {
+.best-of-badge.bo1 { background: #1a3a5a; }
+.best-of-badge.bo3 { background: #2a2a5a; }
+.best-of-badge.bo5 { background: #3a2a5a; }
+.best-of-badge.bo7 { background: #4a2a4a; }
+
+/* Bo pill picker (inline buttons) */
+.best-of-picker {
+  display: inline-flex;
+  gap: 0.2rem;
   margin-left: 0.5rem;
+  vertical-align: middle;
 }
 
-.best-of-edit select {
-  font-size: 0.7rem;
+.bo-pill {
+  font-size: 0.65rem;
   font-weight: 700;
-  color: #e0e0e0;
-  background: #2a2a5a;
-  border: 1px solid #4a4a8a;
-  border-radius: 3px;
-  padding: 0.1rem 0.3rem;
+  color: #a0a0c0;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 10px;
+  padding: 0.1rem 0.4rem;
   cursor: pointer;
-  outline: none;
+  transition: all 0.15s;
+  line-height: 1.4;
 }
 
-.best-of-edit select:focus {
+.bo-pill:hover {
+  background: #2a2a4a;
+  border-color: #4a4a8a;
+  color: #e0e0e0;
+}
+
+.bo-pill.active {
+  background: #4fc3f7;
+  color: #0d1b2a;
   border-color: #4fc3f7;
+}
+
+.bo-pill.saving {
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 .datetime {

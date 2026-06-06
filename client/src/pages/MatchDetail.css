@@ -45,7 +45,7 @@
   color: #e0e0e0;
   background: #2a2a5a;
   padding: 0.15rem 0.5rem;
-  border-radius: 3px;
+  border-radius: 10px;
   cursor: pointer;
   transition: background 0.2s;
   margin-left: 0.5rem;
@@ -55,21 +55,42 @@
   background: #3a3a7a;
 }
 
-.best-of-edit select {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #e0e0e0;
-  background: #2a2a5a;
-  border: 1px solid #4a4a8a;
-  border-radius: 3px;
-  padding: 0.15rem 0.3rem;
+.best-of-badge.bo1 { background: #2a3a5a; }
+.best-of-badge.bo3 { background: #2a2a5a; }
+.best-of-badge.bo5 { background: #3a2a5a; }
+.best-of-badge.bo7 { background: #4a2a4a; }
+
+.best-of-picker {
+  display: inline-flex;
+  gap: 0.2rem;
   margin-left: 0.5rem;
-  cursor: pointer;
-  outline: none;
 }
 
-.best-of-edit select:focus {
+.bo-pill {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #a0a0c0;
+  background: #1a1a2e;
+  border: 1px solid #2a2a4a;
+  border-radius: 10px;
+  padding: 0.15rem 0.45rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.bo-pill:hover {
+  background: #2a2a4a;
+  color: #e0e0e0;
+}
+
+.bo-pill.active {
+  background: #4fc3f7;
+  color: #0d1b2a;
   border-color: #4fc3f7;
+}
+
+.bo-pill.saving {
+  opacity: 0.6;
 }
 
 .status {

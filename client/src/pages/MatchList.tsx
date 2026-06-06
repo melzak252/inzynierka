@@ -81,35 +81,37 @@ export default function MatchList() {
               <div className="match-header">
                 <span className="league">{m.league || 'Nieznana liga'}</span>
                 {editingBoMatchId === m.canonical_match_id ? (
-                  <span className="best-of-edit" onClick={(e) => e.preventDefault()}>
-                    <select
-                      defaultValue={m.best_of || 1}
-                      onChange={async (e) => {
-                        const val = parseInt(e.target.value);
-                        setSavingBo(true);
-                        try {
-                          await updateMatchBestOf(m.canonical_match_id, val);
-                          setMatches(prev => prev.map(mt =>
-                            mt.canonical_match_id === m.canonical_match_id
-                              ? { ...mt, best_of: val }
-                              : mt
-                          ));
-                        } catch {
-                          // silently fail
-                        } finally {
-                          setSavingBo(false);
-                          setEditingBoMatchId(null);
-                        }
-                      }}
-                      onBlur={() => setEditingBoMatchId(null)}
-                      disabled={savingBo}
-                      autoFocus
-                    >
-                      <option value={1}>Bo1</option>
-                      <option value={3}>Bo3</option>
-                      <option value={5}>Bo5</option>
-                      <option value={7}>Bo7</option>
-                    </select>
+                  <span className="best-of-picker" onClick={(e) => e.preventDefault()}>
+                    {[1, 3, 5, 7].map((bo) => (
+                      <button
+                        key={bo}
+                        className={`bo-pill${(m.best_of || 1) === bo ? ' active' : ''}${savingBo ? ' saving' : ''}`}
+                        onClick={async (e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (savingBo || (m.best_of || 1) === bo) {
+                            setEditingBoMatchId(null);
+                            return;
+                          }
+                          setSavingBo(true);
+                          try {
+                            await updateMatchBestOf(m.canonical_match_id, bo);
+                            setMatches(prev => prev.map(mt =>
+                              mt.canonical_match_id === m.canonical_match_id
+                                ? { ...mt, best_of: bo }
+                                : mt
+                            ));
+                          } catch {
+                            // silently fail
+                          } finally {
+                            setSavingBo(false);
+                            setEditingBoMatchId(null);
+                          }
+                        }}
+                      >
+                        Bo{bo}
+                      </button>
+                    ))}
                   </span>
                 ) : (
                   <span

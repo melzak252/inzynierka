@@ -327,7 +327,6 @@ export default function MatchDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingBestOf, setEditingBestOf] = useState(false);
-  const [selectedBestOf, setSelectedBestOf] = useState<number>(1);
   const [savingBestOf, setSavingBestOf] = useState(false);
 
   useEffect(() => {
@@ -393,42 +392,42 @@ export default function MatchDetail() {
         <div className="league-info">
           <span className="league">{match.league || 'Nieznana liga'}</span>
           <span className="status">{match.status}</span>
-          {match.best_of && (
+          {!editingBestOf && (
             <span
-              className={`best-of-badge bo${match.best_of}`}
-              onClick={() => { setSelectedBestOf(match.best_of || 1); setEditingBestOf(true); }}
+              className={`best-of-badge bo${match.best_of || 1}`}
+              onClick={() => setEditingBestOf(true)}
               title="Kliknij aby zmienić"
             >
-              Bo{match.best_of}
+              Bo{match.best_of || 1}
             </span>
           )}
           {editingBestOf && (
-            <span className="best-of-edit">
-              <select
-                value={selectedBestOf}
-                onChange={async (e) => {
-                  const val = parseInt(e.target.value);
-                  setSelectedBestOf(val);
-                  setSavingBestOf(true);
-                  try {
-                    await updateMatchBestOf(match.canonical_match_id, val);
-                    setMatch({ ...match, best_of: val });
-                  } catch {
-                    // silently fail, keep old value
-                  } finally {
-                    setSavingBestOf(false);
-                    setEditingBestOf(false);
-                  }
-                }}
-                onBlur={() => setEditingBestOf(false)}
-                disabled={savingBestOf}
-                autoFocus
-              >
-                <option value={1}>Bo1</option>
-                <option value={3}>Bo3</option>
-                <option value={5}>Bo5</option>
-                <option value={7}>Bo7</option>
-              </select>
+            <span className="best-of-picker">
+              {[1, 3, 5, 7].map(bo => (
+                <button
+                  key={bo}
+                  className={`bo-pill ${(match.best_of || 1) === bo ? 'active' : ''} ${savingBestOf ? 'saving' : ''}`}
+                  onClick={async () => {
+                    if ((match.best_of || 1) === bo) {
+                      setEditingBestOf(false);
+                      return;
+                    }
+                    setSavingBestOf(true);
+                    try {
+                      await updateMatchBestOf(match.canonical_match_id, bo);
+                      setMatch({ ...match, best_of: bo });
+                    } catch {
+                      // silently fail, keep old value
+                    } finally {
+                      setSavingBestOf(false);
+                      setEditingBestOf(false);
+                    }
+                  }}
+                  disabled={savingBestOf}
+                >
+                  Bo{bo}
+                </button>
+              ))}
             </span>
           )}
         </div>
