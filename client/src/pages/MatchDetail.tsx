@@ -105,6 +105,16 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
     const maxEvA = evPlusA.length > 0 ? evPlusA.reduce((a, b) => (a.ev_a ?? 0) > (b.ev_a ?? 0) ? a : b) : null;
     const maxEvB = evPlusB.length > 0 ? evPlusB.reduce((a, b) => (b.ev_b ?? 0) > (a.ev_b ?? 0) ? b : a) : null;
 
+    // Market probability stats
+    const marketProbsA = data.filter(pt => pt.market_prob_a != null).map(pt => ({ value: pt.market_prob_a!, ts: pt.timestamp }));
+    const marketProbsB = data.filter(pt => pt.market_prob_b != null).map(pt => ({ value: pt.market_prob_b!, ts: pt.timestamp }));
+    const currentMarketA = marketProbsA.length > 0 ? marketProbsA[marketProbsA.length - 1] : null;
+    const currentMarketB = marketProbsB.length > 0 ? marketProbsB[marketProbsB.length - 1] : null;
+    const minMarketA = marketProbsA.length > 0 ? marketProbsA.reduce((a, b) => a.value < b.value ? a : b) : null;
+    const maxMarketA = marketProbsA.length > 0 ? marketProbsA.reduce((a, b) => a.value > b.value ? a : b) : null;
+    const minMarketB = marketProbsB.length > 0 ? marketProbsB.reduce((a, b) => a.value < b.value ? a : b) : null;
+    const maxMarketB = marketProbsB.length > 0 ? marketProbsB.reduce((a, b) => a.value > b.value ? a : b) : null;
+
     return {
       evPlusCount: evPlusPoints.length,
       evPlusACount: evPlusA.length,
@@ -113,6 +123,8 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
       currentPoints,
       maxEvA, maxEvB,
       evPlusA, evPlusB,
+      currentMarketA, currentMarketB,
+      minMarketA, maxMarketA, minMarketB, maxMarketB,
     };
   }, [data]);
 
@@ -456,6 +468,43 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
                       {evStats.currentPoints.map((pt, i) => (
                         <span key={i} className={pt.ev_b != null && pt.ev_b > 0 ? 'ev-negative' : ''}>{pt.ev_b != null ? `${(pt.ev_b * 100).toFixed(1)}%` : '—'}{i < evStats.currentPoints.length - 1 ? ' / ' : ''}</span>
                       ))}
+                    </td>
+                  </tr>
+                )}
+                {evStats.currentMarketA != null && (
+                  <tr>
+                    <td className="ev-info-label">Rynek (aktualne)</td>
+                    <td className="ev-info-value">
+                      {evStats.currentMarketA != null ? `${(evStats.currentMarketA * 100).toFixed(1)}%` : '—'}
+                    </td>
+                    <td className="ev-info-value">
+                      {evStats.currentMarketB != null ? `${(evStats.currentMarketB * 100).toFixed(1)}%` : '—'}
+                    </td>
+                  </tr>
+                )}
+                {evStats.minMarketA && (
+                  <tr>
+                    <td className="ev-info-label">Rynek min</td>
+                    <td className="ev-info-value">
+                      {(evStats.minMarketA.value * 100).toFixed(1)}%
+                      <span className="ev-info-ts"> {new Date(evStats.minMarketA.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                    </td>
+                    <td className="ev-info-value">
+                      {evStats.minMarketB ? `${(evStats.minMarketB.value * 100).toFixed(1)}%` : '—'}
+                      {evStats.minMarketB && <span className="ev-info-ts"> {new Date(evStats.minMarketB.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
+                    </td>
+                  </tr>
+                )}
+                {evStats.maxMarketA && (
+                  <tr>
+                    <td className="ev-info-label">Rynek max</td>
+                    <td className="ev-info-value">
+                      {(evStats.maxMarketA.value * 100).toFixed(1)}%
+                      <span className="ev-info-ts"> {new Date(evStats.maxMarketA.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                    </td>
+                    <td className="ev-info-value">
+                      {evStats.maxMarketB ? `${(evStats.maxMarketB.value * 100).toFixed(1)}%` : '—'}
+                      {evStats.maxMarketB && <span className="ev-info-ts"> {new Date(evStats.maxMarketB.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
                     </td>
                   </tr>
                 )}
