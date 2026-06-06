@@ -497,6 +497,8 @@ export default function MatchDetail() {
               <span>Model</span>
               <span>Prawd. A</span>
               <span>Prawd. B</span>
+              <span>Min kurs A</span>
+              <span>Min kurs B</span>
               <span>EV A</span>
               <span>EV B</span>
               <span>Kelly A</span>
@@ -512,6 +514,12 @@ export default function MatchDetail() {
                 </span>
                 <span className="prob-value">
                   {pred.prob_b ? `${(pred.prob_b * 100).toFixed(1)}%` : '—'}
+                </span>
+                <span className="min-odds-value">
+                  {pred.prob_a ? (1 / (pred.prob_a * 0.88)).toFixed(2) : '—'}
+                </span>
+                <span className="min-odds-value">
+                  {pred.prob_b ? (1 / (pred.prob_b * 0.88)).toFixed(2) : '—'}
                 </span>
                 <span className={`ev-value ${pred.ev_a && pred.ev_a > 0 ? 'positive' : ''}`}>
                   {pred.ev_a ? `${(pred.ev_a * 100).toFixed(1)}%` : '—'}
