@@ -308,6 +308,9 @@ export interface MatchResultItem {
   team_b_score: number | null;
   result_source: string | null;
   result_recorded_at: string | null;
+  best_ev_a: number | null;
+  best_ev_b: number | null;
+  bookmakers_with_ev: string[];
 }
 
 export interface MatchResultsResponse {

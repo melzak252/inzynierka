@@ -258,10 +258,20 @@ def list_results(
                cm.best_of, cm.status,
                cm.winner_name, cm.loser_name, cm.winner_side,
                cm.result_source, cm.result_recorded_at,
-               gm.team1_score, gm.team2_score
+               gm.team1_score, gm.team2_score,
+               ev.best_ev_a, ev.best_ev_b,
+               ev.bookmakers_with_ev
         FROM canonical_matches cm
         LEFT JOIN golgg_match_mappings gmm ON gmm.canonical_match_id = cm.id
         LEFT JOIN golgg_matches gm ON gm.match_id = gmm.golgg_match_id
+        LEFT JOIN LATERAL (
+            SELECT MAX(CASE WHEN es.side = 'a' THEN es.ev END) AS best_ev_a,
+                   MAX(CASE WHEN es.side = 'b' THEN es.ev END) AS best_ev_b,
+                   array_agg(DISTINCT b.name) FILTER (WHERE es.ev > 0) AS bookmakers_with_ev
+            FROM model_ev_signals es
+            JOIN bookmakers b ON b.id = es.bookmaker_id
+            WHERE es.canonical_match_id = cm.id
+        ) ev ON true
         WHERE cm.status = 'finished'
           AND REPLACE(cm.start_time_normalized, 'T', ' ') >= REPLACE(:min_dt, 'T', ' ')
         ORDER BY cm.start_time_normalized DESC, cm.id DESC
@@ -274,6 +284,16 @@ def list_results(
 
     items: list[MatchResultItem] = []
     for r in rows:
+        # bookmakers_with_ev comes as a string like "{betclic,totalbet}" from PostgreSQL
+        bookmakers_raw = r.get("bookmakers_with_ev")
+        if isinstance(bookmakers_raw, str):
+            # Strip curly braces and split
+            bookmakers_list = [b.strip() for b in bookmakers_raw.strip("{}").split(",") if b.strip()]
+        elif isinstance(bookmakers_raw, list):
+            bookmakers_list = bookmakers_raw
+        else:
+            bookmakers_list = []
+
         items.append(MatchResultItem(
             canonical_match_id=r["canonical_match_id"],
             team_a_name=r.get("team_a_name"),
@@ -289,6 +309,9 @@ def list_results(
             team_b_score=r.get("team2_score"),
             result_source=r.get("result_source"),
             result_recorded_at=str(r["result_recorded_at"]) if r.get("result_recorded_at") else None,
+            best_ev_a=none_or_float(r.get("best_ev_a")),
+            best_ev_b=none_or_float(r.get("best_ev_b")),
+            bookmakers_with_ev=bookmakers_list,
         ))
 
     return MatchResultsResponse(total=len(items), results=items)

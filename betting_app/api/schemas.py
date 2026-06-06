@@ -137,6 +137,10 @@ class MatchResultItem(BaseModel):
     team_b_score: int | None = None
     result_source: str | None = None
     result_recorded_at: str | None = None
+    # EV signals
+    best_ev_a: float | None = None
+    best_ev_b: float | None = None
+    bookmakers_with_ev: list[str] = []
 
 
 class MatchResultsResponse(BaseModel):
