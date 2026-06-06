@@ -112,6 +112,34 @@ def finish_command(command_id: int | None, *, returncode: int) -> None:
         connection.commit()
 
 
+def cleanup_stale_runs(max_age_hours: int = 2) -> int:
+    """Mark any 'running' automation_runs older than *max_age_hours* as failed.
+
+    This handles the case where a scheduler process is killed (OOM, SIGKILL)
+    before ``finish_run`` can be called, leaving rows stuck as 'running' forever.
+
+    Returns the number of rows cleaned up.
+    """
+
+    cutoff = datetime.now(UTC).replace(microsecond=0) - __import__("datetime").timedelta(hours=max_age_hours)
+    cutoff_iso = cutoff.isoformat()
+
+    with connect() as connection:
+        cursor = connection.execute(
+            """
+            UPDATE automation_runs
+            SET status = 'failed',
+                finished_at = ?,
+                error = 'Run was stuck as running (process killed before finish_run). Auto-cleaned at startup.'
+            WHERE status = 'running'
+              AND started_at < ?
+            """,
+            (cutoff_iso, cutoff_iso),
+        )
+        connection.commit()
+        return cursor.rowcount
+
+
 def latest_runs(limit: int = 20) -> pd.DataFrame:
     """Return recent automation runs."""
 

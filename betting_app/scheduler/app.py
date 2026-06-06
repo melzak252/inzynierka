@@ -8,6 +8,7 @@ import signal
 import sys
 import os
 import traceback
+from concurrent.futures import ThreadPoolExecutor as _TPE, Future
 from functools import wraps
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -15,20 +16,33 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.executors.pool import ThreadPoolExecutor
 
 from betting_app.core.db import database_url
-from betting_app.services.automation_service import start_run, finish_run
+from betting_app.services.automation_service import start_run, finish_run, cleanup_stale_runs
 
 from .registry import registry, register_all_tasks
 
 logger = logging.getLogger(__name__)
 
+# Default timeout (seconds) for individual task runs.
+# Tasks that exceed this are marked failed and the thread is abandoned.
+_DEFAULT_TASK_TIMEOUT = 3600  # 1 hour
 
-def wrap_task_with_run_tracking(task_id: str, func):
+
+def wrap_task_with_run_tracking(task_id: str, func, timeout: int | None = None):
     """Wrap a task function so it creates/updates automation_runs rows.
     
     This makes APScheduler tasks visible in the /scheduler/runs API endpoint
     with proper task names (e.g. 'scrape_sts') instead of the old scheduler's
     generic run_type ('light'/'heavy').
+    
+    If *timeout* (seconds) is set, the task is executed in a separate thread
+    and a ``TimeoutError`` is raised if it exceeds the limit.  The run is
+    then marked as failed.  The timed-out thread is **not** killed (Python
+    cannot forcibly kill threads), but APScheduler's ``max_instances=1``
+    prevents a second concurrent invocation.
     """
+    if timeout is None:
+        timeout = _DEFAULT_TASK_TIMEOUT
+
     @wraps(func)
     def wrapper(*args, **kwargs):
         run_id = None
@@ -38,8 +52,19 @@ def wrap_task_with_run_tracking(task_id: str, func):
                 trigger_source="apscheduler",
             )
             logger.info(f"[{task_id}] Started automation run #{run_id}")
-            result = func(*args, **kwargs)
-            
+
+            # Run the task in a separate thread so we can enforce a timeout
+            executor = _TPE(max_workers=1)
+            future: Future = executor.submit(func, *args, **kwargs)
+
+            try:
+                result = future.result(timeout=timeout)
+            except Exception:
+                # TimeoutError or any exception from the task
+                raise
+            finally:
+                executor.shutdown(wait=False)
+
             # Determine status from result dict
             if isinstance(result, dict):
                 success = result.get("success", True)
@@ -52,6 +77,14 @@ def wrap_task_with_run_tracking(task_id: str, func):
             finish_run(run_id, status=status, error=error)
             logger.info(f"[{task_id}] Run #{run_id} finished: {status}")
             return result
+        except TimeoutError:
+            error_msg = f"Task timed out after {timeout}s"
+            logger.error(f"[{task_id}] Run #{run_id}: {error_msg}")
+            try:
+                finish_run(run_id, status="failed", error=error_msg)
+            except Exception:
+                logger.error(f"[{task_id}] Failed to mark run #{run_id} as failed")
+            raise
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}"
             tb = traceback.format_exc()
@@ -164,6 +197,11 @@ def main():
     
     # Register all tasks
     register_all_tasks()
+    
+    # Clean up any stale 'running' runs from a previous crashed scheduler
+    stale_count = cleanup_stale_runs(max_age_hours=2)
+    if stale_count:
+        logger.warning(f"Cleaned up {stale_count} stale 'running' automation run(s)")
     
     # Create scheduler
     scheduler = create_scheduler()
