@@ -141,6 +141,8 @@ class MatchResultItem(BaseModel):
     best_ev_a: float | None = None
     best_ev_b: float | None = None
     bookmakers_with_ev: list[str] = []
+    best_odds_a: float | None = None
+    best_odds_b: float | None = None
 
 
 class MatchResultsResponse(BaseModel):
