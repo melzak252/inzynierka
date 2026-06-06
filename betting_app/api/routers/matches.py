@@ -260,6 +260,7 @@ def list_results(
                cm.result_source, cm.result_recorded_at,
                gm.team1_score, gm.team2_score,
                ev.best_ev_a, ev.best_ev_b,
+               ev.best_odds_a, ev.best_odds_b,
                ev.bookmakers_with_ev
         FROM canonical_matches cm
         LEFT JOIN golgg_match_mappings gmm ON gmm.canonical_match_id = cm.id
@@ -267,6 +268,8 @@ def list_results(
         LEFT JOIN LATERAL (
             SELECT MAX(CASE WHEN es.side = 'a' THEN es.ev END) AS best_ev_a,
                    MAX(CASE WHEN es.side = 'b' THEN es.ev END) AS best_ev_b,
+                   MAX(CASE WHEN es.side = 'a' THEN es.odds END) AS best_odds_a,
+                   MAX(CASE WHEN es.side = 'b' THEN es.odds END) AS best_odds_b,
                    array_agg(DISTINCT b.name) FILTER (WHERE es.ev > 0) AS bookmakers_with_ev
             FROM model_ev_signals es
             JOIN bookmakers b ON b.id = es.bookmaker_id
@@ -311,6 +314,8 @@ def list_results(
             result_recorded_at=str(r["result_recorded_at"]) if r.get("result_recorded_at") else None,
             best_ev_a=none_or_float(r.get("best_ev_a")),
             best_ev_b=none_or_float(r.get("best_ev_b")),
+            best_odds_a=none_or_float(r.get("best_odds_a")),
+            best_odds_b=none_or_float(r.get("best_odds_b")),
             bookmakers_with_ev=bookmakers_list,
         ))
 
