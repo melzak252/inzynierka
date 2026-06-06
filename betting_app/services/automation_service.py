@@ -125,19 +125,30 @@ def cleanup_stale_runs(max_age_hours: int = 2) -> int:
     cutoff_iso = cutoff.isoformat()
 
     with connect() as connection:
-        cursor = connection.execute(
+        # Count stale runs first (no rowcount on _ResultWrapper)
+        stale = connection.execute(
             """
-            UPDATE automation_runs
-            SET status = 'failed',
-                finished_at = ?,
-                error = 'Run was stuck as running (process killed before finish_run). Auto-cleaned at startup.'
-            WHERE status = 'running'
-              AND started_at < ?
+            SELECT COUNT(*) as cnt FROM automation_runs
+            WHERE status = 'running' AND started_at < ?
             """,
-            (cutoff_iso, cutoff_iso),
-        )
-        connection.commit()
-        return cursor.rowcount
+            (cutoff_iso,),
+        ).fetchone()
+        count = stale["cnt"] if stale else 0
+
+        if count > 0:
+            connection.execute(
+                """
+                UPDATE automation_runs
+                SET status = 'failed',
+                    finished_at = ?,
+                    error = 'Run was stuck as running (process killed before finish_run). Auto-cleaned at startup.'
+                WHERE status = 'running'
+                  AND started_at < ?
+                """,
+                (cutoff_iso, cutoff_iso),
+            )
+            connection.commit()
+        return count
 
 
 def latest_runs(limit: int = 20) -> pd.DataFrame:
