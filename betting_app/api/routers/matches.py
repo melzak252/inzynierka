@@ -99,7 +99,7 @@ def list_matches(
         SELECT cm.id AS canonical_match_id,
                cm.team_a_name, cm.team_b_name,
                cm.normalized_team_a, cm.normalized_team_b,
-               cm.start_time_normalized, cm.league,
+               cm.start_time_normalized, cm.league, cm.best_of,
                b.name AS bookmaker,
                l.raw_team_a, l.raw_team_b,
                l.odds_a, l.odds_b,
