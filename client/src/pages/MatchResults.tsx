@@ -181,6 +181,7 @@ export default function MatchResults() {
             <h1>Wyniki meczów</h1>
             <span className="results-count">
               {filteredResults.length} {filteredResults.length === 1 ? 'mecz' : filteredResults.length < 5 ? 'mecze' : 'meczów'}
+              {total !== filteredResults.length && ` z ${total}`}
             </span>
           </div>
           <button

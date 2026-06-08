@@ -319,6 +319,113 @@
   text-align: left;
 }
 
+/* ─── Statistical Tests Section ─────────────────────────── */
+.stat-tests-section {
+  background: #141428;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.stat-tests-section h3 {
+  font-size: 1rem;
+  color: #c0c0e0;
+  margin-bottom: 0.25rem;
+}
+
+.stat-tests-subtitle {
+  color: #888;
+  font-size: 0.85rem;
+  margin-bottom: 0.85rem;
+  line-height: 1.45;
+}
+
+.stat-tests-subtitle strong {
+  color: #cfd3ff;
+}
+
+.stat-tests-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.stat-test-card {
+  background: #1a1a32;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.stat-test-card.significant {
+  border-color: rgba(0, 230, 118, 0.5);
+  box-shadow: 0 0 0 1px rgba(0, 230, 118, 0.08) inset;
+}
+
+.stat-test-card.not-significant {
+  border-color: rgba(255, 152, 0, 0.35);
+}
+
+.stat-test-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+}
+
+.stat-test-title {
+  color: #e0e0ff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.stat-test-badge {
+  color: #0a0a1a;
+  background: #ff9800;
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.stat-test-card.significant .stat-test-badge {
+  background: #00e676;
+}
+
+.stat-test-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem 0.8rem;
+  color: #aaa;
+  font-size: 0.78rem;
+}
+
+.stat-test-metrics strong {
+  color: #e0e0ff;
+}
+
+.stat-test-note {
+  color: #888;
+  font-size: 0.78rem;
+  margin-top: 0.55rem;
+  margin-bottom: 0;
+}
+
+.stat-tests-chart-section {
+  background: #101024;
+  margin-bottom: 0;
+}
+
+.t-dist-chart {
+  max-height: 310px;
+}
+
 /* ─── Legend ───────────────────────────────────────────── */
 .legend-section {
   background: #141428;

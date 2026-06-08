@@ -244,6 +244,26 @@ export interface BookmakerBinMetrics {
   bins: HybridBinMetrics[];  // same shape as hybrid bins (label, hours_start/end, match_count, avg_logloss, avg_auc)
 }
 
+export interface ModelVsBookmakerTest {
+  id: string;
+  label: string;
+  metric: 'logloss' | 'brier' | string;
+  model_name: string;
+  baseline_name: string;
+  alternative: string;
+  interpretation: string;
+  n: number;
+  df: number;
+  mean_diff: number;
+  sd_diff: number;
+  sem_diff: number;
+  t_stat: number | null;
+  p_value_one_sided: number;
+  alpha: number;
+  t_critical_95_one_sided: number | null;
+  significant: boolean;
+}
+
 export interface HorizonAccuracyResponse {
   total_matches_with_odds: number;
   total_finished_matches: number;
@@ -253,6 +273,7 @@ export interface HorizonAccuracyResponse {
   model_references: ModelReferenceMetrics[];
   hybrid_model_bins: HybridModelBins[];
   bookmaker_bins: BookmakerBinMetrics[];
+  model_vs_bookmaker_tests: ModelVsBookmakerTest[];
 }
 
 // Prediction & EV history timeline

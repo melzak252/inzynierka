@@ -409,6 +409,290 @@ def _compute_logloss(y_true: list[int], y_prob: list[float], eps: float = 1e-15)
         return None
 
 
+def _logloss_one(y_true: int, y_prob: float, eps: float = 1e-15) -> float:
+    """Binary LogLoss for a single paired observation."""
+    p = max(eps, min(1 - eps, float(y_prob)))
+    y = 1.0 if int(y_true) == 1 else 0.0
+    return float(-(y * math.log(p) + (1 - y) * math.log(1 - p)))
+
+
+def _betacf(a: float, b: float, x: float) -> float:
+    """Continued fraction for incomplete beta (Numerical Recipes)."""
+    max_iter = 200
+    eps = 3e-14
+    fpmin = 1e-300
+    qab = a + b
+    qap = a + 1.0
+    qam = a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < fpmin:
+        d = fpmin
+    d = 1.0 / d
+    h = d
+    for m in range(1, max_iter + 1):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fpmin:
+            d = fpmin
+        c = 1.0 + aa / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < fpmin:
+            d = fpmin
+        c = 1.0 + aa / c
+        if abs(c) < fpmin:
+            c = fpmin
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < eps:
+            break
+    return h
+
+
+def _regularized_incomplete_beta(a: float, b: float, x: float) -> float:
+    """Regularized incomplete beta I_x(a,b), used for t-test p-values."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    bt = math.exp(
+        math.lgamma(a + b)
+        - math.lgamma(a)
+        - math.lgamma(b)
+        + a * math.log(x)
+        + b * math.log(1.0 - x)
+    )
+    if x < (a + 1.0) / (a + b + 2.0):
+        return bt * _betacf(a, b, x) / a
+    return 1.0 - bt * _betacf(b, a, 1.0 - x) / b
+
+
+def _student_t_cdf(t: float, df: int) -> float:
+    """CDF of Student's t distribution without SciPy dependency."""
+    if df <= 0:
+        return 0.5
+    x = df / (df + t * t)
+    ib = _regularized_incomplete_beta(df / 2.0, 0.5, x)
+    if t >= 0:
+        return 1.0 - 0.5 * ib
+    return 0.5 * ib
+
+
+def _student_t_ppf(prob: float, df: int) -> float | None:
+    """Inverse CDF by bisection; sufficient for critical values shown in UI."""
+    if df <= 0 or not (0.0 < prob < 1.0):
+        return None
+    lo, hi = -50.0, 50.0
+    for _ in range(120):
+        mid = (lo + hi) / 2.0
+        if _student_t_cdf(mid, df) < prob:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2.0
+
+
+def _paired_t_test(differences: list[float], alpha: float = 0.05) -> dict | None:
+    """One-sided paired t-test for mean(differences) > 0."""
+    n = len(differences)
+    if n < 2:
+        return None
+    arr = np.array(differences, dtype=float)
+    mean_diff = float(np.mean(arr))
+    sd_diff = float(np.std(arr, ddof=1))
+    df = n - 1
+    if sd_diff <= 0:
+        t_stat = math.inf if mean_diff > 0 else (-math.inf if mean_diff < 0 else 0.0)
+        p_value = 0.0 if mean_diff > 0 else 1.0
+        sem = 0.0
+    else:
+        sem = sd_diff / math.sqrt(n)
+        t_stat = mean_diff / sem
+        p_value = 1.0 - _student_t_cdf(t_stat, df)
+    critical = _student_t_ppf(1.0 - alpha, df)
+    return {
+        "n": n,
+        "df": df,
+        "mean_diff": round(mean_diff, 6),
+        "sd_diff": round(sd_diff, 6),
+        "sem_diff": round(sem, 6),
+        "t_stat": round(float(t_stat), 4) if math.isfinite(t_stat) else None,
+        "p_value_one_sided": round(float(p_value), 6),
+        "alpha": alpha,
+        "t_critical_95_one_sided": round(float(critical), 4) if critical is not None else None,
+        "significant": bool(p_value < alpha and mean_diff > 0),
+    }
+
+
+def _compute_model_vs_bookmaker_tests(db, cutoff: str) -> list[dict]:
+    """Paired tests: is model better than average bookmaker?
+
+    Positive difference means: bookmaker error - model error > 0, i.e. the
+    model has lower error than the average bookmaker on the same match.
+    We use paired observations per match to avoid overweighting matches with
+    many bookmakers/scrapes.
+    """
+    preds = query_df(
+        db,
+        """
+        WITH ranked AS (
+            SELECT cp.canonical_match_id, cp.prob_a AS thesis_prob_a,
+                   cm.winner_side, cm.start_time_normalized,
+                   cm.normalized_team_a, cm.normalized_team_b,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY cp.canonical_match_id
+                       ORDER BY cp.predicted_at DESC NULLS LAST, cp.id DESC
+                   ) AS rn
+            FROM canonical_predictions cp
+            JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+            WHERE cp.model_name = :mname
+              AND cp.model_version = :mver
+              AND cm.status IN ('finished', 'completed')
+              AND cm.winner_side IS NOT NULL
+              AND cm.start_time_normalized > :cutoff
+        )
+        SELECT canonical_match_id, thesis_prob_a, winner_side,
+               start_time_normalized, normalized_team_a, normalized_team_b
+        FROM ranked
+        WHERE rn = 1
+        """,
+        {"mname": THESIS_MODEL_NAME, "mver": THESIS_MODEL_VERSION, "cutoff": cutoff},
+    )
+    if not preds:
+        return []
+
+    pred_map = {
+        p["canonical_match_id"]: p
+        for p in preds
+        if p.get("thesis_prob_a") is not None
+        and str(p.get("winner_side") or "") in ("team_a", "team_b")
+    }
+    if not pred_map:
+        return []
+
+    match_ids = list(pred_map.keys())
+    placeholders = ",".join(f":mid{i}" for i in range(len(match_ids)))
+    params = {f"mid{i}": mid for i, mid in enumerate(match_ids)}
+
+    snapshots = query_df(
+        db,
+        f"""
+        SELECT os.canonical_match_id, os.scraped_at,
+               os.bookmaker_id, os.odds_a, os.odds_b,
+               os.raw_team_a, os.raw_team_b
+        FROM odds_snapshots os
+        WHERE os.canonical_match_id IN ({placeholders})
+          AND os.market_type = 'match_winner'
+          AND COALESCE(os.is_live, 0) = 0
+          AND os.odds_a IS NOT NULL
+          AND os.odds_b IS NOT NULL
+        ORDER BY os.canonical_match_id, os.scraped_at
+        """,
+        params,
+    )
+
+    # Per match, average first within bookmaker, then across bookmakers.
+    market_by_match: dict[int, dict[Any, list[float]]] = defaultdict(lambda: defaultdict(list))
+    hybrid_by_match: dict[int, dict[Any, list[float]]] = defaultdict(lambda: defaultdict(list))
+    alpha = 0.50
+    temperature = 0.80
+
+    for snap in snapshots:
+        mid = snap["canonical_match_id"]
+        meta = pred_map.get(mid)
+        if not meta:
+            continue
+        match_start = _parse_dt(meta.get("start_time_normalized"))
+        scraped = _parse_dt(snap.get("scraped_at"))
+        if not match_start or not scraped:
+            continue
+        if (match_start - scraped).total_seconds() < 0:
+            continue
+        aligned = _align(
+            str(meta.get("normalized_team_a") or ""),
+            str(meta.get("normalized_team_b") or ""),
+            str(snap.get("raw_team_a") or ""),
+            str(snap.get("raw_team_b") or ""),
+            snap.get("odds_a"),
+            snap.get("odds_b"),
+        )
+        if not aligned:
+            continue
+        odds_a, odds_b = aligned
+        prob_a = _implied_prob(odds_a)
+        prob_b = _implied_prob(odds_b)
+        market_prob_a, market_prob_b = _remove_margin(prob_a, prob_b)
+        market_prob_a_t = apply_temperature_probability(market_prob_a, temperature)
+        market_prob_b_t = apply_temperature_probability(market_prob_b, temperature)
+        thesis_prob_a = float(meta["thesis_prob_a"])
+        thesis_prob_b = 1.0 - thesis_prob_a
+        hybrid_prob_a = alpha * thesis_prob_a + (1.0 - alpha) * market_prob_a_t
+        hybrid_prob_b = alpha * thesis_prob_b + (1.0 - alpha) * market_prob_b_t
+        total = hybrid_prob_a + hybrid_prob_b
+        if total > 0:
+            hybrid_prob_a /= total
+        bookmaker_key = snap.get("bookmaker_id") or "unknown"
+        market_by_match[mid][bookmaker_key].append(market_prob_a)
+        hybrid_by_match[mid][bookmaker_key].append(hybrid_prob_a)
+
+    thesis_ll_diffs: list[float] = []
+    thesis_brier_diffs: list[float] = []
+    hybrid_ll_diffs: list[float] = []
+    hybrid_brier_diffs: list[float] = []
+
+    for mid, meta in pred_map.items():
+        bookmaker_probs = [float(np.mean(vals)) for vals in market_by_match[mid].values() if vals]
+        hybrid_probs = [float(np.mean(vals)) for vals in hybrid_by_match[mid].values() if vals]
+        if not bookmaker_probs:
+            continue
+        y_true = 1 if str(meta.get("winner_side") or "") == "team_a" else 0
+        market_prob = float(np.mean(bookmaker_probs))
+        thesis_prob = float(meta["thesis_prob_a"])
+        hybrid_prob = float(np.mean(hybrid_probs)) if hybrid_probs else thesis_prob
+
+        market_ll = _logloss_one(y_true, market_prob)
+        thesis_ll = _logloss_one(y_true, thesis_prob)
+        hybrid_ll = _logloss_one(y_true, hybrid_prob)
+        market_brier = (market_prob - y_true) ** 2
+        thesis_brier = (thesis_prob - y_true) ** 2
+        hybrid_brier = (hybrid_prob - y_true) ** 2
+
+        thesis_ll_diffs.append(market_ll - thesis_ll)
+        thesis_brier_diffs.append(market_brier - thesis_brier)
+        hybrid_ll_diffs.append(market_ll - hybrid_ll)
+        hybrid_brier_diffs.append(market_brier - hybrid_brier)
+
+    definitions = [
+        ("thesis_logloss", "Thesis model vs średni bukmacher — LogLoss", "logloss", THESIS_MODEL_NAME, thesis_ll_diffs),
+        ("thesis_brier", "Thesis model vs średni bukmacher — Brier", "brier", THESIS_MODEL_NAME, thesis_brier_diffs),
+        ("hybrid_logloss", "Hybrid thesis+market vs średni bukmacher — LogLoss", "logloss", THESIS_HYBRID_MODEL_NAME, hybrid_ll_diffs),
+        ("hybrid_brier", "Hybrid thesis+market vs średni bukmacher — Brier", "brier", THESIS_HYBRID_MODEL_NAME, hybrid_brier_diffs),
+    ]
+    results: list[dict] = []
+    for test_id, label, metric, model_name, diffs in definitions:
+        stats = _paired_t_test(diffs)
+        if not stats:
+            continue
+        results.append({
+            "id": test_id,
+            "label": label,
+            "metric": metric,
+            "model_name": model_name,
+            "baseline_name": "Average bookmaker",
+            "alternative": "mean(bookmaker_error - model_error) > 0",
+            "interpretation": "positive_mean_diff_means_model_better",
+            **stats,
+        })
+    return results
+
+
 @router.get("/horizon-accuracy")
 def horizon_accuracy(
     min_matches_per_bin: int = 10,
@@ -636,6 +920,9 @@ def horizon_accuracy(
     # --- 6. Compute overall model accuracy reference lines ---
     model_refs, hybrid_model_bins = _compute_model_reference_metrics(db, cutoff)
 
+    # --- 7. Statistical tests: model vs average bookmaker ---
+    model_vs_bookmaker_tests = _compute_model_vs_bookmaker_tests(db, cutoff)
+
     return {
         "total_matches_with_odds": len(matches_with_odds),
         "total_finished_matches": len(matches),
@@ -645,6 +932,7 @@ def horizon_accuracy(
         "model_references": model_refs,
         "hybrid_model_bins": hybrid_model_bins,
         "bookmaker_bins": bookmaker_bins,
+        "model_vs_bookmaker_tests": model_vs_bookmaker_tests,
     }
 
 
@@ -1096,6 +1384,7 @@ def _empty_horizon_result(total_matches: int = 0) -> dict:
         "model_references": [],
         "hybrid_model_bins": [],
         "bookmaker_bins": [],
+        "model_vs_bookmaker_tests": [],
     }
 
 

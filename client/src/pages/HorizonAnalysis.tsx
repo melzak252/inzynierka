@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { HorizonAccuracyResponse } from '../types';
+import { HorizonAccuracyResponse, ModelVsBookmakerTest } from '../types';
 import { fetchHorizonAccuracy } from '../api/client';
 import './HorizonAnalysis.css';
 
@@ -37,6 +37,25 @@ function yScale(domain: [number, number]): (v: number) => number {
 function xPos(i: number, total: number): number {
   const rangeW = CHART_W - PAD.left - PAD.right;
   return PAD.left + (i + 0.5) * (rangeW / total);
+}
+
+function logGamma(z: number): number {
+  const p = [
+    676.5203681218851, -1259.1392167224028, 771.3234287776531,
+    -176.61502916214059, 12.507343278686905, -0.13857109526572012,
+    9.9843695780195716e-6, 1.5056327351493116e-7,
+  ];
+  if (z < 0.5) return Math.log(Math.PI) - Math.log(Math.sin(Math.PI * z)) - logGamma(1 - z);
+  z -= 1;
+  let x = 0.99999999999980993;
+  for (let i = 0; i < p.length; i++) x += p[i] / (z + i + 1);
+  const t = z + p.length - 0.5;
+  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x);
+}
+
+function studentTPdf(x: number, df: number): number {
+  const logCoef = logGamma((df + 1) / 2) - logGamma(df / 2) - 0.5 * Math.log(df * Math.PI);
+  return Math.exp(logCoef - ((df + 1) / 2) * Math.log(1 + (x * x) / df));
 }
 
 /* ─── Stat card ─────────────────────────────────────────── */
@@ -409,6 +428,101 @@ export default function HorizonAnalysis() {
     );
   }
 
+  /* ─── Statistical tests: model vs average bookmaker ───── */
+  function StudentTDistributionChart({ tests }: { tests: ModelVsBookmakerTest[] }) {
+    const drawable = tests.filter(t => t.t_stat !== null && t.t_critical_95_one_sided !== null && t.df > 0);
+    if (drawable.length === 0) return <p className="no-data">No t-test distributions available.</p>;
+
+    const W = 800;
+    const H = 310;
+    const pad = { top: 25, right: 35, bottom: 42, left: 45 };
+    const xs = Array.from({ length: 241 }, (_, i) => -4 + (8 * i) / 240);
+    const maxY = Math.max(...drawable.flatMap(t => xs.map(x => studentTPdf(x, t.df)))) * 1.12;
+    const sx = (x: number) => pad.left + ((x + 4) / 8) * (W - pad.left - pad.right);
+    const sy = (y: number) => H - pad.bottom - (y / maxY) * (H - pad.top - pad.bottom);
+    const colors = ['#00d4ff', '#ff6b9d', '#00e676', '#fdd835'];
+
+    return (
+      <div className="chart-section stat-tests-chart-section">
+        <h3>Gdzie jesteśmy na rozkładzie t-Studenta?</h3>
+        <p className="stat-tests-subtitle">
+          Test jednostronny: H₁ = model ma mniejszy błąd niż średni bukmacher.
+          Dodatnia statystyka t oznacza przewagę modelu; pionowa linia przerywana to próg α=0.05.
+        </p>
+        <svg viewBox={`0 0 ${W} ${H}`} className="horizon-chart t-dist-chart">
+          {[ -3, -2, -1, 0, 1, 2, 3 ].map(x => (
+            <g key={x}>
+              <line x1={sx(x)} y1={pad.top} x2={sx(x)} y2={H - pad.bottom} stroke={COLORS.grid} strokeWidth={1} />
+              <text x={sx(x)} y={H - 16} fill={COLORS.axis} fontSize={10} textAnchor="middle">{x}</text>
+            </g>
+          ))}
+          <line x1={pad.left} y1={H - pad.bottom} x2={W - pad.right} y2={H - pad.bottom} stroke={COLORS.axis} strokeWidth={1} />
+          <text x={W / 2} y={H - 2} fill={COLORS.label} fontSize={11} textAnchor="middle">statystyka t</text>
+
+          {drawable.map((t, idx) => {
+            const color = colors[idx % colors.length];
+            const pathD = xs.map((x, i) => `${i === 0 ? 'M' : 'L'}${sx(x)},${sy(studentTPdf(x, t.df))}`).join(' ');
+            const tStat = Math.max(-4, Math.min(4, t.t_stat ?? 0));
+            const critical = Math.max(-4, Math.min(4, t.t_critical_95_one_sided ?? 0));
+            const labelY = pad.top + 15 + idx * 16;
+            return (
+              <g key={t.id}>
+                <path d={pathD} fill="none" stroke={color} strokeWidth={1.7} opacity={0.75} />
+                <line x1={sx(critical)} y1={pad.top} x2={sx(critical)} y2={H - pad.bottom}
+                  stroke={color} strokeWidth={1} strokeDasharray="5,4" opacity={0.55} />
+                <line x1={sx(tStat)} y1={pad.top} x2={sx(tStat)} y2={H - pad.bottom}
+                  stroke={color} strokeWidth={2.4} opacity={0.95} />
+                <circle cx={sx(tStat)} cy={sy(studentTPdf(tStat, t.df))} r={4} fill={color} stroke="#111" strokeWidth={1}>
+                  <title>{t.label}: t={fmt(t.t_stat ?? 0, 3)}, p={t.p_value_one_sided.toFixed(4)}, df={t.df}</title>
+                </circle>
+                <text x={W - pad.right - 255} y={labelY} fill={color} fontSize={10}>
+                  {t.metric.toUpperCase()} {t.model_name.includes('Hybrid') ? 'Hybrid' : 'Thesis'}: t={fmt(t.t_stat ?? 0, 2)}, p={t.p_value_one_sided.toFixed(4)}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  }
+
+  function ModelVsBookmakerTestsSection() {
+    const tests = data?.model_vs_bookmaker_tests ?? [];
+    if (tests.length === 0) return null;
+    return (
+      <div className="stat-tests-section">
+        <h3>🧪 Testy statystyczne: model vs średni bukmacher</h3>
+        <p className="stat-tests-subtitle">
+          Każdy test jest sparowany po meczu. Dla każdego meczu liczymy różnicę:
+          <strong> błąd średniego bukmachera − błąd modelu</strong>. Jeśli średnia różnica jest dodatnia,
+          model ma mniejszy błąd. Test t-Studenta sprawdza jednostronnie, czy ta przewaga jest istotna.
+        </p>
+        <div className="stat-tests-grid">
+          {tests.map(t => (
+            <div key={t.id} className={`stat-test-card ${t.significant ? 'significant' : 'not-significant'}`}>
+              <div className="stat-test-header">
+                <span className="stat-test-title">{t.label}</span>
+                <span className="stat-test-badge">{t.significant ? 'istotne' : 'nieistotne'}</span>
+              </div>
+              <div className="stat-test-metrics">
+                <span>n: <strong>{t.n}</strong></span>
+                <span>df: <strong>{t.df}</strong></span>
+                <span>średnia Δ: <strong>{t.mean_diff.toFixed(4)}</strong></span>
+                <span>t: <strong>{t.t_stat === null ? '—' : t.t_stat.toFixed(3)}</strong></span>
+                <span>p: <strong>{t.p_value_one_sided.toFixed(4)}</strong></span>
+                <span>t kryt.: <strong>{t.t_critical_95_one_sided?.toFixed(3) ?? '—'}</strong></span>
+              </div>
+              <p className="stat-test-note">
+                {t.mean_diff > 0 ? 'Model ma niższy średni błąd w tej metryce.' : 'Średni bukmacher ma niższy średni błąd w tej metryce.'}
+              </p>
+            </div>
+          ))}
+        </div>
+        <StudentTDistributionChart tests={tests} />
+      </div>
+    );
+  }
+
   /* ══════════════ RENDER ════════════════════════════════ */
   return (
     <div className="horizon-page">
@@ -512,6 +626,9 @@ export default function HorizonAnalysis() {
           </div>
         </div>
       )}
+
+      {/* ─── Statistical Tests ───────────────────────────── */}
+      <ModelVsBookmakerTestsSection />
 
       {/* ─── Bookmaker Results ─────────────────────────────── */}
       {data.bookmaker_bins.length > 0 && (

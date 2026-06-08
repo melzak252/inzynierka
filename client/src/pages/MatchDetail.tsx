@@ -475,10 +475,10 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
                   <tr>
                     <td className="ev-info-label">Rynek (aktualne)</td>
                     <td className="ev-info-value">
-                      {evStats.currentMarketA != null ? `${(evStats.currentMarketA * 100).toFixed(1)}%` : '—'}
+                      {evStats.currentMarketA != null ? `${(evStats.currentMarketA.value * 100).toFixed(1)}%` : '—'}
                     </td>
                     <td className="ev-info-value">
-                      {evStats.currentMarketB != null ? `${(evStats.currentMarketB * 100).toFixed(1)}%` : '—'}
+                      {evStats.currentMarketB != null ? `${(evStats.currentMarketB.value * 100).toFixed(1)}%` : '—'}
                     </td>
                   </tr>
                 )}
@@ -487,11 +487,11 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
                     <td className="ev-info-label">Rynek min</td>
                     <td className="ev-info-value">
                       {(evStats.minMarketA.value * 100).toFixed(1)}%
-                      <span className="ev-info-ts"> {new Date(evStats.minMarketA.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="ev-info-ts"> {new Date(evStats.minMarketA.ts).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
                     </td>
                     <td className="ev-info-value">
                       {evStats.minMarketB ? `${(evStats.minMarketB.value * 100).toFixed(1)}%` : '—'}
-                      {evStats.minMarketB && <span className="ev-info-ts"> {new Date(evStats.minMarketB.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
+                      {evStats.minMarketB && <span className="ev-info-ts"> {new Date(evStats.minMarketB.ts).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
                     </td>
                   </tr>
                 )}
@@ -500,11 +500,11 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
                     <td className="ev-info-label">Rynek max</td>
                     <td className="ev-info-value">
                       {(evStats.maxMarketA.value * 100).toFixed(1)}%
-                      <span className="ev-info-ts"> {new Date(evStats.maxMarketA.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className="ev-info-ts"> {new Date(evStats.maxMarketA.ts).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
                     </td>
                     <td className="ev-info-value">
                       {evStats.maxMarketB ? `${(evStats.maxMarketB.value * 100).toFixed(1)}%` : '—'}
-                      {evStats.maxMarketB && <span className="ev-info-ts"> {new Date(evStats.maxMarketB.timestamp).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
+                      {evStats.maxMarketB && <span className="ev-info-ts"> {new Date(evStats.maxMarketB.ts).toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>}
                     </td>
                   </tr>
                 )}
