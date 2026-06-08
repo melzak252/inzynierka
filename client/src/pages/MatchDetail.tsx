@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf } from '../api/client';
+import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, predictMatch } from '../api/client';
 import type { MatchDetailResponse, PredictionHistoryPoint } from '../types';
 import './MatchDetail.css';
 
@@ -527,6 +527,7 @@ export default function MatchDetail() {
   const [error, setError] = useState<string | null>(null);
   const [editingBestOf, setEditingBestOf] = useState(false);
   const [savingBestOf, setSavingBestOf] = useState(false);
+  const [predicting, setPredicting] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -629,6 +630,30 @@ export default function MatchDetail() {
               ))}
             </span>
           )}
+          <button
+            className={`predict-btn ${predicting ? 'predicting' : ''}`}
+            onClick={async () => {
+              if (predicting) return;
+              setPredicting(true);
+              try {
+                await predictMatch(match.canonical_match_id);
+                // Refresh both match detail and prediction history
+                const [matchData, historyData] = await Promise.all([
+                  fetchMatchDetail(match.canonical_match_id),
+                  fetchPredictionHistory(match.canonical_match_id),
+                ]);
+                setMatch(matchData);
+                setPredHistory(historyData);
+              } catch (err: any) {
+                setError(err.message || 'Predykcja nie powiodła się');
+              } finally {
+                setPredicting(false);
+              }
+            }}
+            disabled={predicting}
+          >
+            {predicting ? '⏳ Predykcja...' : '🔮 Predykcja'}
+          </button>
         </div>
         <h1>
           {match.team_a_name || '?'} vs {match.team_b_name || '?'}

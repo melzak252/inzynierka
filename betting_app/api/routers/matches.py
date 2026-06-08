@@ -21,6 +21,7 @@ from betting_app.api.schemas import (
     MatchDetailResponse,
     MatchResultItem,
     MatchResultsResponse,
+    PredictResponse,
     PredictionHistoryPoint,
     PredictionRow,
     RosterInfo,
@@ -37,6 +38,21 @@ from betting_app.services.market_service import (
     kelly_fraction,
     none_or_float,
     safe_json_get,
+)
+from betting_app.services.thesis_inference_service import (
+    build_thesis_features_for_match,
+    generate_thesis_hybrid_predictions,
+    _load_model,
+    _swap_feature_vector,
+    _symmetrize,
+    _logit,
+    _register_thesis_model,
+    THESIS_MODEL_NAME,
+    THESIS_MODEL_VERSION,
+    THESIS_HYBRID_MODEL_NAME,
+    THESIS_HYBRID_ALPHA,
+    THESIS_HYBRID_TEMPERATURE,
+    EPSILON,
 )
 
 router = APIRouter(prefix="/matches", tags=["matches"])
@@ -791,3 +807,149 @@ def update_match_best_of(match_id: int, body: MatchBestOfUpdate, db=Depends(get_
     )
     db.commit()
     return body
+
+
+# ── POST /matches/{id}/predict — run prediction for single match ────────────
+
+
+@router.post("/{match_id}/predict", response_model=PredictResponse)
+def predict_match(match_id: int, db=Depends(get_db)):
+    """Run thesis model prediction for a single match.
+
+    Builds features, runs inference with order symmetry + Platt calibration,
+    stores the prediction, then generates hybrid + EV signals.
+    """
+    import numpy as np
+    import json as _json
+
+    # 1. Load match from DB
+    meta = query_df(db, "SELECT * FROM canonical_matches WHERE id=:id", {"id": match_id})
+    if not meta:
+        raise HTTPException(status_code=404, detail="Match not found")
+    m = meta[0]
+
+    team_a = m.get("team_a_name")
+    team_b = m.get("team_b_name")
+    if not team_a or not team_b:
+        return PredictResponse(
+            status="error",
+            message="Match missing team names — cannot predict",
+        )
+
+    best_of = m.get("best_of") or 1
+
+    # 2. Build features
+    feature_vector, diagnostics = build_thesis_features_for_match(
+        team_a, team_b, best_of=best_of,
+    )
+    if feature_vector is None:
+        return PredictResponse(
+            status="error",
+            message=f"Cannot build features for {team_a} vs {team_b} — missing data",
+            diagnostics=diagnostics,
+        )
+
+    # 3. Load model and run inference
+    pipeline, calibrator = _load_model()
+    fv = np.array(feature_vector, dtype=float).reshape(1, -1)
+
+    # Original order
+    original_prob = float(pipeline.predict_proba(fv)[0, 1])
+    original_prob = max(EPSILON, min(1 - EPSILON, original_prob))
+
+    # Swapped order (order symmetry)
+    swapped_vec = _swap_feature_vector(list(feature_vector))
+    sv = np.array(swapped_vec, dtype=float).reshape(1, -1)
+    swapped_prob = float(pipeline.predict_proba(sv)[0, 1])
+    swapped_prob = max(EPSILON, min(1 - EPSILON, swapped_prob))
+
+    # Symmetrize
+    sym_prob = _symmetrize(original_prob, swapped_prob)
+
+    # Platt calibration
+    calibrated_prob = float(calibrator.predict_proba(_logit([sym_prob]))[0, 1])
+    calibrated_prob = max(EPSILON, min(1 - EPSILON, calibrated_prob))
+
+    prob_a = round(calibrated_prob, 6)
+    prob_b = round(1 - calibrated_prob, 6)
+
+    # 4. Register model artifact and store prediction
+    now_iso = datetime.now(UTC).isoformat(timespec="seconds")
+
+    # Mark old thesis predictions as stale for this match
+    db.execute(
+        text(
+            "UPDATE canonical_predictions SET prediction_status = 'stale' "
+            "WHERE prediction_status = 'active' AND model_name = :mn AND model_version = :mv "
+            "AND canonical_match_id = :mid"
+        ),
+        {"mn": THESIS_MODEL_NAME, "mv": THESIS_MODEL_VERSION, "mid": match_id},
+    )
+
+    # Register model artifact (get or create)
+    model_artifact_id = _register_thesis_model()
+
+    # Insert new prediction
+    db.execute(
+        text(
+            "INSERT INTO canonical_predictions "
+            "(canonical_match_id, model_artifact_id, model_name, model_version, "
+            " predicted_at, prob_a, prob_b, prediction_status, features_version, "
+            " ratings_version, data_cutoff_at, diagnostics_json) "
+            "VALUES (:mid, :maid, :mn, :mv, :pat, :pa, :pb, 'active', :fv, :rv, :dca, :dj)"
+        ),
+        {
+            "mid": match_id,
+            "maid": model_artifact_id,
+            "mn": THESIS_MODEL_NAME,
+            "mv": THESIS_MODEL_VERSION,
+            "pat": now_iso,
+            "pa": prob_a,
+            "pb": prob_b,
+            "fv": diagnostics.get("features_version", "46f-v1") if isinstance(diagnostics, dict) else "46f-v1",
+            "rv": diagnostics.get("ratings_version", "latest-full") if isinstance(diagnostics, dict) else "latest-full",
+            "dca": now_iso,
+            "dj": _json.dumps(diagnostics) if isinstance(diagnostics, dict) else None,
+        },
+    )
+    db.commit()
+
+    # 5. Generate hybrid predictions (runs for all matches but picks up the new thesis prediction)
+    try:
+        generate_thesis_hybrid_predictions(
+            alpha=THESIS_HYBRID_ALPHA,
+            temperature=THESIS_HYBRID_TEMPERATURE,
+            hybrid_model_name=THESIS_HYBRID_MODEL_NAME,
+            hybrid_model_version=HYBRID_MODEL_VERSION,
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Hybrid prediction failed for match {match_id}: {e}")
+
+    # 6. Fetch the hybrid prediction we just generated
+    hybrid_pred = query_df(
+        db,
+        """
+        SELECT prob_a, prob_b
+        FROM canonical_predictions
+        WHERE canonical_match_id=:mid AND prediction_status='active'
+          AND model_name=:hn AND model_version=:hv
+        ORDER BY predicted_at DESC
+        LIMIT 1
+        """,
+        {"mid": match_id, "hn": THESIS_HYBRID_MODEL_NAME, "hv": HYBRID_MODEL_VERSION},
+    )
+    hybrid_prob_a = none_or_float(hybrid_pred[0].get("prob_a")) if hybrid_pred else None
+    hybrid_prob_b = none_or_float(hybrid_pred[0].get("prob_b")) if hybrid_pred else None
+
+    return PredictResponse(
+        status="ok",
+        message=f"Predicted {team_a} vs {team_b}: {prob_a:.1%} / {prob_b:.1%}",
+        prob_a=prob_a,
+        prob_b=prob_b,
+        hybrid_prob_a=hybrid_prob_a,
+        hybrid_prob_b=hybrid_prob_b,
+        model_name=THESIS_MODEL_NAME,
+        model_version=THESIS_MODEL_VERSION,
+        diagnostics=diagnostics if isinstance(diagnostics, dict) else None,
+    )

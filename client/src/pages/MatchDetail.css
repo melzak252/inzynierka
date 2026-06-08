@@ -93,6 +93,30 @@
   opacity: 0.6;
 }
 
+.predict-btn {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #e0e0e0;
+  background: #2a3a5a;
+  border: 1px solid #4fc3f7;
+  border-radius: 10px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: 0.5rem;
+}
+
+.predict-btn:hover {
+  background: #3a4a7a;
+  border-color: #80d8ff;
+}
+
+.predict-btn:disabled,
+.predict-btn.predicting {
+  opacity: 0.6;
+  cursor: wait;
+}
+
 .status {
   font-size: 0.8rem;
   color: #888;

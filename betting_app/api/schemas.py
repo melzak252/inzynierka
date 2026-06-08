@@ -328,3 +328,18 @@ class SchedulerTriggerResponse(BaseModel):
     task_id: str
     status: str
     message: str
+
+
+# ── Single-match prediction ────────────────────────────────────────────────
+
+
+class PredictResponse(BaseModel):
+    status: str = "ok"
+    message: str = ""
+    prob_a: float | None = None
+    prob_b: float | None = None
+    hybrid_prob_a: float | None = None
+    hybrid_prob_b: float | None = None
+    model_name: str | None = None
+    model_version: str | None = None
+    diagnostics: dict[str, Any] | None = None

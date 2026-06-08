@@ -118,6 +118,29 @@ export async function triggerSchedulerTask(taskId: string): Promise<SchedulerTri
   return response.json();
 }
 
+// ─── Predict ─────────────────────────────────────────────────
+
+export interface PredictResult {
+  status: string;
+  message: string;
+  prob_a: number | null;
+  prob_b: number | null;
+  hybrid_prob_a: number | null;
+  hybrid_prob_b: number | null;
+  model_name: string | null;
+  model_version: string | null;
+  diagnostics: Record<string, unknown> | null;
+}
+
+export async function predictMatch(matchId: number): Promise<PredictResult> {
+  const response = await fetch(`${API_BASE}/matches/${matchId}/predict`, { method: 'POST' });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to predict match ${matchId}: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 // ─── Prediction History ──────────────────────────────────────
 
 export async function fetchPredictionHistory(matchId: number): Promise<PredictionHistoryPoint[]> {
