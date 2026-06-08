@@ -858,7 +858,7 @@ def predict_match(match_id: int, db=Depends(get_db)):
     original_prob = max(EPSILON, min(1 - EPSILON, original_prob))
 
     # Swapped order (order symmetry)
-    swapped_vec = _swap_feature_vector(list(feature_vector))
+    swapped_vec = _swap_feature_vector(fv)
     sv = np.array(swapped_vec, dtype=float).reshape(1, -1)
     swapped_prob = float(pipeline.predict_proba(sv)[0, 1])
     swapped_prob = max(EPSILON, min(1 - EPSILON, swapped_prob))

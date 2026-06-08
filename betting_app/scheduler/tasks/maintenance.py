@@ -39,7 +39,7 @@ def rebuild_rolling_features() -> dict:
     logger.info("Rebuilding rolling features")
     start = datetime.utcnow()
     
-    success = _run_module("betting_app.scripts.rebuild_w20_features", timeout=300)
+    success = _run_module("betting_app.scripts.rebuild_w20_features", timeout=600)
     duration = (datetime.utcnow() - start).total_seconds()
     
     logger.info(f"Features rebuild: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
