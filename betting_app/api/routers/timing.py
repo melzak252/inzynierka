@@ -474,15 +474,17 @@ def horizon_accuracy(
     )
 
     # --- 3. Build bins ---
-    # Bin definitions: (label, max_hours)
-    # Cumulative bins: a snapshot at 4h counts in ≤2h AND ≤6h bins.
+    # Interval bins: each snapshot is assigned to exactly one time window.
+    # A match can still appear in multiple bins if it has odds snapshots in
+    # multiple windows. Metrics for each bin are computed only from odds in
+    # that specific interval.
     BIN_DEFS = [
-        ("≤2h",     0,   2),
-        ("≤6h",     0,   6),
-        ("≤12h",    0,  12),
-        ("≤24h",    0,  24),
-        ("≤48h",    0,  48),
-        ("48h+",    0, 9999),
+        ("0-2h",     0,   2),
+        ("2-6h",     2,   6),
+        ("6-12h",    6,  12),
+        ("12-24h",  12,  24),
+        ("24-48h",  24,  48),
+        ("48h+",    48, 9999),
     ]
 
     # Accumulate per bin at match level.
@@ -558,9 +560,11 @@ def horizon_accuracy(
             prob_winner = prob_b_norm
             prob_loser = prob_a_norm
 
-        # Find bin(s) — cumulative: snapshot counts in ALL bins where hours_before < hmax
+        # Find bin — interval: snapshot counts only in its exact time window.
+        # A match can appear in multiple bins if it has snapshots in multiple
+        # windows, but each bin's stats use only odds from that window.
         for label, hmin, hmax in BIN_DEFS:
-            if hours_before < hmax:
+            if hmin <= hours_before < hmax:
                 bd = bin_data[label]
                 md = bd["per_match"][mid]
                 bookmaker_key = snap.get("bookmaker_id") or "unknown"
@@ -571,6 +575,7 @@ def horizon_accuracy(
                 bd["snapshot_count"] += 1
                 matches_with_odds.add(mid)
                 odds_processed += 1
+                break
 
     if odds_processed == 0:
         return _empty_horizon_result(len(matches))
@@ -733,14 +738,14 @@ def _compute_model_reference_metrics(db, cutoff: str) -> tuple[list[dict], list[
     refs: list[dict] = []
     hybrid_bins: list[dict] = []
 
-    # Bin definitions (cumulative, same as in horizon_accuracy)
+    # Bin definitions (interval, same as in horizon_accuracy)
     BIN_DEFS = [
-        ("≤2h",     0,   2),
-        ("≤6h",     0,   6),
-        ("≤12h",    0,  12),
-        ("≤24h",    0,  24),
-        ("≤48h",    0,  48),
-        ("48h+",    0, 9999),
+        ("0-2h",     0,   2),
+        ("2-6h",     2,   6),
+        ("6-12h",    6,  12),
+        ("12-24h",  12,  24),
+        ("24-48h",  24,  48),
+        ("48h+",    48, 9999),
     ]
 
     model_defs = query_df(
@@ -1017,15 +1022,16 @@ def _compute_hybrid_bins_dynamic(
         y_true = 1 if winner_side == "team_a" else 0
         y_score = hybrid_prob_a
         
-        # Find bin(s) — cumulative: snapshot counts in ALL bins where hours_before < hmax
+        # Find bin — interval: snapshot counts only in its exact time window.
         for label, hmin, hmax in bin_defs:
-            if hours_before < hmax:
+            if hmin <= hours_before < hmax:
                 bd = bin_data[label]
                 md = bd["per_match"][mid]
                 bookmaker_key = snap.get("bookmaker_id") or "unknown"
                 md["y_true"] = y_true
                 md["bookmaker_scores"][bookmaker_key].append(y_score)
                 bd["snapshot_count"] += 1
+                break
     
     # Compute metrics per bin
     result_bins = []
