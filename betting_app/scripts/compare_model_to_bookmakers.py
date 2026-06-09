@@ -19,6 +19,8 @@ Usage examples::
     python -m betting_app.scripts.compare_model_to_bookmakers
     python -m betting_app.scripts.compare_model_to_bookmakers --min-matches 20
     python -m betting_app.scripts.compare_model_to_bookmakers --model-name Hybrid-Thesis-Market
+    python -m betting_app.scripts.compare_model_to_bookmakers --require-mapped
+    python -m betting_app.scripts.compare_model_to_bookmakers --require-mapped --allowed-mapping-sources alias,builtin
     python -m betting_app.scripts.compare_model_to_bookmakers --csv-output reports/model_vs_books.csv
 """
 
@@ -40,6 +42,7 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from betting_app.core.db import init_db, query_df
 from betting_app.core.ev import fair_market_probabilities
 from betting_app.services.canonical_match_service import align_snapshot_odds
+from betting_app.services.mapping_service import suggest_mapping
 from betting_app.services.thesis_inference_service import THESIS_MODEL_NAME, THESIS_MODEL_VERSION
 
 
@@ -253,6 +256,54 @@ def prepare_market_frame(raw: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def filter_confident_mappings(df: pd.DataFrame, allowed_sources: set[str] | None = None) -> pd.DataFrame:
+    """Keep only rows where both canonical teams resolve to trusted GOL.GG teams.
+
+    The comparison against bookmakers can be restricted to "pewne połączenia":
+    matches where both sides have a live mapping from the current mapping service.
+    By default all non-empty, non-blocked mappings are accepted. Passing
+    ``allowed_sources`` can restrict this further, e.g. to ``{"alias", "builtin"}``.
+    """
+
+    if df.empty:
+        return df
+
+    cache: dict[int, tuple[str | None, str | None, str | None, str | None]] = {}
+
+    def mapping_for(row: pd.Series) -> tuple[str | None, str | None, str | None, str | None]:
+        match_id = int(row["canonical_match_id"])
+        if match_id not in cache:
+            team_a_golgg, _conf_a, source_a = suggest_mapping(str(row["team_a_name"]))
+            team_b_golgg, _conf_b, source_b = suggest_mapping(str(row["team_b_name"]))
+            cache[match_id] = (team_a_golgg, source_a, team_b_golgg, source_b)
+        return cache[match_id]
+
+    keep: list[bool] = []
+    team_a_golgg_values: list[str | None] = []
+    team_b_golgg_values: list[str | None] = []
+    source_a_values: list[str | None] = []
+    source_b_values: list[str | None] = []
+
+    for _, row in df.iterrows():
+        team_a_golgg, source_a, team_b_golgg, source_b = mapping_for(row)
+        team_a_golgg_values.append(team_a_golgg)
+        team_b_golgg_values.append(team_b_golgg)
+        source_a_values.append(source_a)
+        source_b_values.append(source_b)
+        is_mapped = bool(team_a_golgg and team_b_golgg)
+        is_allowed = True
+        if allowed_sources is not None:
+            is_allowed = (source_a in allowed_sources) and (source_b in allowed_sources)
+        keep.append(is_mapped and is_allowed)
+
+    out = df.copy()
+    out["team_a_golgg_name"] = team_a_golgg_values
+    out["team_b_golgg_name"] = team_b_golgg_values
+    out["team_a_mapping_source"] = source_a_values
+    out["team_b_mapping_source"] = source_b_values
+    return out[pd.Series(keep, index=out.index)].copy()
+
+
 def build_results(df: pd.DataFrame, min_matches: int) -> tuple[list[MetricRow], pd.DataFrame]:
     """Return ranked metric rows and per-match market consensus."""
 
@@ -346,11 +397,22 @@ def build_results(df: pd.DataFrame, min_matches: int) -> tuple[list[MetricRow], 
     return ranked, consensus
 
 
-def print_report(rows: list[MetricRow], consensus: pd.DataFrame, model_name: str, model_version: str | None) -> None:
+def print_report(
+    rows: list[MetricRow],
+    consensus: pd.DataFrame,
+    model_name: str,
+    model_version: str | None,
+    *,
+    require_mapped: bool = False,
+    allowed_mapping_sources: set[str] | None = None,
+) -> None:
     print("=" * 120)
     print("PORÓWNANIE MODELU Z KURSAMI BUKMACHERÓW ZEBRANYMI PRZEZ APLIKACJĘ")
     print("=" * 120)
     print(f"Model: {model_name}" + (f" ({model_version})" if model_version else ""))
+    if require_mapped:
+        sources = ",".join(sorted(allowed_mapping_sources)) if allowed_mapping_sources else "any non-blocked mapping"
+        print(f"Filtr GOL.GG: tylko pewne połączenia obu drużyn; źródła: {sources}")
     print(f"Mecze w konsensusie rynku: {len(consensus)}")
     if not rows:
         print("Brak wystarczających danych do porównania.")
@@ -385,6 +447,16 @@ def main() -> None:
     parser.add_argument("--prediction-status", default="active", help="Prediction status to evaluate")
     parser.add_argument("--min-matches", type=int, default=5, help="Minimum matches required for a bookmaker/source")
     parser.add_argument("--include-live", action="store_true", help="Include live odds snapshots; default uses only pre-match/non-live odds")
+    parser.add_argument(
+        "--require-mapped",
+        action="store_true",
+        help="Evaluate only matches where both canonical teams currently map to GOL.GG teams",
+    )
+    parser.add_argument(
+        "--allowed-mapping-sources",
+        default="alias,builtin",
+        help="Comma-separated trusted mapping sources used with --require-mapped; empty = any non-blocked mapping",
+    )
     parser.add_argument("--csv-output", help="Optional path to save the ranked metric table as CSV")
     args = parser.parse_args()
 
@@ -397,8 +469,23 @@ def main() -> None:
         include_live=args.include_live,
     )
     market = prepare_market_frame(raw)
+    allowed_sources = None
+    if args.require_mapped and args.allowed_mapping_sources.strip():
+        allowed_sources = {s.strip() for s in args.allowed_mapping_sources.split(",") if s.strip()}
+    if args.require_mapped:
+        before_matches = market["canonical_match_id"].nunique() if not market.empty else 0
+        market = filter_confident_mappings(market, allowed_sources)
+        after_matches = market["canonical_match_id"].nunique() if not market.empty else 0
+        print(f"Filtered by GOL.GG mapping coverage: {after_matches}/{before_matches} consensus-candidate matches kept")
     rows, consensus = build_results(market, min_matches=args.min_matches)
-    print_report(rows, consensus, args.model_name, model_version)
+    print_report(
+        rows,
+        consensus,
+        args.model_name,
+        model_version,
+        require_mapped=args.require_mapped,
+        allowed_mapping_sources=allowed_sources,
+    )
 
     if args.csv_output and rows:
         out = Path(args.csv_output)
