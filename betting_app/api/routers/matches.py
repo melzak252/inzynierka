@@ -44,6 +44,7 @@ from betting_app.services.market_service import (
     none_or_float,
     safe_json_get,
 )
+from betting_app.services.mapping_service import suggest_mapping
 from betting_app.services.thesis_inference_service import (
     build_thesis_features_for_match,
     generate_thesis_hybrid_predictions,
@@ -231,7 +232,16 @@ def list_matches(
         }
         enrich_arbitrage(record, tax_rate=tax_rate)
 
-        p = pred_map.get(mid, {})
+        team_a_name = group[0].get("team_a_name")
+        team_b_name = group[0].get("team_b_name")
+        team_a_golgg, _team_a_conf, team_a_source = suggest_mapping(str(team_a_name)) if team_a_name else (None, 0.0, None)
+        team_b_golgg, _team_b_conf, team_b_source = suggest_mapping(str(team_b_name)) if team_b_name else (None, 0.0, None)
+        has_unmapped_teams = not team_a_golgg or not team_b_golgg
+
+        # Do not surface stale model probabilities/EV when either side is not
+        # mapped to a GOL.GG team. Those predictions may have been computed
+        # before mapping changed and would be misleading.
+        p = {} if has_unmapped_teams else pred_map.get(mid, {})
         hybrid_ev_a = (
             expected_value(float(p["hybrid_prob_a"]), float(record["best_odds_a"]), tax_rate)
             if p.get("hybrid_prob_a") is not None else None
@@ -243,12 +253,17 @@ def list_matches(
 
         items.append(MatchBoardItem(
             canonical_match_id=mid,
-            match=f"{group[0].get('team_a_name','?')} vs {group[0].get('team_b_name','?')}",
+            match=f"{team_a_name or '?'} vs {team_b_name or '?'}",
             league=group[0].get("league"),
             start_time_normalized=group[0].get("start_time_normalized"),
             best_of=group[0].get("best_of"),
-            team_a_name=group[0].get("team_a_name"),
-            team_b_name=group[0].get("team_b_name"),
+            team_a_name=team_a_name,
+            team_b_name=team_b_name,
+            team_a_golgg_name=team_a_golgg,
+            team_b_golgg_name=team_b_golgg,
+            team_a_mapping_source=team_a_source,
+            team_b_mapping_source=team_b_source,
+            has_unmapped_teams=has_unmapped_teams,
             bookmaker_count=books,
             best_odds_a=record["best_odds_a"],
             best_bookmaker_a=record["best_bookmaker_a"],
@@ -432,24 +447,24 @@ def delete_alias_endpoint(body: AliasDeleteRequest, db=Depends(get_db)):
     return {"ok": True, "deleted": True}
 
 
-# ── POST /matches/alias/block — block fuzzy matching for a team ──────────────
+# ── POST /matches/alias/block — mark a team as blocked/unmapped ─────────────
 
 
 @router.post("/alias/block")
 def block_alias_endpoint(body: AliasBlockRequest, db=Depends(get_db)):
-    """Block fuzzy matching for a team name, preventing incorrect auto-mappings."""
+    """Mark a team name as blocked/unmapped."""
     from betting_app.services.mapping_service import block_alias
 
     block_alias(body.raw_name)
     return {"ok": True, "blocked": True}
 
 
-# ── DELETE /matches/alias/block — unblock fuzzy matching for a team ───────────
+# ── DELETE /matches/alias/block — unblock a team mapping marker ──────────────
 
 
 @router.delete("/alias/block")
 def unblock_alias_endpoint(body: AliasBlockRequest, db=Depends(get_db)):
-    """Unblock fuzzy matching for a team name, allowing auto-mappings again."""
+    """Remove a blocked/unmapped marker for a team name."""
     from betting_app.services.mapping_service import unblock_alias
 
     unblocked = unblock_alias(body.raw_name)
@@ -467,6 +482,10 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
     if not meta:
         raise HTTPException(status_code=404, detail="Match not found")
     m = meta[0]
+
+    live_team_a = suggest_mapping(str(m.get("team_a_name"))) if m.get("team_a_name") else (None, 0.0, None)
+    live_team_b = suggest_mapping(str(m.get("team_b_name"))) if m.get("team_b_name") else (None, 0.0, None)
+    has_unmapped_teams = not live_team_a[0] or not live_team_b[0]
 
     now = datetime.now(UTC)
     stale_cutoff = now - timedelta(hours=stale_hours)
@@ -527,8 +546,8 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
         """,
         {"mid": match_id, "hn": HYBRID_MODEL_NAME, "hv": HYBRID_MODEL_VERSION},
     )
-    hybrid_prob_a = none_or_float(hybrid_pred[0].get("prob_a")) if hybrid_pred else None
-    hybrid_prob_b = none_or_float(hybrid_pred[0].get("prob_b")) if hybrid_pred else None
+    hybrid_prob_a = none_or_float(hybrid_pred[0].get("prob_a")) if hybrid_pred and not has_unmapped_teams else None
+    hybrid_prob_b = none_or_float(hybrid_pred[0].get("prob_b")) if hybrid_pred and not has_unmapped_teams else None
     
     odds_rows: list[BookmakerOddsRow] = []
     for row in odds:
@@ -557,7 +576,7 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
             kelly_b=kelly_b,
         ))
 
-    preds = query_df(
+    preds = [] if has_unmapped_teams else query_df(
         db,
         """
         SELECT *
@@ -611,42 +630,32 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
         # Extract team mapping info
         mapping = safe_json_get(f, ["mapping"])
         if isinstance(mapping, dict):
-            # Infer source from confidence when not stored (backwards compat)
-            def _infer_source(golgg_name, confidence, stored_source):
-                if stored_source is not None:
-                    return stored_source
-                if not golgg_name:
-                    return None
-                if confidence is not None and confidence >= 1.0:
-                    return "alias"
-                return "fuzzy"
-
             team_a_conf = none_or_float(mapping.get("team_a_confidence"))
             team_a_golgg = mapping.get("team_a_golgg_name")
             team_b_conf = none_or_float(mapping.get("team_b_confidence"))
             team_b_golgg = mapping.get("team_b_golgg_name")
 
-            # Check live mapping status to detect blocked/changed aliases
-            # The stored features_json may be stale after block/unblock actions
-            from betting_app.services.mapping_service import suggest_mapping
+            live_a = live_team_a
+            live_b = live_team_b
 
-            team_a_raw = m.get("team_a_name")
-            team_b_raw = m.get("team_b_name")
-            live_a = suggest_mapping(team_a_raw) if team_a_raw else (None, 0.0, None)
-            live_b = suggest_mapping(team_b_raw) if team_b_raw else (None, 0.0, None)
-
-            # Use live result if mapping is blocked, otherwise use stored
-            if live_a[2] == "blocked":
+            # Always trust live mapping status over stored features_json. Stored
+            # features may contain stale fuzzy mappings produced before aliases
+            # changed or fuzzy auto-mapping was disabled.
+            if live_a[0]:
+                team_a_golgg, team_a_conf, team_a_source = live_a
+            elif live_a[2] == "blocked":
                 team_a_golgg, team_a_conf = None, None
                 team_a_source = "blocked"
             else:
-                team_a_source = _infer_source(team_a_golgg, team_a_conf, mapping.get("team_a_source"))
+                team_a_golgg, team_a_conf, team_a_source = None, None, None
 
-            if live_b[2] == "blocked":
+            if live_b[0]:
+                team_b_golgg, team_b_conf, team_b_source = live_b
+            elif live_b[2] == "blocked":
                 team_b_golgg, team_b_conf = None, None
                 team_b_source = "blocked"
             else:
-                team_b_source = _infer_source(team_b_golgg, team_b_conf, mapping.get("team_b_source"))
+                team_b_golgg, team_b_conf, team_b_source = None, None, None
 
             team_a_info = TeamMappingInfo(
                 canonical_name=m.get("team_a_name"),

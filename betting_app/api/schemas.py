@@ -28,6 +28,11 @@ class MatchBoardItem(BaseModel):
 
     team_a_name: str | None = None
     team_b_name: str | None = None
+    team_a_golgg_name: str | None = None
+    team_b_golgg_name: str | None = None
+    team_a_mapping_source: str | None = None
+    team_b_mapping_source: str | None = None
+    has_unmapped_teams: bool = False
 
     bookmaker_count: int = 0
 
@@ -112,7 +117,7 @@ class TeamMappingInfo(BaseModel):
     canonical_name: str | None = None
     golgg_name: str | None = None
     confidence: float | None = None
-    source: str | None = None  # 'alias', 'builtin', 'fuzzy', or 'blocked'
+    source: str | None = None  # 'alias', 'builtin', 'blocked', or None when unmapped
 
 
 class TeamComparisonInfo(BaseModel):
@@ -378,7 +383,7 @@ class AliasDeleteRequest(BaseModel):
 
 
 class AliasBlockRequest(BaseModel):
-    raw_name: str = Field(min_length=1, description="Bookmaker/raw team name to block fuzzy matching for")
+    raw_name: str = Field(min_length=1, description="Bookmaker/raw team name to mark as blocked")
 
 
 class GolggTeamsResponse(BaseModel):

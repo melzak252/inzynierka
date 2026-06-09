@@ -69,8 +69,12 @@ export default function MatchList() {
           const kellyB = calcKelly(m.hybrid_prob_b, m.best_odds_b);
           const hasStrongEv =
             (evA !== null && evA > 0.05) || (evB !== null && evB > 0.05);
+          const unmappedTeams = [
+            !m.team_a_golgg_name ? m.team_a_name : null,
+            !m.team_b_golgg_name ? m.team_b_name : null,
+          ].filter(Boolean).join(', ');
 
-          const cardClass = `match-card${hasStrongEv ? ' ev-highlight' : ''}`;
+          const cardClass = `match-card${hasStrongEv ? ' ev-highlight' : ''}${m.has_unmapped_teams ? ' mapping-warning' : ''}`;
 
           return (
             <Link
@@ -80,6 +84,11 @@ export default function MatchList() {
             >
               <div className="match-header">
                 <span className="league">{m.league || 'Nieznana liga'}</span>
+                {m.has_unmapped_teams && (
+                  <span className="mapping-warning-badge" title={`Brak mapowania: ${unmappedTeams}. Kliknij mecz i dodaj alias.`}>
+                    ⚠️ Dodaj mapowanie
+                  </span>
+                )}
                 {editingBoMatchId === m.canonical_match_id ? (
                   <span className="best-of-picker" onClick={(e) => e.preventDefault()}>
                     {[1, 3, 5, 7].map((bo) => (
@@ -131,7 +140,12 @@ export default function MatchList() {
 
               <div className="match-teams">
                 <div className="team">
-                  <span className="team-name">{m.team_a_name || '?'}</span>
+                  <span className="team-name">
+                    {m.team_a_name || '?'}
+                    {!m.team_a_golgg_name && (
+                      <span className="team-unmapped" title="Brak mapowania do GOL.GG — kliknij mecz i dodaj alias">?</span>
+                    )}
+                  </span>
                   <div className="odds-block">
                     {m.best_odds_a && (
                       <span className="odds">{m.best_odds_a.toFixed(2)}</span>
@@ -150,7 +164,12 @@ export default function MatchList() {
                 </div>
                 <span className="vs">vs</span>
                 <div className="team">
-                  <span className="team-name">{m.team_b_name || '?'}</span>
+                  <span className="team-name">
+                    {m.team_b_name || '?'}
+                    {!m.team_b_golgg_name && (
+                      <span className="team-unmapped" title="Brak mapowania do GOL.GG — kliknij mecz i dodaj alias">?</span>
+                    )}
+                  </span>
                   <div className="odds-block">
                     {m.best_odds_b && (
                       <span className="odds">{m.best_odds_b.toFixed(2)}</span>
@@ -193,6 +212,9 @@ export default function MatchList() {
                 )}
                 {m.arb_after_tax && (
                   <span className="arb-badge">ARB</span>
+                )}
+                {m.has_unmapped_teams && (
+                  <span className="mapping-footer-note">brak predykcji do czasu mapowania</span>
                 )}
               </div>
             </Link>

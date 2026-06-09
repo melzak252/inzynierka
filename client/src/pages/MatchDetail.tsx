@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, predictMatch, createTeamAlias, deleteTeamAlias, blockTeamAlias, unblockTeamAlias, searchGolggTeams } from '../api/client';
+import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, predictMatch, createTeamAlias, deleteTeamAlias, unblockTeamAlias, searchGolggTeams } from '../api/client';
 import type { MatchDetailResponse, PredictionHistoryPoint } from '../types';
 import './MatchDetail.css';
 
@@ -832,27 +832,6 @@ export default function MatchDetail() {
                     🗑️
                   </button>
                 )}
-                {match.team_comparison.team_a?.source === 'fuzzy' && (
-                  <button
-                    className="alias-block-btn"
-                    disabled={aliasSaving}
-                    onClick={async () => {
-                      setAliasSaving(true);
-                      try {
-                        await blockTeamAlias(match.team_comparison?.team_a?.canonical_name || match.team_a_name || '');
-                        const updated = await fetchMatchDetail(parseInt(id!));
-                        setMatch(updated);
-                      } catch (err) {
-                        console.error('Failed to block alias:', err);
-                      } finally {
-                        setAliasSaving(false);
-                      }
-                    }}
-                    title="Zablokuj mapowanie fuzzy"
-                  >
-                    🚫
-                  </button>
-                )}
                 {match.team_comparison.team_a?.source === 'blocked' && (
                   <button
                     className="alias-unblock-btn"
@@ -961,27 +940,6 @@ export default function MatchDetail() {
                     title="Usuń mapowanie"
                   >
                     🗑️
-                  </button>
-                )}
-                {match.team_comparison.team_b?.source === 'fuzzy' && (
-                  <button
-                    className="alias-block-btn"
-                    disabled={aliasSaving}
-                    onClick={async () => {
-                      setAliasSaving(true);
-                      try {
-                        await blockTeamAlias(match.team_comparison?.team_b?.canonical_name || match.team_b_name || '');
-                        const updated = await fetchMatchDetail(parseInt(id!));
-                        setMatch(updated);
-                      } catch (err) {
-                        console.error('Failed to block alias:', err);
-                      } finally {
-                        setAliasSaving(false);
-                      }
-                    }}
-                    title="Zablokuj mapowanie fuzzy"
-                  >
-                    🚫
                   </button>
                 )}
                 {match.team_comparison.team_b?.source === 'blocked' && (

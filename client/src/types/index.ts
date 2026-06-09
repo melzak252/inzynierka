@@ -7,6 +7,11 @@ export interface MatchBoardItem {
   best_of: number | null;
   team_a_name: string | null;
   team_b_name: string | null;
+  team_a_golgg_name: string | null;
+  team_b_golgg_name: string | null;
+  team_a_mapping_source: string | null;
+  team_b_mapping_source: string | null;
+  has_unmapped_teams: boolean;
   bookmaker_count: number;
   best_odds_a: number | null;
   best_bookmaker_a: string | null;

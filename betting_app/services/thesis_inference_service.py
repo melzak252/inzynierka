@@ -206,9 +206,29 @@ def build_thesis_features_for_match(
         "missing": [],
     }
 
+    from betting_app.services.mapping_service import suggest_mapping
+
+    team_a_golgg, team_a_conf, team_a_source = suggest_mapping(team_a_name)
+    team_b_golgg, team_b_conf, team_b_source = suggest_mapping(team_b_name)
+    diagnostics["mapping"] = {
+        "team_a_golgg_name": team_a_golgg,
+        "team_b_golgg_name": team_b_golgg,
+        "team_a_confidence": team_a_conf,
+        "team_b_confidence": team_b_conf,
+        "team_a_source": team_a_source,
+        "team_b_source": team_b_source,
+    }
+    if not team_a_golgg:
+        diagnostics["missing"].append(f"team_a_mapping:{team_a_name}:{team_a_conf:.3f}")
+    if not team_b_golgg:
+        diagnostics["missing"].append(f"team_b_mapping:{team_b_name}:{team_b_conf:.3f}")
+    if not team_a_golgg or not team_b_golgg:
+        diagnostics["skip_reason"] = "unmapped_team"
+        return None, diagnostics
+
     # Load team ratings
-    ratings_a = load_team_ratings(team_a_name, ratings_version)
-    ratings_b = load_team_ratings(team_b_name, ratings_version)
+    ratings_a = load_team_ratings(team_a_golgg, ratings_version)
+    ratings_b = load_team_ratings(team_b_golgg, ratings_version)
 
     # Check for missing ratings
     for system in RATING_SYSTEMS:
@@ -218,8 +238,8 @@ def build_thesis_features_for_match(
             diagnostics["missing"].append(f"team_b_rating:{system}")
 
     # Load W20 rolling features
-    w20_a = load_w20(team_a_name, w20_version)
-    w20_b = load_w20(team_b_name, w20_version)
+    w20_a = load_w20(team_a_golgg, w20_version)
+    w20_b = load_w20(team_b_golgg, w20_version)
     if not w20_a:
         diagnostics["missing"].append("team_a_w20")
     if not w20_b:

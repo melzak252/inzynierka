@@ -46,6 +46,15 @@
   box-shadow: 0 0 16px rgba(76, 175, 80, 0.4);
 }
 
+.match-card.mapping-warning {
+  border-color: #ff9800;
+}
+
+.match-card.mapping-warning:hover {
+  border-color: #ffb74d;
+  box-shadow: 0 0 12px rgba(255, 152, 0, 0.22);
+}
+
 .match-header {
   display: flex;
   justify-content: space-between;
@@ -58,6 +67,18 @@
   color: #8888cc;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.mapping-warning-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #2a1700;
+  background: #ffb74d;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  margin-left: 0.5rem;
+  white-space: nowrap;
 }
 
 .best-of-badge {
@@ -151,6 +172,21 @@
   color: #e0e0e0;
 }
 
+.team-unmapped {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.4rem;
+  border-radius: 50%;
+  background: #ff9800;
+  color: #1a1a2e;
+  font-size: 0.7rem;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
 .odds {
   background: #16213e;
   color: #4fc3f7;
@@ -225,6 +261,13 @@
   font-weight: 700;
   padding: 0.15rem 0.4rem;
   border-radius: 3px;
+}
+
+.mapping-footer-note {
+  margin-left: auto;
+  color: #ffb74d;
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .ev-badge {

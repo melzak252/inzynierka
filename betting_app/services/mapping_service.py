@@ -8,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from betting_app.core.db import query_df, transaction
-from betting_app.core.matching import best_match, normalize_team_name, similarity
+from betting_app.core.matching import normalize_team_name
 from betting_app.core.config import PROJECT_ROOT
 
 
@@ -171,14 +171,18 @@ def known_golgg_teams() -> pd.DataFrame:
     return query_df("SELECT * FROM golgg_teams ORDER BY team_name")
 
 
-def suggest_mapping(raw_name: str) -> tuple[str | None, float, str]:
+def suggest_mapping(raw_name: str) -> tuple[str | None, float, str | None]:
     """Suggest a canonical GOL.GG team for a raw bookmaker name.
 
     Returns (golgg_name, confidence, source) where source is one of:
     'alias'  — matched via team_aliases table (confidence 1.0)
-    'builtin' — matched via BOOKMAKER_TO_GOLGG_ALIASES dict (confidence 1.0)
-    'fuzzy'  — matched via fuzzy string similarity (confidence < 1.0)
+    'builtin' — matched via BOOKMAKER_TO_GOLGG_ALIASES dict or exact GOL.GG name (confidence 1.0)
     'blocked' — a blocked alias exists, mapping suppressed (None, 0.0)
+    None — no mapping found
+
+    Fuzzy auto-mapping is intentionally disabled. Incorrect fuzzy matches can
+    poison ratings/features/predictions with another team's historical data, so
+    unknown teams must now be mapped explicitly via aliases.
     """
 
     normalized = normalize_team_name(raw_name)
@@ -211,8 +215,11 @@ def suggest_mapping(raw_name: str) -> tuple[str | None, float, str]:
 
     teams = known_golgg_teams()
     candidates = teams["team_name"].tolist() if not teams.empty else load_golgg_team_candidates()
-    golgg_name, confidence = best_match(raw_name, candidates)
-    return golgg_name, confidence, "fuzzy"
+    for candidate in candidates:
+        if normalize_team_name(candidate) == normalized:
+            return candidate, 1.0, "builtin"
+
+    return None, 0.0, None
 
 
 def upsert_alias(raw_name: str, golgg_team_name: str, source: str = "manual", confirmed: bool = True) -> int:
@@ -247,9 +254,8 @@ def delete_alias(raw_name: str, source: str = "manual") -> bool:
 
 
 def block_alias(raw_name: str) -> int:
-    """Block a fuzzy match by inserting a 'blocked' alias entry.
+    """Mark a raw team name as blocked/unmapped.
 
-    This prevents suggest_mapping from returning a fuzzy match for this name.
     The alias column is set to empty string to indicate a block rather than a mapping.
     """
     normalized = normalize_team_name(raw_name)
