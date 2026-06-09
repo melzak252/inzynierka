@@ -275,6 +275,11 @@ class _ResultWrapper:
         self.description = None
     
     @property
+    def rowcount(self) -> int:
+        """Get number of rows affected by the last statement."""
+        return self._result.rowcount
+
+    @property
     def lastrowid(self) -> int | None:
         """Get last inserted row ID (PostgreSQL only)."""
         if is_pg():
