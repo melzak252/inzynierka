@@ -230,6 +230,23 @@ class _ConnectionWrapper:
         result = self._session.execute(text(sql), params or {})
         return _ResultWrapper(result, self._session)
     
+    def executemany(self, sql: str, params_seq: list[tuple | list | dict]) -> None:
+        """Execute SQL for a sequence of parameter sets, converting ? to :named."""
+        if not params_seq:
+            return
+        # Convert ? to :named once
+        pos = sql.count("?")
+        named_sql = sql
+        for i in range(pos):
+            named_sql = named_sql.replace("?", f":p{i}", 1)
+        # Execute each parameter set
+        for params in params_seq:
+            if isinstance(params, dict):
+                p = params
+            else:
+                p = {f"p{i}": v for i, v in enumerate(params)}
+            self._session.execute(text(named_sql), p)
+
     def commit(self) -> None:
         self._session.commit()
     
