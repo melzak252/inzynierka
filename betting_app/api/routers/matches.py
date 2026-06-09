@@ -57,6 +57,23 @@ from betting_app.services.thesis_inference_service import (
 
 router = APIRouter(prefix="/matches", tags=["matches"])
 
+
+def _parse_bookmaker_ev_json(raw: Any) -> dict[str, Any]:
+    """Parse bookmaker_ev_json from SQL into dict[str, BookmakerEvDetail]."""
+    if not raw or not isinstance(raw, dict):
+        return {}
+    result: dict[str, Any] = {}
+    for bk_name, bk_data in raw.items():
+        if not isinstance(bk_data, dict):
+            continue
+        side_a = bk_data.get("side_a", {})
+        side_b = bk_data.get("side_b", {})
+        result[bk_name] = {
+            "side_a": {"ev": none_or_float(side_a.get("ev")), "odds": none_or_float(side_a.get("odds"))},
+            "side_b": {"ev": none_or_float(side_b.get("ev")), "odds": none_or_float(side_b.get("odds"))},
+        }
+    return result
+
 TAX_RATE = 0.12
 HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
 HYBRID_MODEL_VERSION = "a0.50-t0.80"
@@ -277,7 +294,8 @@ def list_results(
                gm.team1_score, gm.team2_score,
                ev.best_ev_a, ev.best_ev_b,
                ev.best_odds_a, ev.best_odds_b,
-               ev.bookmakers_with_ev
+               ev.bookmakers_with_ev,
+               ev.bookmaker_ev_json
         FROM canonical_matches cm
         LEFT JOIN golgg_match_mappings gmm ON gmm.canonical_match_id = cm.id
         LEFT JOIN golgg_matches gm ON gm.match_id = gmm.golgg_match_id
@@ -286,7 +304,23 @@ def list_results(
                    MAX(CASE WHEN es.side = 'b' THEN es.ev END) AS best_ev_b,
                    MAX(CASE WHEN es.side = 'a' THEN es.odds END) AS best_odds_a,
                    MAX(CASE WHEN es.side = 'b' THEN es.odds END) AS best_odds_b,
-                   array_agg(DISTINCT b.name) FILTER (WHERE es.ev > 0) AS bookmakers_with_ev
+                   array_agg(DISTINCT b.name) FILTER (WHERE es.ev > 0) AS bookmakers_with_ev,
+                   COALESCE(
+                       (SELECT json_object_agg(bk_name, bk_data)
+                        FROM (
+                            SELECT b2.name AS bk_name,
+                                   jsonb_build_object(
+                                       'side_a', jsonb_build_object('ev', MAX(CASE WHEN es2.side = 'a' THEN es2.ev END), 'odds', MAX(CASE WHEN es2.side = 'a' THEN es2.odds END)),
+                                       'side_b', jsonb_build_object('ev', MAX(CASE WHEN es2.side = 'b' THEN es2.ev END), 'odds', MAX(CASE WHEN es2.side = 'b' THEN es2.odds END))
+                                   ) AS bk_data
+                            FROM model_ev_signals es2
+                            JOIN bookmakers b2 ON b2.id = es2.bookmaker_id
+                            WHERE es2.canonical_match_id = cm.id
+                            GROUP BY b2.name
+                        ) sub
+                       ),
+                       '{}'::json
+                   ) AS bookmaker_ev_json
             FROM model_ev_signals es
             JOIN bookmakers b ON b.id = es.bookmaker_id
             WHERE es.canonical_match_id = cm.id
@@ -333,6 +367,7 @@ def list_results(
             best_odds_a=none_or_float(r.get("best_odds_a")),
             best_odds_b=none_or_float(r.get("best_odds_b")),
             bookmakers_with_ev=bookmakers_list,
+            bookmaker_ev_details=_parse_bookmaker_ev_json(r.get("bookmaker_ev_json")),
         ))
 
     return MatchResultsResponse(total=len(items), results=items)

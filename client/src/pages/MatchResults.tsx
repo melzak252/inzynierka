@@ -38,10 +38,30 @@ export default function MatchResults() {
     return Array.from(bookmakers).sort()
   }, [results])
 
+  // Helper: get the effective EV/odds for a match, respecting bookmaker filter
+  const getEffectiveEvOdds = (r: MatchResultItem): { evA: number; evB: number; oddsA: number | null; oddsB: number | null } => {
+    if (selectedBookmaker && r.bookmaker_ev_details[selectedBookmaker]) {
+      const detail = r.bookmaker_ev_details[selectedBookmaker]
+      return {
+        evA: detail.side_a.ev ?? 0,
+        evB: detail.side_b.ev ?? 0,
+        oddsA: detail.side_a.odds,
+        oddsB: detail.side_b.odds,
+      }
+    }
+    return {
+      evA: r.best_ev_a ?? 0,
+      evB: r.best_ev_b ?? 0,
+      oddsA: r.best_odds_a,
+      oddsB: r.best_odds_b,
+    }
+  }
+
   // Filter results
   const filteredResults = useMemo(() => {
     return results.filter((r) => {
-      if (showPositiveEvOnly && (r.best_ev_a ?? 0) <= 0 && (r.best_ev_b ?? 0) <= 0) {
+      const { evA, evB } = getEffectiveEvOdds(r)
+      if (showPositiveEvOnly && evA <= 0 && evB <= 0) {
         return false
       }
       if (selectedBookmaker && !r.bookmakers_with_ev.includes(selectedBookmaker)) {
@@ -52,39 +72,39 @@ export default function MatchResults() {
   }, [results, showPositiveEvOnly, selectedBookmaker])
 
   const positiveEvCount = useMemo(() => {
-    return results.filter((r) => (r.best_ev_a ?? 0) > 0 || (r.best_ev_b ?? 0) > 0).length
-  }, [results])
+    return results.filter((r) => {
+      const { evA, evB } = getEffectiveEvOdds(r)
+      return evA > 0 || evB > 0
+    }).length
+  }, [results, selectedBookmaker])
 
-  // Calculate P&L for +EV bets ($10 per bet)
+  // Calculate P&L for +EV bets ($10 per bet) — computed from filteredResults
   const pnlData = useMemo(() => {
     let totalPnl = 0
     let wins = 0
     let losses = 0
     let totalBets = 0
 
-    for (const r of results) {
-      const evA = r.best_ev_a ?? 0
-      const evB = r.best_ev_b ?? 0
+    for (const r of filteredResults) {
+      const { evA, evB, oddsA, oddsB } = getEffectiveEvOdds(r)
 
       // Side A had +EV
-      if (evA > 0 && r.best_odds_a !== null) {
+      if (evA > 0 && oddsA !== null) {
         totalBets++
         if (r.winner_side === 'team_a') {
-          // Won: profit = $10 * (odds - 1)
-          totalPnl += BET_SIZE * (r.best_odds_a - 1)
+          totalPnl += BET_SIZE * (oddsA - 1)
           wins++
         } else {
-          // Lost: -$10
           totalPnl -= BET_SIZE
           losses++
         }
       }
 
       // Side B had +EV
-      if (evB > 0 && r.best_odds_b !== null) {
+      if (evB > 0 && oddsB !== null) {
         totalBets++
         if (r.winner_side === 'team_b') {
-          totalPnl += BET_SIZE * (r.best_odds_b - 1)
+          totalPnl += BET_SIZE * (oddsB - 1)
           wins++
         } else {
           totalPnl -= BET_SIZE
@@ -94,12 +114,11 @@ export default function MatchResults() {
     }
 
     return { totalPnl, wins, losses, totalBets }
-  }, [results])
+  }, [filteredResults, selectedBookmaker])
 
   // Determine EV outcome for a match: 'won' | 'lost' | null
   const getEvOutcome = (r: MatchResultItem): 'won' | 'lost' | null => {
-    const evA = r.best_ev_a ?? 0
-    const evB = r.best_ev_b ?? 0
+    const { evA, evB } = getEffectiveEvOdds(r)
     if (evA <= 0 && evB <= 0) return null
 
     // Check if any +EV side won
@@ -159,7 +178,8 @@ export default function MatchResults() {
   }
 
   const hasPositiveEv = (r: MatchResultItem) => {
-    return (r.best_ev_a ?? 0) > 0 || (r.best_ev_b ?? 0) > 0
+    const { evA, evB } = getEffectiveEvOdds(r)
+    return evA > 0 || evB > 0
   }
 
   const formatEv = (ev: number | null) => {
@@ -316,18 +336,25 @@ export default function MatchResults() {
                   {/* EV signals row */}
                   {isPositiveEv && (
                     <div className="result-ev-row">
-                      {(r.best_ev_a ?? 0) > 0 && (
-                        <span className={`result-ev-badge ev-a${r.winner_side === 'team_a' ? ' ev-bet-won' : ' ev-bet-lost'}`}>
-                          {r.team_a_name?.split(' ').slice(-1)[0]}: {formatEv(r.best_ev_a)}
-                          {r.best_odds_a !== null && <span className="ev-odds">@{r.best_odds_a.toFixed(2)}</span>}
-                        </span>
-                      )}
-                      {(r.best_ev_b ?? 0) > 0 && (
-                        <span className={`result-ev-badge ev-b${r.winner_side === 'team_b' ? ' ev-bet-won' : ' ev-bet-lost'}`}>
-                          {r.team_b_name?.split(' ').slice(-1)[0]}: {formatEv(r.best_ev_b)}
-                          {r.best_odds_b !== null && <span className="ev-odds">@{r.best_odds_b.toFixed(2)}</span>}
-                        </span>
-                      )}
+                      {(() => {
+                        const { evA, evB, oddsA, oddsB } = getEffectiveEvOdds(r)
+                        return (
+                          <>
+                            {evA > 0 && (
+                              <span className={`result-ev-badge ev-a${r.winner_side === 'team_a' ? ' ev-bet-won' : ' ev-bet-lost'}`}>
+                                {r.team_a_name?.split(' ').slice(-1)[0]}: {formatEv(evA)}
+                                {oddsA !== null && <span className="ev-odds">@{oddsA.toFixed(2)}</span>}
+                              </span>
+                            )}
+                            {evB > 0 && (
+                              <span className={`result-ev-badge ev-b${r.winner_side === 'team_b' ? ' ev-bet-won' : ' ev-bet-lost'}`}>
+                                {r.team_b_name?.split(' ').slice(-1)[0]}: {formatEv(evB)}
+                                {oddsB !== null && <span className="ev-odds">@{oddsB.toFixed(2)}</span>}
+                              </span>
+                            )}
+                          </>
+                        )
+                      })()}
                       {r.bookmakers_with_ev.length > 0 && (
                         <span className="result-ev-bookmakers">
                           {r.bookmakers_with_ev.join(', ')}

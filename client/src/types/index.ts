@@ -314,6 +314,16 @@ export interface MatchMovementResponse {
 }
 
 // Match result types
+export interface BookmakerEvSide {
+  ev: number | null;
+  odds: number | null;
+}
+
+export interface BookmakerEvDetail {
+  side_a: BookmakerEvSide;
+  side_b: BookmakerEvSide;
+}
+
 export interface MatchResultItem {
   canonical_match_id: number;
   team_a_name: string | null;
@@ -334,6 +344,7 @@ export interface MatchResultItem {
   bookmakers_with_ev: string[];
   best_odds_a: number | null;
   best_odds_b: number | null;
+  bookmaker_ev_details: Record<string, BookmakerEvDetail>;
 }
 
 export interface MatchResultsResponse {
