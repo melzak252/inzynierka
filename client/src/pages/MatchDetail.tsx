@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, predictMatch, createTeamAlias, deleteTeamAlias, blockTeamAlias, searchGolggTeams } from '../api/client';
+import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, predictMatch, createTeamAlias, deleteTeamAlias, blockTeamAlias, unblockTeamAlias, searchGolggTeams } from '../api/client';
 import type { MatchDetailResponse, PredictionHistoryPoint } from '../types';
 import './MatchDetail.css';
 
@@ -853,6 +853,27 @@ export default function MatchDetail() {
                     🚫
                   </button>
                 )}
+                {match.team_comparison.team_a?.source === 'blocked' && (
+                  <button
+                    className="alias-unblock-btn"
+                    disabled={aliasSaving}
+                    onClick={async () => {
+                      setAliasSaving(true);
+                      try {
+                        await unblockTeamAlias(match.team_comparison?.team_a?.canonical_name || match.team_a_name || '');
+                        const updated = await fetchMatchDetail(parseInt(id!));
+                        setMatch(updated);
+                      } catch (err) {
+                        console.error('Failed to unblock alias:', err);
+                      } finally {
+                        setAliasSaving(false);
+                      }
+                    }}
+                    title="Odblokuj mapowanie"
+                  >
+                    ✅
+                  </button>
+                )}
                 {aliasModalSide === 'a' && (
                   <div className="alias-dropdown">
                     <input
@@ -961,6 +982,27 @@ export default function MatchDetail() {
                     title="Zablokuj mapowanie fuzzy"
                   >
                     🚫
+                  </button>
+                )}
+                {match.team_comparison.team_b?.source === 'blocked' && (
+                  <button
+                    className="alias-unblock-btn"
+                    disabled={aliasSaving}
+                    onClick={async () => {
+                      setAliasSaving(true);
+                      try {
+                        await unblockTeamAlias(match.team_comparison?.team_b?.canonical_name || match.team_b_name || '');
+                        const updated = await fetchMatchDetail(parseInt(id!));
+                        setMatch(updated);
+                      } catch (err) {
+                        console.error('Failed to unblock alias:', err);
+                      } finally {
+                        setAliasSaving(false);
+                      }
+                    }}
+                    title="Odblokuj mapowanie"
+                  >
+                    ✅
                   </button>
                 )}
                 {aliasModalSide === 'b' && (

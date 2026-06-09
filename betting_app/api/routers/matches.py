@@ -626,17 +626,39 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
             team_b_conf = none_or_float(mapping.get("team_b_confidence"))
             team_b_golgg = mapping.get("team_b_golgg_name")
 
+            # Check live mapping status to detect blocked/changed aliases
+            # The stored features_json may be stale after block/unblock actions
+            from betting_app.services.mapping_service import suggest_mapping
+
+            team_a_raw = m.get("team_a_name")
+            team_b_raw = m.get("team_b_name")
+            live_a = suggest_mapping(team_a_raw) if team_a_raw else (None, 0.0, None)
+            live_b = suggest_mapping(team_b_raw) if team_b_raw else (None, 0.0, None)
+
+            # Use live result if mapping is blocked, otherwise use stored
+            if live_a[2] == "blocked":
+                team_a_golgg, team_a_conf = None, None
+                team_a_source = "blocked"
+            else:
+                team_a_source = _infer_source(team_a_golgg, team_a_conf, mapping.get("team_a_source"))
+
+            if live_b[2] == "blocked":
+                team_b_golgg, team_b_conf = None, None
+                team_b_source = "blocked"
+            else:
+                team_b_source = _infer_source(team_b_golgg, team_b_conf, mapping.get("team_b_source"))
+
             team_a_info = TeamMappingInfo(
                 canonical_name=m.get("team_a_name"),
                 golgg_name=team_a_golgg,
                 confidence=team_a_conf,
-                source=_infer_source(team_a_golgg, team_a_conf, mapping.get("team_a_source")),
+                source=team_a_source,
             )
             team_b_info = TeamMappingInfo(
                 canonical_name=m.get("team_b_name"),
                 golgg_name=team_b_golgg,
                 confidence=team_b_conf,
-                source=_infer_source(team_b_golgg, team_b_conf, mapping.get("team_b_source")),
+                source=team_b_source,
             )
             
             # Get team ratings for comparison
