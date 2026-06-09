@@ -611,17 +611,32 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
         # Extract team mapping info
         mapping = safe_json_get(f, ["mapping"])
         if isinstance(mapping, dict):
+            # Infer source from confidence when not stored (backwards compat)
+            def _infer_source(golgg_name, confidence, stored_source):
+                if stored_source is not None:
+                    return stored_source
+                if not golgg_name:
+                    return None
+                if confidence is not None and confidence >= 1.0:
+                    return "alias"
+                return "fuzzy"
+
+            team_a_conf = none_or_float(mapping.get("team_a_confidence"))
+            team_a_golgg = mapping.get("team_a_golgg_name")
+            team_b_conf = none_or_float(mapping.get("team_b_confidence"))
+            team_b_golgg = mapping.get("team_b_golgg_name")
+
             team_a_info = TeamMappingInfo(
                 canonical_name=m.get("team_a_name"),
-                golgg_name=mapping.get("team_a_golgg_name"),
-                confidence=none_or_float(mapping.get("team_a_confidence")),
-                source=mapping.get("team_a_source"),
+                golgg_name=team_a_golgg,
+                confidence=team_a_conf,
+                source=_infer_source(team_a_golgg, team_a_conf, mapping.get("team_a_source")),
             )
             team_b_info = TeamMappingInfo(
                 canonical_name=m.get("team_b_name"),
-                golgg_name=mapping.get("team_b_golgg_name"),
-                confidence=none_or_float(mapping.get("team_b_confidence")),
-                source=mapping.get("team_b_source"),
+                golgg_name=team_b_golgg,
+                confidence=team_b_conf,
+                source=_infer_source(team_b_golgg, team_b_conf, mapping.get("team_b_source")),
             )
             
             # Get team ratings for comparison
