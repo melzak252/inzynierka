@@ -86,6 +86,11 @@ def rebuild_w20_features(
     team_last_match: dict[str, str] = {}
     team_match_ids: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=window_size))
     matches = load_matches(limit_matches=limit_matches)
+
+    # Bulk-load all games and player stats upfront (3 queries instead of ~176K)
+    games_by_match = load_all_games_grouped()
+    player_stats_by_game_side = load_all_player_stats_grouped()
+
     games_processed = 0
 
     for match in tqdm(matches, desc=f"Rebuilding W{window_size}"):
@@ -98,10 +103,10 @@ def rebuild_w20_features(
         team_last_match[team1_id] = match_date
         team_last_match[team2_id] = match_date
 
-        games = load_games_for_match(match_id)
+        games = games_by_match.get(match_id, [])
         for game in games:
-            update_team_history(team_history, team_match_ids, team1_id, match_id, game)
-            update_team_history(team_history, team_match_ids, team2_id, match_id, game)
+            update_team_history(team_history, team_match_ids, team1_id, match_id, game, player_stats_by_game_side)
+            update_team_history(team_history, team_match_ids, team2_id, match_id, game, player_stats_by_game_side)
             games_processed += 1
 
     data_cutoff = max((str(match["date"]) for match in matches if match["date"]), default=datetime.now(UTC).date().isoformat())
@@ -140,21 +145,47 @@ def load_matches(limit_matches: int | None = None) -> list[dict[str, Any]]:
         return [dict(row) for row in connection.execute(query).fetchall()]
 
 
-def load_games_for_match(match_id: str) -> list[dict[str, Any]]:
-    """Load game rows for one match."""
+def load_all_games_grouped() -> dict[str, list[dict[str, Any]]]:
+    """Bulk-load ALL games from SQLite, grouped by match_id.
+
+    Replaces per-match load_games_for_match() to avoid N+1 queries.
+    """
 
     with connect() as connection:
-        return [dict(row) for row in connection.execute(
+        rows = connection.execute(
             """
             SELECT game_id, match_id, team1_id, team2_id, team1_name, team2_name,
                    team1_win, team2_win, team1_stats_json, team2_stats_json,
                    game_duration
             FROM golgg_games
-            WHERE match_id = ?
             ORDER BY CAST(game_id AS INTEGER) ASC
-            """,
-            (match_id,),
-        ).fetchall()]
+            """
+        ).fetchall()
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped[str(row["match_id"])].append(dict(row))
+    return grouped
+
+
+def load_all_player_stats_grouped() -> dict[tuple[str, str], list[dict[str, Any]]]:
+    """Bulk-load ALL player stats from SQLite, grouped by (game_id, side).
+
+    Replaces per-game-side load_player_stats() to avoid N+1 queries.
+    """
+
+    with connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT game_id, side, stats_json
+            FROM golgg_game_players
+            ORDER BY CASE role WHEN 'TOP' THEN 1 WHEN 'JUNGLE' THEN 2 WHEN 'MID' THEN 3 WHEN 'ADC' THEN 4 WHEN 'SUPPORT' THEN 5 ELSE 9 END
+            """
+        ).fetchall()
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        key = (str(row["game_id"]), str(row["side"]))
+        grouped[key].append(json_loads(row["stats_json"]))
+    return grouped
 
 
 def update_team_history(
@@ -163,6 +194,7 @@ def update_team_history(
     team_id: str,
     match_id: str,
     game: dict[str, Any],
+    player_stats_by_game_side: dict[tuple[str, str], list[dict[str, Any]]],
 ) -> None:
     """Append one completed game to a team's rolling history."""
 
@@ -171,7 +203,7 @@ def update_team_history(
     win_key = "team1_win" if is_team_1 else "team2_win"
     side = "t1" if is_team_1 else "t2"
     team_stats = json_loads(game.get(stats_key))
-    player_stats = load_player_stats(str(game["game_id"]), side)
+    player_stats = player_stats_by_game_side.get((str(game["game_id"]), side), [])
     row = {
         "win": float(bool(game.get(win_key))),
         "kills": sum(safe_player_stat(player, "kills") for player in player_stats),
@@ -187,22 +219,6 @@ def update_team_history(
     }
     team_history[team_id].append(row)
     team_match_ids[team_id].append(match_id)
-
-
-def load_player_stats(game_id: str, side: str) -> list[dict[str, Any]]:
-    """Load player stats JSON for a game side."""
-
-    with connect() as connection:
-        rows = connection.execute(
-            """
-            SELECT stats_json
-            FROM golgg_game_players
-            WHERE game_id = ? AND side = ?
-            ORDER BY CASE role WHEN 'TOP' THEN 1 WHEN 'JUNGLE' THEN 2 WHEN 'MID' THEN 3 WHEN 'ADC' THEN 4 WHEN 'SUPPORT' THEN 5 ELSE 9 END
-            """,
-            (game_id, side),
-        ).fetchall()
-    return [json_loads(row["stats_json"]) for row in rows]
 
 
 def average_history(history: deque[dict[str, float]]) -> dict[str, float]:
