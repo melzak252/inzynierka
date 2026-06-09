@@ -12,6 +12,9 @@ import type {
   MatchMovementResponse,
   HorizonAccuracyResponse,
   PredictionHistoryPoint,
+  AliasCreateRequest,
+  AliasCreateResponse,
+  GolggTeamsResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -167,5 +170,27 @@ export async function fetchHorizonAccuracy(
   });
   const response = await fetch(`${API_BASE}/timing/horizon-accuracy?${params}`);
   if (!response.ok) throw new Error(`Failed to fetch horizon accuracy: ${response.statusText}`);
+  return response.json();
+}
+
+// ─── Alias Mapping ───────────────────────────────────────────
+
+export async function createTeamAlias(request: AliasCreateRequest): Promise<AliasCreateResponse> {
+  const response = await fetch(`${API_BASE}/matches/alias`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to create alias: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function searchGolggTeams(q: string = '', limit: number = 50): Promise<GolggTeamsResponse> {
+  const params = new URLSearchParams({ q, limit: limit.toString() });
+  const response = await fetch(`${API_BASE}/matches/golgg-teams?${params}`);
+  if (!response.ok) throw new Error(`Failed to search GolGG teams: ${response.statusText}`);
   return response.json();
 }

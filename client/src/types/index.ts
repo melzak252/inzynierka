@@ -352,3 +352,20 @@ export interface MatchResultsResponse {
   days_back: number;
   results: MatchResultItem[];
 }
+
+// Alias mapping types
+export interface AliasCreateRequest {
+  raw_name: string;
+  golgg_team_name: string;
+}
+
+export interface AliasCreateResponse {
+  id: number;
+  normalized_name: string;
+  alias: string;
+  source: string;
+}
+
+export interface GolggTeamsResponse {
+  teams: string[];
+}

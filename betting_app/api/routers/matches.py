@@ -14,7 +14,10 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import (
+    AliasCreateRequest,
+    AliasCreateResponse,
     BookmakerOddsRow,
+    GolggTeamsResponse,
     MatchBestOfUpdate,
     MatchBoardItem,
     MatchBoardResponse,
@@ -371,6 +374,46 @@ def list_results(
         ))
 
     return MatchResultsResponse(total=len(items), results=items)
+
+
+# ── POST /matches/alias — create team alias mapping ──────────────────────────
+
+
+@router.post("/alias", response_model=AliasCreateResponse)
+def create_alias(body: AliasCreateRequest, db=Depends(get_db)):
+    """Create a manual team alias mapping (raw_name → golgg_team_name)."""
+    from betting_app.services.mapping_service import upsert_alias, normalize_team_name
+
+    normalized = normalize_team_name(body.raw_name)
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Normalized name is empty")
+
+    alias_id = upsert_alias(body.raw_name, body.golgg_team_name, source="manual", confirmed=True)
+
+    return AliasCreateResponse(
+        id=alias_id,
+        normalized_name=normalized,
+        alias=body.golgg_team_name,
+        source="manual",
+    )
+
+
+# ── GET /matches/golgg-teams — list/search GolGG teams ──────────────────────
+
+
+@router.get("/golgg-teams", response_model=GolggTeamsResponse)
+def list_golgg_teams(q: str = "", limit: int = 50, db=Depends(get_db)):
+    """Return GolGG team names, optionally filtered by query string."""
+    from betting_app.services.mapping_service import load_golgg_team_candidates
+
+    all_teams = load_golgg_team_candidates()
+    if q:
+        q_lower = q.lower()
+        filtered = [t for t in all_teams if q_lower in t.lower()]
+    else:
+        filtered = all_teams
+
+    return GolggTeamsResponse(teams=filtered[:limit])
 
 
 # ── GET /matches/{id} ───────────────────────────────────────────────────────

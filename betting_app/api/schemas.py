@@ -355,3 +355,22 @@ class PredictResponse(BaseModel):
     model_name: str | None = None
     model_version: str | None = None
     diagnostics: dict[str, Any] | None = None
+
+
+# ── Team alias mapping ──────────────────────────────────────────────────────
+
+
+class AliasCreateRequest(BaseModel):
+    raw_name: str = Field(min_length=1, description="Bookmaker/raw team name to map")
+    golgg_team_name: str = Field(min_length=1, description="GolGG canonical team name to map to")
+
+
+class AliasCreateResponse(BaseModel):
+    id: int
+    normalized_name: str
+    alias: str
+    source: str
+
+
+class GolggTeamsResponse(BaseModel):
+    teams: list[str]

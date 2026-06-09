@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, predictMatch } from '../api/client';
+import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, predictMatch, createTeamAlias, searchGolggTeams } from '../api/client';
 import type { MatchDetailResponse, PredictionHistoryPoint } from '../types';
 import './MatchDetail.css';
 
@@ -528,6 +528,10 @@ export default function MatchDetail() {
   const [editingBestOf, setEditingBestOf] = useState(false);
   const [savingBestOf, setSavingBestOf] = useState(false);
   const [predicting, setPredicting] = useState(false);
+  const [aliasModalSide, setAliasModalSide] = useState<'a' | 'b' | null>(null);
+  const [aliasSearchQuery, setAliasSearchQuery] = useState('');
+  const [aliasSearchResults, setAliasSearchResults] = useState<string[]>([]);
+  const [aliasSaving, setAliasSaving] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -792,15 +796,141 @@ export default function MatchDetail() {
             </div>
             <div className="comparison-row">
               <span className="comparison-label">Pewność mapowania</span>
-              <span>
+              <span className="mapping-cell">
                 {match.team_comparison.team_a?.confidence
                   ? `${(match.team_comparison.team_a.confidence * 100).toFixed(0)}%`
                   : '—'}
+                <button
+                  className="alias-link-btn"
+                  onClick={() => {
+                    setAliasModalSide('a');
+                    setAliasSearchQuery('');
+                    setAliasSearchResults([]);
+                  }}
+                  title="Połącz z drużyną GolGG"
+                >
+                  🔗
+                </button>
+                {aliasModalSide === 'a' && (
+                  <div className="alias-dropdown">
+                    <input
+                      type="text"
+                      placeholder="Szukaj drużyny GolGG..."
+                      value={aliasSearchQuery}
+                      onChange={async (e) => {
+                        setAliasSearchQuery(e.target.value);
+                        if (e.target.value.length >= 2) {
+                          try {
+                            const res = await searchGolggTeams(e.target.value);
+                            setAliasSearchResults(res.teams);
+                          } catch { setAliasSearchResults([]); }
+                        } else {
+                          setAliasSearchResults([]);
+                        }
+                      }}
+                      autoFocus
+                    />
+                    {aliasSearchResults.length > 0 && (
+                      <ul className="alias-results">
+                        {aliasSearchResults.slice(0, 20).map((team) => (
+                          <li key={team}>
+                            <button
+                              disabled={aliasSaving}
+                              onClick={async () => {
+                                setAliasSaving(true);
+                                try {
+                                  await createTeamAlias({
+                                    raw_name: match.team_comparison?.team_a?.canonical_name || match.team_a_name || '',
+                                    golgg_team_name: team,
+                                  });
+                                  setAliasModalSide(null);
+                                  // Refresh match detail
+                                  const updated = await fetchMatchDetail(parseInt(id!));
+                                  setMatch(updated);
+                                } catch (err) {
+                                  console.error('Failed to create alias:', err);
+                                } finally {
+                                  setAliasSaving(false);
+                                }
+                              }}
+                            >
+                              {team}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <button className="alias-close-btn" onClick={() => setAliasModalSide(null)}>✕</button>
+                  </div>
+                )}
               </span>
-              <span>
+              <span className="mapping-cell">
                 {match.team_comparison.team_b?.confidence
                   ? `${(match.team_comparison.team_b.confidence * 100).toFixed(0)}%`
                   : '—'}
+                <button
+                  className="alias-link-btn"
+                  onClick={() => {
+                    setAliasModalSide('b');
+                    setAliasSearchQuery('');
+                    setAliasSearchResults([]);
+                  }}
+                  title="Połącz z drużyną GolGG"
+                >
+                  🔗
+                </button>
+                {aliasModalSide === 'b' && (
+                  <div className="alias-dropdown">
+                    <input
+                      type="text"
+                      placeholder="Szukaj drużyny GolGG..."
+                      value={aliasSearchQuery}
+                      onChange={async (e) => {
+                        setAliasSearchQuery(e.target.value);
+                        if (e.target.value.length >= 2) {
+                          try {
+                            const res = await searchGolggTeams(e.target.value);
+                            setAliasSearchResults(res.teams);
+                          } catch { setAliasSearchResults([]); }
+                        } else {
+                          setAliasSearchResults([]);
+                        }
+                      }}
+                      autoFocus
+                    />
+                    {aliasSearchResults.length > 0 && (
+                      <ul className="alias-results">
+                        {aliasSearchResults.slice(0, 20).map((team) => (
+                          <li key={team}>
+                            <button
+                              disabled={aliasSaving}
+                              onClick={async () => {
+                                setAliasSaving(true);
+                                try {
+                                  await createTeamAlias({
+                                    raw_name: match.team_comparison?.team_b?.canonical_name || match.team_b_name || '',
+                                    golgg_team_name: team,
+                                  });
+                                  setAliasModalSide(null);
+                                  // Refresh match detail
+                                  const updated = await fetchMatchDetail(parseInt(id!));
+                                  setMatch(updated);
+                                } catch (err) {
+                                  console.error('Failed to create alias:', err);
+                                } finally {
+                                  setAliasSaving(false);
+                                }
+                              }}
+                            >
+                              {team}
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <button className="alias-close-btn" onClick={() => setAliasModalSide(null)}>✕</button>
+                  </div>
+                )}
               </span>
             </div>
             <div className="comparison-row">
