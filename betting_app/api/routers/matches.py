@@ -681,6 +681,12 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
                     team_b_rating = none_or_float(team_b_ratings["elo"].get("rating_value"))
                     rating_system = "Elo"
             
+            # Don't show ratings for unmapped/blocked teams
+            if team_a_golgg is None:
+                team_a_rating = None
+            if team_b_golgg is None:
+                team_b_rating = None
+            
             team_comparison = TeamComparisonInfo(
                 team_a=team_a_info,
                 team_b=team_b_info,
