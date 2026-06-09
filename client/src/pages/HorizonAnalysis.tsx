@@ -255,12 +255,15 @@ export default function HorizonAnalysis() {
           const color = nameLower.includes('thesis') ? COLORS.modelThesisHybrid : COLORS.modelHybrid;
           const label = nameLower.includes('thesis') ? 'Thesis Hybrid' : 'Hybrid';
           
-          // Build path from bins
+          // Build path from bins — match by label to the shown bins x-positions
           const points: { x: number; y: number; bin: any }[] = [];
-          hb.bins.forEach((bin, i) => {
+          hb.bins.forEach((bin) => {
             const val = bin[metricKey];
             if (val !== null && val !== undefined && bin.match_count >= minMatches) {
-              const cx = xPos(i, n);
+              // Find the x-position by matching the bin label to the shown bins
+              const binIdx = shownBins.findIndex(sb => sb.label === bin.label);
+              if (binIdx < 0) return;
+              const cx = xPos(binIdx, n);
               const cy = y(val);
               points.push({ x: cx, y: cy, bin });
             }
@@ -523,6 +526,108 @@ export default function HorizonAnalysis() {
     );
   }
 
+  function MarketCloseComparisonSection() {
+    const comp = data?.market_close_comparison;
+    if (!comp || comp.n_matches === 0) return null;
+
+    const statusColors = {
+      model_better: '#00e676',
+      model_on_market_level: '#fdd835',
+      model_worse: '#ff5252',
+      no_data: '#888',
+      unknown: '#888',
+    };
+
+    const statusLabels = {
+      model_better: 'Model lepszy od rynku',
+      model_on_market_level: 'Model na poziomie rynku',
+      model_worse: 'Model gorszy od rynku',
+      no_data: 'Brak danych',
+      unknown: 'Nieznany',
+    };
+
+    return (
+      <div className="market-close-section">
+        <div className="market-close-header">
+          <h3>🏁 Porównanie na zamknięcie rynku (Market Close)</h3>
+          <div className="market-close-status" style={{ backgroundColor: statusColors[comp.status] }}>
+            {statusLabels[comp.status]}
+          </div>
+        </div>
+        
+        <p className="market-close-subtitle">
+          To jest najbardziej rzetelne porównanie: model vs średnia z ostatnich kursów przed meczem (closing odds).
+          Wszystkie metryki są liczone na <strong>identycznej próbie {comp.n_matches} meczów</strong>.
+        </p>
+
+        <div className="market-close-summary-grid">
+          <div className="market-close-main-stats">
+            <div className="mc-stat">
+              <span className="mc-label">Liczba meczów</span>
+              <span className="mc-value">{comp.n_matches}</span>
+            </div>
+            <div className="mc-stat">
+              <span className="mc-label">Śr. bukmacherów / mecz</span>
+              <span className="mc-value">{comp.avg_bookmakers_per_match?.toFixed(1)}</span>
+            </div>
+            <div className="mc-stat">
+              <span className="mc-label">Δ LogLoss (Model vs Rynek)</span>
+              <span className={`mc-value ${comp.model_delta_logloss_vs_market && comp.model_delta_logloss_vs_market < 0 ? 'better' : 'worse'}`}>
+                {comp.model_delta_logloss_vs_market?.toFixed(4)}
+              </span>
+            </div>
+          </div>
+
+          <div className="market-close-table-wrapper">
+            <table className="market-close-table">
+              <thead>
+                <tr>
+                  <th>Poz.</th>
+                  <th>Zawodnik / Model</th>
+                  <th>LogLoss</th>
+                  <th>AUC</th>
+                  <th>Brier</th>
+                  <th>Accuracy</th>
+                </tr>
+              </thead>
+              <tbody>
+                {comp.competitors.map(c => (
+                  <tr key={c.name} className={c.name === 'MODEL' ? 'row-highlight-model' : c.name === 'HYBRID' ? 'row-highlight-hybrid' : ''}>
+                    <td>{c.rank}.</td>
+                    <td><strong>{c.display_name}</strong></td>
+                    <td>{c.avg_logloss?.toFixed(4)}</td>
+                    <td>{c.avg_auc?.toFixed(4)}</td>
+                    <td>{c.avg_brier?.toFixed(4)}</td>
+                    <td>{((c.accuracy ?? 0) * 100).toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {comp.bookmakers.length > 0 && (
+          <div className="market-close-bookmakers">
+            <h4>Ranking bukmacherów (na tej samej próbie)</h4>
+            <div className="mc-bookmakers-grid">
+              {comp.bookmakers.map(bk => (
+                <div key={bk.bookmaker_id} className="mc-bk-card">
+                  <div className="mc-bk-rank">#{bk.rank}</div>
+                  <div className="mc-bk-info">
+                    <span className="mc-bk-name">{bk.bookmaker_name}</span>
+                    <span className="mc-bk-metrics">
+                      LL: {bk.avg_logloss?.toFixed(4)} | AUC: {bk.avg_auc?.toFixed(3)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   /* ══════════════ RENDER ════════════════════════════════ */
   return (
     <div className="horizon-page">
@@ -629,6 +734,9 @@ export default function HorizonAnalysis() {
 
       {/* ─── Statistical Tests ───────────────────────────── */}
       <ModelVsBookmakerTestsSection />
+
+      {/* ─── Market Close Comparison ─────────────────────── */}
+      <MarketCloseComparisonSection />
 
       {/* ─── Bookmaker Results ─────────────────────────────── */}
       {data.bookmaker_bins.length > 0 && (

@@ -409,6 +409,24 @@ def _compute_logloss(y_true: list[int], y_prob: list[float], eps: float = 1e-15)
         return None
 
 
+def _compute_brier(y_true: list[int], y_prob: list[float]) -> float | None:
+    """Compute Brier score, return None if no observations."""
+    if not y_true:
+        return None
+    arr_true = np.array(y_true, dtype=float)
+    arr_prob = np.array(y_prob, dtype=float)
+    return round(float(np.mean((arr_prob - arr_true) ** 2)), 4)
+
+
+def _compute_accuracy(y_true: list[int], y_prob: list[float]) -> float | None:
+    """Compute threshold-0.5 binary accuracy."""
+    if not y_true:
+        return None
+    preds = [1 if float(p) >= 0.5 else 0 for p in y_prob]
+    correct = sum(1 for y, p in zip(y_true, preds, strict=False) if int(y) == int(p))
+    return round(float(correct / len(y_true)), 4)
+
+
 def _logloss_one(y_true: int, y_prob: float, eps: float = 1e-15) -> float:
     """Binary LogLoss for a single paired observation."""
     p = max(eps, min(1 - eps, float(y_prob)))
@@ -629,15 +647,9 @@ def _compute_model_vs_bookmaker_tests(db, cutoff: str) -> list[dict]:
         prob_a = _implied_prob(odds_a)
         prob_b = _implied_prob(odds_b)
         market_prob_a, market_prob_b = _remove_margin(prob_a, prob_b)
-        market_prob_a_t = apply_temperature_probability(market_prob_a, temperature)
-        market_prob_b_t = apply_temperature_probability(market_prob_b, temperature)
         thesis_prob_a = float(meta["thesis_prob_a"])
-        thesis_prob_b = 1.0 - thesis_prob_a
-        hybrid_prob_a = alpha * thesis_prob_a + (1.0 - alpha) * market_prob_a_t
-        hybrid_prob_b = alpha * thesis_prob_b + (1.0 - alpha) * market_prob_b_t
-        total = hybrid_prob_a + hybrid_prob_b
-        if total > 0:
-            hybrid_prob_a /= total
+        thesis_prob_a_t = apply_temperature_probability(thesis_prob_a, temperature)
+        hybrid_prob_a = alpha * thesis_prob_a_t + (1.0 - alpha) * market_prob_a
         bookmaker_key = snap.get("bookmaker_id") or "unknown"
         market_by_match[mid][bookmaker_key].append(market_prob_a)
         hybrid_by_match[mid][bookmaker_key].append(hybrid_prob_a)
@@ -918,10 +930,13 @@ def horizon_accuracy(
     bookmaker_bins = _compute_bookmaker_bins(bin_data, BIN_DEFS, min_matches_per_bin, db)
 
     # --- 6. Compute overall model accuracy reference lines ---
-    model_refs, hybrid_model_bins = _compute_model_reference_metrics(db, cutoff)
+    model_refs, hybrid_model_bins = _compute_model_reference_metrics(db, cutoff, min_matches_per_bin)
 
     # --- 7. Statistical tests: model vs average bookmaker ---
     model_vs_bookmaker_tests = _compute_model_vs_bookmaker_tests(db, cutoff)
+
+    # --- 8. Strict market-close comparison on identical match samples ---
+    market_close_comparison = _compute_market_close_comparison(db, cutoff, min_matches_per_bin)
 
     return {
         "total_matches_with_odds": len(matches_with_odds),
@@ -933,6 +948,7 @@ def horizon_accuracy(
         "hybrid_model_bins": hybrid_model_bins,
         "bookmaker_bins": bookmaker_bins,
         "model_vs_bookmaker_tests": model_vs_bookmaker_tests,
+        "market_close_comparison": market_close_comparison,
     }
 
 
@@ -1013,7 +1029,7 @@ def _compute_bookmaker_bins(
     return result
 
 
-def _compute_model_reference_metrics(db, cutoff: str) -> tuple[list[dict], list[dict]]:
+def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> tuple[list[dict], list[dict]]:
     """Compute overall LogLoss & AUC for each registered prediction model.
 
     For pure models (thesis, operational): returns single LogLoss/AUC values.
@@ -1066,7 +1082,7 @@ def _compute_model_reference_metrics(db, cutoff: str) -> tuple[list[dict], list[
             # For hybrid models: compute per-bin metrics dynamically
             # Need: thesis_prob (from canonical_predictions) + market_prob (from odds_snapshots per bin)
             hybrid_bin_metrics = _compute_hybrid_bins_dynamic(
-                db, cutoff, model_name, model_version, BIN_DEFS
+                db, cutoff, model_name, model_version, BIN_DEFS, min_matches
             )
             if hybrid_bin_metrics:
                 hybrid_bins.append({
@@ -1136,14 +1152,15 @@ def _compute_model_reference_metrics(db, cutoff: str) -> tuple[list[dict], list[
 
 
 def _compute_hybrid_bins_dynamic(
-    db, cutoff: str, model_name: str, model_version: str, bin_defs: list
+    db, cutoff: str, model_name: str, model_version: str, bin_defs: list, min_matches: int = 10
 ) -> list[dict]:
     """Compute hybrid model metrics per time bin dynamically.
     
     For each bin:
     1. Get thesis model predictions for finished matches
     2. Get average market probabilities from odds_snapshots in that bin
-    3. Compute hybrid_prob = alpha * thesis_prob + (1-alpha) * market_prob
+    3. Compute hybrid_prob exactly like production:
+       alpha * temperature(thesis_prob) + (1-alpha) * market_prob
     4. Calculate LogLoss/AUC for that bin
     
     Returns list of bin dicts with metrics.
@@ -1284,23 +1301,14 @@ def _compute_hybrid_bins_dynamic(
         prob_b = _implied_prob(odds_b)
         market_prob_a, market_prob_b = _remove_margin(prob_a, prob_b)
         
-        # Apply temperature scaling to market probs
-        market_prob_a = apply_temperature_probability(market_prob_a, temperature)
-        market_prob_b = apply_temperature_probability(market_prob_b, temperature)
-        
-        # Get thesis probability
+        # Get thesis probability and apply temperature to the model side.
+        # This mirrors generate_thesis_hybrid_predictions(); temperature is
+        # not applied to the market probability.
         thesis_prob_a = match_thesis[mid]
-        thesis_prob_b = 1.0 - thesis_prob_a
+        thesis_prob_a_t = apply_temperature_probability(thesis_prob_a, temperature)
         
         # Compute hybrid probability
-        hybrid_prob_a = alpha * thesis_prob_a + (1 - alpha) * market_prob_a
-        hybrid_prob_b = alpha * thesis_prob_b + (1 - alpha) * market_prob_b
-        
-        # Normalize to sum to 1
-        total = hybrid_prob_a + hybrid_prob_b
-        if total > 0:
-            hybrid_prob_a /= total
-            hybrid_prob_b /= total
+        hybrid_prob_a = alpha * thesis_prob_a_t + (1 - alpha) * market_prob_a
         
         # Ground truth
         winner_side = str(meta.get("winner_side") or "")
@@ -1329,7 +1337,7 @@ def _compute_hybrid_bins_dynamic(
         n_matches = len(per_match)
         n_snapshots = bd["snapshot_count"]
         
-        if n_matches < 5:  # lower threshold for hybrid bins
+        if n_matches < min_matches:
             continue
         
         y_true: list[int] = []
@@ -1360,6 +1368,224 @@ def _compute_hybrid_bins_dynamic(
         })
     
     return result_bins
+
+
+def _metric_summary(y_true: list[int], y_prob: list[float]) -> dict:
+    """Shared compact metric payload for model/market comparisons."""
+    return {
+        "n_matches": len(y_true),
+        "avg_logloss": _compute_logloss(y_true, y_prob),
+        "avg_auc": _compute_auc(y_true, y_prob),
+        "avg_brier": _compute_brier(y_true, y_prob),
+        "accuracy": _compute_accuracy(y_true, y_prob),
+    }
+
+
+def _compute_market_close_comparison(db, cutoff: str, min_matches: int) -> dict:
+    """Compare thesis/hybrid against collected bookmaker closing odds.
+
+    This is the headline production-health check for the Horizon page. It uses
+    a strict market-close sample: for every finished match, take each
+    bookmaker's latest non-live snapshot with scraped_at <= match start, align
+    it to canonical sides, remove margin, then average bookmaker probabilities
+    per match. Model, market, and hybrid metrics are computed on exactly the
+    same match set.
+    """
+    preds = query_df(
+        db,
+        """
+        WITH ranked AS (
+            SELECT cp.canonical_match_id, cp.prob_a AS thesis_prob_a,
+                   cm.winner_side, cm.start_time_normalized,
+                   cm.normalized_team_a, cm.normalized_team_b,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY cp.canonical_match_id
+                       ORDER BY cp.predicted_at DESC NULLS LAST, cp.id DESC
+                   ) AS rn
+            FROM canonical_predictions cp
+            JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+            WHERE cp.model_name = :mname
+              AND cp.model_version = :mver
+              AND cm.status IN ('finished', 'completed')
+              AND cm.winner_side IS NOT NULL
+              AND cm.start_time_normalized IS NOT NULL
+              AND cm.start_time_normalized > :cutoff
+        )
+        SELECT canonical_match_id, thesis_prob_a, winner_side,
+               start_time_normalized, normalized_team_a, normalized_team_b
+        FROM ranked
+        WHERE rn = 1
+        """,
+        {"mname": THESIS_MODEL_NAME, "mver": THESIS_MODEL_VERSION, "cutoff": cutoff},
+    )
+    pred_map = {
+        p["canonical_match_id"]: p
+        for p in preds
+        if p.get("thesis_prob_a") is not None
+        and 0 < float(p.get("thesis_prob_a")) < 1
+        and str(p.get("winner_side") or "") in ("team_a", "team_b")
+    }
+    if not pred_map:
+        return _empty_market_close_comparison()
+
+    match_ids = list(pred_map.keys())
+    placeholders = ",".join(f":mid{i}" for i in range(len(match_ids)))
+    params = {f"mid{i}": mid for i, mid in enumerate(match_ids)}
+
+    snapshots = query_df(
+        db,
+        f"""
+        SELECT os.canonical_match_id, os.scraped_at, os.bookmaker_id,
+               b.name AS bookmaker_name,
+               os.odds_a, os.odds_b, os.raw_team_a, os.raw_team_b
+        FROM odds_snapshots os
+        JOIN bookmakers b ON b.id = os.bookmaker_id
+        WHERE os.canonical_match_id IN ({placeholders})
+          AND os.market_type = 'match_winner'
+          AND COALESCE(os.is_live, 0) = 0
+          AND os.odds_a IS NOT NULL
+          AND os.odds_b IS NOT NULL
+        ORDER BY os.canonical_match_id, os.bookmaker_id, os.scraped_at DESC
+        """,
+        params,
+    )
+
+    # Keep only one latest pre-match snapshot per match/bookmaker.
+    close_by_match_book: dict[int, dict[Any, dict]] = defaultdict(dict)
+    for snap in snapshots:
+        mid = snap["canonical_match_id"]
+        meta = pred_map.get(mid)
+        if not meta:
+            continue
+        match_start = _parse_dt(meta.get("start_time_normalized"))
+        scraped = _parse_dt(snap.get("scraped_at"))
+        if not match_start or not scraped or scraped > match_start:
+            continue
+        bookmaker_key = snap.get("bookmaker_id") or "unknown"
+        prev = close_by_match_book[mid].get(bookmaker_key)
+        prev_dt = _parse_dt(prev.get("scraped_at")) if prev else None
+        if prev is None or (prev_dt is not None and scraped > prev_dt):
+            close_by_match_book[mid][bookmaker_key] = snap
+
+    rows: list[dict] = []
+    bookmaker_probs: dict[int, dict[str, Any]] = defaultdict(lambda: {
+        "bookmaker_name": None,
+        "y_true": [],
+        "y_prob": [],
+    })
+    alpha = 0.50
+    temperature = 0.80
+
+    for mid, meta in pred_map.items():
+        per_book_probs: list[float] = []
+        for bk_id, snap in close_by_match_book.get(mid, {}).items():
+            aligned = _align(
+                str(meta.get("normalized_team_a") or ""),
+                str(meta.get("normalized_team_b") or ""),
+                str(snap.get("raw_team_a") or ""),
+                str(snap.get("raw_team_b") or ""),
+                snap.get("odds_a"),
+                snap.get("odds_b"),
+            )
+            if not aligned:
+                continue
+            odds_a, odds_b = aligned
+            market_prob_a, _ = _remove_margin(_implied_prob(odds_a), _implied_prob(odds_b))
+            per_book_probs.append(market_prob_a)
+            if isinstance(bk_id, int):
+                y_true_bk = 1 if str(meta.get("winner_side") or "") == "team_a" else 0
+                bookmaker_probs[bk_id]["bookmaker_name"] = snap.get("bookmaker_name")
+                bookmaker_probs[bk_id]["y_true"].append(y_true_bk)
+                bookmaker_probs[bk_id]["y_prob"].append(market_prob_a)
+
+        if not per_book_probs:
+            continue
+
+        y_true = 1 if str(meta.get("winner_side") or "") == "team_a" else 0
+        thesis_prob = float(meta["thesis_prob_a"])
+        market_prob = float(np.mean(per_book_probs))
+        thesis_prob_t = apply_temperature_probability(thesis_prob, temperature)
+        hybrid_prob = alpha * thesis_prob_t + (1.0 - alpha) * market_prob
+        rows.append({
+            "match_id": mid,
+            "y_true": y_true,
+            "thesis_prob": thesis_prob,
+            "market_prob": market_prob,
+            "hybrid_prob": hybrid_prob,
+            "bookmaker_count": len(per_book_probs),
+        })
+
+    if not rows:
+        return _empty_market_close_comparison()
+
+    y_true = [int(r["y_true"]) for r in rows]
+    thesis = [float(r["thesis_prob"]) for r in rows]
+    market = [float(r["market_prob"]) for r in rows]
+    hybrid = [float(r["hybrid_prob"]) for r in rows]
+
+    competitors = [
+        {"name": "MODEL", "display_name": "Thesis model", **_metric_summary(y_true, thesis)},
+        {"name": "MARKET_CLOSE", "display_name": "Bookmaker consensus close", **_metric_summary(y_true, market)},
+        {"name": "HYBRID", "display_name": "Hybrid thesis+market", **_metric_summary(y_true, hybrid)},
+    ]
+    competitors.sort(key=lambda r: r["avg_logloss"] if r["avg_logloss"] is not None else 999.0)
+    for i, row in enumerate(competitors, start=1):
+        row["rank"] = i
+
+    model_ll = next((r["avg_logloss"] for r in competitors if r["name"] == "MODEL"), None)
+    market_ll = next((r["avg_logloss"] for r in competitors if r["name"] == "MARKET_CLOSE"), None)
+    hybrid_ll = next((r["avg_logloss"] for r in competitors if r["name"] == "HYBRID"), None)
+    delta_vs_market = None if model_ll is None or market_ll is None else round(float(model_ll - market_ll), 4)
+
+    bookmaker_rows = []
+    for bk_id, data in bookmaker_probs.items():
+        bk_y = data["y_true"]
+        bk_p = data["y_prob"]
+        if len(bk_y) < min_matches:
+            continue
+        bookmaker_rows.append({
+            "bookmaker_id": bk_id,
+            "bookmaker_name": data.get("bookmaker_name") or f"bookmaker_{bk_id}",
+            **_metric_summary(bk_y, bk_p),
+        })
+    bookmaker_rows.sort(key=lambda r: r["avg_logloss"] if r["avg_logloss"] is not None else 999.0)
+    for i, row in enumerate(bookmaker_rows, start=1):
+        row["rank"] = i
+
+    status = "unknown"
+    if delta_vs_market is not None:
+        if delta_vs_market <= -0.01:
+            status = "model_better"
+        elif delta_vs_market <= 0.01:
+            status = "model_on_market_level"
+        else:
+            status = "model_worse"
+
+    return {
+        "sample_definition": "latest non-live pre-match snapshot per bookmaker; averaged per match; identical match sample for model/market/hybrid",
+        "n_matches": len(rows),
+        "min_matches": min_matches,
+        "avg_bookmakers_per_match": round(float(np.mean([r["bookmaker_count"] for r in rows])), 2),
+        "model_delta_logloss_vs_market": delta_vs_market,
+        "hybrid_delta_logloss_vs_market": None if hybrid_ll is None or market_ll is None else round(float(hybrid_ll - market_ll), 4),
+        "status": status,
+        "competitors": competitors,
+        "bookmakers": bookmaker_rows,
+    }
+
+
+def _empty_market_close_comparison() -> dict:
+    return {
+        "sample_definition": "latest non-live pre-match snapshot per bookmaker; averaged per match; identical match sample for model/market/hybrid",
+        "n_matches": 0,
+        "min_matches": 0,
+        "avg_bookmakers_per_match": None,
+        "model_delta_logloss_vs_market": None,
+        "hybrid_delta_logloss_vs_market": None,
+        "status": "no_data",
+        "competitors": [],
+        "bookmakers": [],
+    }
 
 
 def apply_temperature_probability(prob: float, temperature: float) -> float:

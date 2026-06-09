@@ -262,6 +262,178 @@
   flex-direction: column;
 }
 
+/* ─── Market Close Comparison ──────────────────────────── */
+.market-close-section {
+  background: #141428;
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.market-close-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.market-close-header h3 {
+  font-size: 1.1rem;
+  color: #fff;
+  margin: 0;
+}
+
+.market-close-status {
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #0a0a1a;
+  text-transform: uppercase;
+}
+
+.market-close-subtitle {
+  color: #888;
+  font-size: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.market-close-summary-grid {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 800px) {
+  .market-close-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.market-close-main-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.mc-stat {
+  background: #1a1a32;
+  border: 1px solid #2a2a4a;
+  border-radius: 6px;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.mc-label {
+  font-size: 0.7rem;
+  color: #888;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+
+.mc-value {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #e0e0ff;
+}
+
+.mc-value.better { color: #00e676; }
+.mc-value.worse { color: #ff5252; }
+
+.market-close-table-wrapper {
+  overflow-x: auto;
+}
+
+.market-close-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.market-close-table th {
+  text-align: left;
+  padding: 0.6rem;
+  border-bottom: 2px solid #2a2a4a;
+  color: #888;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+}
+
+.market-close-table td {
+  padding: 0.75rem 0.6rem;
+  border-bottom: 1px solid #1e1e3a;
+  color: #ccc;
+}
+
+.row-highlight-model {
+  background: rgba(255, 107, 157, 0.1);
+}
+
+.row-highlight-model td:nth-child(2) {
+  color: #ff6b9d;
+}
+
+.row-highlight-hybrid {
+  background: rgba(0, 212, 255, 0.1);
+}
+
+.row-highlight-hybrid td:nth-child(2) {
+  color: #00d4ff;
+}
+
+.market-close-bookmakers h4 {
+  font-size: 0.9rem;
+  color: #aaa;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid #2a2a4a;
+  padding-bottom: 0.4rem;
+}
+
+.mc-bookmakers-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem;
+}
+
+.mc-bk-card {
+  background: #1a1a32;
+  border: 1px solid #2a2a4a;
+  border-radius: 4px;
+  padding: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.mc-bk-rank {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #666;
+  min-width: 1.2rem;
+}
+
+.mc-bk-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.mc-bk-name {
+  font-size: 0.85rem;
+  color: #e0e0ff;
+  font-weight: 600;
+}
+
+.mc-bk-metrics {
+  font-size: 0.75rem;
+  color: #888;
+}
+
 .bookmaker-result-metric .metric-label {
   font-size: 0.7rem;
   color: #888;

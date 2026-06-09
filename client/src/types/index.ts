@@ -247,7 +247,35 @@ export interface HybridModelBins {
 export interface BookmakerBinMetrics {
   bookmaker_id: number;
   bookmaker_name: string;
-  bins: HybridBinMetrics[];  // same shape as hybrid bins (label, hours_start/end, match_count, avg_logloss, avg_auc)
+  bins: HybridBinMetrics[];
+}
+
+export interface MarketCloseCompetitor {
+  name: string;
+  display_name: string;
+  n_matches: number;
+  avg_logloss: number | null;
+  avg_auc: number | null;
+  avg_brier: number | null;
+  accuracy: number | null;
+  rank: number;
+}
+
+export interface MarketCloseBookmaker extends MarketCloseCompetitor {
+  bookmaker_id: number;
+  bookmaker_name: string;
+}
+
+export interface MarketCloseComparison {
+  sample_definition: string;
+  n_matches: number;
+  min_matches: number;
+  avg_bookmakers_per_match: number | null;
+  model_delta_logloss_vs_market: number | null;
+  hybrid_delta_logloss_vs_market: number | null;
+  status: 'model_better' | 'model_on_market_level' | 'model_worse' | 'no_data' | 'unknown';
+  competitors: MarketCloseCompetitor[];
+  bookmakers: MarketCloseBookmaker[];
 }
 
 export interface ModelVsBookmakerTest {
@@ -280,6 +308,7 @@ export interface HorizonAccuracyResponse {
   hybrid_model_bins: HybridModelBins[];
   bookmaker_bins: BookmakerBinMetrics[];
   model_vs_bookmaker_tests: ModelVsBookmakerTest[];
+  market_close_comparison: MarketCloseComparison;
 }
 
 // Prediction & EV history timeline
