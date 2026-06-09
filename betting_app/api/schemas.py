@@ -372,5 +372,9 @@ class AliasCreateResponse(BaseModel):
     source: str
 
 
+class AliasDeleteRequest(BaseModel):
+    raw_name: str = Field(min_length=1, description="Bookmaker/raw team name to unmap")
+
+
 class GolggTeamsResponse(BaseModel):
     teams: list[str]

@@ -16,6 +16,7 @@ from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import (
     AliasCreateRequest,
     AliasCreateResponse,
+    AliasDeleteRequest,
     BookmakerOddsRow,
     GolggTeamsResponse,
     MatchBestOfUpdate,
@@ -414,6 +415,20 @@ def list_golgg_teams(q: str = "", limit: int = 50, db=Depends(get_db)):
         filtered = all_teams
 
     return GolggTeamsResponse(teams=filtered[:limit])
+
+
+# ── DELETE /matches/alias — remove team alias mapping ───────────────────────
+
+
+@router.delete("/alias")
+def delete_alias_endpoint(body: AliasDeleteRequest, db=Depends(get_db)):
+    """Delete a manual team alias mapping for the given raw_name."""
+    from betting_app.services.mapping_service import delete_alias
+
+    deleted = delete_alias(body.raw_name, source="manual")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="No manual alias found for that team")
+    return {"ok": True, "deleted": True}
 
 
 # ── GET /matches/{id} ───────────────────────────────────────────────────────

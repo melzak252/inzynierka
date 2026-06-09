@@ -218,6 +218,17 @@ def upsert_alias(raw_name: str, golgg_team_name: str, source: str = "manual", co
         return int(row["id"])
 
 
+def delete_alias(raw_name: str, source: str = "manual") -> bool:
+    """Delete a raw-name alias mapping. Returns True if a row was deleted."""
+    normalized = normalize_team_name(raw_name)
+    with transaction() as connection:
+        cursor = connection.execute(
+            "DELETE FROM team_aliases WHERE normalized_name = ? AND source = ?",
+            (normalized, source),
+        )
+        return cursor.rowcount > 0
+
+
 def unmapped_raw_teams() -> pd.DataFrame:
     """Return raw bookmaker names without confirmed canonical mapping."""
 

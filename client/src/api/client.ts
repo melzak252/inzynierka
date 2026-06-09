@@ -188,6 +188,19 @@ export async function createTeamAlias(request: AliasCreateRequest): Promise<Alia
   return response.json();
 }
 
+export async function deleteTeamAlias(raw_name: string): Promise<{ ok: boolean; deleted: boolean }> {
+  const response = await fetch(`${API_BASE}/matches/alias`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw_name }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to delete alias: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 export async function searchGolggTeams(q: string = '', limit: number = 50): Promise<GolggTeamsResponse> {
   const params = new URLSearchParams({ q, limit: limit.toString() });
   const response = await fetch(`${API_BASE}/matches/golgg-teams?${params}`);

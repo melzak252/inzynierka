@@ -366,6 +366,10 @@ export interface AliasCreateResponse {
   source: string;
 }
 
+export interface AliasDeleteRequest {
+  raw_name: string;
+}
+
 export interface GolggTeamsResponse {
   teams: string[];
 }
