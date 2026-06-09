@@ -24,12 +24,12 @@ class MatchSequenceDataset(Dataset):
         match = self.matches[idx]
         
         # seq_a, seq_b are lists of lists (features)
-        seq_a = torch.tensor(match['team_a_sequence'], dtype=torch.float)
-        seq_b = torch.tensor(match['team_b_sequence'], dtype=torch.float)
+        # JSON keys from extract_transformer_data.py: t1_seq, t2_seq, y
+        seq_a = torch.tensor(match['t1_seq'], dtype=torch.float)
+        seq_b = torch.tensor(match['t2_seq'], dtype=torch.float)
         
-        # Winner: 1 for Team A, 2 for Team B -> 1.0 for A win, 0.0 for B win
-        winner = 1.0 if match['winner_side'] == 1 else 0.0
-        label = torch.tensor([winner], dtype=torch.float)
+        # y: 1 for Team 1 win, 0 for Team 2 win
+        label = torch.tensor([float(match['y'])], dtype=torch.float)
         
         # Padding masks (True for padded elements)
         # Our sequences are already fixed length from extraction, but let's be safe
