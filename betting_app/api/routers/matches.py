@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import (
     AliasCreateRequest,
+    AliasBlockRequest,
     AliasCreateResponse,
     AliasDeleteRequest,
     BookmakerOddsRow,
@@ -431,6 +432,32 @@ def delete_alias_endpoint(body: AliasDeleteRequest, db=Depends(get_db)):
     return {"ok": True, "deleted": True}
 
 
+# ── POST /matches/alias/block — block fuzzy matching for a team ──────────────
+
+
+@router.post("/alias/block")
+def block_alias_endpoint(body: AliasBlockRequest, db=Depends(get_db)):
+    """Block fuzzy matching for a team name, preventing incorrect auto-mappings."""
+    from betting_app.services.mapping_service import block_alias
+
+    block_alias(body.raw_name)
+    return {"ok": True, "blocked": True}
+
+
+# ── DELETE /matches/alias/block — unblock fuzzy matching for a team ───────────
+
+
+@router.delete("/alias/block")
+def unblock_alias_endpoint(body: AliasBlockRequest, db=Depends(get_db)):
+    """Unblock fuzzy matching for a team name, allowing auto-mappings again."""
+    from betting_app.services.mapping_service import unblock_alias
+
+    unblocked = unblock_alias(body.raw_name)
+    if not unblocked:
+        raise HTTPException(status_code=404, detail="No block found for that team")
+    return {"ok": True, "unblocked": True}
+
+
 # ── GET /matches/{id} ───────────────────────────────────────────────────────
 
 
@@ -588,11 +615,13 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
                 canonical_name=m.get("team_a_name"),
                 golgg_name=mapping.get("team_a_golgg_name"),
                 confidence=none_or_float(mapping.get("team_a_confidence")),
+                source=mapping.get("team_a_source"),
             )
             team_b_info = TeamMappingInfo(
                 canonical_name=m.get("team_b_name"),
                 golgg_name=mapping.get("team_b_golgg_name"),
                 confidence=none_or_float(mapping.get("team_b_confidence")),
+                source=mapping.get("team_b_source"),
             )
             
             # Get team ratings for comparison

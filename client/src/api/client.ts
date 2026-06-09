@@ -201,6 +201,32 @@ export async function deleteTeamAlias(raw_name: string): Promise<{ ok: boolean; 
   return response.json();
 }
 
+export async function blockTeamAlias(raw_name: string): Promise<{ ok: boolean; blocked: boolean }> {
+  const response = await fetch(`${API_BASE}/matches/alias/block`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw_name }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to block alias: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function unblockTeamAlias(raw_name: string): Promise<{ ok: boolean; unblocked: boolean }> {
+  const response = await fetch(`${API_BASE}/matches/alias/block`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw_name }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to unblock alias: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 export async function searchGolggTeams(q: string = '', limit: number = 50): Promise<GolggTeamsResponse> {
   const params = new URLSearchParams({ q, limit: limit.toString() });
   const response = await fetch(`${API_BASE}/matches/golgg-teams?${params}`);

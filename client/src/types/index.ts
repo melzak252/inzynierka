@@ -80,6 +80,7 @@ export interface TeamMappingInfo {
   canonical_name: string | null;
   golgg_name: string | null;
   confidence: number | null;
+  source: string | null;
 }
 
 export interface TeamComparisonInfo {
@@ -367,6 +368,10 @@ export interface AliasCreateResponse {
 }
 
 export interface AliasDeleteRequest {
+  raw_name: string;
+}
+
+export interface AliasBlockRequest {
   raw_name: string;
 }
 

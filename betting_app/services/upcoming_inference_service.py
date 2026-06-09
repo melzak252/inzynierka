@@ -131,8 +131,8 @@ def build_features_for_match(
     canonical_match_id = int(match["id"])
     team_a_raw = str(match.get("team_a_name") or "")
     team_b_raw = str(match.get("team_b_name") or "")
-    team_a_golgg, conf_a = suggest_mapping(team_a_raw)
-    team_b_golgg, conf_b = suggest_mapping(team_b_raw)
+    team_a_golgg, conf_a, source_a = suggest_mapping(team_a_raw)
+    team_b_golgg, conf_b, source_b = suggest_mapping(team_b_raw)
     missing: list[str] = []
     if not team_a_golgg or conf_a < min_mapping_confidence:
         missing.append(f"team_a_mapping:{team_a_raw}:{conf_a:.3f}")
@@ -184,6 +184,8 @@ def build_features_for_match(
             "team_b_golgg_name": team_b_golgg,
             "team_a_confidence": conf_a,
             "team_b_confidence": conf_b,
+            "team_a_source": source_a,
+            "team_b_source": source_b,
         },
         "ratings": {"team_a": ratings_a, "team_b": ratings_b, "probabilities": rating_probs},
         "player_ratings": {

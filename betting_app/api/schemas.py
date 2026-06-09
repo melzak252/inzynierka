@@ -112,6 +112,7 @@ class TeamMappingInfo(BaseModel):
     canonical_name: str | None = None
     golgg_name: str | None = None
     confidence: float | None = None
+    source: str | None = None  # 'alias', 'builtin', 'fuzzy', or 'blocked'
 
 
 class TeamComparisonInfo(BaseModel):
@@ -374,6 +375,10 @@ class AliasCreateResponse(BaseModel):
 
 class AliasDeleteRequest(BaseModel):
     raw_name: str = Field(min_length=1, description="Bookmaker/raw team name to unmap")
+
+
+class AliasBlockRequest(BaseModel):
+    raw_name: str = Field(min_length=1, description="Bookmaker/raw team name to block fuzzy matching for")
 
 
 class GolggTeamsResponse(BaseModel):

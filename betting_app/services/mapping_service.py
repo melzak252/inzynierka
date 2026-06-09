@@ -171,17 +171,33 @@ def known_golgg_teams() -> pd.DataFrame:
     return query_df("SELECT * FROM golgg_teams ORDER BY team_name")
 
 
-def suggest_mapping(raw_name: str) -> tuple[str | None, float]:
-    """Suggest a canonical GOL.GG team for a raw bookmaker name."""
+def suggest_mapping(raw_name: str) -> tuple[str | None, float, str]:
+    """Suggest a canonical GOL.GG team for a raw bookmaker name.
+
+    Returns (golgg_name, confidence, source) where source is one of:
+    'alias'  — matched via team_aliases table (confidence 1.0)
+    'builtin' — matched via BOOKMAKER_TO_GOLGG_ALIASES dict (confidence 1.0)
+    'fuzzy'  — matched via fuzzy string similarity (confidence < 1.0)
+    'blocked' — a blocked alias exists, mapping suppressed (None, 0.0)
+    """
+
+    normalized = normalize_team_name(raw_name)
+
+    # Check for blocked alias first
+    blocked = query_df(
+        "SELECT 1 FROM team_aliases WHERE normalized_name = ? AND alias IS NULL AND source = 'blocked' LIMIT 1",
+        (normalized,),
+    )
+    if not blocked.empty:
+        return None, 0.0, "blocked"
 
     confirmed = query_df(
         "SELECT alias FROM team_aliases WHERE normalized_name = ? AND alias IS NOT NULL LIMIT 1",
-        (normalize_team_name(raw_name),),
+        (normalized,),
     )
     if not confirmed.empty:
-        return str(confirmed.iloc[0]["alias"]), 1.0
+        return str(confirmed.iloc[0]["alias"]), 1.0, "alias"
 
-    normalized = normalize_team_name(raw_name)
     alias_target = BOOKMAKER_TO_GOLGG_ALIASES.get(normalized) or BOOKMAKER_TO_GOLGG_ALIASES.get(
         normalized.replace(" ", "")
     )
@@ -190,12 +206,13 @@ def suggest_mapping(raw_name: str) -> tuple[str | None, float]:
         candidates = teams["team_name"].tolist() if not teams.empty else load_golgg_team_candidates()
         for candidate in candidates:
             if normalize_team_name(candidate) == normalize_team_name(alias_target):
-                return candidate, 1.0
-        return alias_target, 1.0
+                return candidate, 1.0, "builtin"
+        return alias_target, 1.0, "builtin"
 
     teams = known_golgg_teams()
     candidates = teams["team_name"].tolist() if not teams.empty else load_golgg_team_candidates()
-    return best_match(raw_name, candidates)
+    golgg_name, confidence = best_match(raw_name, candidates)
+    return golgg_name, confidence, "fuzzy"
 
 
 def upsert_alias(raw_name: str, golgg_team_name: str, source: str = "manual", confirmed: bool = True) -> int:
@@ -225,6 +242,41 @@ def delete_alias(raw_name: str, source: str = "manual") -> bool:
         cursor = connection.execute(
             "DELETE FROM team_aliases WHERE normalized_name = ? AND source = ?",
             (normalized, source),
+        )
+        return cursor.rowcount > 0
+
+
+def block_alias(raw_name: str) -> int:
+    """Block a fuzzy match by inserting a 'blocked' alias entry.
+
+    This prevents suggest_mapping from returning a fuzzy match for this name.
+    The alias column is set to NULL to indicate a block rather than a mapping.
+    """
+    normalized = normalize_team_name(raw_name)
+    with transaction() as connection:
+        connection.execute(
+            """
+            INSERT INTO team_aliases(normalized_name, alias, source)
+            VALUES (?, NULL, 'blocked')
+            ON CONFLICT(normalized_name, source) DO UPDATE SET
+                alias = excluded.alias
+            """,
+            (normalized,),
+        )
+        row = connection.execute(
+            "SELECT id FROM team_aliases WHERE normalized_name = ? AND source = 'blocked'",
+            (normalized,),
+        ).fetchone()
+        return int(row["id"])
+
+
+def unblock_alias(raw_name: str) -> bool:
+    """Remove a blocked alias entry. Returns True if a row was deleted."""
+    normalized = normalize_team_name(raw_name)
+    with transaction() as connection:
+        cursor = connection.execute(
+            "DELETE FROM team_aliases WHERE normalized_name = ? AND source = 'blocked'",
+            (normalized,),
         )
         return cursor.rowcount > 0
 
