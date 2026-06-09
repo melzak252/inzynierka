@@ -114,9 +114,12 @@ def main():
         
     print("Loading data...")
     with open(data_path, 'r') as f:
-        data = json.load(f)
+        matches = json.load(f)
     
-    matches = data['matches']
+    # If data was saved as a dict with 'matches' key (older version or different script)
+    if isinstance(matches, dict) and 'matches' in matches:
+        matches = matches['matches']
+        
     print(f"Loaded {len(matches)} matches.")
     
     # Chronological split
