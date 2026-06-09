@@ -185,7 +185,7 @@ def suggest_mapping(raw_name: str) -> tuple[str | None, float, str]:
 
     # Check for blocked alias first
     blocked = query_df(
-        "SELECT 1 FROM team_aliases WHERE normalized_name = ? AND alias IS NULL AND source = 'blocked' LIMIT 1",
+        "SELECT 1 FROM team_aliases WHERE normalized_name = ? AND alias = '' AND source = 'blocked' LIMIT 1",
         (normalized,),
     )
     if not blocked.empty:
@@ -250,14 +250,14 @@ def block_alias(raw_name: str) -> int:
     """Block a fuzzy match by inserting a 'blocked' alias entry.
 
     This prevents suggest_mapping from returning a fuzzy match for this name.
-    The alias column is set to NULL to indicate a block rather than a mapping.
+    The alias column is set to empty string to indicate a block rather than a mapping.
     """
     normalized = normalize_team_name(raw_name)
     with transaction() as connection:
         connection.execute(
             """
             INSERT INTO team_aliases(normalized_name, alias, source)
-            VALUES (?, NULL, 'blocked')
+            VALUES (?, '', 'blocked')
             ON CONFLICT(normalized_name, source) DO UPDATE SET
                 alias = excluded.alias
             """,
