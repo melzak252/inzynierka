@@ -381,8 +381,8 @@ def get_team_game_history(conn, team_golgg_names):
         player_lookup[gid][side][role] = stats or {}
 
     print("    Processing game features...")
-    team_history = {}
-    team_last_date = {}
+    team_history = {}      # team_name -> list of (features, game_date) tuples
+    team_last_date = {}    # team_name -> last game date (for days_since calc)
     name_set = set(team_golgg_names)
     for i, game in enumerate(games):
         if i % 5000 == 0:
@@ -393,14 +393,17 @@ def get_team_game_history(conn, team_golgg_names):
                 game_date = datetime.strptime(game_date, '%Y-%m-%d')
             except:
                 game_date = None
+        # Normalize tzinfo for consistent date comparison later
+        if game_date is not None and hasattr(game_date, 'tzinfo') and game_date.tzinfo is not None:
+            game_date = game_date.replace(tzinfo=None)
         for team_name, team_side in [(game['team1_name'], 't1'), (game['team2_name'], 't2')]:
             if team_name not in name_set:
                 continue
             last_date = team_last_date.get(team_name)
             features = build_game_features(game, team_side, player_lookup, last_date)
             if team_name not in team_history:
-                team_history[team_name] = deque(maxlen=WINDOW_SIZE)
-            team_history[team_name].append(features)
+                team_history[team_name] = []  # store all games for date-aware filtering
+            team_history[team_name].append((features, game_date))
             team_last_date[team_name] = game_date
     return team_history
 
@@ -486,12 +489,22 @@ def extract_baseline_features(features_json, team_a_golgg, team_b_golgg,
     return np.array(features, dtype=np.float32)
 
 
-def build_transformer_sequences(team_history, team_a_golgg, team_b_golgg):
-    def pad_sequence(history_list):
-        if len(history_list) >= WINDOW_SIZE: return history_list[-WINDOW_SIZE:]
-        return [[0.0] * FEATURE_DIM] * (WINDOW_SIZE - len(history_list)) + history_list
-    seq_a = np.array(pad_sequence(list(team_history.get(team_a_golgg, []))), dtype=np.float32)
-    seq_b = np.array(pad_sequence(list(team_history.get(team_b_golgg, []))), dtype=np.float32)
+def build_transformer_sequences(team_history, team_a_golgg, team_b_golgg, match_date=None):
+    """Build game sequences, filtering to only include games before match_date
+    to prevent look-ahead bias (future games leaking into team history).
+    """
+    def pad_sequence(history_tuples):
+        # history_tuples is list of (features, game_date)
+        if match_date is not None:
+            # Filter to games strictly before the match date
+            filtered = [f for f, d in history_tuples if d is not None and d < match_date]
+        else:
+            filtered = [f for f, d in history_tuples]
+        if len(filtered) >= WINDOW_SIZE:
+            return filtered[-WINDOW_SIZE:]
+        return [[0.0] * FEATURE_DIM] * (WINDOW_SIZE - len(filtered)) + filtered
+    seq_a = np.array(pad_sequence(team_history.get(team_a_golgg, [])), dtype=np.float32)
+    seq_b = np.array(pad_sequence(team_history.get(team_b_golgg, [])), dtype=np.float32)
     return seq_a, seq_b
 
 
@@ -563,7 +576,7 @@ def main():
         team_a, team_b = match['team_a_golgg_name'] or match['team_a_name'], match['team_b_golgg_name'] or match['team_b_name']
         market_prob_a, _ = get_market_odds(conn, cm_id)
         baseline = extract_baseline_features(match['features_json'], team_a, team_b, team_id_map, match['best_of'] or 3, match['start_time_normalized'])
-        seq_a, seq_b = build_transformer_sequences(team_history, team_a, team_b)
+        seq_a, seq_b = build_transformer_sequences(team_history, team_a, team_b, match['start_time_normalized'])
         seq_a_t, seq_b_t = torch.tensor(seq_a, dtype=torch.float32).unsqueeze(0).to(device), torch.tensor(seq_b, dtype=torch.float32).unsqueeze(0).to(device)
         
         with torch.no_grad():
