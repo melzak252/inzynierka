@@ -101,3 +101,17 @@ class MatchPredictor(nn.Module):
         
         logits = self.classifier(combined)
         return logits # Return logits, use sigmoid in loss or for inference
+    
+    def get_embedding(self, seq_a, seq_b, mask_a=None, mask_b=None):
+        """
+        Extract combined embedding without final classification.
+        Returns: tensor of shape (batch_size, d_model * 3) = (batch_size, 192)
+        """
+        emb_a = self.team_encoder(seq_a, mask_a)
+        emb_b = self.team_encoder(seq_b, mask_b)
+        
+        # Combine embeddings
+        diff = emb_a - emb_b
+        combined = torch.cat([emb_a, emb_b, diff], dim=-1)
+        
+        return combined # Return embedding for fusion with other features

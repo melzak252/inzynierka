@@ -570,8 +570,7 @@ def main():
             if (seq_a_t.abs().sum() == 0) and (seq_b_t.abs().sum() == 0):
                 embedding_np = np.zeros(192, dtype=np.float32)
             else:
-                mask_a, mask_b = (seq_a_t.abs().sum(dim=-1) == 0), (seq_b_t.abs().sum(dim=-1) == 0)
-                embedding_np = transformer.get_embedding(seq_a_t, seq_b_t, mask_a, mask_b).cpu().numpy()[0]
+                embedding_np = transformer.get_embedding(seq_a_t, seq_b_t).cpu().numpy()[0]
 
         full_features = np.concatenate([baseline, embedding_np])
         match_preds = {}

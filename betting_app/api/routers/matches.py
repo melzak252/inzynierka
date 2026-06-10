@@ -81,10 +81,12 @@ def _parse_bookmaker_ev_json(raw: Any) -> dict[str, Any]:
     return result
 
 TAX_RATE = 0.12
-HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
-HYBRID_MODEL_VERSION = "a0.50-t0.80"
+HYBRID_MODEL_NAME = "Hybrid-Fusion-SymAug-Market"
+HYBRID_MODEL_VERSION = "a0.60-t0.80"
 SPORT_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
 SPORT_MODEL_VERSION = "v0.2"
+FUSION_SYMAUG_MODEL_NAME = "Fusion-v2-SymAug"
+FUSION_SYMAUG_MODEL_VERSION = "v1.0"
 
 
 def _align(row: dict, n_a: str, n_b: str) -> tuple[float | None, float | None]:
@@ -186,14 +188,14 @@ def list_matches(
             SELECT canonical_match_id, model_name, model_version, MAX(predicted_at) AS predicted_at
             FROM canonical_predictions
             WHERE prediction_status='active'
-              AND ((model_name=:hn AND model_version=:hv) OR (model_name=:sn AND model_version=:sv))
+              AND ((model_name=:hn AND model_version=:hv) OR (model_name=:sn AND model_version=:sv) OR (model_name=:fn AND model_version=:fv))
             GROUP BY canonical_match_id, model_name, model_version
         ) latest ON latest.canonical_match_id=p.canonical_match_id
                  AND latest.model_name=p.model_name
                  AND latest.model_version=p.model_version
                  AND latest.predicted_at=p.predicted_at
         """,
-        {"hn": HYBRID_MODEL_NAME, "hv": HYBRID_MODEL_VERSION, "sn": SPORT_MODEL_NAME, "sv": SPORT_MODEL_VERSION},
+        {"hn": HYBRID_MODEL_NAME, "hv": HYBRID_MODEL_VERSION, "sn": SPORT_MODEL_NAME, "sv": SPORT_MODEL_VERSION, "fn": FUSION_SYMAUG_MODEL_NAME, "fv": FUSION_SYMAUG_MODEL_VERSION},
     )
     pred_map: dict[int, dict] = {}
     for p in preds:
@@ -205,6 +207,9 @@ def list_matches(
         elif p["model_name"] == SPORT_MODEL_NAME:
             item["model_prob_a"] = none_or_float(p.get("prob_a"))
             item["model_prob_b"] = none_or_float(p.get("prob_b"))
+        elif p["model_name"] == FUSION_SYMAUG_MODEL_NAME:
+            item["fusion_symaug_prob_a"] = none_or_float(p.get("prob_a"))
+            item["fusion_symaug_prob_b"] = none_or_float(p.get("prob_b"))
 
     items: list[MatchBoardItem] = []
     for mid, group in groups.items():
@@ -250,6 +255,14 @@ def list_matches(
             expected_value(float(p["hybrid_prob_b"]), float(record["best_odds_b"]), tax_rate)
             if p.get("hybrid_prob_b") is not None else None
         )
+        fusion_symaug_ev_a = (
+            expected_value(float(p["fusion_symaug_prob_a"]), float(record["best_odds_a"]), tax_rate)
+            if p.get("fusion_symaug_prob_a") is not None else None
+        )
+        fusion_symaug_ev_b = (
+            expected_value(float(p["fusion_symaug_prob_b"]), float(record["best_odds_b"]), tax_rate)
+            if p.get("fusion_symaug_prob_b") is not None else None
+        )
 
         items.append(MatchBoardItem(
             canonical_match_id=mid,
@@ -283,6 +296,10 @@ def list_matches(
             hybrid_prob_b=p.get("hybrid_prob_b"),
             hybrid_ev_a=hybrid_ev_a,
             hybrid_ev_b=hybrid_ev_b,
+            fusion_symaug_prob_a=p.get("fusion_symaug_prob_a"),
+            fusion_symaug_prob_b=p.get("fusion_symaug_prob_b"),
+            fusion_symaug_ev_a=fusion_symaug_ev_a,
+            fusion_symaug_ev_b=fusion_symaug_ev_b,
             last_scraped_at=str(max(g["scraped_at"] for g in group if g.get("scraped_at"))),
         ))
 

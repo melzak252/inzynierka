@@ -23,9 +23,9 @@ from betting_app.api.deps import get_db, query_df
 
 router = APIRouter(prefix="/timing", tags=["timing"])
 
-THESIS_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
-THESIS_MODEL_VERSION = "exp-039"
-THESIS_HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
+THESIS_MODEL_NAME = "Fusion-v2-SymAug"
+THESIS_MODEL_VERSION = "v1.0"
+THESIS_HYBRID_MODEL_NAME = "Hybrid-Fusion-SymAug-Market"
 
 
 def _parse_dt(val: Any) -> datetime | None:

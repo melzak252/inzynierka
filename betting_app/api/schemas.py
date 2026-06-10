@@ -58,6 +58,12 @@ class MatchBoardItem(BaseModel):
     hybrid_prob_b: float | None = None
     hybrid_ev_a: float | None = None
     hybrid_ev_b: float | None = None
+    
+    # Fusion SymAug probabilities and EV
+    fusion_symaug_prob_a: float | None = None
+    fusion_symaug_prob_b: float | None = None
+    fusion_symaug_ev_a: float | None = None
+    fusion_symaug_ev_b: float | None = None
 
     last_scraped_at: str | None = None
 
