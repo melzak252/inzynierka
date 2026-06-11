@@ -495,6 +495,8 @@ def build_transformer_sequences(team_history, team_a_golgg, team_b_golgg, match_
     """
     if isinstance(match_date, str):
         match_date = datetime.fromisoformat(match_date.replace('Z', '+00:00'))
+    if hasattr(match_date, 'tzinfo') and match_date.tzinfo is not None:
+        match_date = match_date.replace(tzinfo=None)
     def pad_sequence(history_tuples):
         # history_tuples is list of (features, game_date)
         if match_date is not None:
