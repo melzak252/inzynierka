@@ -493,6 +493,8 @@ def build_transformer_sequences(team_history, team_a_golgg, team_b_golgg, match_
     """Build game sequences, filtering to only include games before match_date
     to prevent look-ahead bias (future games leaking into team history).
     """
+    if isinstance(match_date, str):
+        match_date = datetime.fromisoformat(match_date.replace('Z', '+00:00'))
     def pad_sequence(history_tuples):
         # history_tuples is list of (features, game_date)
         if match_date is not None:
@@ -508,17 +510,28 @@ def build_transformer_sequences(team_history, team_a_golgg, team_b_golgg, match_
     return seq_a, seq_b
 
 
-def get_market_odds(conn, canonical_match_id):
+def get_market_odds(conn, canonical_match_id, team_a_name=None, team_b_name=None):
+    """
+    Get fair market probabilities, ensuring odds_a maps to team_a_name.
+    If raw_team_a != team_a_name (swap case), swap odds.
+    """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
-            SELECT odds_a, odds_b FROM odds_snapshots
+            SELECT odds_a, odds_b, raw_team_a, raw_team_b FROM odds_snapshots
             WHERE canonical_match_id = %s AND market_type = 'match_winner'
               AND COALESCE(is_live, 0) = 0 AND odds_a IS NOT NULL AND odds_b IS NOT NULL
             ORDER BY scraped_at DESC LIMIT 1
         """, (canonical_match_id,))
         row = cur.fetchone()
         if not row: return None, None
-        implied_a, implied_b = 1.0 / float(row['odds_a']), 1.0 / float(row['odds_b'])
+        odds_a, odds_b = float(row['odds_a']), float(row['odds_b'])
+        # Detect swap: if raw_team_a matches team_b_name instead of team_a_name
+        if (team_a_name is not None and team_b_name is not None and
+                row['raw_team_a'] is not None and row['raw_team_b'] is not None):
+            if (row['raw_team_a'].lower() == team_b_name.lower() and
+                    row['raw_team_b'].lower() == team_a_name.lower()):
+                odds_a, odds_b = odds_b, odds_a
+        implied_a, implied_b = 1.0 / odds_a, 1.0 / odds_b
         total = implied_a + implied_b
         return (implied_a / total, implied_b / total) if total > 0 else (None, None)
 
@@ -574,7 +587,7 @@ def main():
     for match in matches:
         cm_id = match['canonical_match_id']
         team_a, team_b = match['team_a_golgg_name'] or match['team_a_name'], match['team_b_golgg_name'] or match['team_b_name']
-        market_prob_a, _ = get_market_odds(conn, cm_id)
+        market_prob_a, _ = get_market_odds(conn, cm_id, team_a, team_b)
         baseline = extract_baseline_features(match['features_json'], team_a, team_b, team_id_map, match['best_of'] or 3, match['start_time_normalized'])
         seq_a, seq_b = build_transformer_sequences(team_history, team_a, team_b, match['start_time_normalized'])
         seq_a_t, seq_b_t = torch.tensor(seq_a, dtype=torch.float32).unsqueeze(0).to(device), torch.tensor(seq_b, dtype=torch.float32).unsqueeze(0).to(device)

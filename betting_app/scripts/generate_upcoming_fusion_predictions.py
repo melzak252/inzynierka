@@ -619,14 +619,15 @@ def build_transformer_sequences(team_history, team_a_golgg, team_b_golgg):
     return seq_a, seq_b
 
 
-def get_market_odds(conn, canonical_match_id):
+def get_market_odds(conn, canonical_match_id, team_a_name=None, team_b_name=None):
     """
     Get latest market odds for a match and convert to fair probabilities.
+    If raw_team_a != team_a_name (swap case), swap odds to align.
     Returns (prob_a, prob_b) or (None, None) if no odds available.
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
-            SELECT odds_a, odds_b
+            SELECT odds_a, odds_b, raw_team_a, raw_team_b
             FROM odds_snapshots
             WHERE canonical_match_id = %s
               AND market_type = 'match_winner'
@@ -643,6 +644,13 @@ def get_market_odds(conn, canonical_match_id):
         
         odds_a = float(row['odds_a'])
         odds_b = float(row['odds_b'])
+        
+        # Detect swap: if raw_team_a matches team_b_name instead of team_a_name
+        if (team_a_name is not None and team_b_name is not None and
+                row['raw_team_a'] is not None and row['raw_team_b'] is not None):
+            if (row['raw_team_a'].lower() == team_b_name.lower() and
+                    row['raw_team_b'].lower() == team_a_name.lower()):
+                odds_a, odds_b = odds_b, odds_a
         
         # Convert to implied probabilities and remove overround
         implied_a = 1.0 / odds_a
@@ -795,7 +803,7 @@ def main():
         print(f"    Golgg names: {team_a} vs {team_b}")
 
         # Get market odds for hybridization
-        market_prob_a, market_prob_b = get_market_odds(conn, cm_id)
+        market_prob_a, market_prob_b = get_market_odds(conn, cm_id, team_a, team_b)
         if market_prob_a is not None:
             print(f"    Market odds: {market_prob_a:.3f} / {market_prob_b:.3f}")
         else:
