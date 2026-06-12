@@ -17,7 +17,7 @@ TAX_RATE = 0.12
 def list_predictions(
     min_ev: float = Query(0.0),
     min_books: int = Query(1),
-    model_name: str | None = Query("Hybrid-Fusion-SymAug-Market"),
+    model_name: str | None = Query("Hybrid-Thesis-Market"),
     model_version: str | None = Query(None),
     limit: int = Query(50, le=200),
     db=Depends(get_db),
