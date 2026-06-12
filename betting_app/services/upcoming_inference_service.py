@@ -21,6 +21,7 @@ from betting_app.core.matching import normalize_team_name
 from betting_app.core.staking import fractional_kelly_stake
 from betting_app.services.canonical_match_service import align_snapshot_odds, parse_iso
 from betting_app.services.mapping_service import suggest_mapping
+from betting_app.services.mapping_service import golgg_name_from_id
 
 
 DEFAULT_FEATURE_VERSION = "player-team-ratings-w20-v0.2"
@@ -94,7 +95,7 @@ def build_all_upcoming_features(
 
 
 def load_canonical_matches(*, include_past: bool = False, limit: int | None = None):
-    """Load canonical matches that have at least one bookmaker snapshot."""
+    """Load canonical matches with GOL.GG team IDs from upcoming_matches."""
 
     where = "WHERE cm.status = 'upcoming'"
     params: list[Any] = []
@@ -104,11 +105,20 @@ def load_canonical_matches(*, include_past: bool = False, limit: int | None = No
     sql = f"""
         SELECT cm.*,
                COUNT(DISTINCT os.bookmaker_id) AS bookmaker_count,
-               MAX(os.scraped_at) AS last_scraped_at
+               MAX(os.scraped_at) AS last_scraped_at,
+               um.team_a_golgg_id,
+               um.team_b_golgg_id
         FROM canonical_matches cm
         JOIN odds_snapshots os ON os.canonical_match_id = cm.id
+        LEFT JOIN LATERAL (
+            SELECT team_a_golgg_id, team_b_golgg_id
+            FROM upcoming_matches
+            WHERE canonical_match_id = cm.id
+            ORDER BY last_seen_at DESC
+            LIMIT 1
+        ) um ON TRUE
         {where}
-        GROUP BY cm.id
+        GROUP BY cm.id, um.team_a_golgg_id, um.team_b_golgg_id
         ORDER BY cm.start_time_normalized ASC, cm.id ASC
     """
     if limit:
@@ -131,8 +141,21 @@ def build_features_for_match(
     canonical_match_id = int(match["id"])
     team_a_raw = str(match.get("team_a_name") or "")
     team_b_raw = str(match.get("team_b_name") or "")
-    team_a_golgg, conf_a, source_a = suggest_mapping(team_a_raw)
-    team_b_golgg, conf_b, source_b = suggest_mapping(team_b_raw)
+
+    # Resolve GOL.GG team names: prefer IDs from upcoming_matches (no fuzzy matching)
+    golgg_a_id = match.get("team_a_golgg_id")
+    golgg_b_id = match.get("team_b_golgg_id")
+    team_a_golgg = golgg_name_from_id(golgg_a_id)
+    team_b_golgg = golgg_name_from_id(golgg_b_id)
+    mapping_from_ids = team_a_golgg is not None and team_b_golgg is not None
+
+    if not mapping_from_ids:
+        team_a_golgg, conf_a, source_a = suggest_mapping(team_a_raw)
+        team_b_golgg, conf_b, source_b = suggest_mapping(team_b_raw)
+    else:
+        conf_a = conf_b = 1.0
+        source_a = source_b = "golgg_id"
+
     missing: list[str] = []
     if not team_a_golgg or conf_a < min_mapping_confidence:
         missing.append(f"team_a_mapping:{team_a_raw}:{conf_a:.3f}")
@@ -234,6 +257,40 @@ def load_team_ratings(team_name: str | None, ratings_version: str) -> dict[str, 
     for row in frame.to_dict("records"):
         system = str(row["rating_system"])
         result[system] = {
+            "rating_value": none_or_float(row.get("rating_value")),
+            "rd": none_or_float(row.get("rd")),
+            "sigma": none_or_float(row.get("sigma")),
+            "games_played": int(row.get("games_played") or 0),
+            "last_match_at": row.get("last_match_at"),
+        }
+    return result
+
+
+def load_player_ratings(player_names: list[str], ratings_version: str) -> dict[str, dict[str, dict[str, Any]]]:
+    """Load ratings for a list of players.
+
+    Returns: { player_name: { system_name: { rating_value, rd, sigma, ... } } }
+    """
+    if not player_names:
+        return {}
+
+    placeholders = ", ".join(["?"] * len(player_names))
+    frame = query_df(
+        f"""
+        SELECT normalized_entity_name, rating_system, rating_value, rd, sigma, games_played, last_match_at
+        FROM entity_ratings
+        WHERE ratings_version = ? AND entity_type = 'player' AND normalized_entity_name IN ({placeholders})
+        """,
+        (ratings_version, *[normalize_team_name(p) for p in player_names]),
+    )
+
+    result: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in frame.to_dict("records"):
+        p_name = str(row["normalized_entity_name"])
+        system = str(row["rating_system"])
+        if p_name not in result:
+            result[p_name] = {}
+        result[p_name][system] = {
             "rating_value": none_or_float(row.get("rating_value")),
             "rd": none_or_float(row.get("rd")),
             "sigma": none_or_float(row.get("sigma")),
