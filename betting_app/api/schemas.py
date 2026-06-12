@@ -394,3 +394,38 @@ class AliasBlockRequest(BaseModel):
 
 class GolggTeamsResponse(BaseModel):
     teams: list[str]
+
+
+# ── Match mapping ───────────────────────────────────────────────────────────
+
+
+class UnmappedMatchItem(BaseModel):
+    canonical_match_id: int
+    team_a_name: str
+    team_b_name: str
+    start_time_normalized: str | None = None
+    league: str | None = None
+    status: str
+
+
+class UnmappedMatchesResponse(BaseModel):
+    total: int
+    matches: list[UnmappedMatchItem]
+
+
+class GolggMatchCandidate(BaseModel):
+    match_id: int
+    team1_name: str
+    team2_name: str
+    date: str
+    team1_win: bool | None = None
+    team2_win: bool | None = None
+
+
+class GolggMatchCandidatesResponse(BaseModel):
+    candidates: list[GolggMatchCandidate]
+
+
+class MatchMappingRequest(BaseModel):
+    canonical_match_id: int
+    golgg_match_id: int

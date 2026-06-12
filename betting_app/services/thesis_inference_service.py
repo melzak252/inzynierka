@@ -21,14 +21,19 @@ from typing import Any
 
 import joblib
 import numpy as np
+import trueskill
+import openskill.models
 
 from betting_app.core.db import query_df, transaction
 from betting_app.core.matching import normalize_team_name
 from betting_app.core.ev import fair_market_probabilities
 from betting_app.services.canonical_match_service import align_snapshot_odds
+from betting_app.services.mapping_service import golgg_name_from_id
 from betting_app.services.upcoming_inference_service import (
     RATING_SYSTEMS,
     apply_temperature_probability,
+    load_last_roster,
+    load_player_ratings,
     load_team_ratings,
     load_w20,
     rating_probabilities,
@@ -126,6 +131,15 @@ _DEFAULT_ROLLING = {
 
 
 # ---------------------------------------------------------------------------
+# Rating Systems Initialization (matching training parameters)
+# ---------------------------------------------------------------------------
+_ts_model = trueskill.TrueSkill(mu=25.0, sigma=8.333, beta=4.16, tau=0.25, draw_probability=0.0)
+_os_model = openskill.models.PlackettLuce(mu=25.0, sigma=3.5)
+_pl_model = openskill.models.PlackettLuce(mu=25.0, sigma=8.333, beta=18.75, tau=0.05)
+_tm_model = openskill.models.ThurstoneMostellerFull(mu=25.0, sigma=8.333, beta=18.75, tau=0.05)
+
+
+# ---------------------------------------------------------------------------
 # Model loading
 # ---------------------------------------------------------------------------
 _pipeline = None
@@ -166,6 +180,18 @@ def _sigmoid(x: float) -> float:
     return 1.0 / (1.0 + math.exp(-max(-40.0, min(40.0, x))))
 
 
+def _glicko_g(rd: float) -> float:
+    q = math.log(10) / 400
+    return 1 / math.sqrt(1 + 3 * (q**2) * (rd**2) / (math.pi**2))
+
+
+def _glicko_expected_score(r1: float, rd1: float, r2: float, rd2: float) -> float:
+    combined_rd = math.sqrt(rd1**2 + rd2**2)
+    g_factor = _glicko_g(combined_rd)
+    exponent = -g_factor * (r1 - r2) / 400
+    return 1 / (1 + 10**exponent)
+
+
 def _logit(p: np.ndarray) -> np.ndarray:
     """Clipped logit for Platt calibration input."""
     clipped = np.clip(p, EPSILON, 1.0 - EPSILON)
@@ -188,11 +214,17 @@ def build_thesis_features_for_match(
     team_a_name: str,
     team_b_name: str,
     *,
+    team_a_golgg_id: int | None = None,
+    team_b_golgg_id: int | None = None,
     ratings_version: str = "latest-full",
     w20_version: str = "w20-latest",
     best_of: int = 1,
 ) -> tuple[np.ndarray | None, dict[str, Any]]:
     """Build the 46-feature vector for one upcoming match.
+
+    Uses GOL.GG team IDs directly when available (bypassing suggest_mapping)
+    to avoid team alignment issues. Falls back to name-based suggest_mapping
+    if IDs are not provided.
 
     Returns (feature_vector, diagnostics) where feature_vector is None if
     required data is missing.
@@ -200,24 +232,73 @@ def build_thesis_features_for_match(
     diagnostics: dict[str, Any] = {
         "team_a": team_a_name,
         "team_b": team_b_name,
+        "team_a_golgg_id": team_a_golgg_id,
+        "team_b_golgg_id": team_b_golgg_id,
         "ratings_version": ratings_version,
         "w20_version": w20_version,
         "best_of": best_of,
         "missing": [],
     }
 
-    from betting_app.services.mapping_service import suggest_mapping
+    # Resolve GOL.GG team names: prefer IDs over name-based suggest_mapping
+    team_a_golgg = golgg_name_from_id(team_a_golgg_id)
+    team_b_golgg = golgg_name_from_id(team_b_golgg_id)
 
-    team_a_golgg, team_a_conf, team_a_source = suggest_mapping(team_a_name)
-    team_b_golgg, team_b_conf, team_b_source = suggest_mapping(team_b_name)
-    diagnostics["mapping"] = {
+    # If we have both IDs, check for side consistency and swap if necessary
+    if team_a_golgg and team_b_golgg:
+        g_norm_a = normalize_team_name(team_a_golgg)
+        g_norm_b = normalize_team_name(team_b_golgg)
+        c_norm_a = normalize_team_name(team_a_name)
+        c_norm_b = normalize_team_name(team_b_name)
+
+        # Check if GOL.GG IDs are swapped relative to canonical names
+        # (e.g. GOL.GG ID A matches Canonical Name B and vice versa)
+        is_a_at_b = (g_norm_a == c_norm_b or g_norm_a in c_norm_b or c_norm_b in g_norm_a)
+        is_b_at_a = (g_norm_b == c_norm_a or g_norm_b in c_norm_a or c_norm_a in g_norm_b)
+
+        if is_a_at_b and is_b_at_a:
+            # Swapped! Fix it so team_a_golgg corresponds to team_a_name
+            team_a_golgg, team_b_golgg = team_b_golgg, team_a_golgg
+            diagnostics["side_swap_fixed"] = True
+        elif is_a_at_b or is_b_at_a:
+            # Partial mismatch or only one side matches the "wrong" team
+            # This is riskier, but let's log it
+            diagnostics["side_consistency_warning"] = f"Partial swap detected: A->B={is_a_at_b}, B->A={is_b_at_a}"
+
+    diagnostics["golgg_resolved"] = {
+        "from_ids": team_a_golgg is not None and team_b_golgg is not None,
         "team_a_golgg_name": team_a_golgg,
         "team_b_golgg_name": team_b_golgg,
-        "team_a_confidence": team_a_conf,
-        "team_b_confidence": team_b_conf,
-        "team_a_source": team_a_source,
-        "team_b_source": team_b_source,
     }
+
+    if not team_a_golgg or not team_b_golgg:
+        from betting_app.services.mapping_service import suggest_mapping
+
+        # If we have one ID, we keep it and only map the missing one
+        if not team_a_golgg:
+            team_a_golgg, team_a_conf, team_a_source = suggest_mapping(team_a_name)
+        else:
+            team_a_conf = 1.0
+            team_a_source = "golgg_id"
+
+        if not team_b_golgg:
+            team_b_golgg, team_b_conf, team_b_source = suggest_mapping(team_b_name)
+        else:
+            team_b_conf = 1.0
+            team_b_source = "golgg_id"
+
+        diagnostics["mapping_fallback"] = {
+            "team_a_golgg_name": team_a_golgg,
+            "team_b_golgg_name": team_b_golgg,
+            "team_a_confidence": team_a_conf,
+            "team_b_confidence": team_b_conf,
+            "team_a_source": team_a_source,
+            "team_b_source": team_b_source,
+        }
+    else:
+        team_a_conf = team_b_conf = 1.0
+        team_a_source = team_b_source = "golgg_id"
+
     if not team_a_golgg:
         diagnostics["missing"].append(f"team_a_mapping:{team_a_name}:{team_a_conf:.3f}")
     if not team_b_golgg:
@@ -226,16 +307,25 @@ def build_thesis_features_for_match(
         diagnostics["skip_reason"] = "unmapped_team"
         return None, diagnostics
 
-    # Load team ratings
-    ratings_a = load_team_ratings(team_a_golgg, ratings_version)
-    ratings_b = load_team_ratings(team_b_golgg, ratings_version)
+    # Load rosters
+    roster_a = load_last_roster(team_a_golgg)
+    roster_b = load_last_roster(team_b_golgg)
 
-    # Check for missing ratings
-    for system in RATING_SYSTEMS:
-        if system not in ratings_a:
-            diagnostics["missing"].append(f"team_a_rating:{system}")
-        if system not in ratings_b:
-            diagnostics["missing"].append(f"team_b_rating:{system}")
+    if not roster_a or len(roster_a.get("players", [])) < 5:
+        diagnostics["missing"].append("team_a_roster")
+    if not roster_b or len(roster_b.get("players", [])) < 5:
+        diagnostics["missing"].append("team_b_roster")
+
+    if not roster_a or not roster_b:
+        diagnostics["skip_reason"] = "missing_roster"
+        return None, diagnostics
+
+    player_ids_a = [p["player_id"] for p in roster_a["players"]]
+    player_ids_b = [p["player_id"] for p in roster_b["players"]]
+
+    # Load player ratings
+    all_player_ids = list(set(player_ids_a + player_ids_b))
+    player_ratings = load_player_ratings(all_player_ids, ratings_version)
 
     # Load W20 rolling features
     w20_a = load_w20(team_a_golgg, w20_version)
@@ -248,83 +338,94 @@ def build_thesis_features_for_match(
     # Build feature dict
     features: dict[str, float] = {}
 
+    # Helper to get player rating with defaults (matching RatingManager)
+    def get_p_rating(p_id, system):
+        p_data = player_ratings.get(p_id, {}).get(system, {})
+        if system == "elo":
+            return p_data.get("rating_value", 1500.0)
+        elif system == "gl":
+            return p_data.get("rating_value", 1500.0), p_data.get("rd", 350.0)
+        elif system == "ts":
+            return p_data.get("rating_value", 25.0), p_data.get("sigma", 8.333)
+        elif system == "os":
+            return p_data.get("rating_value", 25.0), p_data.get("sigma", 3.5)
+        else:  # pl, tm
+            return p_data.get("rating_value", 25.0), p_data.get("sigma", 8.333)
+
     # 1. Rating probabilities (6 features)
-    for system in RATING_SYSTEMS:
-        r_a = ratings_a.get(system, {}).get("rating_value")
-        r_b = ratings_b.get(system, {}).get("rating_value")
-        features[f"player_{system}"] = _rating_prob(r_a, r_b, system)
+    # Elo
+    elo_a = [get_p_rating(p, "elo") for p in player_ids_a]
+    elo_b = [get_p_rating(p, "elo") for p in player_ids_b]
+    avg_elo_a = sum(elo_a) / len(elo_a)
+    avg_elo_b = sum(elo_b) / len(elo_b)
+    features["player_elo"] = 1.0 / (1.0 + 10 ** (-(avg_elo_a - avg_elo_b) / 400.0))
+
+    # Glicko
+    gl_a = [get_p_rating(p, "gl") for p in player_ids_a]
+    gl_b = [get_p_rating(p, "gl") for p in player_ids_b]
+    avg_gl_r_a = sum(r for r, rd in gl_a) / len(gl_a)
+    avg_gl_rd_a = math.sqrt(sum(rd**2 for r, rd in gl_a) / len(gl_a))
+    avg_gl_r_b = sum(r for r, rd in gl_b) / len(gl_b)
+    avg_gl_rd_b = math.sqrt(sum(rd**2 for r, rd in gl_b) / len(gl_b))
+    features["player_gl"] = _glicko_expected_score(avg_gl_r_a, avg_gl_rd_a, avg_gl_r_b, avg_gl_rd_b)
+
+    # TrueSkill
+    ts_a = [trueskill.Rating(mu, sigma) for mu, sigma in [get_p_rating(p, "ts") for p in player_ids_a]]
+    ts_b = [trueskill.Rating(mu, sigma) for mu, sigma in [get_p_rating(p, "ts") for p in player_ids_b]]
+
+    def ts_win_prob(team1, team2):
+        mu_a = sum(r.mu for r in team1) / len(team1)
+        mu_b = sum(r.mu for r in team2) / len(team2)
+        sigma2_a = sum(r.sigma**2 for r in team1) / len(team1)
+        sigma2_b = sum(r.sigma**2 for r in team2) / len(team2)
+        delta_mu = mu_a - mu_b
+        denom = math.sqrt(sigma2_a + sigma2_b + 2 * (_ts_model.beta**2))
+        return _ts_model.cdf(delta_mu / denom)
+
+    features["player_ts"] = ts_win_prob(ts_a, ts_b)
+
+    # OpenSkill (PlackettLuce)
+    os_a = [_os_model.rating(mu, sigma) for mu, sigma in [get_p_rating(p, "os") for p in player_ids_a]]
+    os_b = [_os_model.rating(mu, sigma) for mu, sigma in [get_p_rating(p, "os") for p in player_ids_b]]
+    features["player_os"] = _os_model.predict_win([os_a, os_b])[0]
+
+    # PlackettLuce
+    pl_a = [_pl_model.rating(mu, sigma) for mu, sigma in [get_p_rating(p, "pl") for p in player_ids_a]]
+    pl_b = [_pl_model.rating(mu, sigma) for mu, sigma in [get_p_rating(p, "pl") for p in player_ids_b]]
+    features["player_pl"] = _pl_model.predict_win([pl_a, pl_b])[0]
+
+    # Thurstone
+    tm_a = [_tm_model.rating(mu, sigma) for mu, sigma in [get_p_rating(p, "tm") for p in player_ids_a]]
+    tm_b = [_tm_model.rating(mu, sigma) for mu, sigma in [get_p_rating(p, "tm") for p in player_ids_b]]
+    features["player_tm"] = _tm_model.predict_win([tm_a, tm_b])[0]
 
     # 2. Uncertainty features (14 features)
-    # These are derived from rating RD and sigma values
-    for system in RATING_SYSTEMS:
-        rd_a = ratings_a.get(system, {}).get("rd")
-        rd_b = ratings_b.get(system, {}).get("rd")
-        sigma_a = ratings_a.get(system, {}).get("sigma")
-        sigma_b = ratings_b.get(system, {}).get("sigma")
+    # player_elo_min1/min2: min of player elos in each team
+    features["player_elo_min1"] = min(elo_a)
+    features["player_elo_min2"] = min(elo_b)
 
-        # Min/max of RD
-        if rd_a is not None and rd_b is not None:
-            features[f"player_{system}_min1"] = min(float(rd_a), float(rd_b))
-            features[f"player_{system}_min2"] = max(float(rd_a), float(rd_b))
-        else:
-            features[f"player_{system}_min1"] = 50.0  # default RD
-            features[f"player_{system}_min2"] = 50.0
+    # player_gl_max1/max2: max of player glicko ratings in each team
+    features["player_gl_max1"] = max(r for r, rd in gl_a)
+    features["player_gl_max2"] = max(r for r, rd in gl_b)
 
-        # Avg sigma
-        if sigma_a is not None and sigma_b is not None:
-            features[f"player_{system}_sigma_avg1"] = float(sigma_a)
-            features[f"player_{system}_sigma_avg2"] = float(sigma_b)
-        else:
-            features[f"player_{system}_sigma_avg1"] = 0.06
-            features[f"player_{system}_sigma_avg2"] = 0.06
-
-    # Fix: use actual feature names from training
-    # The training uses specific naming like player_elo_min1, player_gl_rd_avg1, etc.
-    # Rebuild with correct names:
-    features = {}
-
-    # Rating probs
-    for system in RATING_SYSTEMS:
-        r_a = ratings_a.get(system, {}).get("rating_value")
-        r_b = ratings_b.get(system, {}).get("rating_value")
-        features[f"player_{system}"] = _rating_prob(r_a, r_b, system)
-
-    # Uncertainty: min1/min2 are min of the two teams' RD for elo
-    elo_rd_a = ratings_a.get("elo", {}).get("rd")
-    elo_rd_b = ratings_b.get("elo", {}).get("rd")
-    if elo_rd_a is not None and elo_rd_b is not None:
-        features["player_elo_min1"] = min(float(elo_rd_a), float(elo_rd_b))
-        features["player_elo_min2"] = max(float(elo_rd_a), float(elo_rd_b))
-    else:
-        features["player_elo_min1"] = 50.0
-        features["player_elo_min2"] = 50.0
-
-    # gl: max1/max2 are max of RD
-    gl_rd_a = ratings_a.get("gl", {}).get("rd")
-    gl_rd_b = ratings_b.get("gl", {}).get("rd")
-    if gl_rd_a is not None and gl_rd_b is not None:
-        features["player_gl_max1"] = max(float(gl_rd_a), float(gl_rd_b))
-        features["player_gl_max2"] = min(float(gl_rd_a), float(gl_rd_b))
-    else:
-        features["player_gl_max1"] = 0.1
-        features["player_gl_max2"] = 0.1
-
-    # gl_rd_avg: average RD for each team
-    features["player_gl_rd_avg1"] = float(gl_rd_a) if gl_rd_a is not None else 0.1
-    features["player_gl_rd_avg2"] = float(gl_rd_b) if gl_rd_b is not None else 0.1
+    # player_gl_rd_avg1/avg2: average RD
+    features["player_gl_rd_avg1"] = sum(rd for r, rd in gl_a) / len(gl_a)
+    features["player_gl_rd_avg2"] = sum(rd for r, rd in gl_b) / len(gl_b)
 
     # sigma_avg for ts, os, pl, tm
-    for system in ["ts", "os", "pl", "tm"]:
-        sigma_a = ratings_a.get(system, {}).get("sigma")
-        sigma_b = ratings_b.get(system, {}).get("sigma")
-        features[f"player_{system}_sigma_avg1"] = float(sigma_a) if sigma_a is not None else 0.06
-        features[f"player_{system}_sigma_avg2"] = float(sigma_b) if sigma_b is not None else 0.06
+    features["player_ts_sigma_avg1"] = sum(r.sigma for r in ts_a) / len(ts_a)
+    features["player_ts_sigma_avg2"] = sum(r.sigma for r in ts_b) / len(ts_b)
+    features["player_os_sigma_avg1"] = sum(r.sigma for r in os_a) / len(os_a)
+    features["player_os_sigma_avg2"] = sum(r.sigma for r in os_b) / len(os_b)
+    features["player_pl_sigma_avg1"] = sum(r.sigma for r in pl_a) / len(pl_a)
+    features["player_pl_sigma_avg2"] = sum(r.sigma for r in pl_b) / len(pl_b)
+    features["player_tm_sigma_avg1"] = sum(r.sigma for r in tm_a) / len(tm_a)
+    features["player_tm_sigma_avg2"] = sum(r.sigma for r in tm_b) / len(tm_b)
 
     # 3. Rolling features (20 features)
     for stat, default in _DEFAULT_ROLLING.items():
         val_a = w20_a.get(f"avg_{stat}") if w20_a and f"avg_{stat}" in w20_a else default
         val_b = w20_b.get(f"avg_{stat}") if w20_b and f"avg_{stat}" in w20_b else default
-        # Handle special case: win_rate doesn't have avg_ prefix
         if stat == "win_rate":
             val_a = w20_a.get("win_rate", default) if w20_a else default
             val_b = w20_b.get("win_rate", default) if w20_b else default
@@ -342,6 +443,25 @@ def build_thesis_features_for_match(
 
     diagnostics["features_built"] = len(ALL_FEATURES)
     diagnostics["missing_count"] = len(diagnostics["missing"])
+
+    # Consistency check: verify GOL.GG team names (from IDs) match canonical names
+    if team_a_golgg and team_b_golgg:
+        g_norm_a = normalize_team_name(team_a_golgg)
+        g_norm_b = normalize_team_name(team_b_golgg)
+        c_norm_a = normalize_team_name(team_a_name)
+        c_norm_b = normalize_team_name(team_b_name)
+
+        a_matches = g_norm_a == c_norm_a or g_norm_a in c_norm_a or c_norm_a in g_norm_a
+        b_matches = g_norm_b == c_norm_b or g_norm_b in c_norm_b or c_norm_b in g_norm_b
+        crossed = not a_matches and not b_matches and (g_norm_a == c_norm_b or g_norm_b == c_norm_a)
+
+        diagnostics["side_consistency"] = {
+            "team_a_ok": a_matches,
+            "team_b_ok": b_matches,
+            "cross_swapped": crossed,
+        }
+        if crossed:
+            diagnostics["missing"].append(f"side_swap_detected:golgg_ids appear swapped vs canonical team order")
 
     return feature_vector, diagnostics
 
@@ -410,15 +530,24 @@ def predict_upcoming_with_thesis_model(
     """
     pipeline, calibrator = _load_model()
 
-    # Load upcoming matches
+    # Load upcoming matches with GOL.GG team IDs
     where = "WHERE cm.status = 'upcoming'"
     params: list[Any] = []
     if not include_past:
         where += " AND (cm.start_time_normalized IS NULL OR cm.start_time_normalized >= ?)"
         params.append(datetime.now(UTC).replace(microsecond=0).isoformat())
 
+    # Join with upcoming_matches to get team_a_golgg_id / team_b_golgg_id.
+    # SQLite doesn't support LATERAL. We use a subquery to get the latest IDs.
     sql = f"""
-        SELECT cm.id, cm.team_a_name, cm.team_b_name, cm.start_time_normalized, cm.league, cm.best_of
+        SELECT cm.id, cm.team_a_name, cm.team_b_name, cm.start_time_normalized,
+               cm.league, cm.best_of,
+               (SELECT team_a_golgg_id FROM upcoming_matches 
+                WHERE canonical_match_id = cm.id 
+                ORDER BY last_seen_at DESC LIMIT 1) as team_a_golgg_id,
+               (SELECT team_b_golgg_id FROM upcoming_matches 
+                WHERE canonical_match_id = cm.id 
+                ORDER BY last_seen_at DESC LIMIT 1) as team_b_golgg_id
         FROM canonical_matches cm
         JOIN odds_snapshots os ON os.canonical_match_id = cm.id
         {where}
@@ -461,10 +590,15 @@ def predict_upcoming_with_thesis_model(
             team_a = str(match["team_a_name"])
             team_b = str(match["team_b_name"])
             best_of = int(match["best_of"]) if match["best_of"] is not None else 1
+            # GOL.GG IDs from upcoming_matches (may be None)
+            golgg_a = int(match["team_a_golgg_id"]) if match.get("team_a_golgg_id") is not None else None
+            golgg_b = int(match["team_b_golgg_id"]) if match.get("team_b_golgg_id") is not None else None
 
-            # Build features
+            # Build features using GOL.GG IDs (bypasses suggest_mapping)
             feature_vec, diagnostics = build_thesis_features_for_match(
                 team_a, team_b,
+                team_a_golgg_id=golgg_a,
+                team_b_golgg_id=golgg_b,
                 ratings_version=ratings_version,
                 w20_version=w20_version,
                 best_of=best_of,

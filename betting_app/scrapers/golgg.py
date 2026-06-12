@@ -149,6 +149,8 @@ class GolggScraper:
                 if not score or "-" not in score:
                     continue
                 score_left_raw, score_right_raw = score.strip().split("-", 1)
+                if not score_left_raw.strip() or not score_right_raw.strip():
+                    continue
                 score_left = int(score_left_raw.strip())
                 score_right = int(score_right_raw.strip())
 

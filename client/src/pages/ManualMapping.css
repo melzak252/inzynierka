@@ -1,0 +1,131 @@
+.manual-mapping-page {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.mapping-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  margin-top: 20px;
+  height: calc(100vh - 200px);
+}
+
+.unmapped-list-section, .candidates-section {
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.scroll-list {
+  overflow-y: auto;
+  flex-grow: 1;
+}
+
+.match-item {
+  padding: 12px;
+  border-bottom: 1px solid #333;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.match-item:hover {
+  background: #2a2a2a;
+}
+
+.match-item.selected {
+  background: #3a3a3a;
+  border-left: 4px solid #4caf50;
+}
+
+.match-time {
+  font-size: 0.85em;
+  color: #888;
+}
+
+.match-teams {
+  font-weight: bold;
+  margin: 4px 0;
+}
+
+.match-league {
+  font-size: 0.9em;
+  color: #aaa;
+}
+
+.selected-match-info {
+  background: #2a2a2a;
+  padding: 15px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.candidate-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: #252525;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+.candidate-info {
+  flex-grow: 1;
+}
+
+.candidate-date {
+  font-size: 0.8em;
+  color: #888;
+}
+
+.candidate-teams {
+  font-weight: bold;
+}
+
+.candidate-result {
+  font-size: 0.9em;
+  color: #4caf50;
+}
+
+.candidate-item button {
+  background: #4caf50;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.candidate-item button:hover {
+  background: #45a049;
+}
+
+.status-msg {
+  padding: 10px;
+  background: #4caf5022;
+  color: #4caf50;
+  border-radius: 4px;
+  margin-bottom: 15px;
+  text-align: center;
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #666;
+  font-style: italic;
+}

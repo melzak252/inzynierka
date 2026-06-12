@@ -1,4 +1,4 @@
-"""Rebuild operational Elo/Glicko/TrueSkill/OpenSkill ratings from GOL.GG SQLite.
+"""Rebuild operational Elo/Glicko/TrueSkill/OpenSkill ratings from GOL.GG data.
 
 This mirrors the historical rating flow from
 `scripts/05_ratingi_baseline/03_generate_ratings.py`:
@@ -25,6 +25,9 @@ from pathlib import Path
 from typing import Any
 
 from tqdm import tqdm
+from dotenv import load_dotenv
+
+load_dotenv()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
@@ -65,8 +68,9 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--limit", type=int, default=None, help="Process only first N chronological matches for a smoke test.")
+    parser.add_argument("--until", type=str, default=None, help="Process only matches on or before this date (YYYY-MM-DD).")
     parser.add_argument("--ratings-version", default="latest-full", help="Ratings version label to update.")
-    parser.add_argument("--source", default="golgg_sqlite_rating_manager", help="Source label stored in rating_runs.")
+    parser.add_argument("--source", default="golgg_rating_manager", help="Source label stored in rating_runs.")
     parser.add_argument("--mode", choices=["incremental", "full"], default="incremental", help="Incrementally update existing ratings, or rebuild from scratch.")
     args = parser.parse_args()
 
@@ -79,7 +83,7 @@ def main() -> None:
         if args.mode == "incremental":
             stats = update_ratings_incremental(version, run_id, previous_state=previous_state, limit=args.limit)
         else:
-            stats = rebuild_ratings(version, run_id, limit=args.limit)
+            stats = rebuild_ratings(version, run_id, limit=args.limit, until_date=args.until)
     except Exception as exc:
         finish_rating_run(run_id, status="failed", error=str(exc))
         raise
@@ -255,11 +259,11 @@ def finish_rating_run(
         )
 
 
-def rebuild_ratings(version: str, run_id: int, limit: int | None = None) -> dict[str, Any]:
+def rebuild_ratings(version: str, run_id: int, limit: int | None = None, until_date: str | None = None) -> dict[str, Any]:
     """Compute final ratings and persist them to entity_ratings."""
 
     manager = RatingManager(RATING_SYSTEM_PARAMS)
-    matches = load_matches(limit=limit)
+    matches = load_matches(limit=limit, until_date=until_date)
     team_names: dict[str, str] = {}
     player_names: dict[str, str] = {}
     player_teams: dict[str, str] = {}
@@ -330,9 +334,10 @@ def rebuild_ratings(version: str, run_id: int, limit: int | None = None) -> dict
 def load_matches(
     limit: int | None = None,
     after_date: str | None = None,
+    until_date: str | None = None,
     processed_match_ids: set[str] | None = None,
 ) -> list[MatchForRatings]:
-    """Load finished non-draw matches and rosters from SQLite."""
+    """Load finished non-draw matches and rosters from the database."""
 
     query = """
         SELECT match_id, date, team1_id, team2_id, team1_name, team2_name
@@ -344,6 +349,9 @@ def load_matches(
     if after_date:
         query += " AND date >= ?"
         params.append(after_date)
+    if until_date:
+        query += " AND date <= ?"
+        params.append(until_date)
     query += " ORDER BY date ASC, CAST(match_id AS INTEGER) ASC"
     if limit:
         query += f" LIMIT {int(limit)}"
@@ -480,6 +488,7 @@ def update_ratings_incremental(
 
     processed_match_ids: set[str] = previous_state["processed_match_ids"]
     matches = load_matches(limit=limit, after_date=cutoff, processed_match_ids=processed_match_ids)
+    print(f"Found {len(matches)} new matches to process since {cutoff}")
     games_processed = 0
 
     for match in tqdm(matches, desc=f"Incremental ratings since {cutoff}"):
@@ -696,8 +705,7 @@ def persist_entity_ratings(
         # entity_ratings has no UNIQUE constraint suitable for ON CONFLICT.  Replace
         # the stable version snapshot atomically at the end of a successful run.
         connection.execute("DELETE FROM entity_ratings WHERE ratings_version = ?", (version,))
-        for row in rows:
-            connection.execute(insert_sql, row)
+        connection.executemany(insert_sql, rows)
     return len(rows)
 
 

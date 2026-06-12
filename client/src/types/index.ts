@@ -412,3 +412,36 @@ export interface AliasBlockRequest {
 export interface GolggTeamsResponse {
   teams: string[];
 }
+
+// Match mapping types
+export interface UnmappedMatchItem {
+  canonical_match_id: number;
+  team_a_name: string;
+  team_b_name: string;
+  start_time_normalized: string | null;
+  league: string | null;
+  status: string;
+}
+
+export interface UnmappedMatchesResponse {
+  total: number;
+  matches: UnmappedMatchItem[];
+}
+
+export interface GolggMatchCandidate {
+  match_id: number;
+  team1_name: string;
+  team2_name: string;
+  date: string;
+  team1_win: boolean | null;
+  team2_win: boolean | null;
+}
+
+export interface GolggMatchCandidatesResponse {
+  candidates: GolggMatchCandidate[];
+}
+
+export interface MatchMappingRequest {
+  canonical_match_id: number;
+  golgg_match_id: number;
+}

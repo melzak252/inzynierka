@@ -34,6 +34,11 @@ from betting_app.api.schemas import (
     OddsHistoryPoint,
     TeamComparisonInfo,
     TeamMappingInfo,
+    UnmappedMatchItem,
+    UnmappedMatchesResponse,
+    GolggMatchCandidate,
+    GolggMatchCandidatesResponse,
+    MatchMappingRequest,
 )
 from betting_app.services.canonical_match_service import align_snapshot_odds
 from betting_app.core.ev import fair_market_probabilities
@@ -408,6 +413,103 @@ def list_results(
         ))
 
     return MatchResultsResponse(total=len(items), results=items)
+
+
+# ── GET /matches/unmapped ───────────────────────────────────────────────────
+
+
+@router.get("/unmapped", response_model=UnmappedMatchesResponse)
+def list_unmapped_matches(
+    status: str = "expired",
+    limit: int = 100,
+    db=Depends(get_db),
+):
+    """Return matches that are not yet mapped to GOL.GG."""
+    rows = query_df(
+        db,
+        """
+        SELECT cm.id AS canonical_match_id,
+               cm.team_a_name, cm.team_b_name,
+               cm.league, cm.start_time_normalized,
+               cm.status
+        FROM canonical_matches cm
+        LEFT JOIN golgg_match_mappings gmm ON gmm.canonical_match_id = cm.id
+        WHERE gmm.canonical_match_id IS NULL
+          AND cm.status = :status
+        ORDER BY cm.start_time_normalized DESC
+        LIMIT :limit
+        """,
+        {"status": status, "limit": limit},
+    )
+
+    items = [UnmappedMatchItem(**r) for r in rows]
+    return UnmappedMatchesResponse(total=len(items), matches=items)
+
+
+# ── GET /matches/{id}/mapping-candidates ────────────────────────────────────
+
+
+@router.get("/{match_id}/mapping-candidates", response_model=GolggMatchCandidatesResponse)
+def list_mapping_candidates(
+    match_id: int,
+    days_window: int = 3,
+    db=Depends(get_db),
+):
+    """Suggest GOL.GG matches for a specific canonical match based on date and names."""
+    meta = query_one(db, "SELECT start_time_normalized, team_a_name, team_b_name FROM canonical_matches WHERE id=:id", {"id": match_id})
+    if not meta:
+        raise HTTPException(status_code=404, detail="Match not found")
+
+    start_time = meta["start_time_normalized"]
+    if not start_time:
+        return GolggMatchCandidatesResponse(candidates=[])
+
+    # Search window
+    dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+    min_date = (dt - timedelta(days=days_window)).date().isoformat()
+    max_date = (dt + timedelta(days=days_window)).date().isoformat()
+
+    # Get all GOL.GG matches in window
+    candidates = query_df(
+        db,
+        """
+        SELECT match_id, team1_name, team2_name, date, team1_win, team2_win
+        FROM golgg_matches
+        WHERE date >= :min_date AND date <= :max_date
+        ORDER BY date DESC
+        """,
+        {"min_date": min_date, "max_date": max_date},
+    )
+
+    # Simple scoring/filtering could be added here, but for now return all in window
+    items = [GolggMatchCandidate(**c) for c in candidates]
+    return GolggMatchCandidatesResponse(candidates=items)
+
+
+# ── POST /matches/map ───────────────────────────────────────────────────────
+
+
+@router.post("/map")
+def map_match_manually(body: MatchMappingRequest, db=Depends(get_db)):
+    """Create a manual mapping between a canonical match and a GOL.GG match."""
+    # 1. Insert mapping
+    db.execute(
+        text("""
+            INSERT INTO golgg_match_mappings (canonical_match_id, golgg_match_id)
+            VALUES (:c_id, :g_id)
+            ON CONFLICT (canonical_match_id) DO UPDATE SET golgg_match_id = EXCLUDED.golgg_match_id
+        """),
+        {"c_id": body.canonical_match_id, "g_id": body.golgg_match_id},
+    )
+
+    # 2. Update status to finished if it was expired/upcoming
+    db.execute(
+        text("UPDATE canonical_matches SET status = 'finished' WHERE id = :id AND status IN ('expired', 'upcoming')"),
+        {"id": body.canonical_match_id},
+    )
+
+    db.commit()
+    return {"ok": True}
 
 
 # ── POST /matches/alias — create team alias mapping ──────────────────────────

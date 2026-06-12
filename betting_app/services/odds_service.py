@@ -64,6 +64,40 @@ def make_match_key(bookmaker: str, raw_team_a: str, raw_team_b: str, start_time:
     )
 
 
+def _resolve_golgg_team_id(team_name: str) -> int | None:
+    """Resolve a GOL.GG team ID from a bookmaker team name.
+
+    Uses suggest_mapping() to find the matching GOL.GG team name,
+    then looks up the ID in the golgg_teams table.
+    Returns None if no mapping or no ID found.
+    """
+    from betting_app.services.mapping_service import suggest_mapping
+
+    golgg_name, conf, source = suggest_mapping(team_name)
+    if not golgg_name or conf <= 0:
+        return None
+
+    # Try exact team_name match first
+    with transaction() as connection:
+        row = connection.execute(
+            "SELECT id FROM golgg_teams WHERE team_name = ?",
+            (golgg_name,),
+        ).fetchone()
+        if row:
+            return int(row["id"])
+
+        # Fallback: try normalized_name
+        norm = normalize_team_name(golgg_name)
+        row = connection.execute(
+            "SELECT id FROM golgg_teams WHERE normalized_name = ?",
+            (norm,),
+        ).fetchone()
+        if row:
+            return int(row["id"])
+
+    return None
+
+
 def upsert_upcoming_match(
     bookmaker: str,
     raw_team_a: str,
@@ -96,14 +130,20 @@ def upsert_upcoming_match(
             league=league,
             best_of=best_of,
         )
+
+    # Resolve GOL.GG team IDs using suggest_mapping()
+    team_a_id = _resolve_golgg_team_id(norm_a)
+    team_b_id = _resolve_golgg_team_id(norm_b)
+
     with transaction() as connection:
         connection.execute(
             """
             INSERT INTO upcoming_matches(
                 bookmaker_id, bookmaker_match_key, canonical_match_id,
                 raw_team_a, raw_team_b, normalized_team_a, normalized_team_b,
-                match_start_time, league, offer_url, last_seen_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                match_start_time, league, offer_url, last_seen_at,
+                team_a_golgg_id, team_b_golgg_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
             ON CONFLICT(bookmaker_match_key) DO UPDATE SET
                 canonical_match_id = excluded.canonical_match_id,
                 raw_team_a = excluded.raw_team_a,
@@ -113,7 +153,9 @@ def upsert_upcoming_match(
                 match_start_time = excluded.match_start_time,
                 league = excluded.league,
                 offer_url = COALESCE(excluded.offer_url, upcoming_matches.offer_url),
-                last_seen_at = CURRENT_TIMESTAMP
+                last_seen_at = CURRENT_TIMESTAMP,
+                team_a_golgg_id = excluded.team_a_golgg_id,
+                team_b_golgg_id = excluded.team_b_golgg_id
             """,
             (
                 bookmaker_id,
@@ -126,6 +168,8 @@ def upsert_upcoming_match(
                 match_start_time,
                 league,
                 offer_url,
+                team_a_id,
+                team_b_id,
             ),
         )
         row = connection.execute("SELECT id FROM upcoming_matches WHERE bookmaker_match_key = ?", (key,)).fetchone()

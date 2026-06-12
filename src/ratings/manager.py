@@ -36,11 +36,15 @@ class RatingManager:
         return {"days_since_last_1": days_1, "days_since_last_2": days_2}
 
     def predict_match(self, t1: str, t2: str, players_1: List[str], players_2: List[str]) -> Dict[str, float]:
+        # If players are missing, use a dummy player to avoid division by zero or system crashes
+        p1 = players_1 if players_1 else [f"dummy_{t1}"]
+        p2 = players_2 if players_2 else [f"dummy_{t2}"]
+        
         predictions = {}
         for name, system in self.systems.items():
             # Win probabilities
             predictions[f"team_{name}"] = system.predict_team_win_prob(t1, t2)
-            predictions[f"player_{name}"] = system.predict_player_win_prob(players_1, players_2)
+            predictions[f"player_{name}"] = system.predict_player_win_prob(p1, p2)
             
             # Raw ratings for teams
             r1 = system.get_team_rating(t1)
@@ -61,8 +65,8 @@ class RatingManager:
                 predictions[f"team_{name}_sigma2"] = r2.sigma
                 
             # Raw ratings for players
-            p1_ratings = [system.get_player_rating(p) for p in players_1]
-            p2_ratings = [system.get_player_rating(p) for p in players_2]
+            p1_ratings = [system.get_player_rating(p) for p in p1]
+            p2_ratings = [system.get_player_rating(p) for p in p2]
             
             if name == "elo":
                 p1_vals = p1_ratings
@@ -87,22 +91,23 @@ class RatingManager:
 
 
     def update_after_game(self, t1: str, t2: str, players_1: List[str], players_2: List[str], score_1: int, score_2: int) -> None:
+        # If players are missing, use a dummy player
+        p1 = players_1 if players_1 else [f"dummy_{t1}"]
+        p2 = players_2 if players_2 else [f"dummy_{t2}"]
+
         # Update all systems except Glicko which is updated per match
         for name, system in self.systems.items():
             if name != "gl":
                 system.update_team(t1, t2, score_1, score_2)
-                system.update_player(players_1, players_2, score_1, score_2)
+                system.update_player(p1, p2, score_1, score_2)
 
     def update_after_match(self, t1: str, t2: str, players_1: List[str], players_2: List[str], scores: List[int]) -> None:
+        # If players are missing, use a dummy player
+        p1 = players_1 if players_1 else [f"dummy_{t1}"]
+        p2 = players_2 if players_2 else [f"dummy_{t2}"]
+
         # Glicko takes a list of scores for the match
-        # To fit the interface, we'll just pass the sum of scores or iterate.
-        # The original code passed the list of scores to update_player.
-        # Let's adapt Glicko to handle the list of scores directly or iterate.
-        
-        # In our refactored Glicko, we implemented it per game. 
-        # So we should actually update Glicko per game or modify it.
-        # For simplicity and to match original logic, let's iterate through scores.
         for score_1 in scores:
             score_2 = 1 - score_1
             self.systems["gl"].update_team(t1, t2, score_1, score_2)
-            self.systems["gl"].update_player(players_1, players_2, score_1, score_2)
+            self.systems["gl"].update_player(p1, p2, score_1, score_2)

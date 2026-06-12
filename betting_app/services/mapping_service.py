@@ -287,6 +287,21 @@ def unblock_alias(raw_name: str) -> bool:
         return cursor.rowcount > 0
 
 
+def golgg_name_from_id(golgg_id: int | None) -> str | None:
+    """Look up GOL.GG team name by internal database ID."""
+    if golgg_id is None:
+        return None
+    golgg_id = int(golgg_id)  # ensure plain Python int (not numpy.int64)
+    with transaction() as connection:
+        row = connection.execute(
+            "SELECT team_name FROM golgg_teams WHERE id = ?",
+            (golgg_id,),
+        ).fetchone()
+        if row:
+            return str(row["team_name"])
+    return None
+
+
 def unmapped_raw_teams() -> pd.DataFrame:
     """Return raw bookmaker names without confirmed canonical mapping."""
 

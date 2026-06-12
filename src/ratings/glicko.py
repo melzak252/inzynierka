@@ -6,9 +6,14 @@ from glicko2 import Player
 from .base import RatingSystem
 
 class GlickoRating(RatingSystem):
-    def __init__(self):
-        self.team_ratings = defaultdict(lambda: Player())
-        self.player_ratings = defaultdict(lambda: Player())
+    def __init__(self, tau: float = 0.5):
+        self.tau = tau
+        def create_player():
+            p = Player()
+            p._tau = self.tau
+            return p
+        self.team_ratings = defaultdict(create_player)
+        self.player_ratings = defaultdict(create_player)
         self.player_last_played = {}
         self.team_last_played = {}
 
@@ -53,7 +58,12 @@ class GlickoRating(RatingSystem):
         t1_rating, t1_rd = self._glicko_players_rating(p1)
         t2_rating, t2_rd = self._glicko_players_rating(p2)
         
-        return self._expected_score(Player(int(t1_rating), int(t1_rd)), Player(int(t2_rating), int(t2_rd)))
+        p1_obj = Player(int(t1_rating), int(t1_rd))
+        p1_obj._tau = self.tau
+        p2_obj = Player(int(t2_rating), int(t2_rd))
+        p2_obj._tau = self.tau
+        
+        return self._expected_score(p1_obj, p2_obj)
 
     def update_team(self, t1: str, t2: str, score_1: int, score_2: int) -> None:
         # Note: Glicko update is usually done per match (list of scores), 

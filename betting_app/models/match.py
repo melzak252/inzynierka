@@ -57,5 +57,7 @@ class UpcomingMatch(Base):
     offer_url: Mapped[str | None] = mapped_column(String(500))
     is_live: Mapped[bool] = mapped_column(Integer, server_default="0")
     last_seen_at: Mapped[str | None] = mapped_column(DateTime(timezone=True))
+    team_a_golgg_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("golgg_teams.id"))
+    team_b_golgg_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("golgg_teams.id"))
 
     __table_args__ = (UniqueConstraint("bookmaker_match_key"),)

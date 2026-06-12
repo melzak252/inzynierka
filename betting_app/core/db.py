@@ -239,13 +239,17 @@ class _ConnectionWrapper:
         named_sql = sql
         for i in range(pos):
             named_sql = named_sql.replace("?", f":p{i}", 1)
-        # Execute each parameter set
+        
+        # Prepare parameters
+        processed_params = []
         for params in params_seq:
             if isinstance(params, dict):
-                p = params
+                processed_params.append(params)
             else:
-                p = {f"p{i}": v for i, v in enumerate(params)}
-            self._session.execute(text(named_sql), p)
+                processed_params.append({f"p{i}": v for i, v in enumerate(params)})
+        
+        # SQLAlchemy's execute() with a list of dictionaries triggers batch execution
+        self._session.execute(text(named_sql), processed_params)
 
     def commit(self) -> None:
         self._session.commit()

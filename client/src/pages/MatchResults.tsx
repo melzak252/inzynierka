@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { fetchMatchResults } from '../api/client'
 import type { MatchResultItem } from '../types'
 import './MatchResults.css'
@@ -295,7 +296,11 @@ export default function MatchResults() {
               else if (evOutcome === 'lost') cardEvClass = ' ev-lost'
 
               return (
-                <div key={r.canonical_match_id} className={`result-card${cardEvClass}`}>
+                <Link
+                  key={r.canonical_match_id}
+                  to={`/matches/${r.canonical_match_id}`}
+                  className={`result-card${cardEvClass}`}
+                >
                   <div className="result-card-header">
                     <span className="result-league">{r.league || 'Nieznana liga'}</span>
                     {r.best_of && (
@@ -373,7 +378,7 @@ export default function MatchResults() {
                       </span>
                     )}
                   </div>
-                </div>
+                </Link>
               )
             })}
           </div>

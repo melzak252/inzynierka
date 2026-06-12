@@ -189,8 +189,8 @@ def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | N
                     FROM bookmaker_events
                     GROUP BY canonical_match_id
                 ) be ON be.canonical_match_id = cm.id
-                WHERE LEFT(start_time_normalized, 10) >= '{_sql_escape(window_start)}'
-                  AND LEFT(start_time_normalized, 10) <= '{_sql_escape(window_end)}'
+                WHERE SUBSTR(start_time_normalized, 1, 10) >= '{_sql_escape(window_start)}'
+                  AND SUBSTR(start_time_normalized, 1, 10) <= '{_sql_escape(window_end)}'
                   AND existing_gmm.canonical_match_id IS NULL
                   {status_filter}
             """)
@@ -308,15 +308,7 @@ def mark_mapped_matches_finished(match_ids: list[str] | None = None) -> dict[str
 
     # Existing deployed DBs predate result columns, so keep this migration
     # idempotent and cheap.  init.sql/model are also updated for fresh DBs.
-    with get_session() as session:
-        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS winner_name VARCHAR(200)"))
-        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS loser_name VARCHAR(200)"))
-        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS winner_normalized VARCHAR(200)"))
-        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS winner_side VARCHAR(20)"))
-        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS result_source VARCHAR(50)"))
-        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS result_source_match_id VARCHAR(50)"))
-        session.execute(_sql_text("ALTER TABLE canonical_matches ADD COLUMN IF NOT EXISTS result_recorded_at TIMESTAMPTZ"))
-        session.commit()
+    # (Removed ALTER TABLE statements as they are not SQLite compatible and columns were added manually)
 
     where_ids = ""
     if match_ids:
@@ -432,8 +424,8 @@ def backfill_finished_expired_matches(limit: int | None = None) -> dict[str, int
     window = query_df(
         """
         SELECT
-            MIN(LEFT(start_time_normalized, 10)) AS min_day,
-            MAX(LEFT(start_time_normalized, 10)) AS max_day,
+            MIN(SUBSTR(start_time_normalized, 1, 10)) AS min_day,
+            MAX(SUBSTR(start_time_normalized, 1, 10)) AS max_day,
             COUNT(*) AS expired_count
         FROM canonical_matches
         WHERE status = 'expired'
