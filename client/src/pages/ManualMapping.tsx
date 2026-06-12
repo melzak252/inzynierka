@@ -3,7 +3,7 @@ import axios from 'axios';
 import { UnmappedMatchItem, GolggMatchCandidate } from '../types';
 import './ManualMapping.css';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = '/api';
 
 const ManualMapping: React.FC = () => {
   const [unmappedMatches, setUnmappedMatches] = useState<UnmappedMatchItem[]>([]);
@@ -20,7 +20,7 @@ const ManualMapping: React.FC = () => {
   const fetchUnmapped = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/api/matches/unmapped?status=${statusFilter}`);
+      const res = await axios.get(`${API_BASE}/matches/unmapped?status=${statusFilter}`);
       setUnmappedMatches(res.data.matches);
     } catch (err) {
       console.error('Failed to fetch unmapped matches', err);
@@ -34,7 +34,7 @@ const ManualMapping: React.FC = () => {
     setCandidates([]);
     setMappingStatus(null);
     try {
-      const res = await axios.get(`${API_BASE}/api/matches/${match.canonical_match_id}/mapping-candidates`);
+      const res = await axios.get(`${API_BASE}/matches/${match.canonical_match_id}/mapping-candidates`);
       setCandidates(res.data.candidates);
     } catch (err) {
       console.error('Failed to fetch candidates', err);
@@ -44,7 +44,7 @@ const ManualMapping: React.FC = () => {
   const handleMap = async (golggMatchId: number) => {
     if (!selectedMatch) return;
     try {
-      await axios.post(`${API_BASE}/api/matches/map`, {
+      await axios.post(`${API_BASE}/matches/map`, {
         canonical_match_id: selectedMatch.canonical_match_id,
         golgg_match_id: golggMatchId
       });
