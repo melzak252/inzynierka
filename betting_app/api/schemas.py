@@ -429,3 +429,11 @@ class GolggMatchCandidatesResponse(BaseModel):
 class MatchMappingRequest(BaseModel):
     canonical_match_id: int
     golgg_match_id: int
+
+
+class MappingCheckResponse(BaseModel):
+    is_mapped: bool
+    canonical_match_id: int | None = None
+    team_a: str | None = None
+    team_b: str | None = None
+    start_time: str | None = None

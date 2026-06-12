@@ -39,6 +39,7 @@ from betting_app.api.schemas import (
     GolggMatchCandidate,
     GolggMatchCandidatesResponse,
     MatchMappingRequest,
+    MappingCheckResponse,
 )
 from betting_app.services.canonical_match_service import align_snapshot_odds
 from betting_app.core.ev import fair_market_probabilities
@@ -447,6 +448,30 @@ def list_unmapped_matches(
 
 
 # ── GET /matches/{id}/mapping-candidates ────────────────────────────────────
+
+
+@router.get("/mapping-check/{golgg_id}", response_model=MappingCheckResponse)
+def check_golgg_mapping(golgg_id: int, db=Depends(get_db)):
+    """Check if a GOL.GG match ID is already mapped to any canonical match."""
+    row = query_one(
+        db,
+        """
+        SELECT cm.id, cm.team_a_name, cm.team_b_name, cm.start_time_normalized
+        FROM golgg_match_mappings gmm
+        JOIN canonical_matches cm ON cm.id = gmm.canonical_match_id
+        WHERE gmm.golgg_match_id = :g_id
+        """,
+        {"g_id": golgg_id},
+    )
+    if row:
+        return MappingCheckResponse(
+            is_mapped=True,
+            canonical_match_id=row["id"],
+            team_a=row["team_a_name"],
+            team_b=row["team_b_name"],
+            start_time=row["start_time_normalized"],
+        )
+    return MappingCheckResponse(is_mapped=False)
 
 
 @router.get("/{match_id}/mapping-candidates", response_model=GolggMatchCandidatesResponse)

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { UnmappedMatchItem, GolggMatchCandidate } from '../types';
+import { UnmappedMatchItem, GolggMatchCandidate, MappingCheckResponse } from '../types';
 import './ManualMapping.css';
 
 const API_BASE = '/api';
@@ -12,6 +12,11 @@ const ManualMapping: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [mappingStatus, setMappingStatus] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('expired');
+  
+  // Manual ID entry
+  const [manualId, setManualId] = useState('');
+  const [checkResult, setCheckResult] = useState<MappingCheckResponse | null>(null);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     fetchUnmapped();
@@ -33,11 +38,27 @@ const ManualMapping: React.FC = () => {
     setSelectedMatch(match);
     setCandidates([]);
     setMappingStatus(null);
+    setManualId('');
+    setCheckResult(null);
     try {
       const res = await axios.get(`${API_BASE}/matches/${match.canonical_match_id}/mapping-candidates`);
       setCandidates(res.data.candidates);
     } catch (err) {
       console.error('Failed to fetch candidates', err);
+    }
+  };
+
+  const handleCheckId = async () => {
+    if (!manualId) return;
+    setChecking(true);
+    setCheckResult(null);
+    try {
+      const res = await axios.get(`${API_BASE}/matches/mapping-check/${manualId}`);
+      setCheckResult(res.data);
+    } catch (err) {
+      console.error('Failed to check ID', err);
+    } finally {
+      setChecking(false);
     }
   };
 
@@ -53,6 +74,8 @@ const ManualMapping: React.FC = () => {
       fetchUnmapped();
       setSelectedMatch(null);
       setCandidates([]);
+      setManualId('');
+      setCheckResult(null);
     } catch (err) {
       setMappingStatus('Failed to map match');
       console.error(err);
@@ -102,7 +125,42 @@ const ManualMapping: React.FC = () => {
 
               {mappingStatus && <div className="status-msg">{mappingStatus}</div>}
 
+              <div className="manual-id-entry">
+                <h3>Wpisz ID ręcznie</h3>
+                <div className="input-group">
+                  <input 
+                    type="number" 
+                    placeholder="GOL.GG Match ID" 
+                    value={manualId}
+                    onChange={(e) => setManualId(e.target.value)}
+                  />
+                  <button onClick={handleCheckId} disabled={!manualId || checking}>
+                    {checking ? 'Sprawdzanie...' : 'Sprawdź'}
+                  </button>
+                </div>
+
+                {checkResult && (
+                  <div className={`check-result ${checkResult.is_mapped ? 'warning' : 'success'}`}>
+                    {checkResult.is_mapped ? (
+                      <div>
+                        <strong>Uwaga!</strong> To ID jest już przypisane do:<br/>
+                        {checkResult.team_a} vs {checkResult.team_b} ({checkResult.start_time?.split('T')[0]})
+                      </div>
+                    ) : (
+                      <div>ID jest wolne.</div>
+                    )}
+                    <button 
+                      className="map-manual-btn"
+                      onClick={() => handleMap(parseInt(manualId))}
+                    >
+                      Mapuj to ID
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="candidates-list">
+                <h3>Sugerowani kandydaci</h3>
                 {candidates.length === 0 ? <p>Brak kandydatów w oknie +/- 3 dni.</p> : (
                   candidates.map(c => (
                     <div key={c.match_id} className="candidate-item">

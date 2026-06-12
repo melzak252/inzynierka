@@ -445,3 +445,11 @@ export interface MatchMappingRequest {
   canonical_match_id: number;
   golgg_match_id: number;
 }
+
+export interface MappingCheckResponse {
+  is_mapped: boolean;
+  canonical_match_id: number | null;
+  team_a: string | null;
+  team_b: string | null;
+  start_time: string | null;
+}
