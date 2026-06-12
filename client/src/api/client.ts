@@ -23,12 +23,14 @@ const API_BASE = '/api';
 
 export async function fetchMatches(
   minBooks: number = 1,
-  daysAhead: number = 14
+  daysAhead: number = 14,
+  bookmaker?: string
 ): Promise<MatchBoardResponse> {
   const params = new URLSearchParams({
     min_books: minBooks.toString(),
     days_ahead: daysAhead.toString(),
   });
+  if (bookmaker) params.set('bookmaker', bookmaker);
   const response = await fetch(`${API_BASE}/matches?${params}`);
   if (!response.ok) throw new Error(`Failed to fetch matches: ${response.statusText}`);
   return response.json();

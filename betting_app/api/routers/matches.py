@@ -110,6 +110,7 @@ def list_matches(
     days_ahead: int = 14,
     tax_rate: float = TAX_RATE,
     stale_hours: float = 6,
+    bookmaker: str | None = None,
     db=Depends(get_db),
 ):
     now = datetime.now(UTC)
@@ -216,6 +217,15 @@ def list_matches(
         if not group:
             continue
         books = len({g["bookmaker"] for g in group})
+
+        # Filter by specific bookmaker if requested
+        if bookmaker:
+            bookmaker_group = [g for g in group if g["bookmaker"] == bookmaker]
+            if not bookmaker_group:
+                continue
+            group = bookmaker_group
+            books = 1  # only one bookmaker in view
+
         if books < min_books:
             continue
 

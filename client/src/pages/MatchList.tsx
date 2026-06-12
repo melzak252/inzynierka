@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchMatches, updateMatchBestOf } from '../api/client';
-import type { MatchBoardItem } from '../types';
+import { fetchMatches, updateMatchBestOf, fetchBookmakers } from '../api/client';
+import type { MatchBoardItem, BookmakerStatus } from '../types';
 import './MatchList.css';
 
 export default function MatchList() {
@@ -10,9 +10,15 @@ export default function MatchList() {
   const [error, setError] = useState<string | null>(null);
   const [editingBoMatchId, setEditingBoMatchId] = useState<number | null>(null);
   const [savingBo, setSavingBo] = useState(false);
+  const [bookmakers, setBookmakers] = useState<BookmakerStatus[]>([]);
+  const [selectedBookmaker, setSelectedBookmaker] = useState<string>('');
 
   useEffect(() => {
-    fetchMatches()
+    fetchBookmakers().then(setBookmakers).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchMatches(1, 14, selectedBookmaker || undefined)
       .then((data) => {
         setMatches(data.matches);
         setLoading(false);
@@ -21,7 +27,7 @@ export default function MatchList() {
         setError(err.message);
         setLoading(false);
       });
-  }, []);
+  }, [selectedBookmaker]);
 
   if (loading) {
     return <div className="loading">Ładowanie meczów...</div>;
@@ -60,6 +66,27 @@ export default function MatchList() {
     <div className="match-list">
       <h1>Nadchodzące mecze</h1>
       <p className="subtitle">{matches.length} meczów</p>
+
+      <div className="filters-bar">
+        <label className="filter-label">
+          Bukmacher:
+          <select
+            value={selectedBookmaker}
+            onChange={(e) => {
+              setSelectedBookmaker(e.target.value);
+              setLoading(true);
+            }}
+            className="filter-select"
+          >
+            <option value="">Wszyscy</option>
+            {bookmakers.map((bk) => (
+              <option key={bk.id} value={bk.name}>
+                {bk.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       <div className="matches-grid">
         {matches.map((m) => {
