@@ -298,8 +298,8 @@ def start_scrape_run(
         cursor = connection.execute(
             """
             INSERT INTO scrape_runs(
-                bookmaker_id, scraper_name, scraper_version, source_url, request_url, status
-            ) VALUES (?, ?, ?, ?, ?, 'running')
+                bookmaker_id, scraper_name, scraper_version, source_url, request_url, status, started_at
+            ) VALUES (?, ?, ?, ?, ?, 'running', CURRENT_TIMESTAMP)
             """,
             (bookmaker_id, scraper_name, scraper_version, source_url, request_url),
         )
