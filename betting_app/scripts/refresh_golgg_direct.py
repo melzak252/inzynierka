@@ -117,7 +117,7 @@ def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | N
                 """
 
                 keys = {_ntn(raw_team_name), _ctk(raw_team_name)}
-                suggested, _ = suggest_mapping(raw_team_name)
+                suggested, _, _ = suggest_mapping(raw_team_name)
                 if suggested:
                     keys.add(_ntn(suggested))
                     keys.add(_ctk(suggested))
