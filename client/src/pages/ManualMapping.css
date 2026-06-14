@@ -64,6 +64,13 @@
   color: #aaa;
 }
 
+.match-sources {
+  font-size: 0.8em;
+  color: #4caf50;
+  margin-top: 4px;
+  font-style: italic;
+}
+
 .selected-match-info {
   background: #2a2a2a;
   padding: 15px;

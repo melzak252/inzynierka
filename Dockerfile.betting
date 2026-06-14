@@ -38,6 +38,7 @@ RUN apt-get update \
         libxrandr2 \
         libxss1 \
         libxtst6 \
+        tini \
         wget \
     && rm -rf /var/lib/apt/lists/*
 
@@ -51,4 +52,5 @@ RUN mkdir -p /app/data /app/data/betting_scraper_debug
 
 EXPOSE 8000
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["uvicorn", "betting_app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

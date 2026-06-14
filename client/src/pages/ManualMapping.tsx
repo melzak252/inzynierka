@@ -108,6 +108,11 @@ const ManualMapping: React.FC = () => {
                   <div className="match-time">{m.start_time_normalized?.split('T')[0]}</div>
                   <div className="match-teams">{m.team_a_name} vs {m.team_b_name}</div>
                   <div className="match-league">{m.league}</div>
+                  {m.bookmakers && m.bookmakers.length > 0 && (
+                    <div className="match-sources">
+                      Sources: {m.bookmakers.join(', ')}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

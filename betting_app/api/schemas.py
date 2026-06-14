@@ -406,6 +406,7 @@ class UnmappedMatchItem(BaseModel):
     start_time_normalized: str | None = None
     league: str | None = None
     status: str
+    bookmakers: list[str] = []
 
 
 class UnmappedMatchesResponse(BaseModel):
