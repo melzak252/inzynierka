@@ -62,12 +62,12 @@ const ManualMapping: React.FC = () => {
     }
   };
 
-  const handleMap = async (golggMatchId: number) => {
+  const handleMap = async (golggMatchId: string | number) => {
     if (!selectedMatch) return;
     try {
       await axios.post(`${API_BASE}/matches/map`, {
         canonical_match_id: selectedMatch.canonical_match_id,
-        golgg_match_id: golggMatchId
+        golgg_match_id: String(golggMatchId)
       });
       setMappingStatus('Success!');
       // Refresh list and clear selection
@@ -151,7 +151,7 @@ const ManualMapping: React.FC = () => {
                     )}
                     <button 
                       className="map-manual-btn"
-                      onClick={() => handleMap(parseInt(manualId))}
+                      onClick={() => handleMap(manualId)}
                     >
                       Mapuj to ID
                     </button>

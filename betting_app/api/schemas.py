@@ -414,7 +414,7 @@ class UnmappedMatchesResponse(BaseModel):
 
 
 class GolggMatchCandidate(BaseModel):
-    match_id: int
+    match_id: str
     team1_name: str
     team2_name: str
     date: str
@@ -428,7 +428,7 @@ class GolggMatchCandidatesResponse(BaseModel):
 
 class MatchMappingRequest(BaseModel):
     canonical_match_id: int
-    golgg_match_id: int
+    golgg_match_id: str
 
 
 class MappingCheckResponse(BaseModel):

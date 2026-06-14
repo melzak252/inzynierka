@@ -454,7 +454,7 @@ def list_unmapped_matches(
 
 
 @router.get("/mapping-check/{golgg_id}", response_model=MappingCheckResponse)
-def check_golgg_mapping(golgg_id: int, db=Depends(get_db)):
+def check_golgg_mapping(golgg_id: str, db=Depends(get_db)):
     """Check if a GOL.GG match ID is already mapped to any canonical match."""
     row = query_one(
         db,
