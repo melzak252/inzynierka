@@ -328,7 +328,8 @@ def mark_mapped_matches_finished(match_ids: list[str] | None = None) -> dict[str
             gm.team2_win,
             gm.draw,
             gm.winner_name,
-            gm.loser_name
+            gm.loser_name,
+            gm.best_of
         FROM golgg_match_mappings gmm
         JOIN golgg_matches gm ON gm.match_id = gmm.golgg_match_id
         JOIN canonical_matches cm ON cm.id = gmm.canonical_match_id
@@ -350,6 +351,7 @@ def mark_mapped_matches_finished(match_ids: list[str] | None = None) -> dict[str
             team2 = str(row.get("team2_name") or "")
             winner = str(row.get("winner_name") or "").strip()
             loser = str(row.get("loser_name") or "").strip()
+            best_of = row.get("best_of")
 
             if not winner:
                 winner = team1 if team1_win else team2 if team2_win else ""
@@ -376,6 +378,7 @@ def mark_mapped_matches_finished(match_ids: list[str] | None = None) -> dict[str
                             loser_name = :loser_name,
                             winner_normalized = :winner_normalized,
                             winner_side = :winner_side,
+                            best_of = COALESCE(:best_of, best_of),
                             result_source = 'golgg',
                             result_source_match_id = :golgg_match_id,
                             result_recorded_at = NOW()
@@ -386,6 +389,7 @@ def mark_mapped_matches_finished(match_ids: list[str] | None = None) -> dict[str
                               OR loser_name IS DISTINCT FROM :loser_name
                               OR winner_normalized IS DISTINCT FROM :winner_normalized
                               OR winner_side IS DISTINCT FROM :winner_side
+                              OR best_of IS DISTINCT FROM COALESCE(:best_of, best_of)
                               OR result_source_match_id IS DISTINCT FROM :golgg_match_id
                           )
                         """
@@ -397,6 +401,7 @@ def mark_mapped_matches_finished(match_ids: list[str] | None = None) -> dict[str
                         "loser_name": loser or None,
                         "winner_normalized": winner_norm,
                         "winner_side": winner_side,
+                        "best_of": int(best_of) if best_of is not None else None,
                     },
                 )
                 session.commit()

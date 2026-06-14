@@ -435,7 +435,13 @@ def list_unmapped_matches(
         SELECT cm.id AS canonical_match_id,
                cm.team_a_name, cm.team_b_name,
                cm.league, cm.start_time_normalized,
-               cm.status
+               cm.status,
+               (
+                   SELECT array_agg(DISTINCT b.name)
+                   FROM odds_snapshots os
+                   JOIN bookmakers b ON b.id = os.bookmaker_id
+                   WHERE os.canonical_match_id = cm.id
+               ) as bookmakers
         FROM canonical_matches cm
         LEFT JOIN golgg_match_mappings gmm ON gmm.canonical_match_id = cm.id
         WHERE gmm.canonical_match_id IS NULL
@@ -446,7 +452,25 @@ def list_unmapped_matches(
         {"status": status, "limit": limit},
     )
 
-    items = [UnmappedMatchItem(**r) for r in rows]
+    items = []
+    for r in rows:
+        # PostgreSQL array_agg returns a string like "{sts,betclic}" or a list
+        bks = r.get("bookmakers")
+        if isinstance(bks, str):
+            bks = [b.strip() for b in bks.strip("{}").split(",") if b.strip()]
+        elif bks is None:
+            bks = []
+        
+        items.append(UnmappedMatchItem(
+            canonical_match_id=r["canonical_match_id"],
+            team_a_name=r["team_a_name"],
+            team_b_name=r["team_b_name"],
+            league=r.get("league"),
+            start_time_normalized=r.get("start_time_normalized"),
+            status=r["status"],
+            bookmakers=bks
+        ))
+    
     return UnmappedMatchesResponse(total=len(items), matches=items)
 
 
@@ -520,7 +544,15 @@ def list_mapping_candidates(
 @router.post("/map")
 def map_match_manually(body: MatchMappingRequest, db=Depends(get_db)):
     """Create a manual mapping between a canonical match and a GOL.GG match."""
-    # 1. Insert mapping
+    # 1. Fetch GOL.GG match info to sync best_of
+    golgg_match = query_one(
+        db,
+        "SELECT best_of FROM golgg_matches WHERE match_id = :g_id",
+        {"g_id": body.golgg_match_id}
+    )
+    best_of = golgg_match.get("best_of") if golgg_match else None
+
+    # 2. Insert mapping
     db.execute(
         text("""
             INSERT INTO golgg_match_mappings (canonical_match_id, golgg_match_id)
@@ -530,10 +562,15 @@ def map_match_manually(body: MatchMappingRequest, db=Depends(get_db)):
         {"c_id": body.canonical_match_id, "g_id": body.golgg_match_id},
     )
 
-    # 2. Update status to finished if it was expired/upcoming
+    # 3. Update status and best_of
     db.execute(
-        text("UPDATE canonical_matches SET status = 'finished' WHERE id = :id AND status IN ('expired', 'upcoming')"),
-        {"id": body.canonical_match_id},
+        text("""
+            UPDATE canonical_matches 
+            SET status = 'finished',
+                best_of = COALESCE(:best_of, best_of)
+            WHERE id = :id AND status IN ('expired', 'upcoming')
+        """),
+        {"id": body.canonical_match_id, "best_of": best_of},
     )
 
     db.commit()
