@@ -776,7 +776,10 @@ def generate_hybrid_predictions(
                 )
                 if aligned is None:
                     continue
-                market_a, _ = fair_market_probabilities(*aligned)
+                odds_a, odds_b = aligned
+                if odds_a is None or odds_b is None or float(odds_a) <= 1.0 or float(odds_b) <= 1.0:
+                    continue
+                market_a, _ = fair_market_probabilities(float(odds_a), float(odds_b))
                 market_probs.append(market_a)
             if not market_probs:
                 continue
@@ -936,6 +939,10 @@ def generate_model_ev_signals(
             if aligned is None:
                 continue
             odds_a, odds_b = aligned
+            if odds_a is None or odds_b is None or float(odds_a) <= 1.0 or float(odds_b) <= 1.0:
+                continue
+            odds_a = float(odds_a)
+            odds_b = float(odds_b)
             market_a, market_b = fair_market_probabilities(odds_a, odds_b)
             candidates = [
                 ("a", float(row["prob_a"]), odds_a, market_a),
