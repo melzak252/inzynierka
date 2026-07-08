@@ -10,9 +10,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-RUN apt-get update \
+# Pin Chromium to 147 — version 150.0.7871.46 has a known SIGTRAP crash
+# (Debian bug #1141488). Remove pin once the fix is released.
+RUN echo 'Package: chromium chromium-common\nPin: version 147*\nPin-Priority: 1001' \
+        > /etc/apt/preferences.d/chromium-pin \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
-        chromium \
+        chromium=147.0.7727.137-1~deb13u1 \
+        chromium-common=147.0.7727.137-1~deb13u1 \
         ca-certificates \
         fonts-liberation \
         libasound2 \
