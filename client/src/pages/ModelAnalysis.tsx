@@ -136,6 +136,69 @@ function MiniBarChart({ points, metric, lowerIsBetter }: { points: SeriesPoint[]
   )
 }
 
+function LogLossLineChart({ points, modelName }: { points: SeriesPoint[]; modelName: string }) {
+  const sorted = binSort(points)
+  const values = sorted.flatMap((p) => [p.market, p.model]).filter((v): v is number => v !== null && v !== undefined)
+  const minRaw = values.length ? Math.min(...values) : 0.35
+  const maxRaw = values.length ? Math.max(...values) : 0.75
+  const padding = Math.max((maxRaw - minRaw) * 0.18, 0.025)
+  const min = Math.max(0, minRaw - padding)
+  const max = maxRaw + padding
+  const width = 920
+  const height = 330
+  const left = 58
+  const right = 24
+  const top = 26
+  const bottom = 58
+  const plotW = width - left - right
+  const plotH = height - top - bottom
+  const x = (idx: number) => left + (plotW * idx) / Math.max(sorted.length - 1, 1)
+  const y = (value: number) => top + ((max - value) / Math.max(max - min, 0.001)) * plotH
+  const pathFor = (key: 'market' | 'model') => sorted
+    .map((p, idx) => ({ idx, value: p[key] }))
+    .filter((p): p is { idx: number; value: number } => p.value !== null && p.value !== undefined)
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(p.idx).toFixed(1)} ${y(p.value).toFixed(1)}`)
+    .join(' ')
+  const ticks = Array.from({ length: 5 }, (_, idx) => min + ((max - min) * idx) / 4)
+
+  return (
+    <div className="ma-chart-card ma-line-card">
+      <div className="ma-chart-head">
+        <div>
+          <h3>LogLoss over horizon</h3>
+          <p>Najważniejszy wykres jakości predykcji probabilistycznych. Niżej = lepiej.</p>
+        </div>
+        <div className="ma-chart-legend" aria-label="Legend">
+          <span><i className="market" /> Market</span>
+          <span><i className="model" /> {modelName}</span>
+        </div>
+      </div>
+      <div className="ma-line-wrap">
+        <svg className="ma-line-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="LogLoss over horizon">
+          {ticks.map((tick) => (
+            <g key={tick}>
+              <line className="grid" x1={left} x2={width - right} y1={y(tick)} y2={y(tick)} />
+              <text className="axis y" x={left - 12} y={y(tick) + 4} textAnchor="end">{tick.toFixed(3)}</text>
+            </g>
+          ))}
+          <line className="axis-line" x1={left} x2={width - right} y1={height - bottom} y2={height - bottom} />
+          <line className="axis-line" x1={left} x2={left} y1={top} y2={height - bottom} />
+          <path className="line market" d={pathFor('market')} />
+          <path className="line model" d={pathFor('model')} />
+          {sorted.map((p, idx) => (
+            <g key={p.label}>
+              {p.market !== null && p.market !== undefined && <circle className="point market" cx={x(idx)} cy={y(p.market)} r="5" />}
+              {p.model !== null && p.model !== undefined && <circle className="point model" cx={x(idx)} cy={y(p.model)} r="6" />}
+              <text className="axis x" x={x(idx)} y={height - bottom + 28} textAnchor="middle">{p.label}</text>
+              <text className="axis n" x={x(idx)} y={height - bottom + 46} textAnchor="middle">{p.matches}M</text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    </div>
+  )
+}
+
 function ClvChart({ bins }: { bins: ModelClvBin[] }) {
   const sorted = binSort(bins)
   const values = sorted.map((b) => b.avg_clv_odds_pct ?? 0)
@@ -340,8 +403,8 @@ function ModelAnalysis() {
         <div className="ma-section-title">
           <div><h2>Predictive accuracy by horizon</h2><p>Porównanie wybranego modelu ze średnim rynkiem bukmacherskim w tych samych horyzontach.</p></div>
         </div>
-        <div className="ma-grid two">
-          <MiniBarChart points={logLossPoints} metric="LogLoss" lowerIsBetter />
+        <div className="ma-grid accuracy">
+          <LogLossLineChart points={logLossPoints} modelName={modelInfo.short} />
           <MiniBarChart points={aucPoints} metric="AUC" />
         </div>
       </section>
