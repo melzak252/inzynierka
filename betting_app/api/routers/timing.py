@@ -1176,8 +1176,7 @@ def model_clv_by_horizon(
         elif not had_closing:
             skips["no_closing_odds"] += 1
 
-    signal_bins = _aggregate_clv_entries(entries, weight="signal")
-    match_bins = _aggregate_clv_entries(entries, weight="match")
+    bins = _aggregate_clv_entries_match_oriented(entries)
 
     return {
         "metadata": {
@@ -1185,9 +1184,11 @@ def model_clv_by_horizon(
             "max_odds_age_hours": max_odds_age_hours,
             "tax_rate": tax_rate,
             "min_ev": min_ev,
+            "aggregation_level": "model_match_horizon",
             "entry_definition": "latest bookmaker odds at or before prediction time, max_age_hours constrained",
             "closing_definition": "latest valid non-live same-bookmaker pre-match odds",
             "clv_odds_pct_definition": "taken_odds / closing_odds - 1; positive means entry beat closing",
+            "aggregation_definition": "all EV entries for the same model, canonical match and horizon are collapsed into one match-level observation before averaging",
         },
         "total_predictions_scanned": len(predictions),
         "total_entries": len(entries),
@@ -1195,13 +1196,11 @@ def model_clv_by_horizon(
             {
                 "model_key": key,
                 "model_label": "Hybrid model" if key == "hybrid" else "Thesis model",
-                "signal_weighted_bins": [b for b in signal_bins if b["model_key"] == key],
-                "match_weighted_bins": [b for b in match_bins if b["model_key"] == key],
+                "bins": [b for b in bins if b["model_key"] == key],
             }
             for key in ("thesis", "hybrid")
         ],
-        "signal_weighted_bins": signal_bins,
-        "match_weighted_bins": match_bins,
+        "bins": bins,
         "skips": dict(sorted(skips.items())),
     }
 
@@ -1231,40 +1230,33 @@ def _median(values: list[float]) -> float | None:
     return round(float(np.median(values)), 4) if values else None
 
 
-def _aggregate_clv_entries(entries: list[dict[str, Any]], weight: str) -> list[dict[str, Any]]:
-    """Aggregate CLV entries by model/horizon.
+def _aggregate_clv_entries_match_oriented(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate CLV as one observation per model/match/horizon.
 
-    `signal` weight uses every model/bookmaker entry. `match` weight first
-    averages all entries for the same model/horizon/match and then aggregates
-    those match-level rows, preventing matches with many bookmakers/snapshots
-    from dominating the headline result.
+    Odds snapshots and bookmakers can generate many EV opportunities for the same
+    match. For model evaluation we collapse them first, so no match can dominate a
+    horizon bin only because it had many scraped prices.
     """
-    if weight not in {"signal", "match"}:
-        raise ValueError("weight must be 'signal' or 'match'")
+    grouped: dict[tuple[str, str, int], list[dict[str, Any]]] = defaultdict(list)
+    for entry in entries:
+        grouped[(entry["model_key"], entry["horizon_label"], int(entry["canonical_match_id"]))].append(entry)
 
-    rows: list[dict[str, Any]]
-    if weight == "signal":
-        rows = entries
-    else:
-        grouped: dict[tuple[str, str, int], list[dict[str, Any]]] = defaultdict(list)
-        for entry in entries:
-            grouped[(entry["model_key"], entry["horizon_label"], int(entry["canonical_match_id"]))].append(entry)
-        rows = []
-        for (_model_key, _label, match_id), group in grouped.items():
-            first = group[0]
-            rows.append({
-                "model_key": first["model_key"],
-                "model_label": first["model_label"],
-                "horizon_label": first["horizon_label"],
-                "hours_start": first["hours_start"],
-                "hours_end": first["hours_end"],
-                "canonical_match_id": match_id,
-                "entries": len(group),
-                "clv_odds_pct": float(np.mean([g["clv_odds_pct"] for g in group])),
-                "clv_probability_pp": float(np.mean([g["clv_probability_pp"] for g in group])),
-                "ev": float(np.mean([g["ev"] for g in group])),
-                "hours_before": float(np.mean([g["hours_before"] for g in group])),
-            })
+    rows: list[dict[str, Any]] = []
+    for (_model_key, _label, match_id), group in grouped.items():
+        first = group[0]
+        rows.append({
+            "model_key": first["model_key"],
+            "model_label": first["model_label"],
+            "horizon_label": first["horizon_label"],
+            "hours_start": first["hours_start"],
+            "hours_end": first["hours_end"],
+            "canonical_match_id": match_id,
+            "entries": len(group),
+            "clv_odds_pct": float(np.mean([g["clv_odds_pct"] for g in group])),
+            "clv_probability_pp": float(np.mean([g["clv_probability_pp"] for g in group])),
+            "ev": float(np.mean([g["ev"] for g in group])),
+            "hours_before": float(np.mean([g["hours_before"] for g in group])),
+        })
 
     grouped_bins: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -1295,7 +1287,7 @@ def _aggregate_clv_entries(entries: list[dict[str, Any]], weight: str) -> list[d
             "median_clv_probability_pp": _median(clv_pp_vals),
             "positive_clv_rate": round(sum(1 for v in clv_vals if v > 0) / len(clv_vals), 4) if clv_vals else None,
             "avg_ev": _mean(ev_vals),
-            "weighting": weight,
+            "aggregation_level": "model_match_horizon",
         })
 
     return sorted(result, key=lambda b: (b["model_key"], order.get(b["label"], 999)))
@@ -1308,12 +1300,12 @@ def _empty_clv_result(max_days_back: int, max_odds_age_hours: float, tax_rate: f
             "max_odds_age_hours": max_odds_age_hours,
             "tax_rate": tax_rate,
             "min_ev": min_ev,
+            "aggregation_level": "model_match_horizon",
         },
         "total_predictions_scanned": 0,
         "total_entries": 0,
         "models": [],
-        "signal_weighted_bins": [],
-        "match_weighted_bins": [],
+        "bins": [],
         "skips": {},
     }
 

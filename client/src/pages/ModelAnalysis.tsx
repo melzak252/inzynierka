@@ -14,7 +14,6 @@ import type {
 } from '../types'
 import './ModelAnalysis.css'
 
-type Weighting = 'match' | 'signal'
 
 type SeriesPoint = {
   label: string
@@ -271,7 +270,6 @@ function BootstrapChart({ bins }: { bins: HorizonBootstrapResponse['bins'] }) {
 
 function ModelAnalysis() {
   const [selected, setSelected] = useState<ModelAnalysisKey>('hybrid')
-  const [weighting, setWeighting] = useState<Weighting>('match')
   const [daysBack, setDaysBack] = useState(90)
   const [maxOddsAge, setMaxOddsAge] = useState(4)
   const [accuracy, setAccuracy] = useState<HorizonAccuracyResponse | null>(null)
@@ -339,8 +337,8 @@ function ModelAnalysis() {
   }), [marketBins, selectedModelBins])
 
   const clvModel = clv?.models.find((m) => m.model_key === selected)
-  const clvBins = binSort((weighting === 'match' ? clvModel?.match_weighted_bins : clvModel?.signal_weighted_bins) ?? [])
-  const bestClv = bestBinByClv(clvModel?.match_weighted_bins ?? [])
+  const clvBins = binSort(clvModel?.bins ?? [])
+  const bestClv = bestBinByClv(clvModel?.bins ?? [])
   const avgClv = clvBins.length ? clvBins.reduce((s, b) => s + (b.avg_clv_odds_pct ?? 0), 0) / clvBins.length : null
   const positiveBins = clvBins.filter((b) => (b.avg_clv_odds_pct ?? -Infinity) > 0).length
 
@@ -411,11 +409,7 @@ function ModelAnalysis() {
 
       <section className="ma-section">
         <div className="ma-section-title">
-          <div><h2>Market timing / CLV</h2><p>Sprawdza, czy sygnały EV modelu łapią kursy lepsze niż closing line.</p></div>
-          <div className="ma-pill-toggle">
-            <button className={weighting === 'match' ? 'active' : ''} onClick={() => setWeighting('match')}>Match-weighted</button>
-            <button className={weighting === 'signal' ? 'active' : ''} onClick={() => setWeighting('signal')}>Signal-weighted</button>
-          </div>
+          <div><h2>Match-oriented CLV</h2><p>Sprawdza, czy sygnały EV modelu łapią kursy lepsze niż closing line. Każdy model/mecz/horyzont to jedna obserwacja; snapshoty służą tylko do wyznaczenia kursu wejścia i zamknięcia.</p></div>
         </div>
         <ClvChart bins={clvBins} />
       </section>
@@ -429,7 +423,7 @@ function ModelAnalysis() {
 
       <section className="ma-section">
         <div className="ma-section-title">
-          <div><h2>Detailed horizon table</h2><p>Pełne liczby dla aktualnie wybranego modelu i sposobu ważenia CLV.</p></div>
+          <div><h2>Detailed horizon table</h2><p>Pełne liczby match-oriented dla aktualnie wybranego modelu. Entries pokazuje liczbę dodatnich EV okazji złożonych do obserwacji mecz/horyzont.</p></div>
         </div>
         <div className="ma-table-wrap">
           <table className="ma-table">

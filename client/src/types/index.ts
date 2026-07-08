@@ -329,14 +329,13 @@ export interface ModelClvBin {
   median_clv_probability_pp: number | null;
   positive_clv_rate: number | null;
   avg_ev: number | null;
-  weighting: 'signal' | 'match' | string;
+  aggregation_level: 'model_match_horizon' | string;
 }
 
 export interface ModelClvModelSummary {
   model_key: ModelAnalysisKey | string;
   model_label: string;
-  signal_weighted_bins: ModelClvBin[];
-  match_weighted_bins: ModelClvBin[];
+  bins: ModelClvBin[];
 }
 
 export interface ModelClvByHorizonResponse {
@@ -345,15 +344,16 @@ export interface ModelClvByHorizonResponse {
     max_odds_age_hours: number;
     tax_rate: number;
     min_ev: number;
+    aggregation_level: string;
     entry_definition: string;
     closing_definition: string;
     clv_odds_pct_definition: string;
+    aggregation_definition?: string;
   };
   total_predictions_scanned: number;
   total_entries: number;
   models: ModelClvModelSummary[];
-  signal_weighted_bins: ModelClvBin[];
-  match_weighted_bins: ModelClvBin[];
+  bins: ModelClvBin[];
   skips: Record<string, number>;
 }
 
