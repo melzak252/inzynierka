@@ -20,12 +20,23 @@ import numpy as np
 from sklearn.metrics import log_loss, roc_auc_score
 
 from betting_app.api.deps import get_db, query_df
+from betting_app.core.clv import clv_odds_pct, clv_probability_points
+from betting_app.core.ev import best_ev_side
 
 router = APIRouter(prefix="/timing", tags=["timing"])
 
 THESIS_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
 THESIS_MODEL_VERSION = "exp-039"
 THESIS_HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
+
+HORIZON_BIN_DEFS = [
+    ("0-2h", 0, 2),
+    ("2-6h", 2, 6),
+    ("6-12h", 6, 12),
+    ("12-24h", 12, 24),
+    ("24-48h", 24, 48),
+    ("48h+", 48, 9999),
+]
 
 
 def _parse_dt(val: Any) -> datetime | None:
@@ -949,6 +960,361 @@ def horizon_accuracy(
         "bookmaker_bins": bookmaker_bins,
         "model_vs_bookmaker_tests": model_vs_bookmaker_tests,
         "market_close_comparison": market_close_comparison,
+    }
+
+
+@router.get("/model-clv-by-horizon")
+def model_clv_by_horizon(
+    max_days_back: int = 90,
+    max_odds_age_hours: float = 4.0,
+    tax_rate: float = 0.12,
+    min_ev: float = 0.0,
+    db=Depends(get_db),
+):
+    """Compute Closing Line Value for model-selected EV entries by horizon.
+
+    This endpoint evaluates market timing, not match-outcome accuracy. For each
+    Thesis/Hybrid prediction it finds the latest available bookmaker odds before
+    `predicted_at` (entry line), requires the entry odds to be fresh enough, picks
+    the side with the highest positive after-tax EV, and compares that entry line
+    with the same bookmaker's final valid pre-match line (closing line).
+
+    Positive CLV means the model selected a price that later closed shorter.
+    Results include signal-weighted aggregates (all entries) and match-weighted
+    aggregates (one averaged observation per model/horizon/match), because the
+    latter is the safer headline metric for model evaluation.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
+
+    predictions = query_df(
+        db,
+        """
+        SELECT cp.id AS prediction_id,
+               cp.canonical_match_id,
+               cp.model_name,
+               cp.model_version,
+               cp.predicted_at,
+               cp.prob_a,
+               cp.prob_b,
+               cm.start_time_normalized,
+               cm.normalized_team_a,
+               cm.normalized_team_b,
+               cm.status
+        FROM canonical_predictions cp
+        JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+        WHERE cp.model_name IN (:thesis_model, :hybrid_model)
+          AND cp.predicted_at IS NOT NULL
+          AND cp.prob_a IS NOT NULL
+          AND cp.prob_b IS NOT NULL
+          AND cm.start_time_normalized IS NOT NULL
+          AND cm.start_time_normalized > :cutoff
+        ORDER BY cp.predicted_at ASC
+        """,
+        {
+            "thesis_model": THESIS_MODEL_NAME,
+            "hybrid_model": THESIS_HYBRID_MODEL_NAME,
+            "cutoff": cutoff,
+        },
+    )
+    if not predictions:
+        return _empty_clv_result(max_days_back, max_odds_age_hours, tax_rate, min_ev)
+
+    match_ids = sorted({int(p["canonical_match_id"]) for p in predictions})
+    placeholders = ",".join(f":mid{i}" for i in range(len(match_ids)))
+    params: dict[str, Any] = {f"mid{i}": mid for i, mid in enumerate(match_ids)}
+    odds_rows = query_df(
+        db,
+        f"""
+        SELECT os.id AS odds_snapshot_id,
+               os.canonical_match_id,
+               os.bookmaker_id,
+               b.name AS bookmaker_name,
+               os.scraped_at,
+               os.raw_team_a,
+               os.raw_team_b,
+               os.odds_a,
+               os.odds_b,
+               cm.normalized_team_a,
+               cm.normalized_team_b
+        FROM odds_snapshots os
+        JOIN canonical_matches cm ON cm.id = os.canonical_match_id
+        JOIN bookmakers b ON b.id = os.bookmaker_id
+        WHERE os.canonical_match_id IN ({placeholders})
+          AND os.market_type = 'match_winner'
+          AND COALESCE(os.is_live, 0) = 0
+          AND os.odds_a IS NOT NULL
+          AND os.odds_b IS NOT NULL
+        ORDER BY os.canonical_match_id, os.bookmaker_id, os.scraped_at
+        """,
+        params,
+    )
+
+    odds_by_match_book: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
+    for row in odds_rows:
+        scraped = _parse_dt(row.get("scraped_at"))
+        if not scraped:
+            continue
+        aligned = _align(
+            str(row.get("normalized_team_a") or ""),
+            str(row.get("normalized_team_b") or ""),
+            str(row.get("raw_team_a") or ""),
+            str(row.get("raw_team_b") or ""),
+            row.get("odds_a"),
+            row.get("odds_b"),
+        )
+        if not aligned:
+            continue
+        odds_a, odds_b = aligned
+        if odds_a <= 1.0 or odds_b <= 1.0:
+            continue
+        enriched = dict(row)
+        enriched["scraped_dt"] = scraped
+        enriched["canonical_odds_a"] = odds_a
+        enriched["canonical_odds_b"] = odds_b
+        odds_by_match_book[(int(row["canonical_match_id"]), int(row["bookmaker_id"]))].append(enriched)
+
+    for rows in odds_by_match_book.values():
+        rows.sort(key=lambda r: r["scraped_dt"])
+
+    entries: list[dict[str, Any]] = []
+    skips: dict[str, int] = defaultdict(int)
+
+    for pred in predictions:
+        match_id = int(pred["canonical_match_id"])
+        predicted_at = _parse_dt(pred.get("predicted_at"))
+        match_start = _parse_dt(pred.get("start_time_normalized"))
+        if not predicted_at or not match_start:
+            skips["invalid_datetime"] += 1
+            continue
+        if predicted_at >= match_start:
+            skips["prediction_after_start"] += 1
+            continue
+
+        hours_before = (match_start - predicted_at).total_seconds() / 3600.0
+        if hours_before < 0:
+            skips["prediction_after_start"] += 1
+            continue
+        horizon = _horizon_label(hours_before)
+        if not horizon:
+            skips["outside_horizon"] += 1
+            continue
+
+        prob_a = float(pred["prob_a"])
+        model_key = "hybrid" if pred["model_name"] == THESIS_HYBRID_MODEL_NAME else "thesis"
+        model_label = "Hybrid model" if model_key == "hybrid" else "Thesis model"
+        books_for_match = [key for key in odds_by_match_book.keys() if key[0] == match_id]
+        if not books_for_match:
+            skips["no_odds_for_match"] += 1
+            continue
+
+        had_fresh_odds = False
+        had_positive_ev = False
+        had_closing = False
+        for key in books_for_match:
+            rows = odds_by_match_book[key]
+            entry = _latest_before(rows, predicted_at)
+            if not entry:
+                continue
+            entry_age_hours = (predicted_at - entry["scraped_dt"]).total_seconds() / 3600.0
+            if entry_age_hours < 0 or entry_age_hours > max_odds_age_hours:
+                continue
+            had_fresh_odds = True
+
+            odds_a = float(entry["canonical_odds_a"])
+            odds_b = float(entry["canonical_odds_b"])
+            try:
+                best = best_ev_side(prob_a, odds_a, odds_b, tax_rate=tax_rate, min_ev=min_ev)
+            except ValueError:
+                skips["invalid_entry_odds"] += 1
+                continue
+            if not best:
+                continue
+            had_positive_ev = True
+
+            closing = _latest_before(rows, match_start)
+            if not closing:
+                continue
+            had_closing = True
+            side = str(best["side"])
+            taken_odds = float(best["odds"])
+            closing_odds = float(closing["canonical_odds_a"] if side == "a" else closing["canonical_odds_b"])
+            if taken_odds <= 1.0 or closing_odds <= 1.0:
+                skips["invalid_closing_odds"] += 1
+                continue
+
+            entries.append({
+                "model_key": model_key,
+                "model_label": model_label,
+                "model_name": pred["model_name"],
+                "model_version": pred["model_version"],
+                "prediction_id": pred["prediction_id"],
+                "canonical_match_id": match_id,
+                "bookmaker_id": key[1],
+                "bookmaker_name": entry.get("bookmaker_name"),
+                "horizon_label": horizon[0],
+                "hours_start": horizon[1],
+                "hours_end": None if horizon[2] >= 9999 else horizon[2],
+                "hours_before": hours_before,
+                "entry_age_hours": entry_age_hours,
+                "side": side,
+                "taken_odds": taken_odds,
+                "closing_odds": closing_odds,
+                "ev": float(best["ev"]),
+                "model_prob": float(best["model_prob"]),
+                "market_prob": float(best["market_prob"]),
+                "clv_odds_pct": clv_odds_pct(taken_odds, closing_odds),
+                "clv_probability_pp": clv_probability_points(taken_odds, closing_odds),
+                "predicted_at": predicted_at.isoformat(),
+                "entry_scraped_at": entry["scraped_dt"].isoformat(),
+                "closing_scraped_at": closing["scraped_dt"].isoformat(),
+            })
+
+        if not had_fresh_odds:
+            skips["no_fresh_entry_odds"] += 1
+        elif not had_positive_ev:
+            skips["no_positive_ev"] += 1
+        elif not had_closing:
+            skips["no_closing_odds"] += 1
+
+    signal_bins = _aggregate_clv_entries(entries, weight="signal")
+    match_bins = _aggregate_clv_entries(entries, weight="match")
+
+    return {
+        "metadata": {
+            "max_days_back": max_days_back,
+            "max_odds_age_hours": max_odds_age_hours,
+            "tax_rate": tax_rate,
+            "min_ev": min_ev,
+            "entry_definition": "latest bookmaker odds at or before prediction time, max_age_hours constrained",
+            "closing_definition": "latest valid non-live same-bookmaker pre-match odds",
+            "clv_odds_pct_definition": "taken_odds / closing_odds - 1; positive means entry beat closing",
+        },
+        "total_predictions_scanned": len(predictions),
+        "total_entries": len(entries),
+        "models": [
+            {
+                "model_key": key,
+                "model_label": "Hybrid model" if key == "hybrid" else "Thesis model",
+                "signal_weighted_bins": [b for b in signal_bins if b["model_key"] == key],
+                "match_weighted_bins": [b for b in match_bins if b["model_key"] == key],
+            }
+            for key in ("thesis", "hybrid")
+        ],
+        "signal_weighted_bins": signal_bins,
+        "match_weighted_bins": match_bins,
+        "skips": dict(sorted(skips.items())),
+    }
+
+
+def _horizon_label(hours_before: float) -> tuple[str, int, int] | None:
+    for label, hmin, hmax in HORIZON_BIN_DEFS:
+        if hmin <= hours_before < hmax:
+            return label, hmin, hmax
+    return None
+
+
+def _latest_before(rows: list[dict[str, Any]], timestamp: datetime) -> dict[str, Any] | None:
+    latest = None
+    for row in rows:
+        if row["scraped_dt"] <= timestamp:
+            latest = row
+        else:
+            break
+    return latest
+
+
+def _mean(values: list[float]) -> float | None:
+    return round(float(np.mean(values)), 4) if values else None
+
+
+def _median(values: list[float]) -> float | None:
+    return round(float(np.median(values)), 4) if values else None
+
+
+def _aggregate_clv_entries(entries: list[dict[str, Any]], weight: str) -> list[dict[str, Any]]:
+    """Aggregate CLV entries by model/horizon.
+
+    `signal` weight uses every model/bookmaker entry. `match` weight first
+    averages all entries for the same model/horizon/match and then aggregates
+    those match-level rows, preventing matches with many bookmakers/snapshots
+    from dominating the headline result.
+    """
+    if weight not in {"signal", "match"}:
+        raise ValueError("weight must be 'signal' or 'match'")
+
+    rows: list[dict[str, Any]]
+    if weight == "signal":
+        rows = entries
+    else:
+        grouped: dict[tuple[str, str, int], list[dict[str, Any]]] = defaultdict(list)
+        for entry in entries:
+            grouped[(entry["model_key"], entry["horizon_label"], int(entry["canonical_match_id"]))].append(entry)
+        rows = []
+        for (_model_key, _label, match_id), group in grouped.items():
+            first = group[0]
+            rows.append({
+                "model_key": first["model_key"],
+                "model_label": first["model_label"],
+                "horizon_label": first["horizon_label"],
+                "hours_start": first["hours_start"],
+                "hours_end": first["hours_end"],
+                "canonical_match_id": match_id,
+                "entries": len(group),
+                "clv_odds_pct": float(np.mean([g["clv_odds_pct"] for g in group])),
+                "clv_probability_pp": float(np.mean([g["clv_probability_pp"] for g in group])),
+                "ev": float(np.mean([g["ev"] for g in group])),
+                "hours_before": float(np.mean([g["hours_before"] for g in group])),
+            })
+
+    grouped_bins: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        grouped_bins[(row["model_key"], row["horizon_label"])].append(row)
+
+    order = {label: i for i, (label, _, _) in enumerate(HORIZON_BIN_DEFS)}
+    result: list[dict[str, Any]] = []
+    for (model_key, label), group in grouped_bins.items():
+        first = group[0]
+        clv_vals = [float(g["clv_odds_pct"]) for g in group]
+        clv_pp_vals = [float(g["clv_probability_pp"]) for g in group]
+        ev_vals = [float(g["ev"]) for g in group]
+        match_ids = {int(g["canonical_match_id"]) for g in group}
+        entry_count = sum(int(g.get("entries", 1)) for g in group)
+        result.append({
+            "model_key": model_key,
+            "model_label": first["model_label"],
+            "label": label,
+            "hours_start": first["hours_start"],
+            "hours_end": first["hours_end"],
+            "entry_count": entry_count,
+            "match_count": len(match_ids),
+            "observation_count": len(group),
+            "avg_hours_before": _mean([float(g["hours_before"]) for g in group]),
+            "avg_clv_odds_pct": _mean(clv_vals),
+            "median_clv_odds_pct": _median(clv_vals),
+            "avg_clv_probability_pp": _mean(clv_pp_vals),
+            "median_clv_probability_pp": _median(clv_pp_vals),
+            "positive_clv_rate": round(sum(1 for v in clv_vals if v > 0) / len(clv_vals), 4) if clv_vals else None,
+            "avg_ev": _mean(ev_vals),
+            "weighting": weight,
+        })
+
+    return sorted(result, key=lambda b: (b["model_key"], order.get(b["label"], 999)))
+
+
+def _empty_clv_result(max_days_back: int, max_odds_age_hours: float, tax_rate: float, min_ev: float) -> dict:
+    return {
+        "metadata": {
+            "max_days_back": max_days_back,
+            "max_odds_age_hours": max_odds_age_hours,
+            "tax_rate": tax_rate,
+            "min_ev": min_ev,
+        },
+        "total_predictions_scanned": 0,
+        "total_entries": 0,
+        "models": [],
+        "signal_weighted_bins": [],
+        "match_weighted_bins": [],
+        "skips": {},
     }
 
 

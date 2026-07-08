@@ -15,6 +15,8 @@ import type {
   AliasCreateRequest,
   AliasCreateResponse,
   GolggTeamsResponse,
+  HorizonBootstrapResponse,
+  ModelClvByHorizonResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -175,6 +177,23 @@ export async function fetchHorizonAccuracy(
   return response.json();
 }
 
+export async function fetchModelClvByHorizon(
+  maxDaysBack: number = 90,
+  maxOddsAgeHours: number = 4,
+  taxRate: number = 0.12,
+  minEv: number = 0
+): Promise<ModelClvByHorizonResponse> {
+  const params = new URLSearchParams({
+    max_days_back: maxDaysBack.toString(),
+    max_odds_age_hours: maxOddsAgeHours.toString(),
+    tax_rate: taxRate.toString(),
+    min_ev: minEv.toString(),
+  });
+  const response = await fetch(`${API_BASE}/timing/model-clv-by-horizon?${params}`);
+  if (!response.ok) throw new Error(`Failed to fetch model CLV by horizon: ${response.statusText}`);
+  return response.json();
+}
+
 // ─── Alias Mapping ───────────────────────────────────────────
 
 export async function createTeamAlias(request: AliasCreateRequest): Promise<AliasCreateResponse> {
@@ -233,5 +252,13 @@ export async function searchGolggTeams(q: string = '', limit: number = 50): Prom
   const params = new URLSearchParams({ q, limit: limit.toString() });
   const response = await fetch(`${API_BASE}/matches/golgg-teams?${params}`);
   if (!response.ok) throw new Error(`Failed to search GolGG teams: ${response.statusText}`);
+  return response.json();
+}
+
+// ─── Bootstrap Analysis ────────────────────────────────────────
+
+export async function fetchHorizonBootstrap(): Promise<HorizonBootstrapResponse> {
+  const response = await fetch(`${API_BASE}/bootstrap/horizon`);
+  if (!response.ok) throw new Error(`Failed to fetch bootstrap results: ${response.statusText}`);
   return response.json();
 }

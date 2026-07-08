@@ -311,6 +311,52 @@ export interface HorizonAccuracyResponse {
   market_close_comparison: MarketCloseComparison;
 }
 
+export type ModelAnalysisKey = 'thesis' | 'hybrid';
+
+export interface ModelClvBin {
+  model_key: ModelAnalysisKey | string;
+  model_label: string;
+  label: string;
+  hours_start: number;
+  hours_end: number | null;
+  entry_count: number;
+  match_count: number;
+  observation_count: number;
+  avg_hours_before: number | null;
+  avg_clv_odds_pct: number | null;
+  median_clv_odds_pct: number | null;
+  avg_clv_probability_pp: number | null;
+  median_clv_probability_pp: number | null;
+  positive_clv_rate: number | null;
+  avg_ev: number | null;
+  weighting: 'signal' | 'match' | string;
+}
+
+export interface ModelClvModelSummary {
+  model_key: ModelAnalysisKey | string;
+  model_label: string;
+  signal_weighted_bins: ModelClvBin[];
+  match_weighted_bins: ModelClvBin[];
+}
+
+export interface ModelClvByHorizonResponse {
+  metadata: {
+    max_days_back: number;
+    max_odds_age_hours: number;
+    tax_rate: number;
+    min_ev: number;
+    entry_definition: string;
+    closing_definition: string;
+    clv_odds_pct_definition: string;
+  };
+  total_predictions_scanned: number;
+  total_entries: number;
+  models: ModelClvModelSummary[];
+  signal_weighted_bins: ModelClvBin[];
+  match_weighted_bins: ModelClvBin[];
+  skips: Record<string, number>;
+}
+
 // Prediction & EV history timeline
 export interface PredictionHistoryPoint {
   timestamp: string;
@@ -413,6 +459,49 @@ export interface GolggTeamsResponse {
   teams: string[];
 }
 
+// ─── Bootstrap Analysis Types ─────────────────────────────────────────
+
+export interface HorizonBootstrapBin {
+  model_label: string;
+  model_name: string;
+  comparison: string;
+  label: string;
+  hours_start: number | null;
+  hours_end: number | null;
+  sample_size: number | null;
+  n_blocks: number | null;
+  model_logloss: number | null;
+  benchmark_logloss: number | null;
+  observed_difference: number | null;
+  ci_low: number | null;
+  ci_high: number | null;
+  p_one_sided: number | null;
+  significant_05: boolean;
+}
+
+export interface HorizonBootstrapMonthly {
+  month: string;
+  n_snapshots: number | null;
+  n_matches: number | null;
+  model_logloss: number | null;
+  bookmaker_logloss: number | null;
+  mean_difference: number | null;
+  horizon_bin: string;
+  model_label: string;
+}
+
+export interface HorizonBootstrapResponse {
+  bins: HorizonBootstrapBin[];
+  monthly: HorizonBootstrapMonthly[];
+  last_updated: string | null;
+  plot_available: boolean;
+  match_stats: {
+    upcoming: number | null;
+    finished: number | null;
+    expired: number | null;
+  };
+}
+
 // Match mapping types
 export interface UnmappedMatchItem {
   canonical_match_id: number;
@@ -421,6 +510,7 @@ export interface UnmappedMatchItem {
   start_time_normalized: string | null;
   league: string | null;
   status: string;
+  bookmakers?: string[];
 }
 
 export interface UnmappedMatchesResponse {

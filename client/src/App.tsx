@@ -3,7 +3,7 @@ import MatchList from './pages/MatchList'
 import MatchDetail from './pages/MatchDetail'
 import MatchResults from './pages/MatchResults'
 import SystemPage from './pages/SystemPage'
-import HorizonAnalysis from './pages/HorizonAnalysis'
+import ModelAnalysis from './pages/ModelAnalysis'
 import ManualMapping from './pages/ManualMapping'
 import './App.css'
 
@@ -14,7 +14,7 @@ function Nav() {
     { to: '/', label: 'Mecze' },
     { to: '/results', label: 'Wyniki' },
     { to: '/mapping', label: 'Mapowanie' },
-    { to: '/horizon', label: 'Horizon' },
+    { to: '/horizon', label: 'Model Analysis' },
     { to: '/system', label: 'System' },
   ]
 
@@ -49,7 +49,8 @@ function App() {
           <Route path="/results" element={<MatchResults />} />
           <Route path="/mapping" element={<ManualMapping />} />
           <Route path="/system" element={<SystemPage />} />
-          <Route path="/horizon" element={<HorizonAnalysis />} />
+          <Route path="/horizon" element={<ModelAnalysis />} />
+          <Route path="/bootstrap" element={<ModelAnalysis />} />
         </Routes>
       </main>
     </BrowserRouter>
