@@ -250,7 +250,7 @@ function BootstrapChart({ bins }: { bins: HorizonBootstrapResponse['bins'] }) {
           const tone = b.significant_05 && (b.ci_low ?? 0) > 0 ? 'good' : b.significant_05 && (b.ci_high ?? 0) < 0 ? 'bad' : 'neutral'
           return (
             <div className="ma-ci-row" key={`${b.model_label}-${b.label}`}>
-              <div className="ma-ci-label"><strong>{b.label}</strong><small>n={b.sample_size}, blocks={b.n_blocks}</small></div>
+              <div className="ma-ci-label"><strong>{b.label}</strong><small>matches={b.sample_size}, monthly blocks={b.n_blocks}</small></div>
               <div className="ma-ci-track">
                 <div className="ma-ci-zero" />
                 <div className={`ma-ci-range ${tone}`} style={{ left: `${Math.min(left, right)}%`, width: `${Math.abs(right - left)}%` }} />
@@ -416,7 +416,7 @@ function ModelAnalysis() {
 
       <section className="ma-section">
         <div className="ma-section-title">
-          <div><h2>Statistical validation</h2><p>Bootstrap blokowy po miesiącach dla ΔLogLoss modelu względem benchmarku rynkowego.</p></div>
+          <div><h2>Statistical validation</h2><p>Bootstrap blokowy po miesiącach dla ΔLogLoss. Jednostka analizy to model/mecz/horyzont; wiele snapshotów w tym samym meczu jest najpierw składane do jednej obserwacji.</p></div>
         </div>
         {bootstrapBins.length ? <BootstrapChart bins={bootstrapBins} /> : <div className="ma-state">Brak wyników bootstrap dla wybranego modelu.</div>}
       </section>

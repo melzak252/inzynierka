@@ -491,6 +491,12 @@ export interface HorizonBootstrapMonthly {
 }
 
 export interface HorizonBootstrapResponse {
+  metadata?: {
+    aggregation_level?: string;
+    sample_size_definition?: string;
+    bootstrap_unit?: string;
+    snapshot_role?: string;
+  };
   bins: HorizonBootstrapBin[];
   monthly: HorizonBootstrapMonthly[];
   last_updated: string | null;
