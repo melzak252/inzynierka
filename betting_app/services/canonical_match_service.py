@@ -68,6 +68,13 @@ TEAM_ALIASES = {
     "anyones legend": "anyones legend",
     "anyone s legend": "anyones legend",
     "anyone legend": "anyones legend",
+    "we love": "wlgaming",
+    "wlgaming": "wlgaming",
+    "ucam club": "ucam",
+    "ucam ec": "ucam",
+    "ucam tokiers": "ucam",
+    "ucam": "ucam",
+    "e wie einfach": "e wie einfach e sports",
 }
 
 
@@ -157,21 +164,18 @@ def resolve_canonical_match(
     # when the scraper did not detect the format (e.g. no "liczba map" line).
     best_of_val = best_of if best_of is not None else infer_best_of(league)
 
-    # With a parsed start time we can safely reuse expired/finished rows; this
-    # prevents creating duplicate canonical rows when a bookmaker re-emits odds
-    # for a match that already moved out of `upcoming`.  Without a trustworthy
-    # time (for example a countdown label) keep the search to upcoming rows so a
-    # new feed item is not accidentally attached to an old finished match with
-    # the same teams.
+    # Search across upcoming, expired, AND finished matches when we have a
+    # trustworthy start time.  Including finished is essential: once GOL.GG
+    # marks a match finished, later bookmaker odds for the same real match
+    # must attach to the finished row, not create an expired duplicate.
+    # The time_match_score naturally rejects old finished matches (decays to
+    # 0.0 at 3+ days), and the identical-teams boost in canonical_match_score
+    # is intentionally NOT applied to finished candidates, so finished matches
+    # only match when both teams AND time are close.
+    # Without a trustworthy time restrict to upcoming rows only, so a new
+    # feed item is not accidentally attached to an old finished match.
     candidate_where = "WHERE status IN ('upcoming', 'expired', 'finished')" if start_norm else "WHERE status = 'upcoming'"
-    candidate_params: tuple[str, str] | tuple[()] = ()
-    if start_norm:
-        start_dt = parse_iso(start_norm)
-        if start_dt:
-            window_start = (start_dt - timedelta(days=2)).date().isoformat()
-            window_end = (start_dt + timedelta(days=2)).date().isoformat()
-            candidate_where += " AND (start_time_normalized IS NULL OR (LEFT(start_time_normalized, 10) >= ? AND LEFT(start_time_normalized, 10) <= ?))"
-            candidate_params = (window_start, window_end)
+    candidate_params: tuple = ()
 
     with transaction() as connection:
         candidates = connection.execute(
@@ -253,7 +257,16 @@ def canonical_match_score(
 
     time_score = time_match_score(start_norm, candidate.get("start_time_normalized"))
     league_score = league_match_score(league_norm, candidate.get("league"))
-    return 0.72 * team_score + 0.23 * time_score + 0.05 * league_score
+    score = 0.72 * team_score + 0.23 * time_score + 0.05 * league_score
+
+    # Boost: identical teams on a non-finished match means it IS the same
+    # canonical match regardless of date difference.  Prevents weekly
+    # re-scrape from creating duplicate rows (the date-window approach alone
+    # is insufficient because a 7-day gap also zeroes the time score).
+    if team_score >= 0.95 and candidate.get("status") != "finished":
+        score = max(score, 0.85)
+
+    return score
 
 
 def time_match_score(left: str | None, right: str | None) -> float:
@@ -304,7 +317,14 @@ def normalize_start_time(value: str | None) -> str | None:
     if match:
         day, month, year, hour, minute = map(int, match.groups())
         return datetime(year, month, day, hour, minute, tzinfo=UTC).isoformat()
-    today = date.today()
+    # eFortuna full-date format with day-of-week prefix, e.g. "śro., 14.06.2026, 22:00"
+    match = re.match(r"^[a-ząćęłńóśźż]{2,8}\.,\s*(\d{2})\.(\d{2})\.(\d{4}),\s*(\d{1,2}):(\d{2})$", raw, re.IGNORECASE)
+    if match:
+        day, month, year, hour, minute = map(int, match.groups())
+        return datetime(year, month, day, hour, minute, tzinfo=UTC).isoformat()
+    # Use UTC date so "dziś/dzisiaj" resolves correctly even when the
+    # scraper runs after midnight in the local timezone (CEST/UTC+2).
+    today = datetime.now(UTC).date()
     rel = re.match(r"^(?:dzi[śs]|dzisiaj)\s+(\d{1,2}):(\d{2})$", raw, re.IGNORECASE)
     if rel:
         hour, minute = map(int, rel.groups())
