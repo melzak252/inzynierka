@@ -33,6 +33,7 @@ class MatchBoardItem(BaseModel):
     team_a_mapping_source: str | None = None
     team_b_mapping_source: str | None = None
     has_unmapped_teams: bool = False
+    match_confidence: float | None = None
 
     bookmaker_count: int = 0
 
@@ -137,6 +138,8 @@ class TeamComparisonInfo(BaseModel):
 class BookmakerEvSide(BaseModel):
     ev: float | None = None
     odds: float | None = None
+    model_prob: float | None = None
+    kelly: float | None = None
 
 
 class BookmakerEvDetail(BaseModel):
@@ -165,6 +168,12 @@ class MatchResultItem(BaseModel):
     bookmakers_with_ev: list[str] = []
     best_odds_a: float | None = None
     best_odds_b: float | None = None
+    # Model probabilities (for Kelly staking)
+    model_prob_a: float | None = None
+    model_prob_b: float | None = None
+    # Kelly fractions (full Kelly, after tax)
+    kelly_a: float | None = None
+    kelly_b: float | None = None
     # Per-bookmaker EV/odds details
     bookmaker_ev_details: dict[str, BookmakerEvDetail] = {}
 

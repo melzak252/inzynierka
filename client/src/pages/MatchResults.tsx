@@ -5,7 +5,20 @@ import type { MatchResultItem } from '../types'
 import './MatchResults.css'
 
 const DAYS_OPTIONS = [7, 14, 30, 60, 90]
-const BET_SIZE = 10
+const TAX_RATE = 0.12
+const FIXED_BET_SIZE = 10
+const KELLY_BANKROLL = 1000
+const KELLY_FRACTION = 0.25 // quarter-Kelly for realistic staking
+
+type StakingMode = 'fixed' | 'kelly'
+
+/** Compute full Kelly fraction after tax (matches backend kelly_fraction). */
+function calcKelly(prob: number, odds: number): number {
+  const eff = odds * (1 - TAX_RATE)
+  const net = eff - 1
+  if (prob <= 0 || eff <= 1 || net <= 0) return 0
+  return Math.max(0, (prob * eff - 1) / net)
+}
 
 export default function MatchResults() {
   const [results, setResults] = useState<MatchResultItem[]>([])
@@ -15,6 +28,7 @@ export default function MatchResults() {
   const [total, setTotal] = useState(0)
   const [showPositiveEvOnly, setShowPositiveEvOnly] = useState(false)
   const [selectedBookmaker, setSelectedBookmaker] = useState<string | null>(null)
+  const [stakingMode, setStakingMode] = useState<StakingMode>('kelly')
 
   useEffect(() => {
     setLoading(true)
@@ -39,8 +53,13 @@ export default function MatchResults() {
     return Array.from(bookmakers).sort()
   }, [results])
 
-  // Helper: get the effective EV/odds for a match, respecting bookmaker filter
-  const getEffectiveEvOdds = (r: MatchResultItem): { evA: number; evB: number; oddsA: number | null; oddsB: number | null } => {
+  // Helper: get the effective EV/odds/kelly/prob for a match, respecting bookmaker filter
+  const getEffectiveEvOdds = (r: MatchResultItem): {
+    evA: number; evB: number;
+    oddsA: number | null; oddsB: number | null;
+    kellyA: number | null; kellyB: number | null;
+    probA: number | null; probB: number | null;
+  } => {
     if (selectedBookmaker && r.bookmaker_ev_details[selectedBookmaker]) {
       const detail = r.bookmaker_ev_details[selectedBookmaker]
       return {
@@ -48,6 +67,10 @@ export default function MatchResults() {
         evB: detail.side_b.ev ?? 0,
         oddsA: detail.side_a.odds,
         oddsB: detail.side_b.odds,
+        kellyA: detail.side_a.kelly,
+        kellyB: detail.side_b.kelly,
+        probA: detail.side_a.model_prob,
+        probB: detail.side_b.model_prob,
       }
     }
     return {
@@ -55,7 +78,22 @@ export default function MatchResults() {
       evB: r.best_ev_b ?? 0,
       oddsA: r.best_odds_a,
       oddsB: r.best_odds_b,
+      kellyA: r.kelly_a,
+      kellyB: r.kelly_b,
+      probA: r.model_prob_a,
+      probB: r.model_prob_b,
     }
+  }
+
+  // Compute Kelly stake for a bet
+  const getKellyStake = (kelly: number | null, prob: number | null, odds: number | null): number => {
+    if (stakingMode !== 'kelly') return FIXED_BET_SIZE
+    // Prefer pre-computed kelly from backend; fall back to local calc
+    const k = kelly !== null ? kelly : (prob !== null && odds !== null ? calcKelly(prob, odds) : 0)
+    if (k <= 0) return 0
+    const stake = KELLY_BANKROLL * k * KELLY_FRACTION
+    // Clamp to reasonable bounds
+    return Math.min(Math.max(stake, 0), KELLY_BANKROLL)
   }
 
   // Filter results
@@ -79,43 +117,54 @@ export default function MatchResults() {
     }).length
   }, [results, selectedBookmaker])
 
-  // Calculate P&L for +EV bets ($10 per bet) — computed from filteredResults
+  // Calculate P&L for +EV bets — fixed or Kelly staking, with 12% tax
   const pnlData = useMemo(() => {
     let totalPnl = 0
+    let totalStaked = 0
     let wins = 0
     let losses = 0
     let totalBets = 0
 
     for (const r of filteredResults) {
-      const { evA, evB, oddsA, oddsB } = getEffectiveEvOdds(r)
+      const { evA, evB, oddsA, oddsB, kellyA, kellyB, probA, probB } = getEffectiveEvOdds(r)
 
       // Side A had +EV
       if (evA > 0 && oddsA !== null) {
-        totalBets++
-        if (r.winner_side === 'team_a') {
-          totalPnl += BET_SIZE * (oddsA - 1)
-          wins++
-        } else {
-          totalPnl -= BET_SIZE
-          losses++
+        const stake = getKellyStake(kellyA, probA, oddsA)
+        if (stake > 0) {
+          totalBets++
+          totalStaked += stake
+          if (r.winner_side === 'team_a') {
+            // Win: profit = stake * (odds * (1 - tax) - 1)
+            totalPnl += stake * (oddsA * (1 - TAX_RATE) - 1)
+            wins++
+          } else {
+            totalPnl -= stake
+            losses++
+          }
         }
       }
 
       // Side B had +EV
       if (evB > 0 && oddsB !== null) {
-        totalBets++
-        if (r.winner_side === 'team_b') {
-          totalPnl += BET_SIZE * (oddsB - 1)
-          wins++
-        } else {
-          totalPnl -= BET_SIZE
-          losses++
+        const stake = getKellyStake(kellyB, probB, oddsB)
+        if (stake > 0) {
+          totalBets++
+          totalStaked += stake
+          if (r.winner_side === 'team_b') {
+            totalPnl += stake * (oddsB * (1 - TAX_RATE) - 1)
+            wins++
+          } else {
+            totalPnl -= stake
+            losses++
+          }
         }
       }
     }
 
-    return { totalPnl, wins, losses, totalBets }
-  }, [filteredResults, selectedBookmaker])
+    const roi = totalStaked > 0 ? (totalPnl / totalStaked) * 100 : 0
+    return { totalPnl, totalStaked, wins, losses, totalBets, roi }
+  }, [filteredResults, selectedBookmaker, stakingMode])
 
   // Determine EV outcome for a match: 'won' | 'lost' | null
   const getEvOutcome = (r: MatchResultItem): 'won' | 'lost' | null => {
@@ -194,6 +243,13 @@ export default function MatchResults() {
     return `${sign}$${amount.toFixed(2)}`
   }
 
+  const formatStake = (stake: number) => {
+    if (stake === 0) return '$0'
+    return `$${stake.toFixed(2)}`
+  }
+
+  const stakingLabel = stakingMode === 'kelly' ? 'Kelly' : `$${FIXED_BET_SIZE}/bet`
+
   return (
     <div className="match-results-page">
       <div className="results-header">
@@ -220,12 +276,15 @@ export default function MatchResults() {
         {/* P&L Summary Bar */}
         {pnlData.totalBets > 0 && (
           <div className={`pnl-bar ${pnlData.totalPnl >= 0 ? 'pnl-positive' : 'pnl-negative'}`}>
-            <div className="pnl-label">P&L ($10/bet)</div>
+            <div className="pnl-label">P&L ({stakingLabel})</div>
             <div className="pnl-amount">{formatPnl(pnlData.totalPnl)}</div>
             <div className="pnl-details">
               <span className="pnl-wins">✓ {pnlData.wins}</span>
               <span className="pnl-losses">✗ {pnlData.losses}</span>
               <span className="pnl-bets">{pnlData.totalBets} zakładów</span>
+              {stakingMode === 'kelly' && (
+                <span className="pnl-roi">ROI: {pnlData.roi >= 0 ? '+' : ''}{pnlData.roi.toFixed(1)}%</span>
+              )}
             </div>
           </div>
         )}
@@ -242,6 +301,26 @@ export default function MatchResults() {
                 {d}d
               </button>
             ))}
+          </div>
+          {/* Staking mode toggle */}
+          <div className="staking-toggle">
+            <span className="controls-label">Staking:</span>
+            <div className="staking-pills">
+              <button
+                className={`staking-pill${stakingMode === 'kelly' ? ' active' : ''}`}
+                onClick={() => setStakingMode('kelly')}
+                title={`¼ Kelly, bankroll $${KELLY_BANKROLL}, podatek 12%`}
+              >
+                Kelly
+              </button>
+              <button
+                className={`staking-pill${stakingMode === 'fixed' ? ' active' : ''}`}
+                onClick={() => setStakingMode('fixed')}
+                title={`Stała stawka $${FIXED_BET_SIZE}, podatek 12%`}
+              >
+                Fixed $10
+              </button>
+            </div>
           </div>
           {availableBookmakers.length > 0 && (
             <div className="bookmaker-filter">
@@ -295,6 +374,10 @@ export default function MatchResults() {
               if (evOutcome === 'won') cardEvClass = ' ev-won'
               else if (evOutcome === 'lost') cardEvClass = ' ev-lost'
 
+              const { evA, evB, oddsA, oddsB, kellyA, kellyB, probA, probB } = getEffectiveEvOdds(r)
+              const stakeA = getKellyStake(kellyA, probA, oddsA)
+              const stakeB = getKellyStake(kellyB, probB, oddsB)
+
               return (
                 <Link
                   key={r.canonical_match_id}
@@ -341,25 +424,24 @@ export default function MatchResults() {
                   {/* EV signals row */}
                   {isPositiveEv && (
                     <div className="result-ev-row">
-                      {(() => {
-                        const { evA, evB, oddsA, oddsB } = getEffectiveEvOdds(r)
-                        return (
-                          <>
-                            {evA > 0 && (
-                              <span className={`result-ev-badge ev-a${r.winner_side === 'team_a' ? ' ev-bet-won' : ' ev-bet-lost'}`}>
-                                {r.team_a_name?.split(' ').slice(-1)[0]}: {formatEv(evA)}
-                                {oddsA !== null && <span className="ev-odds">@{oddsA.toFixed(2)}</span>}
-                              </span>
-                            )}
-                            {evB > 0 && (
-                              <span className={`result-ev-badge ev-b${r.winner_side === 'team_b' ? ' ev-bet-won' : ' ev-bet-lost'}`}>
-                                {r.team_b_name?.split(' ').slice(-1)[0]}: {formatEv(evB)}
-                                {oddsB !== null && <span className="ev-odds">@{oddsB.toFixed(2)}</span>}
-                              </span>
-                            )}
-                          </>
-                        )
-                      })()}
+                      {evA > 0 && (
+                        <span className={`result-ev-badge ev-a${r.winner_side === 'team_a' ? ' ev-bet-won' : ' ev-bet-lost'}`}>
+                          {r.team_a_name?.split(' ').slice(-1)[0]}: {formatEv(evA)}
+                          {oddsA !== null && <span className="ev-odds">@{oddsA.toFixed(2)}</span>}
+                          {stakingMode === 'kelly' && stakeA > 0 && (
+                            <span className="ev-stake">{formatStake(stakeA)}</span>
+                          )}
+                        </span>
+                      )}
+                      {evB > 0 && (
+                        <span className={`result-ev-badge ev-b${r.winner_side === 'team_b' ? ' ev-bet-won' : ' ev-bet-lost'}`}>
+                          {r.team_b_name?.split(' ').slice(-1)[0]}: {formatEv(evB)}
+                          {oddsB !== null && <span className="ev-odds">@{oddsB.toFixed(2)}</span>}
+                          {stakingMode === 'kelly' && stakeB > 0 && (
+                            <span className="ev-stake">{formatStake(stakeB)}</span>
+                          )}
+                        </span>
+                      )}
                       {r.bookmakers_with_ev.length > 0 && (
                         <span className="result-ev-bookmakers">
                           {r.bookmakers_with_ev.join(', ')}

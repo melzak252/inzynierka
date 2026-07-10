@@ -80,9 +80,21 @@ def _parse_bookmaker_ev_json(raw: Any) -> dict[str, Any]:
             continue
         side_a = bk_data.get("side_a", {})
         side_b = bk_data.get("side_b", {})
+        ev_a = none_or_float(side_a.get("ev"))
+        odds_a = none_or_float(side_a.get("odds"))
+        prob_a = none_or_float(side_a.get("model_prob"))
+        ev_b = none_or_float(side_b.get("ev"))
+        odds_b = none_or_float(side_b.get("odds"))
+        prob_b = none_or_float(side_b.get("model_prob"))
         result[bk_name] = {
-            "side_a": {"ev": none_or_float(side_a.get("ev")), "odds": none_or_float(side_a.get("odds"))},
-            "side_b": {"ev": none_or_float(side_b.get("ev")), "odds": none_or_float(side_b.get("odds"))},
+            "side_a": {
+                "ev": ev_a, "odds": odds_a, "model_prob": prob_a,
+                "kelly": kelly_fraction(prob_a, odds_a) if prob_a is not None and odds_a else None,
+            },
+            "side_b": {
+                "ev": ev_b, "odds": odds_b, "model_prob": prob_b,
+                "kelly": kelly_fraction(prob_b, odds_b) if prob_b is not None and odds_b else None,
+            },
         }
     return result
 
@@ -248,9 +260,11 @@ def list_matches(
 
         team_a_name = group[0].get("team_a_name")
         team_b_name = group[0].get("team_b_name")
-        team_a_golgg, _team_a_conf, team_a_source = suggest_mapping(str(team_a_name)) if team_a_name else (None, 0.0, None)
-        team_b_golgg, _team_b_conf, team_b_source = suggest_mapping(str(team_b_name)) if team_b_name else (None, 0.0, None)
+        team_a_golgg, team_a_conf, team_a_source = suggest_mapping(str(team_a_name)) if team_a_name else (None, 0.0, None)
+        team_b_golgg, team_b_conf, team_b_source = suggest_mapping(str(team_b_name)) if team_b_name else (None, 0.0, None)
         has_unmapped_teams = not team_a_golgg or not team_b_golgg
+        # Match confidence = min of both team mapping confidences (0-1 scale)
+        match_confidence = min(team_a_conf, team_b_conf) if team_a_golgg and team_b_golgg else 0.0
 
         # Do not surface stale model probabilities/EV when either side is not
         # mapped to a GOL.GG team. Those predictions may have been computed
@@ -286,6 +300,7 @@ def list_matches(
             team_a_mapping_source=team_a_source,
             team_b_mapping_source=team_b_source,
             has_unmapped_teams=has_unmapped_teams,
+            match_confidence=round(match_confidence, 4) if match_confidence < 1.0 else None,
             bookmaker_count=books,
             best_odds_a=record["best_odds_a"],
             best_bookmaker_a=record["best_bookmaker_a"],
@@ -340,6 +355,7 @@ def list_results(
                gm.team1_score, gm.team2_score,
                ev.best_ev_a, ev.best_ev_b,
                ev.best_odds_a, ev.best_odds_b,
+               ev.best_model_prob_a, ev.best_model_prob_b,
                ev.bookmakers_with_ev,
                ev.bookmaker_ev_json
         FROM canonical_matches cm
@@ -350,14 +366,16 @@ def list_results(
                    MAX(CASE WHEN es.side = 'b' THEN es.ev END) AS best_ev_b,
                    MAX(CASE WHEN es.side = 'a' THEN es.odds END) AS best_odds_a,
                    MAX(CASE WHEN es.side = 'b' THEN es.odds END) AS best_odds_b,
+                   MAX(CASE WHEN es.side = 'a' THEN es.model_prob END) AS best_model_prob_a,
+                   MAX(CASE WHEN es.side = 'b' THEN es.model_prob END) AS best_model_prob_b,
                    array_agg(DISTINCT b.name) FILTER (WHERE es.ev > 0) AS bookmakers_with_ev,
                    COALESCE(
                        (SELECT json_object_agg(bk_name, bk_data)
                         FROM (
                             SELECT b2.name AS bk_name,
                                    jsonb_build_object(
-                                       'side_a', jsonb_build_object('ev', MAX(CASE WHEN es2.side = 'a' THEN es2.ev END), 'odds', MAX(CASE WHEN es2.side = 'a' THEN es2.odds END)),
-                                       'side_b', jsonb_build_object('ev', MAX(CASE WHEN es2.side = 'b' THEN es2.ev END), 'odds', MAX(CASE WHEN es2.side = 'b' THEN es2.odds END))
+                                       'side_a', jsonb_build_object('ev', MAX(CASE WHEN es2.side = 'a' THEN es2.ev END), 'odds', MAX(CASE WHEN es2.side = 'a' THEN es2.odds END), 'model_prob', MAX(CASE WHEN es2.side = 'a' THEN es2.model_prob END)),
+                                       'side_b', jsonb_build_object('ev', MAX(CASE WHEN es2.side = 'b' THEN es2.ev END), 'odds', MAX(CASE WHEN es2.side = 'b' THEN es2.odds END), 'model_prob', MAX(CASE WHEN es2.side = 'b' THEN es2.model_prob END))
                                    ) AS bk_data
                             FROM model_ev_signals es2
                             JOIN bookmakers b2 ON b2.id = es2.bookmaker_id
@@ -393,6 +411,11 @@ def list_results(
         else:
             bookmakers_list = []
 
+        model_prob_a = none_or_float(r.get("best_model_prob_a"))
+        model_prob_b = none_or_float(r.get("best_model_prob_b"))
+        best_odds_a = none_or_float(r.get("best_odds_a"))
+        best_odds_b = none_or_float(r.get("best_odds_b"))
+
         items.append(MatchResultItem(
             canonical_match_id=r["canonical_match_id"],
             team_a_name=r.get("team_a_name"),
@@ -410,8 +433,12 @@ def list_results(
             result_recorded_at=str(r["result_recorded_at"]) if r.get("result_recorded_at") else None,
             best_ev_a=none_or_float(r.get("best_ev_a")),
             best_ev_b=none_or_float(r.get("best_ev_b")),
-            best_odds_a=none_or_float(r.get("best_odds_a")),
-            best_odds_b=none_or_float(r.get("best_odds_b")),
+            best_odds_a=best_odds_a,
+            best_odds_b=best_odds_b,
+            model_prob_a=model_prob_a,
+            model_prob_b=model_prob_b,
+            kelly_a=kelly_fraction(model_prob_a, best_odds_a, TAX_RATE) if model_prob_a is not None and best_odds_a else None,
+            kelly_b=kelly_fraction(model_prob_b, best_odds_b, TAX_RATE) if model_prob_b is not None and best_odds_b else None,
             bookmakers_with_ev=bookmakers_list,
             bookmaker_ev_details=_parse_bookmaker_ev_json(r.get("bookmaker_ev_json")),
         ))
@@ -763,9 +790,12 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
     preds = [] if has_unmapped_teams else query_df(
         db,
         """
-        SELECT *
-        FROM canonical_predictions
-        WHERE canonical_match_id=:mid AND prediction_status='active'
+        SELECT * FROM (
+            SELECT DISTINCT ON (model_name, model_version) *
+            FROM canonical_predictions
+            WHERE canonical_match_id=:mid AND prediction_status='active'
+            ORDER BY model_name, model_version, predicted_at DESC
+        ) sub
         ORDER BY CASE WHEN model_name LIKE 'Hybrid%' THEN 0 ELSE 1 END, model_name
         """,
         {"mid": match_id},

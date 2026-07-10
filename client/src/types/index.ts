@@ -12,6 +12,7 @@ export interface MatchBoardItem {
   team_a_mapping_source: string | null;
   team_b_mapping_source: string | null;
   has_unmapped_teams: boolean;
+  match_confidence: number | null;
   bookmaker_count: number;
   best_odds_a: number | null;
   best_bookmaker_a: string | null;
@@ -398,6 +399,8 @@ export interface MatchMovementResponse {
 export interface BookmakerEvSide {
   ev: number | null;
   odds: number | null;
+  model_prob: number | null;
+  kelly: number | null;
 }
 
 export interface BookmakerEvDetail {
@@ -425,6 +428,10 @@ export interface MatchResultItem {
   bookmakers_with_ev: string[];
   best_odds_a: number | null;
   best_odds_b: number | null;
+  model_prob_a: number | null;
+  model_prob_b: number | null;
+  kelly_a: number | null;
+  kelly_b: number | null;
   bookmaker_ev_details: Record<string, BookmakerEvDetail>;
 }
 

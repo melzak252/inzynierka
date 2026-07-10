@@ -272,7 +272,7 @@ section h2 {
   background: #1a1a2e;
   border: 1px solid #2a2a4a;
   border-radius: 8px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .comparison-header {
@@ -504,7 +504,7 @@ section h2 {
   position: absolute;
   top: 100%;
   left: 0;
-  z-index: 20;
+  z-index: 1000;
   background: #1a1a2e;
   border: 1px solid #4fc3f7;
   border-radius: 6px;

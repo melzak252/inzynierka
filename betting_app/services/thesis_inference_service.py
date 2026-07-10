@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import math
 from datetime import UTC, datetime
 from math import comb
@@ -38,6 +39,9 @@ from betting_app.services.upcoming_inference_service import (
     load_w20,
     rating_probabilities,
 )
+
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -570,17 +574,13 @@ def predict_upcoming_with_thesis_model(
     results: list[dict[str, Any]] = []
 
     with transaction() as conn:
-        # Mark old predictions as stale (but keep finished matches active)
+        # Mark old predictions as stale so only the latest per match stays active
         conn.execute(
             """
             UPDATE canonical_predictions
             SET prediction_status = 'stale'
             WHERE prediction_status = 'active' 
               AND model_name = ? AND model_version = ?
-              AND canonical_match_id NOT IN (
-                SELECT id FROM canonical_matches 
-                WHERE status IN ('finished', 'completed')
-              )
             """,
             (THESIS_MODEL_NAME, THESIS_MODEL_VERSION),
         )
@@ -825,16 +825,12 @@ def generate_thesis_hybrid_predictions(
 
     results: list[dict[str, Any]] = []
     with transaction() as connection:
-        # Mark old hybrid predictions as stale (but keep finished matches active)
+        # Mark old hybrid predictions as stale so only the latest per match stays active
         connection.execute(
             """
             UPDATE canonical_predictions
             SET prediction_status = 'stale'
             WHERE prediction_status = 'active' AND model_name = ? AND model_version = ?
-              AND canonical_match_id NOT IN (
-                SELECT id FROM canonical_matches 
-                WHERE status IN ('finished', 'completed')
-              )
             """,
             (hybrid_model_name, hybrid_model_version),
         )
@@ -854,7 +850,26 @@ def generate_thesis_hybrid_predictions(
                 )
                 if aligned is None:
                     continue
-                market_a, _ = fair_market_probabilities(*aligned)
+                odds_a, odds_b = aligned
+                if odds_a is None or odds_b is None or float(odds_a) <= 1.0 or float(odds_b) <= 1.0:
+                    logger.warning(
+                        "Skipping invalid market odds for canonical_match_id=%s odds=(%s,%s)",
+                        canonical_match_id,
+                        odds_a,
+                        odds_b,
+                    )
+                    continue
+                try:
+                    market_a, _ = fair_market_probabilities(float(odds_a), float(odds_b))
+                except ValueError as exc:
+                    logger.warning(
+                        "Skipping invalid market odds for canonical_match_id=%s odds=(%s,%s): %s",
+                        canonical_match_id,
+                        odds_a,
+                        odds_b,
+                        exc,
+                    )
+                    continue
                 market_probs.append(market_a)
 
             if not market_probs:
