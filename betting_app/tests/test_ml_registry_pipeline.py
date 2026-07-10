@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import text
 
 from betting_app.core.db import get_session, init_db
 from betting_app.ml.config import BacktestConfig, StakingConfig
 from betting_app.ml.pipelines.evaluation import EvaluationPipelineConfig, run_evaluation_pipeline
+from betting_app.ml.pipelines.weekly_retrain import WeeklyRetrainConfig, run_weekly_retrain_pipeline
 from betting_app.ml.registry import (
     ModelVersionRecord,
     get_model_version,
@@ -13,6 +16,7 @@ from betting_app.ml.registry import (
     register_model_version,
 )
 from betting_app.ml.registry.gates import PromotionGateConfig, evaluate_market_baseline_gate
+from betting_app.ml.training.types import ModelCandidateSpec
 
 
 def test_model_registry_register_and_promote(client):
@@ -139,3 +143,109 @@ def test_evaluation_pipeline_logs_run_and_candidate(client):
     assert registered is not None
     assert registered["metrics"]["predictions_loaded"] == 2
     assert rows == 1
+
+
+def test_weekly_retrain_pipeline_trains_artifact_and_registers_model(client, tmp_path):
+    del client
+    init_db()
+    with get_session() as session:
+        for idx in range(8):
+            match_id = 700 + idx
+            winner_side = "team_a" if idx % 2 == 0 else "team_b"
+            session.execute(
+                text("""
+                    INSERT INTO canonical_matches (
+                        id, canonical_key, team_a_name, team_b_name,
+                        normalized_team_a, normalized_team_b,
+                        start_time_normalized, league, status, winner_side
+                    ) VALUES (
+                        :id, :canonical_key, :team_a_name, :team_b_name,
+                        :normalized_team_a, :normalized_team_b,
+                        :start_time_normalized, 'LCK', 'finished', :winner_side
+                    )
+                """),
+                {
+                    "id": match_id,
+                    "canonical_key": f"train-{match_id}",
+                    "team_a_name": f"A{idx}",
+                    "team_b_name": f"B{idx}",
+                    "normalized_team_a": f"a{idx}",
+                    "normalized_team_b": f"b{idx}",
+                    "start_time_normalized": f"2026-02-{idx + 1:02d}T12:00:00+00:00",
+                    "winner_side": winner_side,
+                },
+            )
+            target_signal = 1.0 if winner_side == "team_a" else -1.0
+            session.execute(
+                text("""
+                    INSERT INTO upcoming_match_features (
+                        canonical_match_id, feature_version, ratings_version,
+                        data_cutoff_at, team_a_golgg_name, team_b_golgg_name,
+                        feature_status, features_json
+                    ) VALUES (
+                        :canonical_match_id, 'fv-test', 'rv-test',
+                        :data_cutoff_at, :team_a_golgg_name, :team_b_golgg_name,
+                        'ready_player', :features_json
+                    )
+                """),
+                {
+                    "canonical_match_id": match_id,
+                    "data_cutoff_at": f"2026-02-{idx + 1:02d}T09:00:00+00:00",
+                    "team_a_golgg_name": f"A{idx}",
+                    "team_b_golgg_name": f"B{idx}",
+                    "features_json": json.dumps(
+                        {
+                            "ratings": {
+                                "team_a": {"elo": 1500 + target_signal * 20 + idx},
+                                "team_b": {"elo": 1500 - target_signal * 20 - idx},
+                            },
+                            "w20": {
+                                "team_a_winrate": 0.6 if winner_side == "team_a" else 0.4,
+                                "team_b_winrate": 0.4 if winner_side == "team_a" else 0.6,
+                            },
+                            "ignored_roster_list": ["x", "y"],
+                        }
+                    ),
+                },
+            )
+        session.commit()
+
+        result = run_weekly_retrain_pipeline(
+            WeeklyRetrainConfig(
+                model_name="WeeklyTestModel",
+                model_version="weekly-test-v1",
+                feature_version="fv-test",
+                ratings_version="rv-test",
+                min_features=2,
+                min_train_size=4,
+                test_size=2,
+                step_size=2,
+                artifact_root=str(tmp_path),
+                status_on_success="shadow",
+            ),
+            candidate_specs=[
+                ModelCandidateSpec(
+                    name="logreg_test",
+                    estimator_type="logistic_regression",
+                    params={"C": 1.0, "max_iter": 200},
+                )
+            ],
+            session=session,
+        )
+        registered = get_model_version("WeeklyTestModel", "weekly-test-v1", session=session)
+        run_count = session.execute(
+            text("SELECT COUNT(*) FROM ml_evaluation_runs WHERE model_name = 'WeeklyTestModel'")
+        ).scalar_one()
+
+    assert result.dataset_size == 8
+    assert result.feature_count >= 4
+    assert result.best_evaluation.candidate.name == "logreg_test"
+    assert result.artifact.artifact_path.endswith("model.joblib")
+    assert result.artifact.metadata_path.endswith("metadata.json")
+    assert (tmp_path / "WeeklyTestModel" / "weekly-test-v1" / "model.joblib").exists()
+    assert (tmp_path / "WeeklyTestModel" / "weekly-test-v1" / "metadata.json").exists()
+    assert registered is not None
+    assert registered["status"] == "shadow"
+    assert registered["metrics"]["dataset_size"] == 8
+    assert registered["metrics"]["best_candidate"]["candidate_name"] == "logreg_test"
+    assert run_count == 1

@@ -25,6 +25,10 @@ Current first slice:
 - `registry`: lightweight model-version and evaluation-run registry tables,
 - `registry.gates`: promotion gates for candidate/shadow models,
 - `pipelines.evaluation`: Docker/Kedro-friendly historical evaluation pipeline,
+- `training`: feature loading, candidate models, walk-forward validation and
+  artifact saving for regular retraining,
+- `pipelines.weekly_retrain`: weekly retraining runner that selects the best
+  candidate and registers it as candidate/shadow,
 - `metrics`: probability and betting summary metrics.
 
 CLI example:
@@ -51,6 +55,29 @@ python -m betting_app.ml.pipelines.evaluate_existing_model \
   --staking fractional_kelly \
   --json
 ```
+
+Weekly retraining example:
+
+```bash
+python -m betting_app.ml.pipelines.weekly_retrain_cli \
+  --model-name Operational-Retrained-Tabular \
+  --model-version weekly-test \
+  --min-train-size 40 \
+  --test-size 20 \
+  --step-size 20 \
+  --status-on-success shadow \
+  --json
+```
+
+The retraining pipeline:
+
+1. loads finished matches with stored `upcoming_match_features.features_json`,
+2. flattens stable numeric feature paths into a tabular dataset,
+3. evaluates candidate sklearn models with expanding walk-forward validation,
+4. selects the best candidate by LogLoss/Brier/accuracy,
+5. trains the winner on the full dataset,
+6. saves `model.joblib` and `metadata.json`,
+7. registers the model version and evaluation run in the ML registry.
 
 The pipeline:
 
@@ -87,11 +114,10 @@ Default anti-leakage assumptions:
 
 Next production slices should add:
 
-1. artifact metadata and trained-model storage,
-2. weekly retraining runner with walk-forward validation,
-3. shadow predictions for candidate models,
-4. production promotion workflow,
-5. API/UI reports for historical model-vs-bookmaker performance.
+1. shadow predictions for candidate models,
+2. production promotion workflow,
+3. API/UI reports for historical model-vs-bookmaker performance,
+4. optional Kedro project wrapper around these plain-Python nodes.
 
 Design rule: add new production abstractions here first, then gradually make old
 services delegate to them. Do not break scheduler/API flows while migrating.
