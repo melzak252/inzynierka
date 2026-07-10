@@ -77,6 +77,17 @@ def register_all_tasks():
         description="Run full prediction pipeline",
         enabled=True
     ))
+
+
+    # Shadow ML inference - after the main prediction pipeline
+    registry.register(TaskDefinition(
+        id="shadow_ml_inference",
+        name="Shadow ML Inference",
+        func=ml.run_shadow_inference,
+        cron_trigger="20 */2 * * *",  # At minute 20, every 2nd hour
+        description="Run registered shadow ML models without replacing production predictions",
+        enabled=True
+    ))
     
     # Maintenance tasks (heavy cycle) - every 6 hours
     registry.register(TaskDefinition(

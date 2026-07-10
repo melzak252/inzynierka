@@ -6,6 +6,7 @@ from sqlalchemy import text
 
 from betting_app.core.db import get_session, init_db
 from betting_app.ml.config import BacktestConfig, StakingConfig
+from betting_app.ml.inference import run_registry_shadow_inference
 from betting_app.ml.pipelines.evaluation import EvaluationPipelineConfig, run_evaluation_pipeline
 from betting_app.ml.pipelines.weekly_retrain import WeeklyRetrainConfig, run_weekly_retrain_pipeline
 from betting_app.ml.registry import (
@@ -16,7 +17,8 @@ from betting_app.ml.registry import (
     register_model_version,
 )
 from betting_app.ml.registry.gates import PromotionGateConfig, evaluate_market_baseline_gate
-from betting_app.ml.training.types import ModelCandidateSpec
+from betting_app.ml.training.artifacts import train_and_save_model
+from betting_app.ml.training.types import ModelCandidateSpec, TrainingDataset, TrainingExample
 
 
 def test_model_registry_register_and_promote(client):
@@ -273,3 +275,89 @@ def test_weekly_retrain_pipeline_trains_artifact_and_registers_model(client, tmp
     assert registered["metrics"]["dataset_hash"] == result.artifact.metrics["dataset_hash"]
     assert registered["metrics"]["best_candidate"]["candidate_name"] == "logreg_test"
     assert run_count == 1
+
+
+def test_shadow_inference_writes_active_canonical_predictions(client, tmp_path):
+    del client
+    init_db()
+    dataset = TrainingDataset(
+        examples=[
+            TrainingExample(1, "2026-03-01T12:00:00+00:00", 1, {"rating_diff": 20.0, "winrate_diff": 0.2}),
+            TrainingExample(2, "2026-03-02T12:00:00+00:00", 0, {"rating_diff": -20.0, "winrate_diff": -0.2}),
+            TrainingExample(3, "2026-03-03T12:00:00+00:00", 1, {"rating_diff": 30.0, "winrate_diff": 0.3}),
+            TrainingExample(4, "2026-03-04T12:00:00+00:00", 0, {"rating_diff": -30.0, "winrate_diff": -0.3}),
+        ],
+        feature_names=["rating_diff", "winrate_diff"],
+    )
+    artifact = train_and_save_model(
+        dataset,
+        ModelCandidateSpec(
+            name="shadow_logreg",
+            estimator_type="logistic_regression",
+            params={"C": 1.0, "max_iter": 200},
+        ),
+        model_name="ShadowInferenceModel",
+        model_version="shadow-v1",
+        metrics={"mean_log_loss": 0.5},
+        artifact_root=tmp_path,
+    )
+
+    with get_session() as session:
+        register_model_version(
+            ModelVersionRecord(
+                model_name="ShadowInferenceModel",
+                model_version="shadow-v1",
+                status="shadow",
+                artifact_path=artifact.artifact_path,
+                feature_version="fv-shadow",
+                metrics={"mean_log_loss": 0.5},
+            ),
+            session=session,
+        )
+        session.execute(text("""
+            INSERT INTO canonical_matches (
+                id, canonical_key, team_a_name, team_b_name,
+                normalized_team_a, normalized_team_b,
+                start_time_normalized, league, status
+            ) VALUES (
+                900, 'shadow-900', 'A', 'B', 'a', 'b',
+                '2026-04-01T12:00:00+00:00', 'LCK', 'upcoming'
+            )
+        """))
+        session.execute(text("""
+            INSERT INTO upcoming_match_features (
+                canonical_match_id, feature_version, ratings_version,
+                data_cutoff_at, team_a_golgg_name, team_b_golgg_name,
+                feature_status, features_json
+            ) VALUES (
+                900, 'fv-shadow', 'rv-shadow', '2026-04-01T09:00:00+00:00',
+                'A', 'B', 'ready_player', :features_json
+            )
+        """), {
+            "features_json": json.dumps({"rating_diff": 25.0, "winrate_diff": 0.25, "ignored": [1, 2, 3]})
+        })
+        session.commit()
+
+        result = run_registry_shadow_inference(model_name="ShadowInferenceModel", session=session)
+        row = session.execute(text("""
+            SELECT canonical_match_id, model_name, model_version, prob_a, prob_b,
+                   prediction_status, features_version, ratings_version, diagnostics_json
+            FROM canonical_predictions
+            WHERE canonical_match_id = 900
+        """)).mappings().one()
+
+    assert result.models_seen == 1
+    assert result.models_loaded == 1
+    assert result.feature_rows_seen == 1
+    assert result.predictions_written == 1
+    assert row["model_name"] == "ShadowInferenceModel"
+    assert row["model_version"] == "shadow-v1"
+    assert row["prediction_status"] == "active"
+    assert row["features_version"] == "fv-shadow"
+    assert row["ratings_version"] == "rv-shadow"
+    assert 0.0 < float(row["prob_a"]) < 1.0
+    assert abs(float(row["prob_a"]) + float(row["prob_b"]) - 1.0) < 1e-6
+    diagnostics = json.loads(row["diagnostics_json"])
+    assert diagnostics["source"] == "ml_registry"
+    assert diagnostics["registry_status"] == "shadow"
+    assert diagnostics["feature_count"] == 2
