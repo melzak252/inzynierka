@@ -22,6 +22,9 @@ Current first slice:
 - `backtesting.odds_selection`: decides **when** a simulated bet would have been
   placed from available snapshots,
 - `backtesting.staking`: fixed / bankroll-percent / fractional Kelly stake sizing,
+- `registry`: lightweight model-version and evaluation-run registry tables,
+- `registry.gates`: promotion gates for candidate/shadow models,
+- `pipelines.evaluation`: Docker/Kedro-friendly historical evaluation pipeline,
 - `metrics`: probability and betting summary metrics.
 
 CLI example:
@@ -36,6 +39,36 @@ python -m betting_app.ml.backtesting.cli \
   --staking fractional_kelly \
   --json
 ```
+
+Pipeline example with registry logging:
+
+```bash
+python -m betting_app.ml.pipelines.evaluate_existing_model \
+  --model-name 'Sym-Cal LR-ElasticNet-W20-Binomial' \
+  --model-version exp-039 \
+  --days-back 365 \
+  --min-ev 0.0 \
+  --staking fractional_kelly \
+  --json
+```
+
+The pipeline:
+
+1. loads finished match labels,
+2. loads historical predictions,
+3. loads historical bookmaker odds,
+4. runs the betting backtest,
+5. compares model probability metrics against no-vig market probabilities,
+6. evaluates promotion gates,
+7. writes `ml_model_versions` and `ml_evaluation_runs` records.
+
+This is intentionally plain Python, so the same code can run as:
+
+- a Docker command,
+- a scheduler task,
+- a cron job,
+- future Kedro nodes/pipelines,
+- future CI/CD model evaluation job.
 
 The backtest output includes betting metrics (`bets`, `total_staked`, `roi`,
 `hit_rate`, `max_drawdown`) and model-vs-market probability metrics
@@ -54,10 +87,10 @@ Default anti-leakage assumptions:
 
 Next production slices should add:
 
-1. model registry tables and artifact metadata,
+1. artifact metadata and trained-model storage,
 2. weekly retraining runner with walk-forward validation,
 3. shadow predictions for candidate models,
-4. promotion gates comparing candidate vs production and market baselines,
+4. production promotion workflow,
 5. API/UI reports for historical model-vs-bookmaker performance.
 
 Design rule: add new production abstractions here first, then gradually make old
