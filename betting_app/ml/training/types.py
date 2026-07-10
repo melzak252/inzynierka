@@ -58,5 +58,8 @@ class TrainedModelArtifact:
     model_version: str
     artifact_path: str
     metadata_path: str
+    dataset_path: str
+    feature_names_path: str
+    dataset_metadata_path: str
     feature_names: list[str]
     metrics: dict[str, Any]

@@ -76,8 +76,23 @@ The retraining pipeline:
 3. evaluates candidate sklearn models with expanding walk-forward validation,
 4. selects the best candidate by LogLoss/Brier/accuracy,
 5. trains the winner on the full dataset,
-6. saves `model.joblib` and `metadata.json`,
+6. saves `model.joblib`, `metadata.json` and immutable dataset snapshots,
 7. registers the model version and evaluation run in the ML registry.
+
+Each retrained model artifact directory contains:
+
+```text
+model.joblib             # trained estimator + feature order
+metadata.json            # model, candidate, metrics and dataset references
+train_dataset.jsonl      # exact materialized training rows used by the model
+feature_names.json       # exact feature order/schema
+dataset_metadata.json    # row count, feature count, dataset_hash, format
+```
+
+`dataset_hash` is computed from the materialized training rows and feature
+values, not just source ids. This gives us reproducibility now and a clean path
+to DVC later: DVC can track these artifact directories without changing the
+training code.
 
 The pipeline:
 

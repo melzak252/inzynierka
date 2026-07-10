@@ -6,8 +6,6 @@ Docker today and later wrapped as Kedro nodes without changing the core logic.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from betting_app.core.db import get_session
 from betting_app.ml.registry.repository import EvaluationRunRecord, ModelVersionRecord, record_evaluation_run, register_model_version
-from betting_app.ml.training.artifacts import DEFAULT_ARTIFACT_ROOT, train_and_save_model
+from betting_app.ml.training.artifacts import DEFAULT_ARTIFACT_ROOT, compute_training_dataset_hash, train_and_save_model
 from betting_app.ml.training.candidates import default_candidate_specs
 from betting_app.ml.training.features import load_training_dataset
 from betting_app.ml.training.types import CandidateEvaluation, ModelCandidateSpec, TrainedModelArtifact
@@ -53,11 +51,6 @@ class WeeklyRetrainResult:
 
 def _default_model_version() -> str:
     return datetime.now(UTC).strftime("weekly-%Y%m%d-%H%M%S")
-
-
-def _dataset_hash(example_ids: list[int], feature_names: list[str]) -> str:
-    payload = json.dumps({"example_ids": example_ids, "feature_names": feature_names}, sort_keys=True)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _evaluation_to_metrics(evaluation: CandidateEvaluation) -> dict[str, Any]:
@@ -109,7 +102,7 @@ def run_weekly_retrain_pipeline(
         metrics: dict[str, Any] = {
             "dataset_size": dataset.size,
             "feature_count": len(dataset.feature_names),
-            "dataset_hash": _dataset_hash([ex.canonical_match_id for ex in dataset.examples], dataset.feature_names),
+            "dataset_hash": compute_training_dataset_hash(dataset, dataset.feature_names),
             "best_candidate": _evaluation_to_metrics(best),
             "candidates": [_evaluation_to_metrics(ev) for ev in evaluations],
         }
@@ -122,6 +115,7 @@ def run_weekly_retrain_pipeline(
             metrics=metrics,
             artifact_root=Path(cfg.artifact_root),
         )
+        metrics = artifact.metrics
 
         if cfg.register_model:
             register_model_version(

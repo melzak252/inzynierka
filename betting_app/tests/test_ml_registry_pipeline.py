@@ -242,10 +242,34 @@ def test_weekly_retrain_pipeline_trains_artifact_and_registers_model(client, tmp
     assert result.best_evaluation.candidate.name == "logreg_test"
     assert result.artifact.artifact_path.endswith("model.joblib")
     assert result.artifact.metadata_path.endswith("metadata.json")
+    assert result.artifact.dataset_path.endswith("train_dataset.jsonl")
+    assert result.artifact.feature_names_path.endswith("feature_names.json")
+    assert result.artifact.dataset_metadata_path.endswith("dataset_metadata.json")
     assert (tmp_path / "WeeklyTestModel" / "weekly-test-v1" / "model.joblib").exists()
     assert (tmp_path / "WeeklyTestModel" / "weekly-test-v1" / "metadata.json").exists()
+    dataset_path = tmp_path / "WeeklyTestModel" / "weekly-test-v1" / "train_dataset.jsonl"
+    feature_names_path = tmp_path / "WeeklyTestModel" / "weekly-test-v1" / "feature_names.json"
+    dataset_metadata_path = tmp_path / "WeeklyTestModel" / "weekly-test-v1" / "dataset_metadata.json"
+    assert dataset_path.exists()
+    assert feature_names_path.exists()
+    assert dataset_metadata_path.exists()
+    dataset_rows = [json.loads(line) for line in dataset_path.read_text(encoding="utf-8").splitlines()]
+    dataset_metadata = json.loads(dataset_metadata_path.read_text(encoding="utf-8"))
+    feature_names = json.loads(feature_names_path.read_text(encoding="utf-8"))
+    model_metadata = json.loads((tmp_path / "WeeklyTestModel" / "weekly-test-v1" / "metadata.json").read_text(encoding="utf-8"))
+    assert len(dataset_rows) == 8
+    assert dataset_rows[0]["canonical_match_id"] == 700
+    assert "ratings.team_a.elo" in dataset_rows[0]["features"]
+    assert "ignored_roster_list" not in dataset_rows[0]["features"]
+    assert len(feature_names) == result.feature_count
+    assert dataset_metadata["rows"] == 8
+    assert dataset_metadata["feature_count"] == result.feature_count
+    assert dataset_metadata["dataset_hash"] == result.artifact.metrics["dataset_hash"]
+    assert model_metadata["dataset_hash"] == result.artifact.metrics["dataset_hash"]
+    assert model_metadata["dataset_path"] == result.artifact.dataset_path
     assert registered is not None
     assert registered["status"] == "shadow"
     assert registered["metrics"]["dataset_size"] == 8
+    assert registered["metrics"]["dataset_hash"] == result.artifact.metrics["dataset_hash"]
     assert registered["metrics"]["best_candidate"]["candidate_name"] == "logreg_test"
     assert run_count == 1
