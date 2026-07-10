@@ -53,7 +53,7 @@ registry = TaskRegistry()
 
 def register_all_tasks():
     """Register all tasks in the system."""
-    from .tasks import scrape, predict, maintenance
+    from .tasks import scrape, predict, maintenance, ml
     
     # Scrape tasks - run at :55 every 2 hours (e.g., 9:55, 11:55, 13:55...)
     # Most matches start at full hours, so this captures odds close to start time
@@ -103,6 +103,16 @@ def register_all_tasks():
         func=maintenance.rebuild_rolling_features,
         interval_minutes=360,  # Every 6 hours
         description="Rebuild W20 rolling features",
+        enabled=True
+    ))
+
+    # Weekly ML retraining - Sunday early morning UTC
+    registry.register(TaskDefinition(
+        id="weekly_ml_retraining",
+        name="Weekly ML Retraining",
+        func=ml.run_weekly_retraining,
+        cron_trigger="30 3 * * 0",  # Sunday 03:30 UTC
+        description="Train/evaluate/register shadow ML model candidate",
         enabled=True
     ))
     
