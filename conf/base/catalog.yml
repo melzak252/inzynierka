@@ -1,0 +1,2 @@
+# Minimal catalog — pipelines use DB sessions directly, not Kedro DataSets.
+# This file exists so Kedro doesn't warn about a missing catalog.

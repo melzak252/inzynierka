@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
+    PYTHONPATH=/app:/app/src \
     PIP_NO_CACHE_DIR=1 \
     BETTING_APP_DB=/app/data/betting_app.sqlite3 \
     BETTING_APP_DEBUG_DIR=/app/data/betting_scraper_debug \
@@ -10,14 +10,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Pin Chromium to 147 — version 150.0.7871.46 has a known SIGTRAP crash
-# (Debian bug #1141488). Remove pin once the fix is released.
-RUN echo 'Package: chromium chromium-common\nPin: version 147*\nPin-Priority: 1001' \
-        > /etc/apt/preferences.d/chromium-pin \
-    && apt-get update \
+# Chromium for headless scraping. Version pin removed — the pinned 147
+# was stale and removed from Debian repos. If a SIGTRAP crash reappears
+# (Debian bug #1141488), re-pin to a known-good version.
+RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        chromium=147.0.7727.137-1~deb13u1 \
-        chromium-common=147.0.7727.137-1~deb13u1 \
+        chromium \
         ca-certificates \
         fonts-liberation \
         libasound2 \
