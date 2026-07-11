@@ -259,11 +259,12 @@ def canonical_match_score(
     league_score = league_match_score(league_norm, candidate.get("league"))
     score = 0.72 * team_score + 0.23 * time_score + 0.05 * league_score
 
-    # Boost: identical teams on a non-finished match means it IS the same
-    # canonical match regardless of date difference.  Prevents weekly
-    # re-scrape from creating duplicate rows (the date-window approach alone
-    # is insufficient because a 7-day gap also zeroes the time score).
-    if team_score >= 0.95 and candidate.get("status") != "finished":
+    # Boost: identical teams on an *upcoming* match means it IS the same
+    # canonical match even when bookmaker start labels move a bit.  Do not
+    # apply this to expired/finished rows: repeated fixtures with the same two
+    # teams would otherwise be attached to an old expired canonical match when
+    # the date/time is different (e.g. next-day rematches/tournament series).
+    if team_score >= 0.95 and candidate.get("status") == "upcoming":
         score = max(score, 0.85)
 
     return score
