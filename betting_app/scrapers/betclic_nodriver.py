@@ -22,10 +22,10 @@ SCRAPER_VERSION = "betclic-nodriver-0.1"
 
 
 BETCLIC_LOL_COMPETITION_URLS = [
+    "https://www.betclic.pl/lol-slol/msi-c21940",
     "https://www.betclic.pl/lol-slol/esports-world-cup-c35516",
     "https://www.betclic.pl/lol-slol/lck-c23480",
     "https://www.betclic.pl/lol-slol/liga-regional-norte-c40600",
-    "https://www.betclic.pl/lol-slol/msi-c21940",
 ]
 
 
