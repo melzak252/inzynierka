@@ -1,4 +1,4 @@
-from betting_app.services.canonical_match_service import canonical_match_score
+from betting_app.services.canonical_match_service import canonical_match_score, normalize_start_time
 
 
 def _candidate(status: str, start_time: str) -> dict[str, str]:
@@ -33,3 +33,7 @@ def test_identical_upcoming_match_keeps_unstable_label_boost() -> None:
     )
 
     assert score >= 0.85
+
+
+def test_polish_month_label_without_year_is_normalized() -> None:
+    assert normalize_start_time("Śr 15. Lip, 11:20") == "2026-07-15T11:20:00+00:00"

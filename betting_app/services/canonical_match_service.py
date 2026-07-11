@@ -323,6 +323,39 @@ def normalize_start_time(value: str | None) -> str | None:
     if match:
         day, month, year, hour, minute = map(int, match.groups())
         return datetime(year, month, day, hour, minute, tzinfo=UTC).isoformat()
+    # Polish bookmaker labels without year, e.g. "Śr 15. Lip, 11:20".
+    # Treat the date as the next occurrence in UTC year-space. This keeps
+    # future listings visible while avoiding stale rows around year rollover.
+    polish_months = {
+        "sty": 1,
+        "lut": 2,
+        "mar": 3,
+        "kwi": 4,
+        "maj": 5,
+        "cze": 6,
+        "lip": 7,
+        "sie": 8,
+        "wrz": 9,
+        "paź": 10,
+        "paz": 10,
+        "lis": 11,
+        "gru": 12,
+    }
+    match = re.match(
+        r"^[a-ząćęłńóśźż]{2,8}\s+(\d{1,2})\.\s*([a-ząćęłńóśźż]{3}),\s*(\d{1,2}):(\d{2})$",
+        raw,
+        re.IGNORECASE,
+    )
+    if match:
+        today = datetime.now(UTC).date()
+        day_s, month_s, hour_s, minute_s = match.groups()
+        month = polish_months.get(month_s.lower())
+        if month:
+            year = today.year
+            candidate = datetime(year, month, int(day_s), int(hour_s), int(minute_s), tzinfo=UTC)
+            if candidate.date() < today:
+                candidate = datetime(year + 1, month, int(day_s), int(hour_s), int(minute_s), tzinfo=UTC)
+            return candidate.isoformat()
     # Use UTC date so "dziś/dzisiaj" resolves correctly even when the
     # scraper runs after midnight in the local timezone (CEST/UTC+2).
     today = datetime.now(UTC).date()
