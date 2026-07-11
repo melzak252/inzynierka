@@ -64,3 +64,39 @@ def run_shadow_inference() -> dict:
         "duration_s": duration,
         "timestamp": start.isoformat(),
     }
+
+
+def run_thesis_model_healthcheck() -> dict:
+    """Run a read-only rolling evaluation of the current thesis model.
+
+    The healthcheck intentionally uses ``--no-register``: it should verify
+    recent model-vs-market quality and emit logs, not create/promote model
+    versions.  This gives the scheduler a lightweight recurring guardrail for
+    the production model without affecting inference state.
+    """
+    logger.info("Starting thesis model healthcheck")
+    start = datetime.utcnow()
+
+    success = _run_module(
+        "betting_app.ml.pipelines.evaluate_existing_model",
+        args=[
+            "--model-name",
+            "Sym-Cal LR-ElasticNet-W20-Binomial",
+            "--model-version",
+            "exp-039",
+            "--days-back",
+            "90",
+            "--no-register",
+            "--json",
+        ],
+        timeout=900,
+    )
+
+    duration = (datetime.utcnow() - start).total_seconds()
+    logger.info(f"Thesis model healthcheck: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+
+    return {
+        "success": success,
+        "duration_s": duration,
+        "timestamp": start.isoformat(),
+    }

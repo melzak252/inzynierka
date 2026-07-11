@@ -125,6 +125,16 @@ def register_all_tasks():
         description="Train/evaluate/register shadow ML model candidate",
         enabled=True
     ))
+
+    # Production model healthcheck - once per day after the heavy maintenance cycle
+    registry.register(TaskDefinition(
+        id="thesis_model_healthcheck",
+        name="Thesis Model Healthcheck",
+        func=ml.run_thesis_model_healthcheck,
+        cron_trigger="45 4 * * *",  # Daily 04:45 UTC
+        description="Read-only 90-day evaluation of the current thesis model vs market",
+        enabled=True
+    ))
     
     # Backfill expired matches to GOL.GG - once per day
     registry.register(TaskDefinition(

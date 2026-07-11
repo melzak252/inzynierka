@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from betting_app.core.db import query_df, transaction
+from betting_app.core.db import is_pg, query_df, transaction
 from betting_app.core.matching import normalize_team_name
 from betting_app.services.canonical_match_service import (
     is_countdown_start_label,
@@ -256,7 +256,56 @@ def insert_odds_snapshot(snapshot: dict[str, Any]) -> int:
     if raw_payload is not None and not isinstance(raw_payload, str):
         raw_payload = json.dumps(raw_payload, ensure_ascii=False)
 
+    params = (
+        bookmaker_id,
+        match_id,
+        canonical_match_id,
+        scraped_at,
+        snapshot.get("source_url"),
+        snapshot.get("offer_url"),
+        snapshot["raw_team_a"],
+        snapshot["raw_team_b"],
+        float(snapshot["odds_a"]),
+        float(snapshot["odds_b"]),
+        snapshot.get("market_type", "match_winner"),
+        int(bool(snapshot.get("is_live", False))),
+        raw_payload,
+    )
+
     with transaction() as connection:
+        if is_pg():
+            # Production odds_snapshots is a Timescale hypertable with a partial
+            # unique index:
+            #   idx_odds_unique_snapshot
+            #   (canonical_match_id, bookmaker_id, scraped_at)
+            #   WHERE market_type = 'match_winner'
+            # Scrapers can legitimately emit the same bookmaker/match/scrape
+            # timestamp twice in one run (observed for STS).  Treat that as an
+            # idempotent upsert instead of failing the whole scrape cycle.
+            row = connection.execute(
+                """
+                INSERT INTO odds_snapshots(
+                    bookmaker_id, match_id, canonical_match_id, scraped_at, source_url, offer_url,
+                    raw_team_a, raw_team_b, odds_a, odds_b, market_type, is_live, raw_payload
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (canonical_match_id, bookmaker_id, scraped_at)
+                    WHERE market_type = 'match_winner'
+                DO UPDATE SET
+                    match_id = EXCLUDED.match_id,
+                    source_url = EXCLUDED.source_url,
+                    offer_url = EXCLUDED.offer_url,
+                    raw_team_a = EXCLUDED.raw_team_a,
+                    raw_team_b = EXCLUDED.raw_team_b,
+                    odds_a = EXCLUDED.odds_a,
+                    odds_b = EXCLUDED.odds_b,
+                    is_live = EXCLUDED.is_live,
+                    raw_payload = EXCLUDED.raw_payload
+                RETURNING id
+                """,
+                params,
+            ).fetchone()
+            return int(row["id"]) if row else 0
+
         cursor = connection.execute(
             """
             INSERT INTO odds_snapshots(
@@ -264,21 +313,7 @@ def insert_odds_snapshot(snapshot: dict[str, Any]) -> int:
                 raw_team_a, raw_team_b, odds_a, odds_b, market_type, is_live, raw_payload
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                bookmaker_id,
-                match_id,
-                canonical_match_id,
-                scraped_at,
-                snapshot.get("source_url"),
-                snapshot.get("offer_url"),
-                snapshot["raw_team_a"],
-                snapshot["raw_team_b"],
-                float(snapshot["odds_a"]),
-                float(snapshot["odds_b"]),
-                snapshot.get("market_type", "match_winner"),
-                int(bool(snapshot.get("is_live", False))),
-                raw_payload,
-            ),
+            params,
         )
         row_id = cursor.lastrowid
         return int(row_id) if row_id is not None else 0
