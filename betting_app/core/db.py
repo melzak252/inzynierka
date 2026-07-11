@@ -232,6 +232,7 @@ class _ConnectionWrapper:
     
     def executemany(self, sql: str, params_seq: list[tuple | list | dict]) -> None:
         """Execute SQL for a sequence of parameter sets, converting ? to :named."""
+        print(f"DEBUG: _ConnectionWrapper.executemany called. Instance: {id(self)}, Class: {id(self.__class__)}, File: {__file__}")
         if not params_seq:
             return
         # Convert ? to :named once

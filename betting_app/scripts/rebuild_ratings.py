@@ -34,6 +34,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from betting_app.core.db import connect, init_db, transaction  # noqa: E402
+import betting_app.core.db
+print(f"DEBUG: betting_app.core.db file: {betting_app.core.db.__file__}")
+print(f"DEBUG: _ConnectionWrapper has executemany: {hasattr(betting_app.core.db._ConnectionWrapper, 'executemany')}")
 from betting_app.core.matching import normalize_team_name  # noqa: E402
 from src.ratings.manager import RatingManager  # noqa: E402
 from glicko2 import Player as GlickoPlayer  # noqa: E402
@@ -264,6 +267,7 @@ def rebuild_ratings(version: str, run_id: int, limit: int | None = None, until_d
 
     manager = RatingManager(RATING_SYSTEM_PARAMS)
     matches = load_matches(limit=limit, until_date=until_date)
+
     team_names: dict[str, str] = {}
     player_names: dict[str, str] = {}
     player_teams: dict[str, str] = {}
@@ -273,7 +277,7 @@ def rebuild_ratings(version: str, run_id: int, limit: int | None = None, until_d
     player_last_match: dict[str, str] = {}
     games_processed = 0
 
-    for match in tqdm(matches, desc="Rebuilding ratings"):
+    for match in matches:
         if not match.players1 or not match.players2 or not match.games:
             continue
         team_names[match.team1_id] = match.team1_name

@@ -90,6 +90,50 @@ def expire_stale_matches(stale_seen_hours: int = 6) -> dict:
     return {"success": success, "duration_s": duration}
 
 
+def backfill_expired_matches() -> dict:
+    """Map expired canonical matches to existing GOL.GG results.
+
+    Runs backfill_finished_expired_matches() from refresh_golgg_direct,
+    which finds completed, not-yet-mapped GOL.GG matches in the date range
+    covered by currently expired canonical matches, maps them, and marks
+    matched canonical rows as `finished` with winners.
+    """
+    logger.info("Starting expired match backfill to GOL.GG")
+    start = datetime.utcnow()
+
+    success = _run_module(
+        "betting_app.scripts.refresh_golgg_direct",
+        args=["--backfill-finished"],
+        timeout=600,
+    )
+    duration = (datetime.utcnow() - start).total_seconds()
+
+    logger.info(f"Expired match backfill: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+
+    return {"success": success, "duration_s": duration}
+
+
+def run_horizon_bootstrap() -> dict:
+    """Run the monthly block bootstrap analysis for prediction horizons.
+
+    Runs horizon_block_bootstrap.py which compares Thesis and Hybrid models
+    vs Bookmaker across 6 time horizons using 10,000 monthly block resamples.
+    Results are cached to /app/docs/assets/horizon_block_bootstrap/.
+    """
+    logger.info("Starting horizon bootstrap analysis")
+    start = datetime.utcnow()
+
+    success = _run_module(
+        "betting_app.scripts.horizon_block_bootstrap",
+        timeout=600,
+    )
+    duration = (datetime.utcnow() - start).total_seconds()
+
+    logger.info(f"Horizon bootstrap: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+
+    return {"success": success, "duration_s": duration}
+
+
 def run_heavy_cycle() -> dict:
     """Run the full heavy maintenance cycle:
     1. Refresh GolGG

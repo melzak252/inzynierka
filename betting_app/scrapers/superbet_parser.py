@@ -107,7 +107,9 @@ def parse_superbet_lol_body_text(text: str) -> list[ParsedSuperbetOffer]:
 def looks_like_league_heading(line: str, lines: list[str], index: int) -> bool:
     """Heuristic for league headers in the Superbet listing."""
 
-    if not re.match(r"^[A-Z0-9 .'-]{2,40}$", line):
+    if len(line) < 2 or len(line) > 60:
+        return False
+    if not re.match(r"^[A-Za-z0-9ąćęłńóśźżĄĆĘŁŃÓŚŹŻ .&'\-]+$", line):
         return False
     if index + 1 >= len(lines):
         return False

@@ -8,8 +8,12 @@ import signal
 import sys
 import os
 import traceback
+import betting_app.core.db
 from concurrent.futures import ThreadPoolExecutor as _TPE, Future
 from functools import wraps
+
+logger = logging.getLogger(__name__)
+logger.info(f"DEBUG: betting_app.core.db file: {betting_app.core.db.__file__}")
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
@@ -34,6 +38,8 @@ def execute_task(task_id: str, *args, **kwargs):
     in the registry and wraps its execution with automation_runs tracking.
     """
     from .registry import registry
+    import betting_app.core.db
+    logger.info(f"DEBUG: _ConnectionWrapper dir: {dir(betting_app.core.db._ConnectionWrapper)}")
     task = registry.get(task_id)
     if not task:
         logger.error(f"Task {task_id} not found in registry")
@@ -180,6 +186,13 @@ def main():
     
     # Schedule tasks
     schedule_tasks(scheduler)
+    
+    # DEBUG: Trigger rebuild_ratings immediately
+    logger.info("DEBUG: Manually triggering rebuild_ratings for investigation")
+    try:
+        execute_task("rebuild_ratings")
+    except Exception as e:
+        logger.error(f"DEBUG: Manual trigger failed: {e}")
     
     # Graceful shutdown
     def shutdown(signum, frame):

@@ -31,7 +31,7 @@ class NoDriverClient:
             raise RuntimeError("NoDriver is not installed. Install it with: pip install nodriver") from exc
 
         self.debug_dir.mkdir(parents=True, exist_ok=True)
-        self.browser = await uc.start(headless=self.headless)
+        self.browser = await uc.start(headless=self.headless, sandbox=False)
         return self
 
     async def __aexit__(self, exc_type: object, exc: BaseException | None, traceback: object) -> None:

@@ -111,6 +111,11 @@ export default function MatchList() {
             >
               <div className="match-header">
                 <span className="league">{m.league || 'Nieznana liga'}</span>
+                {m.match_confidence !== null && m.match_confidence < 1.0 && (
+                  <span className="confidence-badge" title={`Pewność mapowania: ${(m.match_confidence * 100).toFixed(0)}%`}>
+                    🎯 {(m.match_confidence * 100).toFixed(0)}%
+                  </span>
+                )}
                 {m.has_unmapped_teams && (
                   <span className="mapping-warning-badge" title={`Brak mapowania: ${unmappedTeams}. Kliknij mecz i dodaj alias.`}>
                     ⚠️ Dodaj mapowanie

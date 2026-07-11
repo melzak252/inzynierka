@@ -87,6 +87,13 @@ BOOKMAKER_TO_GOLGG_ALIASES = {
     "top": "Top Esports",
     "vitality": "Team Vitality",
     "we": "Weibo Gaming",
+    "we love": "WLGaming Esports",
+    "wlgaming": "WLGaming Esports",
+    "ucam club": "UCAM Esports",
+    "ucam ec": "UCAM Esports",
+    "ucam tokiers": "UCAM Esports",
+    "ucam": "UCAM Esports",
+    "e wie einfach": "E WIE EINFACH E-SPORTS",
 }
 
 

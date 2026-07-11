@@ -7,8 +7,10 @@ was created with the odds attached to it.  This script finds those safe
 duplicates and repoints all FK references from the expired row to the
 finished target, then deletes the expired row.
 
-Matching: fuzzy team-name similarity + date proximity (±3 days).
-Safe threshold: team_score >= 0.92 and overall score >= 0.85.
+Matching: fuzzy team-name similarity with alias normalization + date proximity (±3 days).
+Safe threshold: team_score >= 0.80 and overall score >= 0.78.
+High-confidence: team_score >= 0.92 (auto-merge).
+Medium-confidence: team_score >= 0.80 (merge with warning).
 
 Usage:
     python -m betting_app.scripts.merge_expired_duplicates --dry-run
@@ -165,7 +167,7 @@ def find_duplicates() -> list[dict]:
                 best_id = int(fin["id"])
                 best_team = ts
 
-        if best_id is not None and best_team >= 0.92 and best_score >= 0.82:
+        if best_id is not None and best_team >= 0.80 and best_score >= 0.78:
             # Count references
             refs = {}
             for table in FK_TABLES:

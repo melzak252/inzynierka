@@ -78,7 +78,6 @@ def register_all_tasks():
         enabled=True
     ))
 
-
     # Shadow ML inference - after the main prediction pipeline
     registry.register(TaskDefinition(
         id="shadow_ml_inference",
@@ -127,6 +126,16 @@ def register_all_tasks():
         enabled=True
     ))
     
+    # Backfill expired matches to GOL.GG - once per day
+    registry.register(TaskDefinition(
+        id="backfill_expired_matches",
+        name="Backfill Expired Matches to GOL.GG",
+        func=maintenance.backfill_expired_matches,
+        interval_minutes=1440,  # Every 24 hours
+        description="Map expired canonical matches to existing GOL.GG results",
+        enabled=True
+    ))
+    
     # Expire old matches - every 2 hours, 5 min after scraping
     registry.register(TaskDefinition(
         id="expire_matches",
@@ -138,6 +147,16 @@ def register_all_tasks():
         enabled=True
     ))
     
+    # Horizon bootstrap analysis - once per day
+    registry.register(TaskDefinition(
+        id="horizon_bootstrap",
+        name="Horizon Bootstrap Analysis",
+        func=maintenance.run_horizon_bootstrap,
+        interval_minutes=1440,  # Every 24 hours
+        description="Run monthly block bootstrap analysis comparing models vs bookmaker per horizon bin",
+        enabled=True
+    ))
+
     # Expire stale-seen matches - every hour
     # Catches cancelled/postponed matches that disappeared from scrapers
     registry.register(TaskDefinition(

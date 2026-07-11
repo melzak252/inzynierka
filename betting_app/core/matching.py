@@ -9,6 +9,111 @@ from difflib import SequenceMatcher
 
 STOP_WORDS = {"esports", "esport", "gaming", "team", "lol", "leagueoflegends"}
 
+# Known alias mappings: bookmaker name -> canonical short form.
+# Applied after stop-word removal to collapse common name variants.
+ALIASES: dict[str, str] = {
+    # German Prime League abbreviations
+    "e wie einfach": "ewieeinfach",
+    "e wie einfach e sports": "ewieeinfach",
+    "ewieeinfach e sports": "ewieeinfach",
+    "unicorns of love sexy edition": "unicornsoflovese",
+    "unicorns of love se": "unicornsoflovese",
+    "uol sexy edition": "unicornsoflovese",
+    "kaufland hangry knights": "hangryknights",
+    "hangry knights": "hangryknights",
+    "eintracht frankfurt": "frankfurt",
+    "frankfurt": "frankfurt",
+    "vfb esports": "vfbesports",
+    "vfb esport": "vfbesports",
+    "vfbesports": "vfbesports",
+    "teamorangegaming": "teamorangegaming",
+    "team orange gaming": "teamorangegaming",
+    "big": "big",
+    "berlin international gaming": "big",
+    "schalke 04": "schalke04",
+    "schalke04 evolution": "schalke04",
+    "fc schalke 04": "schalke04",
+    # LCK / LCK CL
+    "t1": "t1",
+    "skt t1": "t1",
+    "sktelecom t1": "t1",
+    "dwg kia": "damwonkia",
+    "damwon kia": "damwonkia",
+    "dplus kia": "damwonkia",
+    "dplus": "damwonkia",
+    "hanwha life esport": "hanwhalife",
+    "hanwha life esports": "hanwhalife",
+    "hanwha life": "hanwhalife",
+    "liiv sandbox": "liivsandbox",
+    "sandbox": "liivsandbox",
+    "kt rolster": "ktrolster",
+    "kt": "ktrolster",
+    "gen g": "geng",
+    "geng": "geng",
+    "generation gaming": "geng",
+    # Common suffix/prefix variants
+    "secret whales": "secretwhales",
+    "team secret whales": "secretwhales",
+    "top esport": "topesports",
+    "top esports": "topesports",
+    "bilibili gaming": "bilibiligaming",
+    "bilibili": "bilibiligaming",
+    "team we": "we",
+    "we": "we",
+    "world elite": "we",
+    "sdm tigres": "sdmtigres",
+    "sdm": "sdmtigres",
+    "lyon academy": "lyonacademy",
+    "lyon": "lyonacademy",
+    "mcon": "mcon",
+    "mcon esports": "mcon",
+    "the bandits": "thebandits",
+    "bandits": "thebandits",
+    "deep cross gaming": "deepcrossgaming",
+    "deep cross": "deepcrossgaming",
+    "misfits gaming": "misfits",
+    "misfits": "misfits",
+    "g2 esports": "g2",
+    "g2": "g2",
+    "g2 nord": "g2nord",
+    "g2nord": "g2nord",
+    # Additional common LoL orgs
+    "fnatic": "fnatic",
+    "fnc": "fnatic",
+    "cloud9": "cloud9",
+    "c9": "cloud9",
+    "team liquid": "teamliquid",
+    "teamliquid": "teamliquid",
+    "tl": "teamliquid",
+    "100 thieves": "100thieves",
+    "100t": "100thieves",
+    "evil geniuses": "evilgeniuses",
+    "eg": "evilgeniuses",
+    "flyquest": "flyquest",
+    "fly quest": "flyquest",
+    "dignitas": "dignitas",
+    "dig": "dignitas",
+    "immortals": "immortals",
+    "imt": "immortals",
+    "nrg": "nrg",
+    "nrg esports": "nrg",
+    "team orangegaming": "teamorangegaming",
+}
+
+
+def _apply_aliases(tokens: list[str]) -> list[str]:
+    """Collapse known alias variants to a single canonical form."""
+    joined = " ".join(tokens)
+    if joined in ALIASES:
+        return ALIASES[joined].split()
+    # Try progressively shorter prefixes
+    for length in range(len(tokens), 0, -1):
+        sub = " ".join(tokens[:length])
+        if sub in ALIASES:
+            rest = tokens[length:]
+            return ALIASES[sub].split() + rest
+    return tokens
+
 
 def normalize_team_name(name: str) -> str:
     """Normalize a bookmaker/GOL.GG team name for matching."""
@@ -17,6 +122,7 @@ def normalize_team_name(name: str) -> str:
     ascii_name = ascii_name.lower()
     ascii_name = re.sub(r"[^a-z0-9]+", " ", ascii_name)
     tokens = [token for token in ascii_name.split() if token and token not in STOP_WORDS]
+    tokens = _apply_aliases(tokens)
     return " ".join(tokens).strip()
 
 
