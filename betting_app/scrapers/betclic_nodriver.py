@@ -21,6 +21,14 @@ from betting_app.scrapers.nodriver_client import NoDriverClient
 SCRAPER_VERSION = "betclic-nodriver-0.1"
 
 
+BETCLIC_LOL_COMPETITION_URLS = [
+    "https://www.betclic.pl/lol-slol/esports-world-cup-c35516",
+    "https://www.betclic.pl/lol-slol/lck-c23480",
+    "https://www.betclic.pl/lol-slol/liga-regional-norte-c40600",
+    "https://www.betclic.pl/lol-slol/msi-c21940",
+]
+
+
 class BetclicNoDriverScraper:
     """NoDriver-based scraper for Betclic League of Legends match-winner markets."""
 
@@ -29,35 +37,46 @@ class BetclicNoDriverScraper:
     def __init__(self, start_url: str = BETCLIC_LOL_URL, headless: bool | None = None) -> None:
         self.start_url = start_url
         self.headless = headless
+        if start_url.rstrip("/") == BETCLIC_LOL_URL.rstrip("/"):
+            self.start_urls = [BETCLIC_LOL_URL, *BETCLIC_LOL_COMPETITION_URLS]
+        else:
+            self.start_urls = [start_url]
 
     async def scrape_upcoming_matches(self) -> list[RawOddsSnapshot]:
         """Open Betclic and return normalized LoL odds snapshots."""
 
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        snapshots: list[RawOddsSnapshot] = []
+        debug_paths: list[str] = []
         async with NoDriverClient(headless=self.headless) as client:
-            tab = await client.open(self.start_url)
-            await self.wait_for_render(tab)
-            await self.accept_cookies(tab)
-            await client.scroll_to_bottom(tab, step=500, pause=0.8, passes=2)
-            await self.wait_for_render(tab, seconds=3.0)
-            html_path, screenshot_path = await client.save_debug_artifacts(tab, f"betclic_{timestamp}")
-            body_text = await self.extract_body_text(tab)
-            body_path = client.debug_dir / f"betclic_{timestamp}_body.txt"
-            body_path.write_text(body_text, encoding="utf-8")
-            cards = await self.extract_match_cards(tab, body_text=body_text)
-            event_links = await self.extract_event_links(tab)
-            if not event_links and html_path:
-                event_links = self.extract_event_links_from_html(Path(html_path))
-            cards = self.attach_offer_links(cards, event_links)
-            snapshots = [
-                snapshot
-                for card in cards
-                if (snapshot := self.parse_match_card(card, html_path or str(body_path), screenshot_path))
-            ]
+            for index, url in enumerate(dict.fromkeys(self.start_urls)):
+                tab = await client.open(url)
+                await self.wait_for_render(tab)
+                await self.accept_cookies(tab)
+                await client.scroll_to_bottom(tab, step=500, pause=0.8, passes=2)
+                await self.wait_for_render(tab, seconds=3.0)
+                debug_prefix = f"betclic_{timestamp}_{index}"
+                html_path, screenshot_path = await client.save_debug_artifacts(tab, debug_prefix)
+                body_text = await self.extract_body_text(tab)
+                body_path = client.debug_dir / f"{debug_prefix}_body.txt"
+                body_path.write_text(body_text, encoding="utf-8")
+                debug_paths.append(str(body_path))
+                cards = await self.extract_match_cards(tab, body_text=body_text)
+                event_links = await self.extract_event_links(tab)
+                if not event_links and html_path:
+                    event_links = self.extract_event_links_from_html(Path(html_path))
+                cards = self.attach_offer_links(cards, event_links)
+                snapshots.extend(
+                    snapshot
+                    for card in cards
+                    if (snapshot := self.parse_match_card(card, html_path or str(body_path), screenshot_path, url))
+                )
+
+        snapshots = self.deduplicate_snapshots(snapshots)
 
         print(
-            f"Betclic scraper captured {len(snapshots)} snapshots. "
-            f"Debug html={html_path}, body={body_path}, screenshot={screenshot_path}"
+            f"Betclic scraper captured {len(snapshots)} snapshots from {len(self.start_urls)} pages. "
+            f"Debug bodies={debug_paths}"
         )
         return snapshots
 
@@ -166,16 +185,18 @@ class BetclicNoDriverScraper:
         card: ParsedBetclicOffer,
         html_path: str | None = None,
         screenshot_path: str | None = None,
+        source_page_url: str | None = None,
     ) -> RawOddsSnapshot | None:
         """Parse one Betclic match card into the common snapshot format."""
 
         start_label = " ".join(part for part in [card.date_label, card.start_time_label] if part) or None
         offer_url = card.source_url if card.source_url != BETCLIC_LOL_URL else None
+        source_url = source_page_url or self.start_url
         raw_payload = {
             "bookmaker_event_id": card.bookmaker_event_id,
             "market_count_label": card.market_count_label,
             "raw_text": card.raw_text,
-            "source_url": self.start_url,
+            "source_url": source_url,
             "offer_url": offer_url,
         }
         return RawOddsSnapshot(
@@ -187,7 +208,7 @@ class BetclicNoDriverScraper:
             scraped_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
             raw_league=card.league,
             match_start_time=start_label,
-            source_url=self.start_url,
+            source_url=source_url,
             offer_url=offer_url,
             market_type="match_winner",
             is_live=False,
@@ -197,6 +218,27 @@ class BetclicNoDriverScraper:
             page_html_path=str(html_path) if html_path else None,
             screenshot_path=str(screenshot_path) if screenshot_path else None,
         )
+
+    @staticmethod
+    def deduplicate_snapshots(snapshots: list[RawOddsSnapshot]) -> list[RawOddsSnapshot]:
+        """Remove duplicates when the same event appears on aggregate and competition pages."""
+
+        deduped: list[RawOddsSnapshot] = []
+        seen: set[tuple[str, str, str | None, float, float, str | None]] = set()
+        for snapshot in snapshots:
+            key = (
+                snapshot.raw_team_a,
+                snapshot.raw_team_b,
+                snapshot.match_start_time,
+                snapshot.odds_a,
+                snapshot.odds_b,
+                snapshot.offer_url,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(snapshot)
+        return deduped
 
 
 def compact_text(value: str) -> str:
