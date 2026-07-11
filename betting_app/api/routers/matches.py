@@ -487,11 +487,26 @@ def list_unmapped_matches(
             bks = [b.strip() for b in bks.strip("{}").split(",") if b.strip()]
         elif bks is None:
             bks = []
+
+        team_a_golgg, team_a_confidence, team_a_source = suggest_mapping(r["team_a_name"])
+        team_b_golgg, team_b_confidence, team_b_source = suggest_mapping(r["team_b_name"])
         
         items.append(UnmappedMatchItem(
             canonical_match_id=r["canonical_match_id"],
             team_a_name=r["team_a_name"],
             team_b_name=r["team_b_name"],
+            team_a_mapping={
+                "canonical_name": r["team_a_name"],
+                "golgg_name": team_a_golgg,
+                "confidence": team_a_confidence,
+                "source": team_a_source,
+            },
+            team_b_mapping={
+                "canonical_name": r["team_b_name"],
+                "golgg_name": team_b_golgg,
+                "confidence": team_b_confidence,
+                "source": team_b_source,
+            },
             league=r.get("league"),
             start_time_normalized=r.get("start_time_normalized"),
             status=r["status"],

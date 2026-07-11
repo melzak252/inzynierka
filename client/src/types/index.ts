@@ -520,6 +520,8 @@ export interface UnmappedMatchItem {
   canonical_match_id: number;
   team_a_name: string;
   team_b_name: string;
+  team_a_mapping?: TeamMappingInfo | null;
+  team_b_mapping?: TeamMappingInfo | null;
   start_time_normalized: string | null;
   league: string | null;
   status: string;

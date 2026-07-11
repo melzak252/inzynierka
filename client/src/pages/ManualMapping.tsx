@@ -53,6 +53,42 @@ const formatDate = (iso: string | null) => {
   });
 };
 
+const isTeamMapped = (mapping: UnmappedMatchItem['team_a_mapping']) => Boolean(mapping?.golgg_name);
+
+const needsTeamAttention = (mapping: UnmappedMatchItem['team_a_mapping']) => !isTeamMapped(mapping);
+
+const getInitialAliasSide = (match: UnmappedMatchItem): AliasSide => (
+  needsTeamAttention(match.team_a_mapping) ? 'a' : needsTeamAttention(match.team_b_mapping) ? 'b' : 'a'
+);
+
+const mappingBadge = (mapping: UnmappedMatchItem['team_a_mapping']) => {
+  if (mapping?.golgg_name) {
+    return {
+      className: 'mapped',
+      label: `OK → ${mapping.golgg_name}`,
+    };
+  }
+  if (mapping?.source === 'blocked') {
+    return {
+      className: 'blocked',
+      label: 'Zablokowane / brak mapowania',
+    };
+  }
+  return {
+    className: 'missing',
+    label: 'Brak aliasu',
+  };
+};
+
+const matchDiagnosis = (match: UnmappedMatchItem) => {
+  const teamAMissing = needsTeamAttention(match.team_a_mapping);
+  const teamBMissing = needsTeamAttention(match.team_b_mapping);
+  if (teamAMissing && teamBMissing) return 'Brakuje mapowania obu drużyn';
+  if (teamAMissing) return `Brakuje mapowania: ${match.team_a_name}`;
+  if (teamBMissing) return `Brakuje mapowania: ${match.team_b_name}`;
+  return 'Drużyny są rozpoznane — brakuje tylko mapowania meczu do GOL.GG';
+};
+
 export default function ManualMapping() {
   const [unmappedMatches, setUnmappedMatches] = useState<UnmappedMatchItem[]>([]);
   const [selectedMatch, setSelectedMatch] = useState<UnmappedMatchItem | null>(null);
@@ -140,7 +176,7 @@ export default function ManualMapping() {
 
   const handleSelectMatch = async (match: UnmappedMatchItem) => {
     setSelectedMatch(match);
-    setAliasSide('a');
+    setAliasSide(getInitialAliasSide(match));
     setCandidates([]);
     setManualId('');
     setCheckResult(null);
@@ -317,6 +353,15 @@ export default function ManualMapping() {
                     <span className="match-time">{formatDate(m.start_time_normalized)}</span>
                   </div>
                   <div className="match-teams">{m.team_a_name} vs {m.team_b_name}</div>
+                  <div className="match-diagnosis">{matchDiagnosis(m)}</div>
+                  <div className="team-map-badges">
+                    <span className={`team-map-badge ${mappingBadge(m.team_a_mapping).className}`}>
+                      A: {mappingBadge(m.team_a_mapping).label}
+                    </span>
+                    <span className={`team-map-badge ${mappingBadge(m.team_b_mapping).className}`}>
+                      B: {mappingBadge(m.team_b_mapping).label}
+                    </span>
+                  </div>
                   <div className="match-league">{m.league || 'Nieznana liga'}</div>
                   {m.bookmakers && m.bookmakers.length > 0 && (
                     <div className="match-sources">Bukmacherzy: {m.bookmakers.join(', ')}</div>
@@ -339,6 +384,7 @@ export default function ManualMapping() {
                   <span className="match-id">#{selectedMatch.canonical_match_id}</span>
                   <h2>{selectedMatch.team_a_name} vs {selectedMatch.team_b_name}</h2>
                   <p>{formatDateTime(selectedMatch.start_time_normalized)} · {selectedMatch.league || 'Nieznana liga'}</p>
+                  <p className="selected-diagnosis">{matchDiagnosis(selectedMatch)}</p>
                 </div>
                 <a href={`/matches/${selectedMatch.canonical_match_id}`} className="detail-link">
                   Szczegóły meczu →
@@ -355,10 +401,16 @@ export default function ManualMapping() {
 
                 <div className="side-picker">
                   <button className={aliasSide === 'a' ? 'active' : ''} onClick={() => setAliasSide('a')} type="button">
-                    {selectedMatch.team_a_name}
+                    <span>{selectedMatch.team_a_name}</span>
+                    <small className={`team-map-badge ${mappingBadge(selectedMatch.team_a_mapping).className}`}>
+                      {mappingBadge(selectedMatch.team_a_mapping).label}
+                    </small>
                   </button>
                   <button className={aliasSide === 'b' ? 'active' : ''} onClick={() => setAliasSide('b')} type="button">
-                    {selectedMatch.team_b_name}
+                    <span>{selectedMatch.team_b_name}</span>
+                    <small className={`team-map-badge ${mappingBadge(selectedMatch.team_b_mapping).className}`}>
+                      {mappingBadge(selectedMatch.team_b_mapping).label}
+                    </small>
                   </button>
                 </div>
 

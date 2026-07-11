@@ -205,6 +205,50 @@
   margin: 4px 0;
 }
 
+.match-diagnosis,
+.selected-diagnosis {
+  color: #ffd54f;
+  font-size: 0.9em;
+  margin: 6px 0;
+}
+
+.team-map-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 6px;
+}
+
+.team-map-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  border-radius: 999px;
+  border: 1px solid #555;
+  padding: 3px 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.team-map-badge.mapped {
+  background: #1b3b24;
+  border-color: #4caf50;
+  color: #a5d6a7;
+}
+
+.team-map-badge.missing {
+  background: #3b2f16;
+  border-color: #ffb300;
+  color: #ffe082;
+}
+
+.team-map-badge.blocked {
+  background: #3b1f1f;
+  border-color: #ef5350;
+  color: #ffcdd2;
+}
+
 .match-league,
 .candidate-result {
   font-size: 0.92em;
@@ -236,6 +280,11 @@
 .selected-match-info p {
   margin: 0;
   color: #aaa;
+}
+
+.selected-match-info .selected-diagnosis {
+  margin-top: 8px;
+  color: #ffd54f;
 }
 
 .detail-link {
@@ -279,6 +328,11 @@
   background: #2c2c2c;
   padding: 10px 12px;
   font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  align-items: flex-start;
+  text-align: left;
 }
 
 .field-label {

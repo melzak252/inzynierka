@@ -412,6 +412,8 @@ class UnmappedMatchItem(BaseModel):
     canonical_match_id: int
     team_a_name: str
     team_b_name: str
+    team_a_mapping: TeamMappingInfo | None = None
+    team_b_mapping: TeamMappingInfo | None = None
     start_time_normalized: str | None = None
     league: str | None = None
     status: str
