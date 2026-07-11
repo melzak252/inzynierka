@@ -34,9 +34,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from betting_app.core.db import connect, init_db, transaction  # noqa: E402
-import betting_app.core.db
-print(f"DEBUG: betting_app.core.db file: {betting_app.core.db.__file__}")
-print(f"DEBUG: _ConnectionWrapper has executemany: {hasattr(betting_app.core.db._ConnectionWrapper, 'executemany')}")
 from betting_app.core.matching import normalize_team_name  # noqa: E402
 from src.ratings.manager import RatingManager  # noqa: E402
 from glicko2 import Player as GlickoPlayer  # noqa: E402

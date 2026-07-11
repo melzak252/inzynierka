@@ -132,10 +132,16 @@ def _seed_bookmakers() -> None:
 
 
 def dispose_engine() -> None:
-    """Release engine resources (call at process exit if needed)."""
-    global _sync_engine, _SyncSession
+    """Release engine resources and force DATABASE_URL to be re-read.
+
+    Tests switch DATABASE_URL between temporary databases.  Keeping the cached
+    URL after disposing the engine can make the next session point at a stale
+    SQLite file, which then looks like an empty database ("no such table").
+    """
+    global _DATABASE_URL, _sync_engine, _SyncSession
     if _sync_engine:
         _sync_engine.dispose()
+    _DATABASE_URL = None
     _sync_engine = None
     _SyncSession = None
 
@@ -232,7 +238,6 @@ class _ConnectionWrapper:
     
     def executemany(self, sql: str, params_seq: list[tuple | list | dict]) -> None:
         """Execute SQL for a sequence of parameter sets, converting ? to :named."""
-        print(f"DEBUG: _ConnectionWrapper.executemany called. Instance: {id(self)}, Class: {id(self.__class__)}, File: {__file__}")
         if not params_seq:
             return
         # Convert ? to :named once

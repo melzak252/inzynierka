@@ -6,6 +6,7 @@ Docker today and later wrapped as Kedro nodes without changing the core logic.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +37,9 @@ class WeeklyRetrainConfig:
     artifact_root: str = str(DEFAULT_ARTIFACT_ROOT)
     register_model: bool = True
     status_on_success: str = "candidate"
+    min_shadow_dataset_size: int = 0
+    max_shadow_log_loss: float = 1.0
+    min_shadow_accuracy: float = 0.0
     run_type: str = "weekly_retrain"
 
 
@@ -47,6 +51,34 @@ class WeeklyRetrainResult:
     evaluation_run_id: str
     dataset_size: int
     feature_count: int
+    registered_status: str
+
+
+def _shadow_quality_gate(metrics: dict[str, Any], cfg: WeeklyRetrainConfig) -> tuple[bool, list[str]]:
+    """Conservative guardrail before a weekly retrain becomes a shadow model.
+
+    Shadow models are picked up by scheduled inference.  A weak retrain should
+    still be saved and registered for inspection, but only as ``candidate`` so
+    it cannot pollute shadow predictions.
+    """
+    failures: list[str] = []
+    dataset_size = int(metrics.get("dataset_size") or 0)
+    best = metrics.get("best_candidate") or {}
+    mean_log_loss = best.get("mean_log_loss")
+    mean_accuracy = best.get("mean_accuracy")
+
+    if dataset_size < cfg.min_shadow_dataset_size:
+        failures.append(f"dataset_size {dataset_size} < {cfg.min_shadow_dataset_size}")
+    if mean_log_loss is None:
+        failures.append("mean_log_loss missing")
+    elif float(mean_log_loss) > cfg.max_shadow_log_loss:
+        failures.append(f"mean_log_loss {mean_log_loss} > {cfg.max_shadow_log_loss}")
+    if mean_accuracy is None:
+        failures.append("mean_accuracy missing")
+    elif float(mean_accuracy) < cfg.min_shadow_accuracy:
+        failures.append(f"mean_accuracy {mean_accuracy} < {cfg.min_shadow_accuracy}")
+
+    return not failures, failures
 
 
 def _default_model_version() -> str:
@@ -116,18 +148,44 @@ def run_weekly_retrain_pipeline(
             artifact_root=Path(cfg.artifact_root),
         )
         metrics = artifact.metrics
+        requested_status = cfg.status_on_success
+        registered_status = requested_status
+        gate_reasons: list[str] = []
+        if requested_status == "shadow":
+            gate_passed, gate_reasons = _shadow_quality_gate(metrics, cfg)
+            registered_status = "shadow" if gate_passed else "candidate"
+            metrics["shadow_quality_gate"] = {
+                "passed": gate_passed,
+                "requested_status": requested_status,
+                "registered_status": registered_status,
+                "reasons": gate_reasons,
+                "thresholds": {
+                    "min_shadow_dataset_size": cfg.min_shadow_dataset_size,
+                    "max_shadow_log_loss": cfg.max_shadow_log_loss,
+                    "min_shadow_accuracy": cfg.min_shadow_accuracy,
+                },
+            }
+            metadata_path = Path(artifact.metadata_path)
+            if metadata_path.exists():
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                metadata["metrics"] = metrics
+                metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
 
         if cfg.register_model:
             register_model_version(
                 ModelVersionRecord(
                     model_name=cfg.model_name,
                     model_version=model_version,
-                    status=cfg.status_on_success,
+                    status=registered_status,
                     artifact_path=artifact.artifact_path,
                     feature_version=cfg.feature_version,
                     dataset_hash=str(metrics["dataset_hash"]),
                     metrics=metrics,
-                    notes="Auto-registered by weekly retraining pipeline",
+                    notes=(
+                        "Auto-registered by weekly retraining pipeline"
+                        if not gate_reasons
+                        else "Auto-registered as candidate; shadow quality gate failed: " + "; ".join(gate_reasons)
+                    ),
                 ),
                 session=sess,
             )
@@ -151,6 +209,7 @@ def run_weekly_retrain_pipeline(
             evaluation_run_id=run.id,
             dataset_size=dataset.size,
             feature_count=len(dataset.feature_names),
+            registered_status=registered_status,
         )
     finally:
         if own_session:

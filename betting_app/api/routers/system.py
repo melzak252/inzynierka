@@ -80,7 +80,7 @@ def list_bookmakers(db=Depends(get_db)):
         db,
         """
         SELECT b.id, b.name, b.base_url,
-               MAX(os.scraped_at)::text AS last_scraped_at,
+               MAX(os.scraped_at) AS last_scraped_at,
                COUNT(*) AS snapshot_count
         FROM bookmakers b
         LEFT JOIN odds_snapshots os ON os.bookmaker_id=b.id

@@ -47,13 +47,14 @@ def create_wallet(
     opening_balance: float = 100.0,
     db=Depends(get_db),
 ):
+    now = datetime.now(UTC).isoformat(timespec="seconds")
     try:
         db.execute(
             text("""
             INSERT INTO bookmaker_accounts (bookmaker_id, account_name, currency, opening_balance, current_balance, is_active, created_at, updated_at)
-            VALUES (:bid, :name, 'PLN', :bal, :bal, 1, NOW(), NOW())
+            VALUES (:bid, :name, 'PLN', :bal, :bal, 1, :now, :now)
             """),
-            {"bid": bookmaker_id, "name": account_name, "bal": opening_balance},
+            {"bid": bookmaker_id, "name": account_name, "bal": opening_balance, "now": now},
         )
         db.commit()
         # fetch the inserted row
@@ -61,7 +62,8 @@ def create_wallet(
             db,
             "SELECT ba.*, b.name AS bookmaker_name FROM bookmaker_accounts ba "
             "LEFT JOIN bookmakers b ON b.id=ba.bookmaker_id "
-            "WHERE ba.account_name=:name AND ba.bookmaker_id IS NOT DISTINCT FROM :bid "
+            "WHERE ba.account_name=:name "
+            "AND (ba.bookmaker_id=:bid OR (ba.bookmaker_id IS NULL AND :bid IS NULL)) "
             "ORDER BY ba.id DESC LIMIT 1",
             {"name": account_name, "bid": bookmaker_id},
         )

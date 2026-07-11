@@ -23,6 +23,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--step-size", type=int)
     parser.add_argument("--artifact-root", default="betting_app/models/ml")
     parser.add_argument("--status-on-success", default="candidate", choices=["candidate", "shadow"])
+    parser.add_argument("--min-shadow-dataset-size", type=int, default=500)
+    parser.add_argument("--max-shadow-log-loss", type=float, default=0.70)
+    parser.add_argument("--min-shadow-accuracy", type=float, default=0.52)
     parser.add_argument("--no-register", action="store_true")
     parser.add_argument("--json", action="store_true")
     return parser
@@ -43,6 +46,9 @@ def main() -> int:
         artifact_root=args.artifact_root,
         register_model=not args.no_register,
         status_on_success=args.status_on_success,
+        min_shadow_dataset_size=args.min_shadow_dataset_size,
+        max_shadow_log_loss=args.max_shadow_log_loss,
+        min_shadow_accuracy=args.min_shadow_accuracy,
     )
     result = run_weekly_retrain_pipeline(config)
     payload = {
@@ -58,6 +64,7 @@ def main() -> int:
         "mean_accuracy": round(result.best_evaluation.mean_accuracy, 6),
         "candidate_count": len(result.all_evaluations),
         "evaluation_run_id": result.evaluation_run_id,
+        "registered_status": result.registered_status,
     }
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
@@ -67,6 +74,7 @@ def main() -> int:
         print(f"Dataset: {payload['dataset_size']} examples, {payload['feature_count']} features")
         print(f"LogLoss: {payload['mean_log_loss']} | Brier: {payload['mean_brier']} | Acc: {payload['mean_accuracy']}")
         print(f"Artifact: {Path(payload['artifact_path'])}")
+        print(f"Registered status: {payload['registered_status']}")
         print(f"Evaluation run: {payload['evaluation_run_id']}")
     return 0
 

@@ -20,6 +20,8 @@ catboost_info/
 artifacts/catboost_info/
 artifacts/tmp/
 temp_*.csv
+experiments/
+reports/*.json
 
 # Local thesis/report materials not tracked in code repo
 docs/

@@ -51,6 +51,7 @@ from betting_app.services.market_service import (
     safe_json_get,
 )
 from betting_app.services.mapping_service import suggest_mapping
+from betting_app.core.db import is_sqlite
 from betting_app.services.thesis_inference_service import (
     build_thesis_features_for_match,
     generate_thesis_hybrid_predictions,
@@ -130,15 +131,24 @@ def list_matches(
     now_iso = now.isoformat(timespec="seconds")
     stale_cutoff = now - timedelta(hours=stale_hours)
 
-    odds = query_df(
-        db,
-        """
+    seen_cte = "" if is_sqlite() else """
         WITH seen_matches AS (
             SELECT DISTINCT canonical_match_id
             FROM upcoming_matches
             WHERE canonical_match_id IS NOT NULL
               AND (last_seen_at IS NULL OR last_seen_at > :stale_cutoff)
         ),
+        """
+    if is_sqlite():
+        seen_cte = "WITH "
+        seen_join = ""
+    else:
+        seen_join = "JOIN seen_matches sm ON sm.canonical_match_id=cm.id"
+
+    odds = query_df(
+        db,
+        f"""
+        {seen_cte}
         latest AS (
             SELECT os.*
             FROM odds_snapshots os
@@ -160,16 +170,15 @@ def list_matches(
                l.raw_team_a, l.raw_team_b,
                l.odds_a, l.odds_b,
                l.scraped_at, l.source_url,
-               um.offer_url
+               (
+                   SELECT offer_url FROM upcoming_matches
+                   WHERE canonical_match_id=l.canonical_match_id AND bookmaker_id=l.bookmaker_id
+                   LIMIT 1
+               ) AS offer_url
         FROM latest l
         JOIN canonical_matches cm ON cm.id=l.canonical_match_id
-        JOIN seen_matches sm ON sm.canonical_match_id=cm.id
+        {seen_join}
         JOIN bookmakers b ON b.id=l.bookmaker_id
-        LEFT JOIN LATERAL (
-            SELECT offer_url FROM upcoming_matches
-            WHERE canonical_match_id=l.canonical_match_id AND bookmaker_id=l.bookmaker_id
-            LIMIT 1
-        ) um ON true
         WHERE cm.start_time_normalized IS NOT NULL
           AND cm.status = 'upcoming'
           AND REPLACE(cm.start_time_normalized, 'T', ' ') > REPLACE(:now, 'T', ' ')
@@ -716,15 +725,22 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
     now = datetime.now(UTC)
     stale_cutoff = now - timedelta(hours=stale_hours)
 
-    odds = query_df(
-        db,
-        """
-        WITH seen_matches AS (
+    seen_cte = """WITH seen_matches AS (
             SELECT DISTINCT canonical_match_id
             FROM upcoming_matches
             WHERE canonical_match_id IS NOT NULL
               AND (last_seen_at IS NULL OR last_seen_at > :stale_cutoff)
         ),
+        """
+    seen_join = "JOIN seen_matches sm ON sm.canonical_match_id=l.canonical_match_id"
+    if is_sqlite():
+        seen_cte = "WITH "
+        seen_join = ""
+
+    odds = query_df(
+        db,
+        f"""
+        {seen_cte}
         latest AS (
             SELECT os.*
             FROM odds_snapshots os
@@ -742,15 +758,14 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
                l.raw_team_a, l.raw_team_b,
                l.odds_a, l.odds_b,
                l.scraped_at, l.source_url,
-               um.offer_url
+               (
+                   SELECT offer_url FROM upcoming_matches
+                   WHERE canonical_match_id=l.canonical_match_id AND bookmaker_id=l.bookmaker_id
+                   LIMIT 1
+               ) AS offer_url
         FROM latest l
-        JOIN seen_matches sm ON sm.canonical_match_id=l.canonical_match_id
+        {seen_join}
         JOIN bookmakers b ON b.id=l.bookmaker_id
-        LEFT JOIN LATERAL (
-            SELECT offer_url FROM upcoming_matches
-            WHERE canonical_match_id=l.canonical_match_id AND bookmaker_id=l.bookmaker_id
-            LIMIT 1
-        ) um ON true
         ORDER BY b.name
         """,
         {"mid": match_id, "stale_cutoff": stale_cutoff},

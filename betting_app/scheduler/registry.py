@@ -135,6 +135,16 @@ def register_all_tasks():
         description="Read-only 90-day evaluation of the current thesis model vs market",
         enabled=True
     ))
+
+    # Scheduler healthcheck - frequent lightweight alerting via automation_runs
+    registry.register(TaskDefinition(
+        id="scheduler_healthcheck",
+        name="Scheduler Healthcheck",
+        func=ml.run_scheduler_healthcheck,
+        cron_trigger="35 * * * *",  # Hourly at :35 UTC
+        description="Check recent scheduler failures and stale bookmaker odds snapshots",
+        enabled=True
+    ))
     
     # Backfill expired matches to GOL.GG - once per day
     registry.register(TaskDefinition(
