@@ -12,6 +12,7 @@ import pandas as pd
 from betting_app.core.db import is_pg, query_df, transaction
 from betting_app.core.matching import normalize_team_name
 from betting_app.services.canonical_match_service import (
+    align_snapshot_odds,
     is_countdown_start_label,
     normalize_start_time,
     resolve_canonical_match,
@@ -252,6 +253,36 @@ def insert_odds_snapshot(snapshot: dict[str, Any]) -> int:
         best_of=snapshot.get("best_of"),
     )
     canonical_match_id = get_upcoming_canonical_match_id(match_id)
+
+    # Align odds to canonical team_a/team_b order so that odds_a always
+    # corresponds to canonical_matches.team_a_name.  Bookmakers may list
+    # teams in a different order than our canonical match, and without
+    # this alignment odds_a could be paired with the wrong team.
+    raw_team_a = snapshot["raw_team_a"]
+    raw_team_b = snapshot["raw_team_b"]
+    odds_a = float(snapshot["odds_a"])
+    odds_b = float(snapshot["odds_b"])
+    if canonical_match_id:
+        with transaction() as conn:
+            row = conn.execute(
+                "SELECT team_a_name, team_b_name FROM canonical_matches WHERE id = ?",
+                (canonical_match_id,),
+            ).fetchone()
+        if row:
+            aligned = align_snapshot_odds(
+                row["team_a_name"],
+                row["team_b_name"],
+                raw_team_a,
+                raw_team_b,
+                odds_a,
+                odds_b,
+            )
+            if aligned is not None:
+                odds_a, odds_b = aligned
+                # Swap raw team names to match the aligned odds order
+                if (odds_a, odds_b) != (float(snapshot["odds_a"]), float(snapshot["odds_b"])):
+                    raw_team_a, raw_team_b = raw_team_b, raw_team_a
+
     raw_payload = snapshot.get("raw_payload")
     if raw_payload is not None and not isinstance(raw_payload, str):
         raw_payload = json.dumps(raw_payload, ensure_ascii=False)
@@ -263,10 +294,10 @@ def insert_odds_snapshot(snapshot: dict[str, Any]) -> int:
         scraped_at,
         snapshot.get("source_url"),
         snapshot.get("offer_url"),
-        snapshot["raw_team_a"],
-        snapshot["raw_team_b"],
-        float(snapshot["odds_a"]),
-        float(snapshot["odds_b"]),
+        raw_team_a,
+        raw_team_b,
+        odds_a,
+        odds_b,
         snapshot.get("market_type", "match_winner"),
         int(bool(snapshot.get("is_live", False))),
         raw_payload,

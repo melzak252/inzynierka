@@ -6,6 +6,10 @@ import psycopg2
 import numpy as np
 from scipy import stats
 
+import sys
+sys.path.insert(0, '/app')
+from betting_app.services.canonical_match_service import align_snapshot_odds
+
 DB_CONFIG = {
     'host': '192.168.1.17',
     'port': 5432,
@@ -81,8 +85,11 @@ def main():
 
         # Get pre-match odds snapshots (not live)
         cur.execute("""
-            SELECT os.bookmaker_id, os.odds_a, os.odds_b, os.scraped_at
+            SELECT os.bookmaker_id, os.odds_a, os.odds_b, os.scraped_at,
+                   os.raw_team_a, os.raw_team_b,
+                   cm.team_a_name, cm.team_b_name
             FROM odds_snapshots os
+            JOIN canonical_matches cm ON cm.id = os.canonical_match_id
             WHERE os.canonical_match_id = %s
               AND os.market_type = 'match_winner'
               AND os.is_live = 0
@@ -96,8 +103,12 @@ def main():
 
         # Average odds per bookmaker (latest snapshot per bookmaker)
         bookmaker_probs = {}
-        for bookmaker_id, odds_a, odds_b, scraped_at in snapshots:
+        for bookmaker_id, odds_a, odds_b, scraped_at, raw_a, raw_b, can_a, can_b in snapshots:
             if bookmaker_id not in bookmaker_probs:
+                # Align odds to canonical team order
+                aligned = align_snapshot_odds(can_a, can_b, raw_a, raw_b, odds_a, odds_b)
+                if aligned is not None:
+                    odds_a, odds_b = aligned
                 # Convert odds to implied probabilities
                 implied_a = 1.0 / odds_a
                 implied_b = 1.0 / odds_b
@@ -276,8 +287,11 @@ def main():
             
             # Get odds snapshots in this time bin
             cur.execute("""
-                SELECT os.bookmaker_id, os.odds_a, os.odds_b
+                SELECT os.bookmaker_id, os.odds_a, os.odds_b,
+                       os.raw_team_a, os.raw_team_b,
+                       cm.team_a_name, cm.team_b_name
                 FROM odds_snapshots os
+                JOIN canonical_matches cm ON cm.id = os.canonical_match_id
                 WHERE os.canonical_match_id = %s
                   AND os.market_type = 'match_winner'
                   AND os.is_live = 0
@@ -290,8 +304,11 @@ def main():
                 continue
             
             bookmaker_probs = {}
-            for bookmaker_id, odds_a, odds_b in snapshots:
+            for bookmaker_id, odds_a, odds_b, raw_a, raw_b, can_a, can_b in snapshots:
                 if bookmaker_id not in bookmaker_probs:
+                    aligned = align_snapshot_odds(can_a, can_b, raw_a, raw_b, odds_a, odds_b)
+                    if aligned is not None:
+                        odds_a, odds_b = aligned
                     implied_a = 1.0 / odds_a
                     implied_b = 1.0 / odds_b
                     total = implied_a + implied_b
