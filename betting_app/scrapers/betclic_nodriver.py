@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -21,7 +22,9 @@ from betting_app.scrapers.nodriver_client import NoDriverClient
 SCRAPER_VERSION = "betclic-nodriver-0.1"
 
 
-BETCLIC_LOL_COMPETITION_URLS = [
+BETCLIC_BASE_URL = "https://www.betclic.pl"
+BETCLIC_LOL_COMPETITION_RE = re.compile(r"^https://www\.betclic\.pl/lol-slol/[^/?#]+-c\d+(?:$|[/?#])")
+BETCLIC_LOL_COMPETITION_FALLBACK_URLS = [
     "https://www.betclic.pl/lol-slol/msi-c21940",
     "https://www.betclic.pl/lol-slol/esports-world-cup-c35516",
     "https://www.betclic.pl/lol-slol/lck-c23480",
@@ -37,10 +40,7 @@ class BetclicNoDriverScraper:
     def __init__(self, start_url: str = BETCLIC_LOL_URL, headless: bool | None = None) -> None:
         self.start_url = start_url
         self.headless = headless
-        if start_url.rstrip("/") == BETCLIC_LOL_URL.rstrip("/"):
-            self.start_urls = [BETCLIC_LOL_URL, *BETCLIC_LOL_COMPETITION_URLS]
-        else:
-            self.start_urls = [start_url]
+        self.start_urls = [start_url]
 
     async def scrape_upcoming_matches(self) -> list[RawOddsSnapshot]:
         """Open Betclic and return normalized LoL odds snapshots."""
@@ -48,37 +48,90 @@ class BetclicNoDriverScraper:
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         snapshots: list[RawOddsSnapshot] = []
         debug_paths: list[str] = []
-        async with NoDriverClient(headless=self.headless) as client:
-            for index, url in enumerate(dict.fromkeys(self.start_urls)):
+
+        urls_to_scrape = list(dict.fromkeys(self.start_urls))
+        discovered_competitions: list[str] = []
+        planned_page_count = len(urls_to_scrape)
+        for index, url in enumerate(urls_to_scrape):
+            page_snapshots, page_debug_paths, page_competition_links = await self.scrape_page(url, timestamp, index)
+            snapshots.extend(page_snapshots)
+            debug_paths.extend(page_debug_paths)
+            discovered_competitions.extend(page_competition_links)
+
+        if self.start_url.rstrip("/") == BETCLIC_LOL_URL.rstrip("/"):
+            discovered_urls = list(dict.fromkeys(discovered_competitions))
+            # Normal path: scrape every LoL competition tab discovered from the Betclic UI.
+            # Safety path: if the landing page is temporarily blocked (403) and discovery
+            # returns nothing, use a small known-good fallback list so the scheduled job does
+            # not silently produce zero snapshots.
+            competition_urls = discovered_urls or BETCLIC_LOL_COMPETITION_FALLBACK_URLS
+            dynamic_urls = [url for url in competition_urls if url not in set(urls_to_scrape)]
+            planned_page_count += len(list(dict.fromkeys(dynamic_urls)))
+            for offset, url in enumerate(dict.fromkeys(dynamic_urls), start=len(urls_to_scrape)):
+                # Betclic can start returning 403 after many quick same-session navigations.
+                # Use a fresh browser session per discovered competition page and a short
+                # pause between pages to make the scheduled scraper more stable.
+                await asyncio.sleep(1.0)
+                page_snapshots, page_debug_paths, _ = await self.scrape_page(url, timestamp, offset)
+                snapshots.extend(page_snapshots)
+                debug_paths.extend(page_debug_paths)
+
+        snapshots = self.deduplicate_snapshots(snapshots)
+
+        print(
+            f"Betclic scraper captured {len(snapshots)} snapshots from {planned_page_count} planned pages "
+            f"({len(set(discovered_competitions))} discovered competitions). "
+            f"Competition URLs={list(dict.fromkeys(discovered_competitions))}. "
+            f"Debug bodies={debug_paths}"
+        )
+        return snapshots
+
+    async def scrape_page(
+        self,
+        url: str,
+        timestamp: str,
+        index: int,
+    ) -> tuple[list[RawOddsSnapshot], list[str], list[str]]:
+        """Scrape one Betclic page and discover competition links visible there."""
+
+        max_attempts = 3
+        collected_debug_paths: list[str] = []
+        for attempt in range(max_attempts):
+            async with NoDriverClient(headless=self.headless) as client:
                 tab = await client.open(url)
                 await self.wait_for_render(tab)
                 await self.accept_cookies(tab)
                 await client.scroll_to_bottom(tab, step=500, pause=0.8, passes=2)
                 await self.wait_for_render(tab, seconds=3.0)
-                debug_prefix = f"betclic_{timestamp}_{index}"
+                debug_prefix = f"betclic_{timestamp}_{index}" if attempt == 0 else f"betclic_{timestamp}_{index}_retry{attempt}"
                 html_path, screenshot_path = await client.save_debug_artifacts(tab, debug_prefix)
                 body_text = await self.extract_body_text(tab)
                 body_path = client.debug_dir / f"{debug_prefix}_body.txt"
                 body_path.write_text(body_text, encoding="utf-8")
-                debug_paths.append(str(body_path))
+                collected_debug_paths.append(str(body_path))
+
+                if self.is_forbidden_body(body_text) and attempt + 1 < max_attempts:
+                    print(f"Betclic returned 403 for {url}; retrying attempt {attempt + 2}/{max_attempts}")
+                    await asyncio.sleep(10.0 * (attempt + 1))
+                    continue
+
                 cards = await self.extract_match_cards(tab, body_text=body_text)
                 event_links = await self.extract_event_links(tab)
-                if not event_links and html_path:
-                    event_links = self.extract_event_links_from_html(Path(html_path))
+                competition_links = await self.extract_competition_links(tab)
+                if html_path:
+                    if not event_links:
+                        event_links = self.extract_event_links_from_html(Path(html_path))
+                    if not competition_links:
+                        competition_links = self.extract_competition_links_from_html(Path(html_path))
                 cards = self.attach_offer_links(cards, event_links)
-                snapshots.extend(
+                snapshots = [
                     snapshot
                     for card in cards
                     if (snapshot := self.parse_match_card(card, html_path or str(body_path), screenshot_path, url))
-                )
+                ]
+                return snapshots, collected_debug_paths, competition_links
 
-        snapshots = self.deduplicate_snapshots(snapshots)
-
-        print(
-            f"Betclic scraper captured {len(snapshots)} snapshots from {len(self.start_urls)} pages. "
-            f"Debug bodies={debug_paths}"
-        )
-        return snapshots
+        return [], collected_debug_paths, []
 
     async def wait_for_render(self, tab: Any, seconds: float = 8.0) -> None:
         """Wait for Betclic SPA to render content."""
@@ -120,6 +173,32 @@ class BetclicNoDriverScraper:
             return []
         return [{"text": text, "href": href} for text, href in extract_event_links(str(html or ""))]
 
+    async def extract_competition_links(self, tab: Any) -> list[str]:
+        """Extract LoL competition page URLs from the rendered Betclic navigation."""
+
+        try:
+            raw_links = await tab.evaluate(
+                """
+                Array.from(document.querySelectorAll('a[href]')).map(anchor => ({
+                    text: anchor.innerText || anchor.textContent || '',
+                    href: anchor.href || anchor.getAttribute('href') || ''
+                }))
+                """
+            )
+        except Exception:
+            return []
+        if not isinstance(raw_links, list):
+            return []
+        urls: list[str] = []
+        for item in raw_links:
+            if not isinstance(item, dict):
+                continue
+            href = str(item.get("href") or "")
+            normalized = self.normalize_betclic_url(href)
+            if self.is_lol_competition_url(normalized):
+                urls.append(normalized)
+        return list(dict.fromkeys(urls))
+
     def extract_event_links_from_html(self, html_path: Path) -> list[dict[str, str]]:
         """Fallback event-link extraction from saved Betclic SSR/debug HTML."""
 
@@ -128,6 +207,44 @@ class BetclicNoDriverScraper:
         except OSError:
             return []
         return [{"text": text, "href": href} for text, href in extract_event_links(html)]
+
+    def extract_competition_links_from_html(self, html_path: Path) -> list[str]:
+        """Fallback competition-link extraction from saved Betclic HTML."""
+
+        try:
+            html = html_path.read_text(encoding="utf-8")
+        except OSError:
+            return []
+        return list(
+            dict.fromkeys(
+                url
+                for href in re.findall(r'href=["\']([^"\']+)["\']', html)
+                if self.is_lol_competition_url(url := self.normalize_betclic_url(href))
+            )
+        )
+
+    @staticmethod
+    def normalize_betclic_url(href: str) -> str:
+        """Return an absolute Betclic URL without query/fragment noise."""
+
+        href = href.strip()
+        if href.startswith("/"):
+            href = BETCLIC_BASE_URL + href
+        href = href.split("#", 1)[0].split("?", 1)[0].rstrip("/")
+        return href
+
+    @staticmethod
+    def is_lol_competition_url(url: str) -> bool:
+        """True for Betclic LoL competition tabs, false for event pages."""
+
+        return bool(BETCLIC_LOL_COMPETITION_RE.match(url)) and "-m" not in url
+
+    @staticmethod
+    def is_forbidden_body(body_text: str) -> bool:
+        """Detect Betclic anti-bot/temporary forbidden page."""
+
+        normalized = body_text.lower()
+        return "error 403" in normalized or "forbidden" in normalized or "0x2005002" in normalized
 
     def attach_offer_links(
         self,
