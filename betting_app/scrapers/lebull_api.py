@@ -117,6 +117,12 @@ class LebullApiScraper:
 
         if not event or event.get("isLive") or str(event.get("countryName")) != "League of Legends":
             return None
+        if event.get("isOutright"):
+            return None
+        team_a = str(event.get("teamA") or "").strip()
+        team_b = str(event.get("teamB") or "").strip()
+        if not team_a or not team_b:
+            return None
         market = next(
             (st for st in event.get("stakeTypes") or [] if str(st.get("stakeTypeName", "")).lower() in {"result (2 way)", "winner"}),
             None,
@@ -133,23 +139,36 @@ class LebullApiScraper:
             return None
         event_id = str(event.get("eventId"))
         detail_api = f"{LEBULL_API_BASE}/games/{event_id}/prematch?currency=PLN"
+        offer_url = build_offer_url(event_id=event_id, is_live=False)
         return RawOddsSnapshot(
             bookmaker=self.bookmaker,
-            raw_team_a=str(event.get("teamA") or active[0].get("stakeName") or ""),
-            raw_team_b=str(event.get("teamB") or active[1].get("stakeName") or ""),
+            raw_team_a=team_a,
+            raw_team_b=team_b,
             odds_a=odds_a,
             odds_b=odds_b,
             scraped_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
             raw_league=str(event.get("leagueName") or ""),
             match_start_time=parse_timestamp(event.get("timestamp")) or str(event.get("date") or ""),
-            source_url=LEBULL_API_BASE,
-            offer_url=detail_api,
+            source_url=LEBULL_ESPORT_URL,
+            offer_url=offer_url,
             market_type="match_winner",
             is_live=False,
             scraper_name="lebull_api_lol_match_winner",
             scraper_version=SCRAPER_VERSION,
-            raw_payload={"event": event, "market": market, "stakes": active[:2]},
+            raw_payload={"event": event, "market": market, "stakes": active[:2], "detail_api": detail_api},
         )
+
+
+def build_offer_url(*, event_id: str, is_live: bool = False) -> str:
+    """Build a user-facing Lebull SPA link for one event.
+
+    Lebull's public shell is served at /pl/zaklady-sportowe and embeds the
+    sportsbook route in the `page` query parameter. The sportsbook SSR bundle
+    links event cards as `/event/<eventId>?isLive=<bool>`.
+    """
+
+    inner_route = f"/event/{event_id}?isLive={str(is_live).lower()}"
+    return "https://www.lebull.pl/pl/zaklady-sportowe?" + urllib.parse.urlencode({"page": inner_route})
 
 
 def parse_float(value: Any) -> float | None:
