@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from statistics import mean
 
 import numpy as np
@@ -28,6 +29,38 @@ def _fold_slices(n: int, *, min_train_size: int, test_size: int, step_size: int)
         start += step_size
 
 
+def _parse_occurred_at(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _apply_train_window(
+    dataset: TrainingDataset,
+    train_slice: slice,
+    test_slice: slice,
+    *,
+    train_window_days: int | None,
+) -> list[int]:
+    train_indices = list(range(train_slice.start or 0, train_slice.stop or 0))
+    if train_window_days is None:
+        return train_indices
+    if train_window_days <= 0:
+        raise ValueError("train_window_days must be positive when provided")
+
+    test_start = _parse_occurred_at(dataset.examples[test_slice][0].occurred_at)
+    if test_start is None:
+        return train_indices
+    cutoff = test_start - timedelta(days=train_window_days)
+    filtered: list[int] = []
+    for row_idx in train_indices:
+        occurred_at = _parse_occurred_at(dataset.examples[row_idx].occurred_at)
+        if occurred_at is None or occurred_at >= cutoff:
+            filtered.append(row_idx)
+    return filtered
+
+
 def evaluate_candidate_walk_forward(
     dataset: TrainingDataset,
     candidate: ModelCandidateSpec,
@@ -35,6 +68,7 @@ def evaluate_candidate_walk_forward(
     min_train_size: int = 80,
     test_size: int = 20,
     step_size: int | None = None,
+    train_window_days: int | None = None,
 ) -> CandidateEvaluation:
     if dataset.size < min_train_size + 1:
         raise ValueError(f"Not enough examples for walk-forward validation: {dataset.size}")
@@ -42,7 +76,10 @@ def evaluate_candidate_walk_forward(
     x, y, feature_names = dataset_to_matrix(dataset)
     folds: list[FoldResult] = []
     for idx, (train_slice, test_slice) in enumerate(_fold_slices(len(y), min_train_size=min_train_size, test_size=test_size, step_size=step), start=1):
-        x_train, y_train = x[train_slice], y[train_slice]
+        train_indices = _apply_train_window(dataset, train_slice, test_slice, train_window_days=train_window_days)
+        if len(train_indices) < min_train_size:
+            continue
+        x_train, y_train = x[train_indices], y[train_indices]
         x_test, y_test = x[test_slice], y[test_slice]
         if len(set(y_train.tolist())) < 2 or len(set(y_test.tolist())) < 2:
             continue

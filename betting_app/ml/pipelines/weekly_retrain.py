@@ -34,6 +34,7 @@ class WeeklyRetrainConfig:
     min_train_size: int = 80
     test_size: int = 20
     step_size: int | None = None
+    train_window_days: int | None = None
     artifact_root: str = str(DEFAULT_ARTIFACT_ROOT)
     register_model: bool = True
     status_on_success: str = "candidate"
@@ -127,6 +128,7 @@ def run_weekly_retrain_pipeline(
                 min_train_size=cfg.min_train_size,
                 test_size=cfg.test_size,
                 step_size=cfg.step_size,
+                train_window_days=cfg.train_window_days,
             )
             for spec in specs
         ]

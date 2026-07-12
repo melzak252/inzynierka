@@ -37,6 +37,7 @@ def run_weekly_retrain(params: dict[str, Any]) -> dict[str, Any]:
         min_train_size=params.get("min_train_size", 80),
         test_size=params.get("test_size", 20),
         step_size=params.get("step_size"),
+        train_window_days=params.get("train_window_days"),
         register_model=params.get("register_model", True),
         status_on_success=params.get("status_on_success", "candidate"),
         min_shadow_dataset_size=params.get("min_shadow_dataset_size", 0),

@@ -5,6 +5,7 @@ weekly_retrain:
   min_train_size: 80
   test_size: 20
   step_size: null
+  train_window_days: null
   register_model: true
   status_on_success: "candidate"
   min_shadow_dataset_size: 500
