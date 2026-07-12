@@ -260,11 +260,11 @@ def canonical_match_score(
     score = 0.72 * team_score + 0.23 * time_score + 0.05 * league_score
 
     # Boost: identical teams on an *upcoming* match means it IS the same
-    # canonical match even when bookmaker start labels move a bit.  Do not
-    # apply this to expired/finished rows: repeated fixtures with the same two
-    # teams would otherwise be attached to an old expired canonical match when
-    # the date/time is different (e.g. next-day rematches/tournament series).
-    if team_score >= 0.95 and candidate.get("status") == "upcoming":
+    # canonical match only when the start times are still close.  Bookmakers can
+    # move the same event by minutes/hours, but tournament brackets can also
+    # produce genuine rematches a few days apart.  Keep the boost inside the
+    # 4-hour time window so those future rematches become separate canonicals.
+    if team_score >= 0.95 and candidate.get("status") == "upcoming" and time_score >= 0.35:
         score = max(score, 0.85)
 
     return score

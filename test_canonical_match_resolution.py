@@ -29,10 +29,22 @@ def test_identical_upcoming_match_keeps_unstable_label_boost() -> None:
         "hanwha life esports",
         "2026-07-12T07:30:00+00:00",
         "MSI",
-        _candidate("upcoming", "2026-07-11T08:00:00+00:00"),
+        _candidate("upcoming", "2026-07-12T08:00:00+00:00"),
     )
 
     assert score >= 0.85
+
+
+def test_identical_upcoming_match_days_apart_is_not_boosted() -> None:
+    score = canonical_match_score(
+        "bilibili gaming",
+        "hanwha life esports",
+        "2026-07-15T07:30:00+00:00",
+        "MSI",
+        _candidate("upcoming", "2026-07-12T07:30:00+00:00"),
+    )
+
+    assert score < 0.78
 
 
 def test_polish_month_label_without_year_is_normalized() -> None:
