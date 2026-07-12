@@ -30,6 +30,7 @@ BETCLIC_LOL_COMPETITION_FALLBACK_URLS = [
     "https://www.betclic.pl/lol-slol/lck-c23480",
     "https://www.betclic.pl/lol-slol/liga-regional-norte-c40600",
 ]
+BETCLIC_PAGE_TIMEOUT_SECONDS = 75.0
 
 
 class BetclicNoDriverScraper:
@@ -53,7 +54,9 @@ class BetclicNoDriverScraper:
         discovered_competitions: list[str] = []
         planned_page_count = len(urls_to_scrape)
         for index, url in enumerate(urls_to_scrape):
-            page_snapshots, page_debug_paths, page_competition_links = await self.scrape_page(url, timestamp, index)
+            page_snapshots, page_debug_paths, page_competition_links = await self.scrape_page_with_timeout(
+                url, timestamp, index
+            )
             snapshots.extend(page_snapshots)
             debug_paths.extend(page_debug_paths)
             discovered_competitions.extend(page_competition_links)
@@ -72,7 +75,7 @@ class BetclicNoDriverScraper:
                 # Use a fresh browser session per discovered competition page and a short
                 # pause between pages to make the scheduled scraper more stable.
                 await asyncio.sleep(1.0)
-                page_snapshots, page_debug_paths, _ = await self.scrape_page(url, timestamp, offset)
+                page_snapshots, page_debug_paths, _ = await self.scrape_page_with_timeout(url, timestamp, offset)
                 snapshots.extend(page_snapshots)
                 debug_paths.extend(page_debug_paths)
 
@@ -86,6 +89,23 @@ class BetclicNoDriverScraper:
         )
         return snapshots
 
+    async def scrape_page_with_timeout(
+        self,
+        url: str,
+        timestamp: str,
+        index: int,
+    ) -> tuple[list[RawOddsSnapshot], list[str], list[str]]:
+        """Scrape one page with a hard timeout so scheduler jobs cannot hang."""
+
+        try:
+            return await asyncio.wait_for(
+                self.scrape_page(url, timestamp, index),
+                timeout=BETCLIC_PAGE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            print(f"Betclic page scrape timed out after {BETCLIC_PAGE_TIMEOUT_SECONDS:.0f}s for {url}")
+            return [], [], []
+
     async def scrape_page(
         self,
         url: str,
@@ -94,7 +114,7 @@ class BetclicNoDriverScraper:
     ) -> tuple[list[RawOddsSnapshot], list[str], list[str]]:
         """Scrape one Betclic page and discover competition links visible there."""
 
-        max_attempts = 3
+        max_attempts = 2
         collected_debug_paths: list[str] = []
         for attempt in range(max_attempts):
             async with NoDriverClient(headless=self.headless) as client:
