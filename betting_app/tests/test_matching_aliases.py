@@ -17,3 +17,25 @@ def test_normalize_kabum_ild_alias() -> None:
     assert normalize_team_name("KaBuM! Ilha das Lendas") == "kabum idl"
     assert normalize_team_name("KaBuM! IDL") == "kabum idl"
     assert similarity("KaBuM! Ilha das Lendas", "KaBuM! IDL") == 1.0
+
+
+def test_normalize_solary_eclipse_alias() -> None:
+    assert normalize_team_name("Solary Eclipse") == "solary"
+    assert normalize_team_name("Solary") == "solary"
+    assert similarity("Solary Eclipse", "Solary") == 1.0
+
+
+def test_normalize_les_academy_aliases() -> None:
+    assert normalize_team_name("GIANTX Academy") == "giantx"
+    assert normalize_team_name("GIANTX iTero") == "giantx"
+    assert normalize_team_name("KOI Academy") == "movistar koi"
+    assert normalize_team_name("Movistar KOI Fenix") == "movistar koi"
+    assert similarity("GIANTX Academy", "GIANTX iTero") == 1.0
+    assert similarity("KOI Academy", "Movistar KOI Fenix") == 1.0
+
+
+def test_normalize_big_alias_after_esports_suffix_cleanup() -> None:
+    assert normalize_team_name("BIG") == "big"
+    assert normalize_team_name("Berlin International Gaming") == "big"
+    assert normalize_team_name("Berlin International") == "big"
+    assert similarity("BIG", "Berlin International Gaming") == 1.0

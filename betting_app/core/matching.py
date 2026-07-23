@@ -30,6 +30,7 @@ ALIASES: dict[str, str] = {
     "team orange gaming": "teamorangegaming",
     "big": "big",
     "berlin international gaming": "big",
+    "berlin international": "big",
     "schalke 04": "schalke04",
     "schalke04 evolution": "schalke04",
     "fc schalke 04": "schalke04",
@@ -106,6 +107,12 @@ ALIASES: dict[str, str] = {
     "universitat de barcelona": "universitat de barcelona",
     "kabum ilha das lendas": "kabum idl",
     "kabum idl": "kabum idl",
+    "solary eclipse": "solary",
+    "solary": "solary",
+    "giantx academy": "giantx",
+    "giantx itero": "giantx",
+    "koi academy": "movistar koi",
+    "movistar koi fenix": "movistar koi",
 }
 
 
