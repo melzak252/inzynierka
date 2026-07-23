@@ -39,6 +39,7 @@ MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\((https://www\.betclic\.pl/league-o
 MARKET_PREFIX_RE = re.compile(r"^(?P<league>.+?)\s+\+(?P<count>\d+)\s+zakł\.\s+(?P<rest>.+)$", re.IGNORECASE)
 TIME_RE = re.compile(r"^(?P<team_a>.+?)\s+(?P<time>\d{1,2}:\d{2})\s+-\s+(?P<tail>.+)$")
 ODD_RE = re.compile(r"\d+[,.]\d{2}")
+ODD_SUFFIX_RE = re.compile(r"(?=(\d{1,2}[,.]\d{2}))")
 MATCH_ID_RE = re.compile(r"-m(?P<id>\d+)(?:$|[/?#])")
 MARKET_COUNT_LINE_RE = re.compile(r"^\+(?P<count>\d+)$")
 TIME_LINE_RE = re.compile(r"^\d{1,2}:\d{2}$")
@@ -250,18 +251,10 @@ def parse_event_link(raw_text: str, href: str) -> ParsedBetclicOffer | None:
     start_time_label = timed.group("time")
     tail = timed.group("tail").strip()
 
-    odds = list(ODD_RE.finditer(tail))
-    if len(odds) < 2:
+    parsed_odds = parse_compact_event_odds(tail, team_a)
+    if parsed_odds is None:
         return None
-    odd_a_match, odd_b_match = odds[-2], odds[-1]
-    odds_a = parse_decimal_odd(odd_a_match.group(0))
-    odds_b = parse_decimal_odd(odd_b_match.group(0))
-
-    between_odds = tail[odd_a_match.end() : odd_b_match.start()].strip()
-    before_odd_a = tail[: odd_a_match.start()].strip()
-    team_b = between_odds or infer_team_b_from_before_odd_a(before_odd_a, team_a)
-    if not team_b:
-        return None
+    team_b, odds_a, odds_b = parsed_odds
 
     match_id = None
     id_match = MATCH_ID_RE.search(href)
@@ -289,6 +282,55 @@ def infer_team_b_from_before_odd_a(before_odd_a: str, team_a: str) -> str | None
         candidate = before_odd_a[: -len(team_a)].strip()
         return candidate or None
     return None
+
+
+def parse_compact_event_odds(tail: str, team_a: str) -> tuple[str, float, float] | None:
+    """Parse Betclic compact event tail into team B and two match-winner odds.
+
+    Betclic sometimes renders card text without spaces between team labels and
+    odds, e.g. ``KT Rolster T11,25KT Rolster3,40`` or
+    ``Cloud9 Team Liquid1,70Cloud91,98``.  A plain regex sees ``T11,25`` as
+    ``11,25`` and ``Cloud91,98`` as ``91,98`` even though the actual odds are
+    ``1,25`` and ``1,98`` because the preceding digit belongs to the team name.
+
+    The event shape is stable enough to use team labels as anchors:
+    ``{team_b} {team_a}{odds_a}{team_b}{odds_b}``.  We therefore consider
+    overlapping odd suffixes and keep only the split where the text before the
+    first odd ends with ``team_a`` and the text between odds equals the inferred
+    ``team_b``.  This preserves legitimate high odds like ``11,25`` when the
+    full value is actually after the team label.
+    """
+
+    candidates = odd_suffix_candidates(tail)
+    for odd_a_start, odd_a_end, odd_a_text in candidates:
+        before_odd_a = tail[:odd_a_start].strip()
+        team_b = infer_team_b_from_before_odd_a(before_odd_a, team_a)
+        if not team_b:
+            continue
+
+        for odd_b_start, odd_b_end, odd_b_text in candidates:
+            if odd_b_start <= odd_a_end:
+                continue
+            between_odds = tail[odd_a_end:odd_b_start].strip()
+            if between_odds != team_b:
+                continue
+            trailing = tail[odd_b_end:].strip()
+            if trailing:
+                continue
+            return team_b, parse_decimal_odd(odd_a_text), parse_decimal_odd(odd_b_text)
+    return None
+
+
+def odd_suffix_candidates(text: str) -> list[tuple[int, int, str]]:
+    """Return overlapping decimal-odd candidates in compact Betclic text."""
+
+    candidates: list[tuple[int, int, str]] = []
+    for match in ODD_SUFFIX_RE.finditer(text):
+        value = match.group(1)
+        start = match.start(1)
+        end = start + len(value)
+        candidates.append((start, end, value))
+    return candidates
 
 
 def parse_decimal_odd(value: str) -> float:
