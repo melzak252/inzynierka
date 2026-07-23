@@ -53,6 +53,16 @@ def rematch_odds_snapshots() -> int:
                 "UPDATE upcoming_matches SET canonical_match_id = ? WHERE id = ?",
                 (canonical_match_id, row["id"]),
             )
+            removed = deduplicate_odds_for_canonical_update(
+                connection,
+                match_id=int(row["id"]),
+                canonical_match_id=canonical_match_id,
+            )
+            if removed:
+                print(
+                    "Removed duplicate odds snapshots before canonical rematch: "
+                    f"match_id={row['id']} canonical_match_id={canonical_match_id} count={removed}"
+                )
             connection.execute(
                 "UPDATE odds_snapshots SET canonical_match_id = ? WHERE match_id = ?",
                 (canonical_match_id, row["id"]),
@@ -89,6 +99,67 @@ def rematch_odds_snapshots() -> int:
 
     print(f"Rematched upcoming_matches: {updated}, bookmaker_events: {events_updated}")
     return updated + events_updated
+
+
+def deduplicate_odds_for_canonical_update(connection, *, match_id: int, canonical_match_id: int) -> int:
+    """Remove odds rows that would violate the canonical odds unique index.
+
+    ``odds_snapshots`` has a partial unique index on
+    ``(canonical_match_id, bookmaker_id, scraped_at)`` for ``match_winner``.
+    During rematching, multiple scraper-specific ``upcoming_matches`` can be
+    resolved to the same canonical match. If two such rows have the same
+    bookmaker and ``scraped_at`` timestamp, the plain canonical-id update would
+    fail with ``psycopg2.errors.UniqueViolation``. Keep the already-canonical
+    row, and for duplicates within the same source match keep the highest id.
+    """
+
+    duplicate_ids: set[int] = set()
+
+    # Duplicates already present inside this source match. Keep the highest id
+    # for each bookmaker/timestamp pair so the following UPDATE cannot create
+    # an intra-match unique-index conflict.
+    for row in connection.execute(
+        """
+        SELECT victim.id
+        FROM odds_snapshots victim
+        JOIN odds_snapshots keeper
+          ON keeper.match_id = victim.match_id
+         AND keeper.bookmaker_id = victim.bookmaker_id
+         AND keeper.scraped_at = victim.scraped_at
+         AND keeper.market_type = 'match_winner'
+        WHERE victim.match_id = ?
+          AND keeper.match_id = ?
+          AND victim.market_type = 'match_winner'
+          AND victim.id < keeper.id
+        """,
+        (match_id, match_id),
+    ).fetchall():
+        duplicate_ids.add(int(row["id"]))
+
+    # Duplicates against rows that have already been attached to the target
+    # canonical match. Keep the existing canonical row and remove this source
+    # row before updating its canonical id.
+    for row in connection.execute(
+        """
+        SELECT victim.id
+        FROM odds_snapshots victim
+        JOIN odds_snapshots keeper
+          ON keeper.canonical_match_id = ?
+         AND keeper.bookmaker_id = victim.bookmaker_id
+         AND keeper.scraped_at = victim.scraped_at
+         AND keeper.market_type = 'match_winner'
+        WHERE victim.match_id = ?
+          AND victim.market_type = 'match_winner'
+          AND victim.id <> keeper.id
+        """,
+        (canonical_match_id, match_id),
+    ).fetchall():
+        duplicate_ids.add(int(row["id"]))
+
+    for odds_id in duplicate_ids:
+        connection.execute("DELETE FROM odds_snapshots WHERE id = ?", (odds_id,))
+
+    return len(duplicate_ids)
 
 
 def reset_canonical_matches() -> None:
