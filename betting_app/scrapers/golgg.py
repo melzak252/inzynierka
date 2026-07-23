@@ -16,6 +16,8 @@ from urllib.parse import quote, urljoin
 import httpx
 import parsel
 
+from betting_app.core.matching import normalize_team_name
+
 
 GOLGG_URL = "https://gol.gg"
 GOLGG_TOURNAMENT_API = "https://gol.gg/tournament/ajax.trlist.php"
@@ -64,6 +66,60 @@ def infer_best_of(t1_score: int, t2_score: int) -> int | None:
     if wins_needed <= 0:
         return None
     return (wins_needed * 2) - 1
+
+
+def _team_names_match(left: str | None, right: str | None) -> bool:
+    """Return whether two GOL.GG-rendered team names identify the same team.
+
+    Tournament rows often render compact names in the match link (for example
+    ``BLG vs T1``) but full names in the result cells (``Bilibili Gaming``).
+    Use the app-wide alias normalizer first, then a conservative raw equality
+    fallback for short names that are not in the alias table yet.
+    """
+
+    if not left or not right:
+        return False
+    norm_left = normalize_team_name(left)
+    norm_right = normalize_team_name(right)
+    if norm_left and norm_left == norm_right:
+        return True
+    compact_left = re.sub(r"[^a-z0-9]+", "", left.lower())
+    compact_right = re.sub(r"[^a-z0-9]+", "", right.lower())
+    return bool(compact_left and compact_left == compact_right)
+
+
+def score_for_link_order(
+    *,
+    team_a: str,
+    team_b: str,
+    result_left_team: str | None,
+    result_right_team: str | None,
+    score_left: int,
+    score_right: int,
+    won: str | None = None,
+) -> tuple[int, int]:
+    """Convert GOL.GG row score order to match-link team order.
+
+    GOL.GG's tournament table displays the score between two result-name
+    columns, and those result-name columns are not guaranteed to be in the same
+    order as the link text.  Example observed on MSI 2026:
+    ``BLG vs T1`` link, but result cells render ``T1 | 2 - 3 | Bilibili
+    Gaming``.  The canonical match order must remain ``BLG, T1``, therefore
+    the stored score must be ``3-2`` for team_a/team_b.
+    """
+
+    if _team_names_match(result_left_team, team_a) or _team_names_match(result_right_team, team_b):
+        return score_left, score_right
+    if _team_names_match(result_right_team, team_a) or _team_names_match(result_left_team, team_b):
+        return score_right, score_left
+
+    # Backward-compatible fallback for older/simple GOL.GG rows where the
+    # victory cell text equals one of the link teams exactly/after aliasing.
+    if _team_names_match(won, team_a):
+        return score_left, score_right
+    if _team_names_match(won, team_b):
+        return score_right, score_left
+    return score_left, score_right
 
 
 class GolggScraper:
@@ -145,7 +201,10 @@ class GolggScraper:
                 team_a, team_b = [part.strip() for part in link_text.split(" vs ", 1)]
                 won = row.css("td.text_victory::text").get()
                 lost = row.css("td.text_defeat::text").get()
-                score = row.css("td:nth-child(3)::text").get()
+                cells = row.css("td")
+                result_left_team = cells[1].css("::text").get() if len(cells) > 1 else None
+                result_right_team = cells[3].css("::text").get() if len(cells) > 3 else None
+                score = cells[2].css("::text").get() if len(cells) > 2 else None
                 if not score or "-" not in score:
                     continue
                 score_left_raw, score_right_raw = score.strip().split("-", 1)
@@ -154,13 +213,15 @@ class GolggScraper:
                 score_left = int(score_left_raw.strip())
                 score_right = int(score_right_raw.strip())
 
-                # GOL.GG renders score as winner-loser, not always team_a-team_b.
-                if won == team_a:
-                    team_a_score, team_b_score = score_left, score_right
-                elif won == team_b:
-                    team_a_score, team_b_score = score_right, score_left
-                else:
-                    team_a_score, team_b_score = score_left, score_right
+                team_a_score, team_b_score = score_for_link_order(
+                    team_a=team_a,
+                    team_b=team_b,
+                    result_left_team=result_left_team,
+                    result_right_team=result_right_team,
+                    score_left=score_left,
+                    score_right=score_right,
+                    won=won,
+                )
 
                 matches.append(
                     {

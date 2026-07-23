@@ -59,6 +59,7 @@ ALIASES: dict[str, str] = {
     "top esports": "topesports",
     "bilibili gaming": "bilibiligaming",
     "bilibili": "bilibiligaming",
+    "blg": "bilibiligaming",
     "team we": "we",
     "we": "we",
     "world elite": "we",
