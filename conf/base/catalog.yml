@@ -1,2 +1,2 @@
-# Minimal catalog — pipelines use DB sessions directly, not Kedro DataSets.
-# This file exists so Kedro doesn't warn about a missing catalog.
+# Outputs are kept in memory by default. The audit/training nodes also write
+# explicit JSON/artifact files configured in parameters_exp048.yml.

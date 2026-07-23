@@ -1,13 +1,21 @@
-"""Pipeline registry for the Kedro project."""
+"""Project pipeline registry."""
+
+from __future__ import annotations
 
 from kedro.pipeline import Pipeline
+
 from kedro_project.pipelines import evaluation, weekly_retrain
+from kedro_project.pipelines.player_encoder.pipeline import create_pipeline as create_player_encoder_pipeline
 
 
 def register_pipelines() -> dict[str, Pipeline]:
-    """Register all pipelines for the project."""
+    weekly = weekly_retrain.create_pipeline()
+    historical_evaluation = evaluation.create_pipeline()
+    player_encoder = create_player_encoder_pipeline()
     return {
-        "__default__": Pipeline([weekly_retrain.create_pipeline(), evaluation.create_pipeline()]),
-        "weekly_retrain": weekly_retrain.create_pipeline(),
-        "evaluation": evaluation.create_pipeline(),
+        "__default__": weekly + historical_evaluation + player_encoder,
+        "weekly_retrain": weekly,
+        "evaluation": historical_evaluation,
+        "player_encoder": player_encoder,
+        "exp048_player_encoder": player_encoder,
     }

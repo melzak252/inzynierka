@@ -1,1 +1,1 @@
-"""Kedro pipeline packages."""
+"""Kedro pipeline package."""
