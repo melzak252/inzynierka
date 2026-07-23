@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -30,7 +31,9 @@ BETCLIC_LOL_COMPETITION_FALLBACK_URLS = [
     "https://www.betclic.pl/lol-slol/lck-c23480",
     "https://www.betclic.pl/lol-slol/liga-regional-norte-c40600",
 ]
-BETCLIC_PAGE_TIMEOUT_SECONDS = 75.0
+BETCLIC_PAGE_TIMEOUT_SECONDS = 55.0
+BETCLIC_TOTAL_BUDGET_SECONDS = 240.0
+BETCLIC_MAX_COMPETITION_PAGES = 5
 
 
 class BetclicNoDriverScraper:
@@ -49,13 +52,20 @@ class BetclicNoDriverScraper:
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         snapshots: list[RawOddsSnapshot] = []
         debug_paths: list[str] = []
+        started_at = time.monotonic()
 
         urls_to_scrape = list(dict.fromkeys(self.start_urls))
         discovered_competitions: list[str] = []
         planned_page_count = len(urls_to_scrape)
         for index, url in enumerate(urls_to_scrape):
+            if self.time_budget_exhausted(started_at):
+                print(f"Betclic scraper stopped before {url}: total time budget exhausted")
+                break
             page_snapshots, page_debug_paths, page_competition_links = await self.scrape_page_with_timeout(
-                url, timestamp, index
+                url,
+                timestamp,
+                index,
+                retry_forbidden=True,
             )
             snapshots.extend(page_snapshots)
             debug_paths.extend(page_debug_paths)
@@ -69,13 +79,25 @@ class BetclicNoDriverScraper:
             # not silently produce zero snapshots.
             competition_urls = discovered_urls or BETCLIC_LOL_COMPETITION_FALLBACK_URLS
             dynamic_urls = [url for url in competition_urls if url not in set(urls_to_scrape)]
+            dynamic_urls = list(dict.fromkeys(dynamic_urls))[:BETCLIC_MAX_COMPETITION_PAGES]
             planned_page_count += len(list(dict.fromkeys(dynamic_urls)))
-            for offset, url in enumerate(dict.fromkeys(dynamic_urls), start=len(urls_to_scrape)):
+            for offset, url in enumerate(dynamic_urls, start=len(urls_to_scrape)):
+                if self.time_budget_exhausted(started_at):
+                    print(
+                        f"Betclic scraper stopped before {url}: "
+                        f"total time budget {BETCLIC_TOTAL_BUDGET_SECONDS:.0f}s exhausted"
+                    )
+                    break
                 # Betclic can start returning 403 after many quick same-session navigations.
                 # Use a fresh browser session per discovered competition page and a short
                 # pause between pages to make the scheduled scraper more stable.
                 await asyncio.sleep(1.0)
-                page_snapshots, page_debug_paths, _ = await self.scrape_page_with_timeout(url, timestamp, offset)
+                page_snapshots, page_debug_paths, _ = await self.scrape_page_with_timeout(
+                    url,
+                    timestamp,
+                    offset,
+                    retry_forbidden=False,
+                )
                 snapshots.extend(page_snapshots)
                 debug_paths.extend(page_debug_paths)
 
@@ -83,7 +105,9 @@ class BetclicNoDriverScraper:
 
         print(
             f"Betclic scraper captured {len(snapshots)} snapshots from {planned_page_count} planned pages "
-            f"({len(set(discovered_competitions))} discovered competitions). "
+            f"({len(set(discovered_competitions))} discovered competitions, "
+            f"max competition pages={BETCLIC_MAX_COMPETITION_PAGES}, "
+            f"elapsed={time.monotonic() - started_at:.1f}s). "
             f"Competition URLs={list(dict.fromkeys(discovered_competitions))}. "
             f"Debug bodies={debug_paths}"
         )
@@ -94,12 +118,14 @@ class BetclicNoDriverScraper:
         url: str,
         timestamp: str,
         index: int,
+        *,
+        retry_forbidden: bool,
     ) -> tuple[list[RawOddsSnapshot], list[str], list[str]]:
         """Scrape one page with a hard timeout so scheduler jobs cannot hang."""
 
         try:
             return await asyncio.wait_for(
-                self.scrape_page(url, timestamp, index),
+                self.scrape_page(url, timestamp, index, retry_forbidden=retry_forbidden),
                 timeout=BETCLIC_PAGE_TIMEOUT_SECONDS,
             )
         except TimeoutError:
@@ -111,10 +137,12 @@ class BetclicNoDriverScraper:
         url: str,
         timestamp: str,
         index: int,
+        *,
+        retry_forbidden: bool,
     ) -> tuple[list[RawOddsSnapshot], list[str], list[str]]:
         """Scrape one Betclic page and discover competition links visible there."""
 
-        max_attempts = 2
+        max_attempts = 2 if retry_forbidden else 1
         collected_debug_paths: list[str] = []
         for attempt in range(max_attempts):
             async with NoDriverClient(headless=self.headless) as client:
@@ -135,6 +163,10 @@ class BetclicNoDriverScraper:
                     await asyncio.sleep(10.0 * (attempt + 1))
                     continue
 
+                if self.is_forbidden_body(body_text):
+                    print(f"Betclic returned 403 for {url}; skipping page")
+                    return [], collected_debug_paths, []
+
                 cards = await self.extract_match_cards(tab, body_text=body_text)
                 event_links = await self.extract_event_links(tab)
                 competition_links = await self.extract_competition_links(tab)
@@ -152,6 +184,12 @@ class BetclicNoDriverScraper:
                 return snapshots, collected_debug_paths, competition_links
 
         return [], collected_debug_paths, []
+
+    @staticmethod
+    def time_budget_exhausted(started_at: float) -> bool:
+        """Return True when the scraper should stop before scheduler-level timeout."""
+
+        return time.monotonic() - started_at >= BETCLIC_TOTAL_BUDGET_SECONDS
 
     async def wait_for_render(self, tab: Any, seconds: float = 8.0) -> None:
         """Wait for Betclic SPA to render content."""
