@@ -134,6 +134,9 @@ def import_golgg_batch(matches: list[dict[str, Any]]) -> dict[str, int]:
 def match_row(match: dict[str, Any], match_id: str) -> tuple[Any, ...]:
     """Serialize one match row."""
 
+    match_games = golgg_schema.games(match)
+    games_played = len(match_games) if match_games else as_int(match.get("games_played"))
+
     return (
         match_id,
         match.get("date"),
@@ -148,7 +151,7 @@ def match_row(match: dict[str, Any], match_id: str) -> tuple[Any, ...]:
         as_bool(golgg_schema.score1(match) > golgg_schema.score2(match)),
         as_bool(golgg_schema.score2(match) > golgg_schema.score1(match)),
         as_bool(match.get("draw")),
-        len(golgg_schema.games(match)),
+        games_played,
         as_int(golgg_schema.best_of(match)),
         match.get("won"),
         match.get("lost"),
