@@ -100,6 +100,7 @@ def _parse_bookmaker_ev_json(raw: Any) -> dict[str, Any]:
     return result
 
 TAX_RATE = 0.12
+DEFAULT_MAX_ODDS_AGE_HOURS = 24.0
 HYBRID_MODEL_NAME = THESIS_HYBRID_MODEL_NAME
 HYBRID_MODEL_VERSION = "a0.50-t0.80"
 
@@ -123,6 +124,7 @@ def list_matches(
     days_ahead: int = 14,
     tax_rate: float = TAX_RATE,
     stale_hours: float = 6,
+    max_odds_age_hours: float = DEFAULT_MAX_ODDS_AGE_HOURS,
     bookmaker: str | None = None,
     db=Depends(get_db),
 ):
@@ -130,6 +132,7 @@ def list_matches(
     max_dt = (now + timedelta(days=days_ahead)).isoformat(timespec="seconds")
     now_iso = now.isoformat(timespec="seconds")
     stale_cutoff = now - timedelta(hours=stale_hours)
+    odds_cutoff = now - timedelta(hours=max_odds_age_hours)
 
     seen_cte = "" if is_sqlite() else """
         WITH seen_matches AS (
@@ -157,6 +160,7 @@ def list_matches(
                 FROM odds_snapshots
                 WHERE market_type='match_winner' AND COALESCE(is_live,0)=0
                   AND canonical_match_id IS NOT NULL
+                  AND scraped_at >= :odds_cutoff
                 GROUP BY canonical_match_id, bookmaker_id
             ) lo ON lo.canonical_match_id=os.canonical_match_id
                  AND lo.bookmaker_id=os.bookmaker_id
@@ -185,7 +189,7 @@ def list_matches(
           AND REPLACE(cm.start_time_normalized, 'T', ' ') <= REPLACE(:max_dt, 'T', ' ')
         ORDER BY cm.start_time_normalized, cm.id
         """,
-        {"now": now_iso, "max_dt": max_dt, "stale_cutoff": stale_cutoff},
+        {"now": now_iso, "max_dt": max_dt, "stale_cutoff": stale_cutoff, "odds_cutoff": odds_cutoff},
     )
 
     if not odds:
@@ -712,7 +716,12 @@ def unblock_alias_endpoint(body: AliasBlockRequest, db=Depends(get_db)):
 
 
 @router.get("/{match_id}", response_model=MatchDetailResponse)
-def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
+def match_detail(
+    match_id: int,
+    stale_hours: float = 72,
+    max_odds_age_hours: float = DEFAULT_MAX_ODDS_AGE_HOURS,
+    db=Depends(get_db),
+):
     meta = query_df(db, "SELECT * FROM canonical_matches WHERE id=:id", {"id": match_id})
     if not meta:
         raise HTTPException(status_code=404, detail="Match not found")
@@ -724,6 +733,7 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
 
     now = datetime.now(UTC)
     stale_cutoff = now - timedelta(hours=stale_hours)
+    odds_cutoff = now - timedelta(hours=max_odds_age_hours)
 
     seen_cte = """WITH seen_matches AS (
             SELECT DISTINCT canonical_match_id
@@ -749,6 +759,7 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
                 FROM odds_snapshots
                 WHERE canonical_match_id=:mid AND market_type='match_winner'
                   AND COALESCE(is_live,0)=0
+                  AND scraped_at >= :odds_cutoff
                 GROUP BY canonical_match_id, bookmaker_id
             ) lo ON lo.canonical_match_id=os.canonical_match_id
                  AND lo.bookmaker_id=os.bookmaker_id
@@ -768,7 +779,7 @@ def match_detail(match_id: int, stale_hours: float = 72, db=Depends(get_db)):
         JOIN bookmakers b ON b.id=l.bookmaker_id
         ORDER BY b.name
         """,
-        {"mid": match_id, "stale_cutoff": stale_cutoff},
+        {"mid": match_id, "stale_cutoff": stale_cutoff, "odds_cutoff": odds_cutoff},
     )
 
     n_a = m.get("normalized_team_a") or ""
