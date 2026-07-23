@@ -16,6 +16,7 @@ from betting_app.scrapers.betclic_parser import (
     ParsedBetclicOffer,
     extract_event_links,
     parse_betclic_lol_offers,
+    parse_event_link,
 )
 from betting_app.scrapers.nodriver_client import NoDriverClient
 
@@ -309,21 +310,47 @@ class BetclicNoDriverScraper:
         cards: list[ParsedBetclicOffer],
         event_links: list[dict[str, str]],
     ) -> list[ParsedBetclicOffer]:
-        """Attach per-event Betclic URLs to cards parsed from body text."""
+        """Attach Betclic URLs and add event-link-only cards.
+
+        Betclic renders some valid event anchors in the HTML that are not
+        present in ``document.body.innerText``.  The body parser sees only the
+        visible cards, so after attaching links to those cards we also parse
+        unused event-link text into standalone offers.
+        """
 
         enriched: list[ParsedBetclicOffer] = []
         used_hrefs: set[str] = set()
+        seen_keys: set[tuple[str, str, str, float, float]] = set()
         for card in cards:
             if card.source_url != BETCLIC_LOL_URL:
+                seen_keys.add((card.source_url, card.raw_team_a, card.raw_team_b, card.odds_a, card.odds_b))
                 enriched.append(card)
                 continue
             match = self.find_link_for_card(card, event_links, used_hrefs)
             if match is None:
+                seen_keys.add((card.source_url, card.raw_team_a, card.raw_team_b, card.odds_a, card.odds_b))
                 enriched.append(card)
                 continue
             href = str(match.get("href"))
             used_hrefs.add(href)
-            enriched.append(replace(card, source_url=href, bookmaker_event_id=self.extract_match_id(href)))
+            linked_card = replace(card, source_url=href, bookmaker_event_id=self.extract_match_id(href))
+            seen_keys.add(
+                (linked_card.source_url, linked_card.raw_team_a, linked_card.raw_team_b, linked_card.odds_a, linked_card.odds_b)
+            )
+            enriched.append(linked_card)
+
+        for item in event_links:
+            href = str(item.get("href") or "")
+            if not href or href in used_hrefs:
+                continue
+            parsed = parse_event_link(str(item.get("text") or ""), href)
+            if parsed is None:
+                continue
+            key = (parsed.source_url, parsed.raw_team_a, parsed.raw_team_b, parsed.odds_a, parsed.odds_b)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            enriched.append(parsed)
         return enriched
 
     @staticmethod
