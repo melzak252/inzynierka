@@ -38,6 +38,21 @@ def rematch_odds_snapshots() -> int:
             """
             SELECT id, raw_team_a, raw_team_b, match_start_time, league
             FROM upcoming_matches
+            WHERE canonical_match_id IS NULL
+               OR NOT EXISTS (
+                    SELECT 1
+                    FROM canonical_matches
+                    WHERE canonical_matches.id = upcoming_matches.canonical_match_id
+               )
+               OR EXISTS (
+                    SELECT 1
+                    FROM odds_snapshots
+                    WHERE odds_snapshots.match_id = upcoming_matches.id
+                      AND (
+                            odds_snapshots.canonical_match_id IS NULL
+                         OR odds_snapshots.canonical_match_id <> upcoming_matches.canonical_match_id
+                      )
+               )
             """
         ).fetchall()
     updated = 0
