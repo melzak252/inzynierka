@@ -6,8 +6,11 @@ the scraping dependency is installed.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 import inspect
+import shutil
+import tempfile
 from typing import Any
 
 from betting_app.core.config import load_config
@@ -21,6 +24,7 @@ class NoDriverClient:
         self.headless = cfg.scraper_headless if headless is None else headless
         self.debug_dir = Path(debug_dir) if debug_dir else cfg.debug_dir
         self.browser: Any | None = None
+        self._user_data_dir: Path | None = None
 
     async def __aenter__(self) -> "NoDriverClient":
         """Start browser."""
@@ -31,17 +35,36 @@ class NoDriverClient:
             raise RuntimeError("NoDriver is not installed. Install it with: pip install nodriver") from exc
 
         self.debug_dir.mkdir(parents=True, exist_ok=True)
-        self.browser = await uc.start(headless=self.headless, sandbox=False)
+        self._user_data_dir = Path(tempfile.mkdtemp(prefix="betting-nodriver-", dir="/tmp"))
+        browser_args = [
+            "--disable-dev-shm-usage",
+            "--disable-application-cache",
+            "--disk-cache-size=1",
+            f"--disk-cache-dir={self._user_data_dir / 'cache'}",
+            "--no-first-run",
+            "--no-default-browser-check",
+        ]
+        self.browser = await uc.start(
+            headless=self.headless,
+            sandbox=False,
+            user_data_dir=self._user_data_dir,
+            browser_args=browser_args,
+        )
         return self
 
     async def __aexit__(self, exc_type: object, exc: BaseException | None, traceback: object) -> None:
         """Stop browser."""
 
         if self.browser is not None:
-            result = self.browser.stop()
-            if inspect.isawaitable(result):
-                await result
-            self.browser = None
+            try:
+                result = self.browser.stop()
+                if inspect.isawaitable(result):
+                    await asyncio.wait_for(result, timeout=10.0)
+            finally:
+                self.browser = None
+        if self._user_data_dir is not None:
+            shutil.rmtree(self._user_data_dir, ignore_errors=True)
+            self._user_data_dir = None
 
     async def open(self, url: str) -> Any:
         """Open a URL in the active browser."""

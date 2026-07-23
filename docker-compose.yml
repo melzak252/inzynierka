@@ -9,6 +9,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-betting_local_password}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     volumes:
       - timescale-data:/var/lib/postgresql/data
       - ./docker/timescale/init.sql:/docker-entrypoint-initdb.d/001_timescale.sql:ro
@@ -36,9 +41,16 @@ services:
       BETTING_APP_HEADLESS: "1"
       PYTHONPATH: /app:/app/src
       DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER:-betting}:${POSTGRES_PASSWORD:-betting_local_password}@timescaledb:5432/${POSTGRES_DB:-betting}"
+    shm_size: "512m"
+    tmpfs:
+      - /tmp:size=1024m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     volumes:
       - ./data:/app/data
-      - ./betting_app:/app/betting_app
       - ./betting_app:/app/betting_app
       - ./conf:/app/conf
       - ./src:/app/src
@@ -63,9 +75,16 @@ services:
       BETTING_APP_MIN_EV: "${BETTING_APP_MIN_EV:-0.05}"
       PYTHONPATH: /app:/app/src
       DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER:-betting}:${POSTGRES_PASSWORD:-betting_local_password}@timescaledb:5432/${POSTGRES_DB:-betting}"
+    shm_size: "512m"
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     volumes:
       - ./data:/app/data
-      - ./betting_app:/app/betting_app
       - ./betting_app:/app/betting_app
       - ./conf:/app/conf
       - ./src:/app/src
@@ -83,6 +102,11 @@ services:
       - betting-api
     ports:
       - "${CLIENT_PORT:-3000}:3000"
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     environment:
       VITE_API_PROXY_TARGET: "http://ensemblelegends-betting-api:8000"
 

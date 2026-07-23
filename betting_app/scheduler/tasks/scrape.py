@@ -1,9 +1,15 @@
 """Scraping tasks for all bookmakers."""
 
 import logging
+import os
+import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
+
+from betting_app.utils.browser_cleanup import cleanup_browser_leftovers
 
 logger = logging.getLogger(__name__)
 
@@ -18,25 +24,57 @@ def _run_module(module: str, args: list[str] | None = None, timeout: int = 300) 
         cmd.extend(args)
     
     logger.info(f"Running: {' '.join(cmd)}")
+    tmp_dir = tempfile.mkdtemp(prefix="betting-subprocess-", dir="/tmp")
+    env = os.environ.copy()
+    # Force Chromium/NoDriver temporary profiles, caches and crash files into a
+    # per-task directory that is removed even when the child process times out.
+    env["TMPDIR"] = tmp_dir
+    env["TEMP"] = tmp_dir
+    env["TMP"] = tmp_dir
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
+            env=env,
+            start_new_session=True,
         )
-        if result.returncode != 0:
-            logger.error(f"Module {module} failed (rc={result.returncode}): {result.stderr[:500]}")
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # subprocess.run() would kill only the direct child on timeout.  We
+            # use Popen so the process group id is still known and nested
+            # Chromium/nodriver processes can be killed too.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            except Exception as kill_exc:  # pragma: no cover - defensive logging
+                logger.warning("Failed to kill process group for timed-out %s: %s", module, kill_exc)
+            stdout, stderr = proc.communicate()
+            logger.error(
+                "Module %s timed out after %ss; killed child process group. stdout=%r stderr=%r",
+                module,
+                timeout,
+                (stdout or "")[-500:],
+                (stderr or "")[-500:],
+            )
             return False
-        if result.stdout:
-            logger.info(f"Output: {result.stdout[:300]}")
+        if proc.returncode != 0:
+            logger.error(f"Module {module} failed (rc={proc.returncode}): {(stderr or '')[:500]}")
+            return False
+        if stdout:
+            logger.info(f"Output: {stdout[:300]}")
         return True
-    except subprocess.TimeoutExpired:
-        logger.error(f"Module {module} timed out after {timeout}s")
-        return False
     except Exception as e:
         logger.error(f"Module {module} error: {e}")
         return False
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        cleanup = cleanup_browser_leftovers(min_age_seconds=900)
+        if cleanup["processes_killed"] or cleanup["temp_dirs_removed"]:
+            logger.warning("Cleaned stale browser leftovers after %s: %s", module, cleanup)
 
 
 def scrape_bookmaker(bookmaker: str) -> dict:
@@ -46,6 +84,9 @@ def scrape_bookmaker(bookmaker: str) -> dict:
     """
     logger.info(f"Starting scrape for: {bookmaker}")
     start = datetime.utcnow()
+    cleanup = cleanup_browser_leftovers(min_age_seconds=900)
+    if cleanup["processes_killed"] or cleanup["temp_dirs_removed"]:
+        logger.warning("Cleaned stale browser leftovers before scraping %s: %s", bookmaker, cleanup)
     
     headless = "--headless" if bookmaker in HEADLESS_BOOKMAKERS else ""
     args = ["--bookmaker", bookmaker]
@@ -87,3 +128,11 @@ def scrape_all() -> dict:
         "results": results,
         "duration_s": duration,
     }
+
+
+def cleanup_browser_artifacts(max_age_minutes: int = 15) -> dict:
+    """Remove stale browser processes/temp dirs left by interrupted scrapes."""
+
+    cleanup = cleanup_browser_leftovers(min_age_seconds=max_age_minutes * 60)
+    logger.info("Browser artifact cleanup: %s", cleanup)
+    return {"success": True, **cleanup}

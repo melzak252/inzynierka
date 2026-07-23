@@ -145,6 +145,16 @@ def register_all_tasks():
         description="Check recent scheduler failures and stale bookmaker odds snapshots",
         enabled=True
     ))
+
+    # Browser artifact cleanup - guardrail for interrupted nodriver/Chromium scrapes.
+    registry.register(TaskDefinition(
+        id="browser_artifact_cleanup",
+        name="Browser Artifact Cleanup",
+        func=scrape.cleanup_browser_artifacts,
+        cron_trigger="25 * * * *",  # Hourly, after inference and before healthcheck
+        description="Kill stale Chromium/nodriver processes and remove scraper temp dirs",
+        enabled=True
+    ))
     
     # Backfill expired matches to GOL.GG - once per day
     registry.register(TaskDefinition(
