@@ -516,6 +516,15 @@ def parse_args() -> argparse.Namespace:
         help="Fetch match lists for all tournaments instead of only tournaments with missing games.",
     )
     parser.add_argument(
+        "--refresh-existing-days",
+        type=int,
+        default=0,
+        help=(
+            "Upsert metadata for existing DB matches whose GOL.GG date is within this many days. "
+            "Use with --refresh-matches in the scheduler so in-progress series are corrected after finishing."
+        ),
+    )
+    parser.add_argument(
         "--include-incomplete-existing",
         action="store_true",
         help="Also fetch games for existing matches whose nested games are incomplete.",
@@ -583,6 +592,45 @@ def load_db_games_per_match() -> dict[str, int]:
     if df.empty:
         return {}
     return {str(row["match_id"]): int(row["game_count"]) for _, row in df.iterrows()}
+
+
+def _match_date(match: dict) -> datetime | None:
+    raw_date = match.get("date")
+    if not raw_date:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw_date)).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def select_recent_existing_matches(
+    discovered_matches: list[dict],
+    known_existing_ids: set[str],
+    *,
+    days: int,
+    now: datetime | None = None,
+) -> list[dict]:
+    """Return existing DB matches whose live GOL.GG metadata should be refreshed.
+
+    This is intentionally separate from nested-game fetching: tournament match-list rows
+    can change while a series is in progress (for example 1-1 -> 3-2), and those
+    updates must be upserted even when the match_id already exists in the DB.
+    """
+
+    if days <= 0:
+        return []
+
+    cutoff = (now or datetime.now(timezone.utc).replace(tzinfo=None)) - timedelta(days=days)
+    selected: list[dict] = []
+    for match in deduplicate_by_key(discovered_matches, "match_id"):
+        match_id = match.get("match_id")
+        if not match_id or str(match_id) not in known_existing_ids:
+            continue
+        parsed_date = _match_date(match)
+        if parsed_date is not None and parsed_date >= cutoff:
+            selected.append(match)
+    return selected
 
 
 async def fetch_and_save_games(
@@ -692,6 +740,27 @@ async def main() -> None:
 
         print(f"Discovered new match IDs: {len(new_matches)}")
 
+        refreshed_existing_ids: list[str] = []
+        recent_existing_matches = select_recent_existing_matches(
+            discovered_matches,
+            known_existing_ids,
+            days=args.refresh_existing_days,
+        )
+        if recent_existing_matches:
+            print(
+                f"Refreshing metadata for {len(recent_existing_matches)} existing matches "
+                f"from the last {args.refresh_existing_days} days."
+            )
+            if not args.dry_run:
+                refresh_stats = import_golgg_batch(recent_existing_matches)
+                refreshed_existing_ids = [
+                    str(m["match_id"]) for m in recent_existing_matches if m.get("match_id")
+                ]
+                print(
+                    f"Existing metadata refresh OK: {refresh_stats['matches']} matches, "
+                    f"{refresh_stats['games']} games, {refresh_stats['players']} players"
+                )
+
         if args.dry_run:
             print("Dry run: would fetch games for the following new matches:")
             for m in new_matches:
@@ -726,6 +795,13 @@ async def main() -> None:
             ]
 
         if not selected_matches:
+            if refreshed_existing_ids:
+                finish_stats = mark_mapped_matches_finished(refreshed_existing_ids)
+                print(
+                    f"Auto-finish refreshed existing result: checked={finish_stats['checked']}, "
+                    f"updated={finish_stats['updated']}, skipped={finish_stats['skipped']}, "
+                    f"errors={finish_stats['errors']}"
+                )
             print("No matches need game data. All up to date.")
             return
 
@@ -761,6 +837,7 @@ async def main() -> None:
             if m.get("match_id")
         ]
         if new_match_ids:
+            all_finish_ids = sorted(set(new_match_ids + refreshed_existing_ids))
             map_stats = auto_map_new_matches(new_match_ids)
             print(
                 f"Auto-mapping result: checked={map_stats['checked']}, "
@@ -769,7 +846,7 @@ async def main() -> None:
                 f"unmatched={map_stats['errors']}"
             )
 
-            finish_stats = mark_mapped_matches_finished(new_match_ids)
+            finish_stats = mark_mapped_matches_finished(all_finish_ids)
             print(
                 f"Auto-finish result: checked={finish_stats['checked']}, "
                 f"updated={finish_stats['updated']}, "

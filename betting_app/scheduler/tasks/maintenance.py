@@ -12,8 +12,15 @@ def refresh_golgg() -> dict:
     """Refresh GolGG data (direct scrape → DB, no JSON cache)."""
     logger.info("Starting GolGG direct refresh")
     start = datetime.utcnow()
-    
-    success = _run_module("betting_app.scripts.refresh_golgg_direct", timeout=900)
+
+    # Scan all tournament lists and refresh recent existing match metadata, not only
+    # brand-new match IDs. This prevents in-progress series snapshots (e.g. 1-1 draw
+    # mid-Bo5) from staying permanently stale after the match finishes.
+    success = _run_module(
+        "betting_app.scripts.refresh_golgg_direct",
+        args=["--refresh-matches", "--refresh-existing-days", "45"],
+        timeout=900,
+    )
     duration = (datetime.utcnow() - start).total_seconds()
     
     logger.info(f"GolGG direct refresh: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
