@@ -22,10 +22,17 @@ class TotalbetApiScraper:
     bookmaker = "totalbet"
     scraper_version = SCRAPER_VERSION
 
-    def __init__(self, start_url: str = TOTALBET_ESPORT_URL, headless: bool | None = None, pages: int = 8) -> None:
+    def __init__(
+        self,
+        start_url: str = TOTALBET_ESPORT_URL,
+        headless: bool | None = None,
+        pages: int = 20,
+        per_page: int = 100,
+    ) -> None:
         self.start_url = start_url
         self.headless = headless
         self.pages = pages
+        self.per_page = per_page
 
     async def scrape_upcoming_matches(self) -> list[RawOddsSnapshot]:
         """Fetch paginated esport events and keep LoL prematch match-winner markets."""
@@ -44,7 +51,7 @@ class TotalbetApiScraper:
     def fetch_events_page(self, page: int) -> list[dict[str, Any]]:
         """Fetch one TOTALbet esport events page."""
 
-        url = f"{TOTALBET_EVENTS_API}?{urllib.parse.urlencode({'page': page, 'per_page': 20})}"
+        url = f"{TOTALBET_EVENTS_API}?{urllib.parse.urlencode({'page': page, 'per_page': self.per_page})}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=30) as response:
             payload = json.load(response)
