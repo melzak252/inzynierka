@@ -45,6 +45,7 @@ ALIASES: dict[str, str] = {
     "hanwha life esport": "hanwhalife",
     "hanwha life esports": "hanwhalife",
     "hanwha life": "hanwhalife",
+    "hle": "hanwhalife",
     "liiv sandbox": "liivsandbox",
     "sandbox": "liivsandbox",
     "kt rolster": "ktrolster",
@@ -55,6 +56,7 @@ ALIASES: dict[str, str] = {
     # Common suffix/prefix variants
     "secret whales": "secretwhales",
     "team secret whales": "secretwhales",
+    "tsw": "secretwhales",
     "top esport": "topesports",
     "top esports": "topesports",
     "bilibili gaming": "bilibiligaming",

@@ -39,3 +39,8 @@ def test_normalize_big_alias_after_esports_suffix_cleanup() -> None:
     assert normalize_team_name("Berlin International Gaming") == "big"
     assert normalize_team_name("Berlin International") == "big"
     assert similarity("BIG", "Berlin International Gaming") == 1.0
+
+
+def test_normalize_msi_abbreviations() -> None:
+    assert normalize_team_name("HLE") == normalize_team_name("Hanwha Life Esports")
+    assert normalize_team_name("TSW") == normalize_team_name("Team Secret Whales")
