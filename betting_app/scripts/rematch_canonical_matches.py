@@ -113,48 +113,50 @@ def deduplicate_odds_for_canonical_update(connection, *, match_id: int, canonica
     row, and for duplicates within the same source match keep the highest id.
     """
 
+    source_rows = connection.execute(
+        """
+        SELECT id, bookmaker_id, scraped_at
+        FROM odds_snapshots
+        WHERE match_id = ?
+          AND market_type = 'match_winner'
+        ORDER BY bookmaker_id, scraped_at, id DESC
+        """,
+        (match_id,),
+    ).fetchall()
+
     duplicate_ids: set[int] = set()
+    seen_source_keys: set[tuple[int, str | None]] = set()
 
-    # Duplicates already present inside this source match. Keep the highest id
-    # for each bookmaker/timestamp pair so the following UPDATE cannot create
-    # an intra-match unique-index conflict.
-    for row in connection.execute(
-        """
-        SELECT victim.id
-        FROM odds_snapshots victim
-        JOIN odds_snapshots keeper
-          ON keeper.match_id = victim.match_id
-         AND keeper.bookmaker_id = victim.bookmaker_id
-         AND keeper.scraped_at = victim.scraped_at
-         AND keeper.market_type = 'match_winner'
-        WHERE victim.match_id = ?
-          AND keeper.match_id = ?
-          AND victim.market_type = 'match_winner'
-          AND victim.id < keeper.id
-        """,
-        (match_id, match_id),
-    ).fetchall():
-        duplicate_ids.add(int(row["id"]))
+    for row in source_rows:
+        odds_id = int(row["id"])
+        key = (int(row["bookmaker_id"]), row["scraped_at"])
 
-    # Duplicates against rows that have already been attached to the target
-    # canonical match. Keep the existing canonical row and remove this source
-    # row before updating its canonical id.
-    for row in connection.execute(
-        """
-        SELECT victim.id
-        FROM odds_snapshots victim
-        JOIN odds_snapshots keeper
-          ON keeper.canonical_match_id = ?
-         AND keeper.bookmaker_id = victim.bookmaker_id
-         AND keeper.scraped_at = victim.scraped_at
-         AND keeper.market_type = 'match_winner'
-        WHERE victim.match_id = ?
-          AND victim.market_type = 'match_winner'
-          AND victim.id <> keeper.id
-        """,
-        (canonical_match_id, match_id),
-    ).fetchall():
-        duplicate_ids.add(int(row["id"]))
+        # Duplicates already present inside this source match. Rows are sorted
+        # by id DESC, so the first row for a bookmaker/timestamp pair is kept.
+        if key in seen_source_keys:
+            duplicate_ids.add(odds_id)
+            continue
+        seen_source_keys.add(key)
+
+        # Duplicates against rows that have already been attached to the target
+        # canonical match. The production partial unique index starts with
+        # canonical_match_id, so this is a cheap point lookup instead of a
+        # table-wide join for every upcoming match.
+        existing = connection.execute(
+            """
+            SELECT id
+            FROM odds_snapshots
+            WHERE canonical_match_id = ?
+              AND bookmaker_id = ?
+              AND scraped_at = ?
+              AND market_type = 'match_winner'
+              AND id <> ?
+            LIMIT 1
+            """,
+            (canonical_match_id, key[0], key[1], odds_id),
+        ).fetchone()
+        if existing is not None:
+            duplicate_ids.add(odds_id)
 
     for odds_id in duplicate_ids:
         connection.execute("DELETE FROM odds_snapshots WHERE id = ?", (odds_id,))
