@@ -99,6 +99,13 @@ ALIASES: dict[str, str] = {
     "nrg": "nrg",
     "nrg esports": "nrg",
     "team orangegaming": "teamorangegaming",
+    # Regional / academy name variants observed in bookmaker feeds vs GOL.GG
+    "estral e sports": "estral",
+    "estral esports": "estral",
+    "ub alma mater": "universitat de barcelona",
+    "universitat de barcelona": "universitat de barcelona",
+    "kabum ilha das lendas": "kabum idl",
+    "kabum idl": "kabum idl",
 }
 
 
@@ -122,6 +129,10 @@ def normalize_team_name(name: str) -> str:
     ascii_name = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode("ascii")
     ascii_name = ascii_name.lower()
     ascii_name = re.sub(r"[^a-z0-9]+", " ", ascii_name)
+    # Bookmakers frequently spell the suffix as "E-Sports" / "E Sports".
+    # Treat it as the regular "esports" stop word instead of keeping a stray
+    # "e sports" tail that breaks exact alias matching (e.g. Estral E-Sports).
+    ascii_name = re.sub(r"\be\s+sports?\b", " esports ", ascii_name)
     tokens = [token for token in ascii_name.split() if token and token not in STOP_WORDS]
     tokens = _apply_aliases(tokens)
     return " ".join(tokens).strip()
