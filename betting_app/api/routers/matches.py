@@ -501,8 +501,19 @@ def list_unmapped_matches(
         elif bks is None:
             bks = []
 
-        team_a_golgg, team_a_confidence, team_a_source = suggest_mapping(r["team_a_name"])
-        team_b_golgg, team_b_confidence, team_b_source = suggest_mapping(r["team_b_name"])
+        mapping_context = {
+            "source_system": "bookmaker",
+            "league": r.get("league"),
+            "match_date": r.get("start_time_normalized"),
+        }
+        team_a_golgg, team_a_confidence, team_a_source = suggest_mapping(
+            r["team_a_name"],
+            **mapping_context,
+        )
+        team_b_golgg, team_b_confidence, team_b_source = suggest_mapping(
+            r["team_b_name"],
+            **mapping_context,
+        )
         
         items.append(UnmappedMatchItem(
             canonical_match_id=r["canonical_match_id"],

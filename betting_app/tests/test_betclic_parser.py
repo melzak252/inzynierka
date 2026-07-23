@@ -14,6 +14,19 @@ def test_parse_event_link_does_not_fold_team_digit_into_t1_odds():
     assert offer.odds_b == 3.40
 
 
+def test_parse_event_link_keeps_t1_in_gen_g_offer():
+    offer = parse_event_link(
+        "LCK +51 zakł. Gen.G 08:00 - T1 Gen.G1,62T12,10",
+        "https://www.betclic.pl/league-of-legends-slol/lck-c23480/gen-g-t1-m1166394889637888",
+    )
+
+    assert offer is not None
+    assert offer.raw_team_a == "Gen.G"
+    assert offer.raw_team_b == "T1"
+    assert offer.odds_a == 1.62
+    assert offer.odds_b == 2.10
+
+
 def test_parse_event_link_does_not_fold_team_digit_into_cloud9_odds():
     offer = parse_event_link(
         "LCS +51 zakł. Team Liquid 20:00 - Cloud9 Team Liquid1,70Cloud91,98",

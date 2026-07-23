@@ -97,6 +97,7 @@ export default function ManualMapping() {
   const [candidateLoading, setCandidateLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('upcoming');
   const [searchQuery, setSearchQuery] = useState('');
+  const [onlyUnrecognizedTeams, setOnlyUnrecognizedTeams] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -118,13 +119,16 @@ export default function ManualMapping() {
 
   const filteredMatches = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    if (!q) return unmappedMatches;
-    return unmappedMatches.filter((m) => (
-      `${m.canonical_match_id} ${m.team_a_name} ${m.team_b_name} ${m.league || ''} ${m.bookmakers?.join(' ') || ''}`
+    return unmappedMatches.filter((m) => {
+      if (onlyUnrecognizedTeams && !needsTeamAttention(m.team_a_mapping) && !needsTeamAttention(m.team_b_mapping)) {
+        return false;
+      }
+      if (!q) return true;
+      return `${m.canonical_match_id} ${m.team_a_name} ${m.team_b_name} ${m.league || ''} ${m.bookmakers?.join(' ') || ''}`
         .toLowerCase()
-        .includes(q)
-    ));
-  }, [searchQuery, unmappedMatches]);
+        .includes(q);
+    });
+  }, [onlyUnrecognizedTeams, searchQuery, unmappedMatches]);
 
   const fetchUnmapped = async () => {
     setLoading(true);
@@ -324,6 +328,14 @@ export default function ManualMapping() {
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Szukaj po drużynie, lidze, ID, bukmacherze…"
         />
+        <button
+          className={`team-attention-toggle ${onlyUnrecognizedTeams ? 'active' : ''}`}
+          onClick={() => setOnlyUnrecognizedTeams((enabled) => !enabled)}
+          type="button"
+          aria-pressed={onlyUnrecognizedTeams}
+        >
+          Tylko nierozpoznane drużyny
+        </button>
       </div>
 
       <div className="mapping-container">
@@ -331,7 +343,10 @@ export default function ManualMapping() {
           <div className="section-header">
             <div>
               <h2>Niezmapowane mecze</h2>
-              <span>{filteredMatches.length} / {unmappedMatches.length} dla statusu: {STATUS_LABELS[statusFilter]}</span>
+              <span>
+                {filteredMatches.length} / {unmappedMatches.length} dla statusu: {STATUS_LABELS[statusFilter]}
+                {onlyUnrecognizedTeams ? ' · tylko z brakującą drużyną' : ''}
+              </span>
             </div>
           </div>
 
