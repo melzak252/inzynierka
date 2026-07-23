@@ -150,8 +150,18 @@ def build_features_for_match(
     mapping_from_ids = team_a_golgg is not None and team_b_golgg is not None
 
     if not mapping_from_ids:
-        team_a_golgg, conf_a, source_a = suggest_mapping(team_a_raw)
-        team_b_golgg, conf_b, source_b = suggest_mapping(team_b_raw)
+        team_a_golgg, conf_a, source_a = suggest_mapping(
+            team_a_raw,
+            source_system="bookmaker",
+            league=str(match.get("league") or ""),
+            match_date=str(match.get("start_time_normalized") or ""),
+        )
+        team_b_golgg, conf_b, source_b = suggest_mapping(
+            team_b_raw,
+            source_system="bookmaker",
+            league=str(match.get("league") or ""),
+            match_date=str(match.get("start_time_normalized") or ""),
+        )
     else:
         conf_a = conf_b = 1.0
         source_a = source_b = "golgg_id"

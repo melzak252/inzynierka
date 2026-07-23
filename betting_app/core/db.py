@@ -144,6 +144,12 @@ def dispose_engine() -> None:
     _DATABASE_URL = None
     _sync_engine = None
     _SyncSession = None
+    try:
+        from betting_app.services.team_alias_service import clear_alias_schema_cache
+
+        clear_alias_schema_cache()
+    except Exception:
+        pass
 
 
 # ── Query helpers ────────────────────────────────────────────────────────────

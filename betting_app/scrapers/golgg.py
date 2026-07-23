@@ -17,6 +17,7 @@ import httpx
 import parsel
 
 from betting_app.core.matching import normalize_team_name
+from betting_app.services.team_alias_service import AliasContext, resolve_scoped_alias
 
 
 GOLGG_URL = "https://gol.gg"
@@ -68,7 +69,7 @@ def infer_best_of(t1_score: int, t2_score: int) -> int | None:
     return (wins_needed * 2) - 1
 
 
-def _team_names_match(left: str | None, right: str | None) -> bool:
+def _team_names_match(left: str | None, right: str | None, *, tournament_name: str | None = None) -> bool:
     """Return whether two GOL.GG-rendered team names identify the same team.
 
     Tournament rows often render compact names in the match link (for example
@@ -83,6 +84,15 @@ def _team_names_match(left: str | None, right: str | None) -> bool:
     norm_right = normalize_team_name(right)
     if norm_left and norm_left == norm_right:
         return True
+    context = AliasContext(source_system="golgg", league=tournament_name, tournament=tournament_name)
+    left_alias = resolve_scoped_alias(left, context=context)
+    right_alias = resolve_scoped_alias(right, context=context)
+    if left_alias.normalized_target and left_alias.normalized_target == norm_right:
+        return True
+    if right_alias.normalized_target and right_alias.normalized_target == norm_left:
+        return True
+    if left_alias.normalized_target and right_alias.normalized_target:
+        return left_alias.normalized_target == right_alias.normalized_target
     compact_left = re.sub(r"[^a-z0-9]+", "", left.lower())
     compact_right = re.sub(r"[^a-z0-9]+", "", right.lower())
     return bool(compact_left and compact_left == compact_right)
@@ -97,6 +107,7 @@ def score_for_link_order(
     score_left: int,
     score_right: int,
     won: str | None = None,
+    tournament_name: str | None = None,
 ) -> tuple[int, int]:
     """Convert GOL.GG row score order to match-link team order.
 
@@ -108,16 +119,20 @@ def score_for_link_order(
     the stored score must be ``3-2`` for team_a/team_b.
     """
 
-    if _team_names_match(result_left_team, team_a) or _team_names_match(result_right_team, team_b):
+    if _team_names_match(result_left_team, team_a, tournament_name=tournament_name) or _team_names_match(
+        result_right_team, team_b, tournament_name=tournament_name
+    ):
         return score_left, score_right
-    if _team_names_match(result_right_team, team_a) or _team_names_match(result_left_team, team_b):
+    if _team_names_match(result_right_team, team_a, tournament_name=tournament_name) or _team_names_match(
+        result_left_team, team_b, tournament_name=tournament_name
+    ):
         return score_right, score_left
 
     # Backward-compatible fallback for older/simple GOL.GG rows where the
     # victory cell text equals one of the link teams exactly/after aliasing.
-    if _team_names_match(won, team_a):
+    if _team_names_match(won, team_a, tournament_name=tournament_name):
         return score_left, score_right
-    if _team_names_match(won, team_b):
+    if _team_names_match(won, team_b, tournament_name=tournament_name):
         return score_right, score_left
     return score_left, score_right
 
@@ -221,6 +236,7 @@ class GolggScraper:
                     score_left=score_left,
                     score_right=score_right,
                     won=won,
+                    tournament_name=tournament_name,
                 )
 
                 matches.append(

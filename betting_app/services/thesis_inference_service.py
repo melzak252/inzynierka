@@ -220,6 +220,8 @@ def build_thesis_features_for_match(
     *,
     team_a_golgg_id: int | None = None,
     team_b_golgg_id: int | None = None,
+    league: str | None = None,
+    match_date: str | None = None,
     ratings_version: str = "latest-full",
     w20_version: str = "w20-latest",
     best_of: int = 1,
@@ -280,13 +282,23 @@ def build_thesis_features_for_match(
 
         # If we have one ID, we keep it and only map the missing one
         if not team_a_golgg:
-            team_a_golgg, team_a_conf, team_a_source = suggest_mapping(team_a_name)
+            team_a_golgg, team_a_conf, team_a_source = suggest_mapping(
+                team_a_name,
+                source_system="bookmaker",
+                league=league,
+                match_date=match_date,
+            )
         else:
             team_a_conf = 1.0
             team_a_source = "golgg_id"
 
         if not team_b_golgg:
-            team_b_golgg, team_b_conf, team_b_source = suggest_mapping(team_b_name)
+            team_b_golgg, team_b_conf, team_b_source = suggest_mapping(
+                team_b_name,
+                source_system="bookmaker",
+                league=league,
+                match_date=match_date,
+            )
         else:
             team_b_conf = 1.0
             team_b_source = "golgg_id"
@@ -599,6 +611,8 @@ def predict_upcoming_with_thesis_model(
                 team_a, team_b,
                 team_a_golgg_id=golgg_a,
                 team_b_golgg_id=golgg_b,
+                league=str(match.get("league") or ""),
+                match_date=str(match.get("start_time_normalized") or ""),
                 ratings_version=ratings_version,
                 w20_version=w20_version,
                 best_of=best_of,

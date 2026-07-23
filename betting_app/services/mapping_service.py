@@ -10,6 +10,13 @@ import pandas as pd
 from betting_app.core.db import query_df, transaction
 from betting_app.core.matching import normalize_team_name
 from betting_app.core.config import PROJECT_ROOT
+from betting_app.services.team_alias_service import (
+    AliasContext,
+    alias_lookup_key,
+    is_short_alias,
+    resolve_scoped_alias,
+    upsert_scoped_alias,
+)
 
 
 BOOKMAKER_TO_GOLGG_ALIASES = {
@@ -178,7 +185,14 @@ def known_golgg_teams() -> pd.DataFrame:
     return query_df("SELECT * FROM golgg_teams ORDER BY team_name")
 
 
-def suggest_mapping(raw_name: str) -> tuple[str | None, float, str | None]:
+def suggest_mapping(
+    raw_name: str,
+    *,
+    source_system: str | None = None,
+    league: str | None = None,
+    tournament: str | None = None,
+    match_date: str | None = None,
+) -> tuple[str | None, float, str | None]:
     """Suggest a canonical GOL.GG team for a raw bookmaker name.
 
     Returns (golgg_name, confidence, source) where source is one of:
@@ -193,6 +207,31 @@ def suggest_mapping(raw_name: str) -> tuple[str | None, float, str | None]:
     """
 
     normalized = normalize_team_name(raw_name)
+
+    scoped = resolve_scoped_alias(
+        raw_name,
+        context=AliasContext(
+            source_system=source_system,
+            league=league,
+            tournament=tournament,
+            match_date=match_date,
+        ),
+    )
+    if scoped.blocked:
+        return None, 0.0, "blocked"
+    if scoped.target_name:
+        return scoped.target_name, scoped.confidence, scoped.source or "alias"
+
+    if is_short_alias(raw_name):
+        # Do not let legacy global normalizer/builtin aliases resolve collision-
+        # prone abbreviations without an applicable scoped DB alias.
+        teams = known_golgg_teams()
+        candidates = teams["team_name"].tolist() if not teams.empty else load_golgg_team_candidates()
+        raw_key = alias_lookup_key(raw_name)
+        for candidate in candidates:
+            if alias_lookup_key(candidate) == raw_key:
+                return candidate, 1.0, "exact"
+        return None, 0.0, None
 
     # Check for blocked alias first
     blocked = query_df(
@@ -229,8 +268,34 @@ def suggest_mapping(raw_name: str) -> tuple[str | None, float, str | None]:
     return None, 0.0, None
 
 
-def upsert_alias(raw_name: str, golgg_team_name: str, source: str = "manual", confirmed: bool = True) -> int:
+def upsert_alias(
+    raw_name: str,
+    golgg_team_name: str,
+    source: str = "manual",
+    confirmed: bool = True,
+    *,
+    source_system: str | None = None,
+    league_pattern: str | None = None,
+    tournament_pattern: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    notes: str | None = None,
+) -> int:
     """Create/update a raw-name alias mapping."""
+
+    if source_system or league_pattern or tournament_pattern or valid_from or valid_to or notes:
+        return upsert_scoped_alias(
+            raw_name,
+            golgg_team_name,
+            source=source,
+            source_system=source_system,
+            league_pattern=league_pattern,
+            tournament_pattern=tournament_pattern,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            confidence=1.0 if confirmed else 0.8,
+            notes=notes,
+        )
 
     normalized = normalize_team_name(raw_name)
     with transaction() as connection:

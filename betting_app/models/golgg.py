@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -97,6 +98,20 @@ class TeamAlias(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     normalized_name: Mapped[str] = mapped_column(String(200), nullable=False)
     alias: Mapped[str] = mapped_column(String(200), nullable=False)
-    source: Mapped[str] = mapped_column(String(50), nullable=False)
+    source: Mapped[str] = mapped_column(String(255), nullable=False)
+    raw_name: Mapped[str | None] = mapped_column(String(200))
+    normalized_alias: Mapped[str | None] = mapped_column(String(200))
+    source_system: Mapped[str | None] = mapped_column(String(50))
+    league_pattern: Mapped[str | None] = mapped_column(String(200))
+    tournament_pattern: Mapped[str | None] = mapped_column(String(200))
+    valid_from: Mapped[str | None] = mapped_column(String(20))
+    valid_to: Mapped[str | None] = mapped_column(String(20))
+    confidence: Mapped[float | None] = mapped_column(Float)
+    is_active: Mapped[int] = mapped_column(Integer, default=1)
+    is_blocked: Mapped[int] = mapped_column(Integer, default=0)
+    review_status: Mapped[str | None] = mapped_column(String(50))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str | None] = mapped_column(String(50))
+    updated_at: Mapped[str | None] = mapped_column(String(50))
 
     __table_args__ = (UniqueConstraint("normalized_name", "source"),)

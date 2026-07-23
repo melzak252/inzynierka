@@ -11,6 +11,7 @@ import pandas as pd
 
 from betting_app.core.db import query_df, transaction
 from betting_app.core.matching import normalize_team_name, similarity
+from betting_app.services.team_alias_service import AliasContext, resolve_scoped_alias
 
 
 TEAM_ALIASES = {
@@ -132,8 +133,21 @@ def infer_best_of(league: str | None) -> int:
     return 1
 
 
-def canonical_team_key(name: str) -> str:
+def canonical_team_key(
+    name: str,
+    *,
+    league: str | None = None,
+    source_system: str | None = None,
+    match_date: date | datetime | str | None = None,
+) -> str:
     """Normalize a raw team name into a cross-bookmaker key."""
+
+    scoped = resolve_scoped_alias(
+        name,
+        context=AliasContext(source_system=source_system, league=league, match_date=match_date),
+    )
+    if scoped.target_name and not scoped.blocked:
+        return scoped.normalized_target or normalize_team_name(scoped.target_name)
 
     normalized = normalize_team_name(name)
     compact = normalized.replace(" ", "")
@@ -155,10 +169,10 @@ def resolve_canonical_match(
 ) -> int:
     """Find or create a canonical match shared by all bookmakers."""
 
-    team_a_key = canonical_team_key(raw_team_a)
-    team_b_key = canonical_team_key(raw_team_b)
     start_norm = normalize_start_time(match_start_time)
     league_norm = normalize_league(league)
+    team_a_key = canonical_team_key(raw_team_a, league=league, match_date=start_norm)
+    team_b_key = canonical_team_key(raw_team_b, league=league, match_date=start_norm)
 
     # Prefer scraper-provided best_of over heuristic; fall back to heuristic
     # when the scraper did not detect the format (e.g. no "liczba map" line).
