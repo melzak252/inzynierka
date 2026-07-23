@@ -201,12 +201,12 @@ def train_player_game_encoder(
     mse = torch.nn.MSELoss()
 
     tensors = {
-        "x_num": torch.from_numpy(x_num),
+        "x_num": torch.from_numpy(np.array(x_num, copy=True)),
         "y_match": torch.from_numpy(y_match),
         "y_match_mask": torch.from_numpy(y_match_mask),
         "y_game": torch.from_numpy(y_game),
         "y_game_mask": torch.from_numpy(y_game_mask),
-        **{f"cat_{name}": torch.from_numpy(values) for name, values in cat_arrays.items()},
+        **{f"cat_{name}": torch.from_numpy(np.array(values, copy=True)) for name, values in cat_arrays.items()},
     }
     rng = np.random.default_rng(cfg.random_state)
 
