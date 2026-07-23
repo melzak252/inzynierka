@@ -122,12 +122,19 @@ def run_scheduler_healthcheck() -> dict:
         failed_runs = session.execute(
             text(
                 """
-                SELECT run_type, status, started_at, error
-                FROM automation_runs
-                WHERE started_at >= NOW() - INTERVAL '6 hours'
-                  AND status = 'failed'
-                  AND run_type IN ('scrape_sts', 'prediction_pipeline', 'shadow_ml_inference', 'thesis_model_healthcheck')
-                ORDER BY started_at DESC
+                SELECT f.run_type, f.status, f.started_at, f.error
+                FROM automation_runs f
+                WHERE f.started_at >= NOW() - INTERVAL '6 hours'
+                  AND f.status = 'failed'
+                  AND f.run_type IN ('scrape_sts', 'prediction_pipeline', 'shadow_ml_inference', 'thesis_model_healthcheck')
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM automation_runs s
+                      WHERE s.run_type = f.run_type
+                        AND s.status = 'completed'
+                        AND s.started_at > f.started_at
+                  )
+                ORDER BY f.started_at DESC
                 LIMIT 10
                 """
             ),
