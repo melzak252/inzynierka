@@ -42,6 +42,7 @@ class StrengthModelConfig:
     random_state: int = 42
     use_order_augmentation: bool = True
     calibrate: bool = True
+    collect_oof: bool = False
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ class StrengthTrainingResult:
     feature_names: list[str]
     folds: list[StrengthFoldResult]
     metrics: dict[str, Any]
+    oof_frame: pd.DataFrame | None = None
 
 
 def build_strength_estimator(config: StrengthModelConfig | None = None) -> Pipeline:
@@ -192,7 +194,21 @@ def train_strength_model(
         "calibrated": calibrator is not None,
         "config": asdict(cfg),
     }
-    return StrengthTrainingResult(final_model, calibrator, feature_names, folds, metrics)
+    oof_frame: pd.DataFrame | None = None
+    if cfg.collect_oof and valid_oof.sum() > 0:
+        oof_data: dict[str, Any] = {
+            "match_id": frame.loc[valid_oof, "match_id"].to_numpy(),
+            "date": frame.loc[valid_oof, "date"].to_numpy(),
+            "target": frame.loc[valid_oof, "target"].astype(int).to_numpy(),
+            "oof_prob_raw": raw_final_oof,
+            "oof_prob_calibrated": calibrated_oof,
+        }
+        for col in ("team1_name", "team2_name"):
+            if col in frame.columns:
+                oof_data[col] = frame.loc[valid_oof, col].to_numpy()
+        oof_frame = pd.DataFrame(oof_data)
+
+    return StrengthTrainingResult(final_model, calibrator, feature_names, folds, metrics, oof_frame=oof_frame)
 
 
 def save_strength_artifacts(
