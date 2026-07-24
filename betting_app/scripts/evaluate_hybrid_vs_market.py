@@ -59,6 +59,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--l1-ratio", type=float, default=0.9439657999531195)
     parser.add_argument("--max-iter", type=int, default=3000)
     parser.add_argument("--tol", type=float, default=1e-3)
+    parser.add_argument("--fusion-file", default=None, help="Path to fusion_predictions_all.json (default: <data-dir>/fusion_predictions_all.json)")
+    parser.add_argument("--save-oof", default=None, help="Save OOF predictions to this CSV path")
     parser.add_argument("--json-output", default=None)
     return parser.parse_args()
 
@@ -159,6 +161,10 @@ def main() -> None:
     oof["match_id"] = oof["match_id"].astype(str)
     print(f"OOF predictions: {len(oof)} matches")
 
+    if args.save_oof:
+        oof.to_csv(args.save_oof, index=False)
+        print(f"OOF predictions saved to {args.save_oof}")
+
     # ── Load odds ──
     odds_path = args.odds_file or str(Path(args.data_dir) / "odds.csv")
     odds = pd.read_csv(odds_path)
@@ -230,12 +236,42 @@ def main() -> None:
 
     print(f"\n{'Model':<30} {'LogLoss':>8} {'Brier':>8} {'AUC':>8} {'Accuracy':>8} {'ECE':>8} {'N':>6}")
     print("-" * 80)
-    for name, m in [
+    all_metrics: list[tuple[str, dict]] = [
         ("EXP-051 calibrated OOF", model_cal),
         ("EXP-051 raw OOF", model_raw),
         ("Bookmaker (no-vig)", book_novig),
         ("Bookmaker (raw implied)", book_raw),
-    ]:
+    ]
+
+    # ── Load fusion predictions and player_elo for same-subset comparison ──
+    fusion_path = args.fusion_file or str(Path(args.data_dir) / "fusion_predictions_all.json")
+    fusion_data: dict[str, Any] = {}
+    if Path(fusion_path).exists():
+        with open(fusion_path, "r", encoding="utf-8") as fh:
+            fusion_data = json.load(fh)
+        print(f"\nFusion predictions loaded: {len(fusion_data)} entries")
+        merged["fusion_v2"] = merged["match_id"].map(lambda x: fusion_data.get(x, {}).get("fusion_v2", np.nan))
+        merged["fusion_v2_sym"] = merged["match_id"].map(lambda x: fusion_data.get(x, {}).get("fusion_v2_sym", np.nan))
+        merged["fusion_v2_archsym"] = merged["match_id"].map(lambda x: fusion_data.get(x, {}).get("fusion_v2_archsym", np.nan))
+        merged["player_elo"] = merged["match_id"].map(lambda x: fusion_data.get(x, {}).get("player_elo", np.nan))
+
+        for name, col in [
+            ("Fusion v2", "fusion_v2"),
+            ("Fusion v2+SymAug", "fusion_v2_sym"),
+            ("Fusion v2+ArchSym", "fusion_v2_archsym"),
+            ("Player Elo", "player_elo"),
+        ]:
+            mask = merged[col].notna()
+            if mask.sum() > 0:
+                y_sub = y_true[mask.to_numpy()]
+                p_sub = merged.loc[mask, col].to_numpy()
+                m = _compute_metrics(y_sub, p_sub)
+                m["ece"] = _ece(y_sub, p_sub)
+                all_metrics.append((f"{name} ({mask.sum()})", m))
+    else:
+        print(f"\nFusion predictions file not found: {fusion_path}")
+
+    for name, m in all_metrics:
         auc_str = f"{m['auc']:.4f}" if m["auc"] is not None else "  N/A"
         print(f"{name:<30} {m['log_loss']:>8.4f} {m['brier']:>8.4f} {auc_str:>8} {m['accuracy']:>8.4f} {m['ece']:>8.4f} {m['n']:>6}")
 
@@ -306,6 +342,7 @@ def main() -> None:
             "model_raw": model_raw,
             "bookmaker_novig": book_novig,
             "bookmaker_raw_implied": book_raw,
+            **{name: m for name, m in all_metrics[4:]},
         },
         "hybrid_dataset_metadata": hybrid_dataset.metadata,
         "training_metrics": training.metrics,
