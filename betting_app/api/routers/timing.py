@@ -22,6 +22,7 @@ from sklearn.metrics import log_loss, roc_auc_score
 from betting_app.api.deps import get_db, query_df
 from betting_app.core.clv import clv_odds_pct, clv_probability_points
 from betting_app.core.ev import best_ev_side
+from betting_app.services.thesis_inference_service import THESIS_HYBRID_ALPHA, THESIS_HYBRID_TEMPERATURE
 
 router = APIRouter(prefix="/timing", tags=["timing"])
 
@@ -630,8 +631,8 @@ def _compute_model_vs_bookmaker_tests(db, cutoff: str) -> list[dict]:
     # Per match, average first within bookmaker, then across bookmakers.
     market_by_match: dict[int, dict[Any, list[float]]] = defaultdict(lambda: defaultdict(list))
     hybrid_by_match: dict[int, dict[Any, list[float]]] = defaultdict(lambda: defaultdict(list))
-    alpha = 0.50
-    temperature = 0.80
+    alpha = THESIS_HYBRID_ALPHA
+    temperature = THESIS_HYBRID_TEMPERATURE
 
     for snap in snapshots:
         mid = snap["canonical_match_id"]
@@ -1523,9 +1524,9 @@ def _compute_hybrid_bins_dynamic(
     
     Returns list of bin dicts with metrics.
     """
-    # Extract alpha and temperature from model_version (format: "a0.50-t0.80")
-    alpha = 0.50  # default
-    temperature = 0.80  # default
+    # Extract alpha and temperature from model_version (format: "a0.05-t0.80")
+    alpha = THESIS_HYBRID_ALPHA  # default
+    temperature = THESIS_HYBRID_TEMPERATURE  # default
     if model_version.startswith("a") and "-t" in model_version:
         try:
             parts = model_version.split("-t")
@@ -1831,8 +1832,8 @@ def _compute_market_close_comparison(db, cutoff: str, min_matches: int) -> dict:
         "y_true": [],
         "y_prob": [],
     })
-    alpha = 0.50
-    temperature = 0.80
+    alpha = THESIS_HYBRID_ALPHA
+    temperature = THESIS_HYBRID_TEMPERATURE
 
     for mid, meta in pred_map.items():
         per_book_probs: list[float] = []

@@ -102,7 +102,7 @@ def _parse_bookmaker_ev_json(raw: Any) -> dict[str, Any]:
 TAX_RATE = 0.12
 DEFAULT_MAX_ODDS_AGE_HOURS = 24.0
 HYBRID_MODEL_NAME = THESIS_HYBRID_MODEL_NAME
-HYBRID_MODEL_VERSION = "a0.50-t0.80"
+HYBRID_MODEL_VERSION = "a0.05-t0.80"
 
 
 def _align(row: dict, n_a: str, n_b: str) -> tuple[float | None, float | None]:
