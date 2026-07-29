@@ -24,7 +24,7 @@ except ImportError:  # pragma: no cover
 
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "data" / "golgg_matches.json"
 CONCURRENCY_LIMIT = 60
-TOURNAMENT_CONCURRENCY_LIMIT = 20
+TOURNAMENT_CONCURRENCY_LIMIT = 8
 MAX_RETRIES = 5
 
 
@@ -223,8 +223,18 @@ async def get_tournament_matches(scraper: GolggScraper, tournaments: list[dict])
         tournament_name = tournament.get("trname")
         if not tournament_name:
             return []
-        async with semaphore:
-            return await scraper.get_matches_in_tournament(tournament_name)
+        for attempt in range(1, MAX_RETRIES + 1):
+            async with semaphore:
+                try:
+                    return await scraper.get_matches_in_tournament(tournament_name)
+                except Exception as exc:
+                    print(
+                        f"[!][Tournament {tournament_name}] attempt "
+                        f"{attempt}/{MAX_RETRIES} failed: {exc}"
+                    )
+            await asyncio.sleep(min(attempt, 5))
+        print(f"[!][Tournament {tournament_name}] giving up after {MAX_RETRIES} attempts")
+        return []
 
     tasks = [fetch_tournament(tournament) for tournament in tournaments]
     iterator = asyncio.as_completed(tasks)
