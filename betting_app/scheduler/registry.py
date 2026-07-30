@@ -204,8 +204,18 @@ def register_all_tasks():
         id="horizon_bootstrap",
         name="Horizon Bootstrap Analysis",
         func=maintenance.run_horizon_bootstrap,
-        interval_minutes=1440,  # Every 24 hours
+        cron_trigger="15 0 * * *",  # Daily, after Model Analysis cache refresh
         description="Run monthly block bootstrap analysis comparing models vs bookmaker per horizon bin",
+        enabled=True
+    ))
+
+    # Model Analysis cache - once per day at midnight
+    registry.register(TaskDefinition(
+        id="model_analysis_cache",
+        name="Model Analysis Cache Refresh",
+        func=maintenance.refresh_model_analysis_cache,
+        cron_trigger="0 0 * * *",
+        description="Precompute cached horizon accuracy and CLV payloads for the Model Analysis page",
         enabled=True
     ))
 

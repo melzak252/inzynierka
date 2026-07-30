@@ -141,6 +141,28 @@ def run_horizon_bootstrap() -> dict:
     return {"success": success, "duration_s": duration}
 
 
+def refresh_model_analysis_cache() -> dict:
+    """Precompute Model Analysis JSON payloads for the frontend.
+
+    The Model Analysis endpoints are intentionally cache-first because the raw
+    calculations scan many historical odds snapshots and model predictions.
+    This task refreshes the default 90-day view once per day.
+    """
+    logger.info("Starting Model Analysis cache refresh")
+    start = datetime.utcnow()
+
+    success = _run_module(
+        "betting_app.scripts.refresh_model_analysis_cache",
+        args=["--days-back", "90", "--min-matches-per-bin", "10", "--max-odds-age-hours", "4", "--tax-rate", "0.12", "--min-ev", "0"],
+        timeout=900,
+    )
+    duration = (datetime.utcnow() - start).total_seconds()
+
+    logger.info(f"Model Analysis cache refresh: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+
+    return {"success": success, "duration_s": duration}
+
+
 def run_heavy_cycle() -> dict:
     """Run the full heavy maintenance cycle:
     1. Refresh GolGG

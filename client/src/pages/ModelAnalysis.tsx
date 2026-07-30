@@ -270,8 +270,8 @@ function BootstrapChart({ bins }: { bins: HorizonBootstrapResponse['bins'] }) {
 
 function ModelAnalysis() {
   const [selected, setSelected] = useState<ModelAnalysisKey>('hybrid')
-  const [daysBack, setDaysBack] = useState(90)
-  const [maxOddsAge, setMaxOddsAge] = useState(4)
+  const [daysBack] = useState(90)
+  const [maxOddsAge] = useState(4)
   const [accuracy, setAccuracy] = useState<HorizonAccuracyResponse | null>(null)
   const [bootstrap, setBootstrap] = useState<HorizonBootstrapResponse | null>(null)
   const [clv, setClv] = useState<ModelClvByHorizonResponse | null>(null)
@@ -358,7 +358,7 @@ function ModelAnalysis() {
         <div>
           <p className="ma-eyebrow">Model performance center</p>
           <h1>Model Analysis</h1>
-          <p>Jedna strona do oceny, czy Twój model pokonuje rynek: accuracy, CLV, bootstrap i szczegółowe tabele po horyzoncie czasowym.</p>
+          <p>Jedna strona do oceny, czy Twój model pokonuje rynek: accuracy, CLV, bootstrap i szczegółowe tabele po horyzoncie czasowym. Wyniki są liczone w tle raz dziennie i strona tylko je odczytuje.</p>
         </div>
         <div className="ma-actions">
           <button onClick={load}>Refresh</button>
@@ -385,9 +385,8 @@ function ModelAnalysis() {
           ))}
         </div>
         <div className="ma-filter-row">
-          <label>Days back <input type="number" value={daysBack} min={7} max={365} onChange={(e) => setDaysBack(Number(e.target.value))} /></label>
-          <label>Max odds age <input type="number" value={maxOddsAge} min={0.5} max={48} step={0.5} onChange={(e) => setMaxOddsAge(Number(e.target.value))} /></label>
-          <button onClick={load}>Apply filters</button>
+          <span>Cached view: last {daysBack} days · max odds age {maxOddsAge}h · refreshed daily at 00:00</span>
+          <button onClick={load}>Reload cached results</button>
         </div>
       </section>
 

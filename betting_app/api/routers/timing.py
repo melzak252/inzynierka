@@ -11,9 +11,11 @@ Key metrics:
 from __future__ import annotations
 
 import math
+import json
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -39,6 +41,50 @@ HORIZON_BIN_DEFS = [
     ("24-48h", 24, 48),
     ("48h+", 48, 9999),
 ]
+
+# Shared bind mount between betting-api and betting-scheduler containers.
+# Do not use /app/docs here: scheduler writes would not be visible to API.
+MODEL_ANALYSIS_CACHE_DIR = Path("/app/data/model_analysis_cache")
+
+
+def _cache_path(kind: str, **params: Any) -> Path:
+    safe = "__".join(f"{k}-{str(v).replace('.', 'p')}" for k, v in sorted(params.items()))
+    return MODEL_ANALYSIS_CACHE_DIR / f"{kind}__{safe}.json"
+
+
+def _read_model_analysis_cache(kind: str, **params: Any) -> dict | None:
+    path = _cache_path(kind, **params)
+    if not path.exists():
+        return None
+    try:
+        with path.open() as f:
+            payload = json.load(f)
+        if isinstance(payload, dict):
+            payload.setdefault("cache", {})
+            payload["cache"].update({
+                "hit": True,
+                "path": str(path),
+                "last_updated": datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat(),
+            })
+        return payload
+    except Exception:
+        return None
+
+
+def _write_model_analysis_cache(kind: str, payload: dict, **params: Any) -> None:
+    MODEL_ANALYSIS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _cache_path(kind, **params)
+    enriched = dict(payload)
+    enriched["cache"] = {
+        "hit": False,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "path": str(path),
+        "params": params,
+    }
+    tmp = path.with_suffix(".tmp")
+    with tmp.open("w") as f:
+        json.dump(enriched, f, ensure_ascii=False, allow_nan=False, default=str)
+    tmp.replace(path)
 
 
 def _parse_dt(val: Any) -> datetime | None:
@@ -743,6 +789,7 @@ def _compute_model_vs_bookmaker_tests(db, cutoff: str) -> list[dict]:
 def horizon_accuracy(
     min_matches_per_bin: int = 10,
     max_days_back: int = 90,
+    refresh: bool = False,
     db=Depends(get_db),
 ):
     """Analyze prediction accuracy (LogLoss, AUC) by hours-before-match.
@@ -758,6 +805,19 @@ def horizon_accuracy(
                avg_prob_winner, avg_prob_loser}
       - Only bins with >= min_matches_per_bin are included.
     """
+    cache_params = {
+        "max_days_back": int(max_days_back),
+        "min_matches_per_bin": int(min_matches_per_bin),
+    }
+    if not refresh:
+        cached = _read_model_analysis_cache("horizon_accuracy", **cache_params)
+        if cached is not None:
+            return cached
+        raise HTTPException(
+            status_code=404,
+            detail="Cached model-analysis horizon accuracy is not available yet. Run the model_analysis_cache scheduler task.",
+        )
+
     cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
 
     # --- 1. Get finished matches with result and start time ---
@@ -972,7 +1032,7 @@ def horizon_accuracy(
     # --- 8. Strict market-close comparison on identical match samples ---
     market_close_comparison = _compute_market_close_comparison(db, cutoff, min_matches_per_bin)
 
-    return {
+    result = {
         "total_matches_with_odds": len(matches_with_odds),
         "total_finished_matches": len(matches),
         "total_odds_processed": odds_processed,
@@ -984,6 +1044,8 @@ def horizon_accuracy(
         "model_vs_bookmaker_tests": model_vs_bookmaker_tests,
         "market_close_comparison": market_close_comparison,
     }
+    _write_model_analysis_cache("horizon_accuracy", result, **cache_params)
+    return result
 
 
 @router.get("/model-clv-by-horizon")
@@ -992,6 +1054,7 @@ def model_clv_by_horizon(
     max_odds_age_hours: float = 4.0,
     tax_rate: float = 0.12,
     min_ev: float = 0.0,
+    refresh: bool = False,
     db=Depends(get_db),
 ):
     """Compute Closing Line Value for model-selected EV entries by horizon.
@@ -1007,6 +1070,21 @@ def model_clv_by_horizon(
     aggregates (one averaged observation per model/horizon/match), because the
     latter is the safer headline metric for model evaluation.
     """
+    cache_params = {
+        "max_days_back": int(max_days_back),
+        "max_odds_age_hours": float(max_odds_age_hours),
+        "tax_rate": float(tax_rate),
+        "min_ev": float(min_ev),
+    }
+    if not refresh:
+        cached = _read_model_analysis_cache("model_clv_by_horizon", **cache_params)
+        if cached is not None:
+            return cached
+        raise HTTPException(
+            status_code=404,
+            detail="Cached model-analysis CLV is not available yet. Run the model_analysis_cache scheduler task.",
+        )
+
     cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
 
     predictions = query_df(
@@ -1201,7 +1279,7 @@ def model_clv_by_horizon(
 
     bins = _aggregate_clv_entries_match_oriented(entries)
 
-    return {
+    result = {
         "metadata": {
             "max_days_back": max_days_back,
             "max_odds_age_hours": max_odds_age_hours,
@@ -1226,6 +1304,8 @@ def model_clv_by_horizon(
         "bins": bins,
         "skips": dict(sorted(skips.items())),
     }
+    _write_model_analysis_cache("model_clv_by_horizon", result, **cache_params)
+    return result
 
 
 def _horizon_label(hours_before: float) -> tuple[str, int, int] | None:
