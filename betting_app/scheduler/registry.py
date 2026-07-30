@@ -121,8 +121,8 @@ def register_all_tasks():
         id="weekly_ml_retraining",
         name="Weekly ML Retraining",
         func=ml.run_weekly_retraining,
-        cron_trigger="30 3 * * 0",  # Sunday 03:30 UTC
-        description="Train/evaluate/register shadow ML model candidate",
+        cron_trigger="30 3 * * sun",  # Sunday 03:30 UTC
+        description="Train/evaluate/register an EXP-039 family retrain candidate",
         enabled=True
     ))
 
