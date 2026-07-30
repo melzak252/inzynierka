@@ -267,7 +267,7 @@ export async function fetchHorizonBootstrap(): Promise<HorizonBootstrapResponse>
 // ─── Embedding Diagnostics ───────────────────────────────────
 
 export async function fetchChampionEmbeddings(
-  method: 'tsne' | 'pca' = 'tsne',
+  method: 'umap' | 'tsne' | 'pca' = 'umap',
   role: string = 'ALL',
   minGames: number = 0
 ): Promise<ChampionEmbeddingProjectionResponse> {

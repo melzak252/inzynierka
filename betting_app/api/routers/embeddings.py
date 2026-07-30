@@ -104,10 +104,26 @@ def _project_champion_embeddings(
     matrix = filtered[vector_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0).to_numpy(dtype=float)
 
     actual_method = method
-    if method == "tsne" and len(filtered) < 4:
+    if method in {"umap", "tsne"} and len(filtered) < 4:
         actual_method = "pca"
 
-    if actual_method == "pca":
+    if actual_method == "umap":
+        try:
+            import umap  # type: ignore[import-untyped]
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="UMAP is not installed in the API container. Rebuild after installing umap-learn.",
+            ) from exc
+
+        projection = umap.UMAP(
+            n_components=2,
+            n_neighbors=max(2, min(30, len(filtered) - 1)),
+            min_dist=0.08,
+            metric="euclidean",
+            random_state=42,
+        ).fit_transform(matrix)
+    elif actual_method == "pca":
         projection = PCA(n_components=2, random_state=42).fit_transform(matrix)
     elif actual_method == "tsne":
         perplexity = max(2, min(30, (len(filtered) - 1) // 3))
@@ -172,15 +188,15 @@ def _project_champion_embeddings(
 
 @router.get("/champions")
 def champion_embedding_projection(
-    method: Literal["tsne", "pca"] = Query("tsne", description="2D projection method."),
+    method: Literal["umap", "tsne", "pca"] = Query("umap", description="2D projection method."),
     role: str = Query("ALL", description="Role filter: ALL, TOP, JUNGLE, MID, ADC, SUPPORT."),
     min_games: int = Query(0, ge=0, le=1000),
     max_points: int = Query(800, ge=10, le=2000),
 ):
     """Return a 2D projection of champion-role embeddings.
 
-    UMAP is intentionally not required in production dependencies; t-SNE is the
-    primary nonlinear view and PCA is available as a deterministic fast fallback.
+    UMAP is the default nonlinear view; t-SNE and PCA are available for
+    comparison/debugging.
     """
     key = _mtime_key()
     role_norm = role.upper()

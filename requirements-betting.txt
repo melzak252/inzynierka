@@ -1,6 +1,7 @@
 pandas>=3.0,<4
 numpy>=2.0,<3
 scikit-learn>=1.5,<2
+umap-learn>=0.5.6,<0.6
 APScheduler>=3.10,<4
 nodriver>=0.50,<1
 parsel>=1.11,<2

@@ -59,7 +59,7 @@ function Tooltip({ point }: { point: ChampionEmbeddingPoint }) {
 }
 
 export default function ChampionEmbeddings() {
-  const [method, setMethod] = useState<'tsne' | 'pca'>('tsne')
+  const [method, setMethod] = useState<'umap' | 'tsne' | 'pca'>('umap')
   const [role, setRole] = useState('ALL')
   const [minGames, setMinGames] = useState(0)
   const [query, setQuery] = useState('')
@@ -122,7 +122,8 @@ export default function ChampionEmbeddings() {
       <section className="ce-controls">
         <label>
           Projekcja
-          <select value={method} onChange={(e) => setMethod(e.target.value as 'tsne' | 'pca')}>
+          <select value={method} onChange={(e) => setMethod(e.target.value as 'umap' | 'tsne' | 'pca')}>
+            <option value="umap">UMAP</option>
             <option value="tsne">t-SNE</option>
             <option value="pca">PCA</option>
           </select>

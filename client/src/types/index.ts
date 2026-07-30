@@ -584,8 +584,8 @@ export interface ChampionEmbeddingPoint {
 export interface ChampionEmbeddingProjectionResponse {
   metadata: {
     artifact_path: string;
-    method: 'tsne' | 'pca';
-    requested_method: 'tsne' | 'pca';
+    method: 'umap' | 'tsne' | 'pca';
+    requested_method: 'umap' | 'tsne' | 'pca';
     role: string;
     min_games: number;
     total_points: number;
