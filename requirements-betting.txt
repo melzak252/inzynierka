@@ -21,5 +21,9 @@ pytest>=8.0,<10
 pytest-asyncio>=0.24,<2
 asyncpg>=0.31,<1
 psycopg2-binary>=2.9,<3
-torch>=2.0,<3
+# Pin a CUDA 12.1 PyTorch build that still supports Pascal GPUs such as
+# GTX 1060 (compute capability 6.1). Newer CUDA 13 wheels dropped sm_6x
+# kernels and fail at runtime with "no kernel image is available".
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1+cu121
 kedro>=1.0,<2
