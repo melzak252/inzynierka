@@ -10,7 +10,7 @@
     "hidden_dim": 128,
     "history_size": 250,
     "initial_train_size": 120,
-    "json_output": "/tmp/exp064_full.json",
+    "json_output": "/tmp/exp064_full_v2.json",
     "l1_ratio": 0.5,
     "latent_dim": 64,
     "learning_rate": 0.001,
@@ -23,6 +23,7 @@
     "min_fold_train_size": 120,
     "min_prior_player_games": 50,
     "model_version_prefix": "exp-064",
+    "oof_output_dir": "/tmp/exp064_oof",
     "step_size": 60,
     "team_artifact_dir": "betting_app/models/ml/team_context_embeddings/exp-057",
     "test_size": 60,
@@ -471,6 +472,56 @@
         "train_size": 1320
       }
     ],
+    "market_comparison": {
+      "common_mapped_rows": 108,
+      "date_max": "2026-07-29 00:00:00+00:00",
+      "date_min": "2026-05-29 00:00:00+00:00",
+      "label": "context",
+      "metrics": {
+        "context_oof_calibrated": {
+          "accuracy": 0.6759259259259259,
+          "auc": 0.74609375,
+          "brier": 0.19832822218345694,
+          "log_loss": 0.5790092908018214,
+          "n": 108
+        },
+        "context_oof_raw": {
+          "accuracy": 0.7037037037037037,
+          "auc": 0.74609375,
+          "brier": 0.2008843226843405,
+          "log_loss": 0.5847168512809864,
+          "n": 108
+        },
+        "exp039": {
+          "accuracy": 0.696969696969697,
+          "auc": 0.7824786324786325,
+          "brier": 0.1813506341050895,
+          "log_loss": 0.542561737491034,
+          "n": 99
+        },
+        "hybrid_a005": {
+          "accuracy": 1.0,
+          "auc": 1.0,
+          "brier": 0.07132973908928501,
+          "log_loss": 0.2945144474809894,
+          "n": 2
+        },
+        "hybrid_a050": {
+          "accuracy": 0.7789473684210526,
+          "auc": 0.8411819021237303,
+          "brier": 0.16336219604384727,
+          "log_loss": 0.49561422193112126,
+          "n": 95
+        },
+        "market_no_vig": {
+          "accuracy": 0.7216494845360825,
+          "auc": 0.8340767172167707,
+          "brier": 0.1615549780942216,
+          "log_loss": 0.491270585208356,
+          "n": 97
+        }
+      }
+    },
     "metrics": {
       "calibrated": true,
       "config": {
@@ -625,6 +676,10 @@
   },
   "description": "Context-aware player-game encoder vs plain player-game encoder, both aggregated leakage-safely to match level.",
   "experiment_id": "EXP-064",
+  "oof_outputs": {
+    "context_oof": "/tmp/exp064_oof/context_oof.csv",
+    "plain_oof": "/tmp/exp064_oof/plain_oof.csv"
+  },
   "plain_encoder": {
     "artifact_path": "betting_app/models/ml/PlayerGameEncoder/exp-064-plain",
     "history_tail": [
@@ -1026,6 +1081,56 @@
         "train_size": 1320
       }
     ],
+    "market_comparison": {
+      "common_mapped_rows": 108,
+      "date_max": "2026-07-29 00:00:00+00:00",
+      "date_min": "2026-05-29 00:00:00+00:00",
+      "label": "plain",
+      "metrics": {
+        "exp039": {
+          "accuracy": 0.696969696969697,
+          "auc": 0.7824786324786325,
+          "brier": 0.1813506341050895,
+          "log_loss": 0.542561737491034,
+          "n": 99
+        },
+        "hybrid_a005": {
+          "accuracy": 1.0,
+          "auc": 1.0,
+          "brier": 0.07132973908928501,
+          "log_loss": 0.2945144474809894,
+          "n": 2
+        },
+        "hybrid_a050": {
+          "accuracy": 0.7789473684210526,
+          "auc": 0.8411819021237303,
+          "brier": 0.16336219604384727,
+          "log_loss": 0.49561422193112126,
+          "n": 95
+        },
+        "market_no_vig": {
+          "accuracy": 0.7216494845360825,
+          "auc": 0.8340767172167707,
+          "brier": 0.1615549780942216,
+          "log_loss": 0.491270585208356,
+          "n": 97
+        },
+        "plain_oof_calibrated": {
+          "accuracy": 0.6851851851851852,
+          "auc": 0.7223011363636364,
+          "brier": 0.2073380503176473,
+          "log_loss": 0.6047975983804882,
+          "n": 108
+        },
+        "plain_oof_raw": {
+          "accuracy": 0.6481481481481481,
+          "auc": 0.7223011363636364,
+          "brier": 0.2107502970444715,
+          "log_loss": 0.6115152968598369,
+          "n": 108
+        }
+      }
+    },
     "metrics": {
       "calibrated": true,
       "config": {
