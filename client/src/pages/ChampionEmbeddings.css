@@ -37,7 +37,7 @@
 }
 
 .ce-controls {
-  grid-template-columns: 140px 150px 120px 110px 110px minmax(180px, 1fr);
+  grid-template-columns: 130px 140px 120px 105px 110px 120px 130px minmax(180px, 1fr);
   align-items: end;
   padding: 1rem;
   border: 1px solid rgba(148, 163, 184, 0.2);
@@ -72,6 +72,38 @@
   color: #fff;
   cursor: pointer;
   font-weight: 700;
+}
+
+.ce-download {
+  min-height: 42px;
+  padding: 0.65rem 1rem;
+  border: 1px solid rgba(34, 197, 94, 0.45);
+  border-radius: 10px;
+  background: linear-gradient(135deg, #059669, #16a34a);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.ce-download:disabled {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(51, 65, 85, 0.65);
+  color: rgba(255, 255, 255, 0.55);
+  cursor: default;
+}
+
+.ce-checkbox {
+  min-height: 42px;
+  justify-content: center;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ce-checkbox input {
+  width: auto;
+  accent-color: #4fc3f7;
 }
 
 .ce-apply:disabled {
@@ -203,6 +235,23 @@
   paint-order: stroke;
   stroke: rgba(8, 17, 31, 0.9);
   stroke-width: 4px;
+}
+
+.ce-point-label {
+  font-size: 10px !important;
+  text-anchor: middle;
+  pointer-events: none;
+  opacity: 0.88;
+}
+
+.ce-active-label {
+  font-size: 13px !important;
+  text-anchor: start;
+  font-weight: 700;
+}
+
+.ce-label-hidden {
+  display: none;
 }
 
 .ce-side {

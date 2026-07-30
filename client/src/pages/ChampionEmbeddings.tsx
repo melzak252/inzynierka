@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { fetchChampionEmbeddings } from '../api/client'
 import type { ChampionEmbeddingPoint, ChampionEmbeddingProjectionResponse } from '../types'
 import './ChampionEmbeddings.css'
@@ -46,6 +46,21 @@ function pointColor(point: ChampionEmbeddingPoint, useClusters: boolean): string
   return ROLE_COLORS[point.role || ''] || '#94a3b8'
 }
 
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(url)
+}
+
+function safeFilenamePart(value: string | null | undefined): string {
+  return String(value || 'latest').replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '') || 'latest'
+}
+
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="ce-stat">
@@ -81,6 +96,7 @@ function Tooltip({ point }: { point: ChampionEmbeddingPoint }) {
 }
 
 export default function ChampionEmbeddings() {
+  const svgRef = useRef<SVGSVGElement | null>(null)
   const [draftControls, setDraftControls] = useState<ProjectionControls>({
     method: 'umap',
     preset: 'balanced',
@@ -95,6 +111,7 @@ export default function ChampionEmbeddings() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<ChampionEmbeddingPoint | null>(null)
   const [hovered, setHovered] = useState<ChampionEmbeddingPoint | null>(null)
+  const [showLabels, setShowLabels] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -158,6 +175,58 @@ export default function ChampionEmbeddings() {
       ...draftControls,
       minGames: Math.max(0, Math.min(1000, Number(draftControls.minGames) || 0)),
     })
+  }
+
+  const downloadChart = async () => {
+    if (!svgRef.current || !data) return
+    const svg = svgRef.current.cloneNode(true) as SVGSVGElement
+    svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    svg.setAttribute('width', '2000')
+    svg.setAttribute('height', '1360')
+    svg.querySelectorAll('.ce-label-hidden').forEach((node) => node.classList.remove('ce-label-hidden'))
+
+    const style = document.createElementNS('http://www.w3.org/2000/svg', 'style')
+    style.textContent = `
+      rect{fill:#08111f;stroke:rgba(148,163,184,.16);stroke-width:1.2px}
+      line{stroke:rgba(148,163,184,.18);stroke-dasharray:6 8}
+      circle{opacity:.86;stroke:rgba(255,255,255,.36);stroke-width:1.2px}
+      circle.active{opacity:1;stroke:#fff;stroke-width:2.2px}
+      text{fill:#fff;font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;paint-order:stroke;stroke:rgba(8,17,31,.94);stroke-width:4px;stroke-linejoin:round}
+      .ce-point-label{display:block;font-size:10px;text-anchor:middle;letter-spacing:.01em}
+      .ce-active-label{font-size:13px;text-anchor:start;font-weight:700}
+    `
+    svg.insertBefore(style, svg.firstChild)
+
+    const serialized = new XMLSerializer().serializeToString(svg)
+    const svgBlob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' })
+    const url = URL.createObjectURL(svgBlob)
+    try {
+      const image = new Image()
+      image.decoding = 'async'
+      const loaded = new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve()
+        image.onerror = () => reject(new Error('Nie udało się wyrenderować SVG do PNG'))
+      })
+      image.src = url
+      await loaded
+      const canvas = document.createElement('canvas')
+      canvas.width = 2000
+      canvas.height = 1360
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Canvas nie jest dostępny w przeglądarce')
+      ctx.fillStyle = '#08111f'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob((blob) => {
+        if (!blob) return
+        downloadBlob(
+          blob,
+          `champion-embeddings-${safeFilenamePart(data.metadata.snapshot)}-${data.metadata.method}-${safeFilenamePart(data.metadata.role)}-${data.metadata.preset || 'balanced'}.png`,
+        )
+      }, 'image/png')
+    } finally {
+      URL.revokeObjectURL(url)
+    }
   }
 
   return (
@@ -231,6 +300,13 @@ export default function ChampionEmbeddings() {
         <button className="ce-apply" type="button" onClick={applyControls} disabled={loading || (!controlsDirty && !error)}>
           {loading ? 'Liczenie…' : controlsDirty ? 'Przelicz' : error ? 'Spróbuj ponownie' : 'Aktualne'}
         </button>
+        <label className="ce-checkbox">
+          <input type="checkbox" checked={showLabels} onChange={(e) => setShowLabels(e.target.checked)} />
+          <span>Pokaż nazwy</span>
+        </label>
+        <button className="ce-download" type="button" onClick={downloadChart} disabled={!data || loading || visiblePoints.length === 0}>
+          Pobierz PNG
+        </button>
         <label className="ce-search">
           Szukaj championa
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="np. Ahri, Zeri, 103…" />
@@ -278,7 +354,7 @@ export default function ChampionEmbeddings() {
                     ))}
                 </div>
               </div>
-              <svg className="ce-scatter" viewBox="0 0 1000 680" role="img" aria-label="Champion embedding scatter plot">
+              <svg ref={svgRef} className="ce-scatter" viewBox="0 0 1000 680" role="img" aria-label="Champion embedding scatter plot">
                 <rect x="0" y="0" width="1000" height="680" rx="18" />
                 <line x1="40" y1="340" x2="960" y2="340" />
                 <line x1="500" y1="40" x2="500" y2="640" />
@@ -298,7 +374,14 @@ export default function ChampionEmbeddings() {
                         onMouseLeave={() => setHovered(null)}
                         onClick={() => setSelected(p)}
                       />
-                      {isActive && <text x={x + 10} y={y - 10}>{p.champion_name} · {p.role}</text>}
+                      <text
+                        className={`ce-point-label ${showLabels ? '' : 'ce-label-hidden'}`}
+                        x={x}
+                        y={y + pointRadius(p) + 13}
+                      >
+                        {p.champion_name}
+                      </text>
+                      {isActive && <text className="ce-active-label" x={x + 10} y={y - 10}>{p.champion_name} · {p.role}</text>}
                     </g>
                   )
                 })}
