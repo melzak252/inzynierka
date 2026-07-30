@@ -49,11 +49,12 @@ logger = logging.getLogger(__name__)
 THESIS_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
 THESIS_MODEL_VERSION = "exp-039"
 THESIS_HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
-# EXP-053 showed that deployed thesis probabilities are overconfident relative
-# to bookmaker no-vig probabilities on recovered live data.  Keep the thesis
-# signal as a small residual correction and use the market as the dominant
-# prior. Formula: alpha * temperature(thesis_model) + (1-alpha) * market.
-THESIS_HYBRID_ALPHA = 0.05
+# EXP-061 showed that EXP-039 adds signal to bookmaker no-vig probabilities
+# when blended conservatively.  Keep market as the dominant prior, but allow
+# enough model weight to improve LogLoss on open/mid/close odds without letting
+# the model dominate. Formula: alpha * temperature(thesis_model) +
+# (1-alpha) * market.
+THESIS_HYBRID_ALPHA = 0.35
 THESIS_HYBRID_TEMPERATURE = 0.80
 EPSILON = 0.001
 
