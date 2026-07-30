@@ -268,6 +268,7 @@ export async function fetchHorizonBootstrap(): Promise<HorizonBootstrapResponse>
 
 export async function fetchChampionEmbeddings(
   method: 'umap' | 'tsne' | 'pca' = 'umap',
+  preset: 'local' | 'balanced' | 'global' = 'balanced',
   role: string = 'ALL',
   minGames: number = 0,
   snapshot: string = 'latest',
@@ -275,6 +276,7 @@ export async function fetchChampionEmbeddings(
 ): Promise<ChampionEmbeddingProjectionResponse> {
   const params = new URLSearchParams({
     method,
+    preset,
     role,
     min_games: minGames.toString(),
     snapshot,

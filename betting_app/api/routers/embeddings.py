@@ -33,6 +33,48 @@ _UMAP_LOCK = threading.Lock()
 DEFAULT_ARTIFACT_DIR = Path("/app/betting_app/models/ml/champion_role_embeddings/exp-056")
 LOCAL_ARTIFACT_DIR = Path("betting_app/models/ml/champion_role_embeddings/exp-056")
 
+ProjectionPreset = Literal["local", "balanced", "global"]
+
+PROJECTION_PRESETS: dict[str, dict[str, object]] = {
+    "local": {
+        "label": "Local",
+        "description": "Emphasize nearest-neighbour micro-clusters.",
+        "umap_n_neighbors": 10,
+        "umap_min_dist": 0.02,
+        "umap_metric": "cosine",
+        "tsne_perplexity": 10,
+    },
+    "balanced": {
+        "label": "Balanced",
+        "description": "Default diagnostic view balancing local and global structure.",
+        "umap_n_neighbors": 30,
+        "umap_min_dist": 0.08,
+        "umap_metric": "cosine",
+        "tsne_perplexity": 30,
+    },
+    "global": {
+        "label": "Global",
+        "description": "Prefer broader role/champion archetype layout over tiny clusters.",
+        "umap_n_neighbors": 80,
+        "umap_min_dist": 0.35,
+        "umap_metric": "cosine",
+        "tsne_perplexity": 50,
+    },
+}
+
+
+def _preset_config(preset: str) -> dict[str, object]:
+    return PROJECTION_PRESETS.get(preset, PROJECTION_PRESETS["balanced"])
+
+
+def _bounded_neighbor_count(value: object, n_points: int) -> int:
+    return max(2, min(int(value), max(2, n_points - 1)))
+
+
+def _bounded_perplexity(value: object, n_points: int) -> int:
+    # sklearn requires perplexity < n_samples. Keep it conservative for small filters.
+    return max(2, min(int(value), max(2, n_points - 1)))
+
 
 def _artifact_dir() -> Path:
     if DEFAULT_ARTIFACT_DIR.exists():
@@ -118,6 +160,7 @@ def _project_champion_embeddings(
     resolved_snapshot: str,
     available_snapshots: tuple[str, ...],
     method: str,
+    preset: str,
     role: str,
     min_games: int,
     max_points: int,
@@ -152,6 +195,7 @@ def _project_champion_embeddings(
     matrix = filtered[vector_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0).to_numpy(dtype=float)
 
     actual_method = method
+    preset_cfg = _preset_config(preset)
     if method in {"umap", "tsne"} and len(filtered) < 4:
         actual_method = "pca"
 
@@ -164,9 +208,9 @@ def _project_champion_embeddings(
             with _UMAP_LOCK:
                 projection = umap.UMAP(
                     n_components=2,
-                    n_neighbors=max(2, min(30, len(filtered) - 1)),
-                    min_dist=0.08,
-                    metric="euclidean",
+                    n_neighbors=_bounded_neighbor_count(preset_cfg["umap_n_neighbors"], len(filtered)),
+                    min_dist=float(preset_cfg["umap_min_dist"]),
+                    metric=str(preset_cfg["umap_metric"]),
                     random_state=42,
                 ).fit_transform(matrix)
         except ImportError as exc:
@@ -181,7 +225,7 @@ def _project_champion_embeddings(
     elif actual_method == "pca":
         projection = PCA(n_components=2, random_state=42).fit_transform(matrix)
     elif actual_method == "tsne":
-        perplexity = max(2, min(30, (len(filtered) - 1) // 3))
+        perplexity = _bounded_perplexity(preset_cfg["tsne_perplexity"], len(filtered))
         try:
             projection = TSNE(
                 n_components=2,
@@ -231,6 +275,15 @@ def _project_champion_embeddings(
             "artifact_path": str(csv_path),
             "method": actual_method,
             "requested_method": method,
+            "preset": preset,
+            "preset_config": {
+                "label": preset_cfg["label"],
+                "description": preset_cfg["description"],
+                "umap_n_neighbors": _bounded_neighbor_count(preset_cfg["umap_n_neighbors"], len(filtered)),
+                "umap_min_dist": preset_cfg["umap_min_dist"],
+                "umap_metric": preset_cfg["umap_metric"],
+                "tsne_perplexity": _bounded_perplexity(preset_cfg["tsne_perplexity"], len(filtered)),
+            },
             "projection_warning": projection_warning,
             "snapshot": resolved_snapshot,
             "available_snapshots": list(available_snapshots),
@@ -252,6 +305,7 @@ def _project_champion_embeddings(
 @router.get("/champions")
 def champion_embedding_projection(
     method: Literal["umap", "tsne", "pca"] = Query("umap", description="2D projection method."),
+    preset: ProjectionPreset = Query("balanced", description="Projection preset: local, balanced, or global."),
     snapshot: str = Query("latest", description="Walk-forward snapshot: latest/current or YYYY-MM-DD."),
     role: str = Query("ALL", description="Role filter: ALL, TOP, JUNGLE, MID, ADC, SUPPORT."),
     min_games: int = Query(0, ge=0, le=1000),
@@ -264,4 +318,4 @@ def champion_embedding_projection(
     """
     key = _mtime_key(snapshot)
     role_norm = role.upper()
-    return _project_champion_embeddings(*key, method, role_norm, int(min_games), int(max_points))
+    return _project_champion_embeddings(*key, method, preset, role_norm, int(min_games), int(max_points))

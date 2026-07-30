@@ -586,6 +586,15 @@ export interface ChampionEmbeddingProjectionResponse {
     artifact_path: string;
     method: 'umap' | 'tsne' | 'pca';
     requested_method: 'umap' | 'tsne' | 'pca';
+    preset: 'local' | 'balanced' | 'global';
+    preset_config: {
+      label: string;
+      description: string;
+      umap_n_neighbors: number;
+      umap_min_dist: number;
+      umap_metric: string;
+      tsne_perplexity: number;
+    };
     projection_warning?: string | null;
     snapshot: string;
     available_snapshots: string[];

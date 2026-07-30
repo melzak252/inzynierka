@@ -12,9 +12,11 @@ const ROLE_COLORS: Record<string, string> = {
 }
 
 type ProjectionMethod = 'umap' | 'tsne' | 'pca'
+type ProjectionPreset = 'local' | 'balanced' | 'global'
 
 type ProjectionControls = {
   method: ProjectionMethod
+  preset: ProjectionPreset
   snapshot: string
   role: string
   minGames: number
@@ -70,6 +72,7 @@ function Tooltip({ point }: { point: ChampionEmbeddingPoint }) {
 export default function ChampionEmbeddings() {
   const [draftControls, setDraftControls] = useState<ProjectionControls>({
     method: 'umap',
+    preset: 'balanced',
     snapshot: 'latest',
     role: 'ALL',
     minGames: 0,
@@ -90,6 +93,7 @@ export default function ChampionEmbeddings() {
         setLoading(true)
         const result = await fetchChampionEmbeddings(
           appliedControls.method,
+          appliedControls.preset,
           appliedControls.role,
           appliedControls.minGames,
           appliedControls.snapshot,
@@ -132,6 +136,7 @@ export default function ChampionEmbeddings() {
   }, [data])
   const controlsDirty =
     draftControls.method !== appliedControls.method ||
+    draftControls.preset !== appliedControls.preset ||
     draftControls.snapshot !== appliedControls.snapshot ||
     draftControls.role !== appliedControls.role ||
     draftControls.minGames !== appliedControls.minGames
@@ -166,6 +171,17 @@ export default function ChampionEmbeddings() {
             <option value="umap">UMAP</option>
             <option value="tsne">t-SNE</option>
             <option value="pca">PCA</option>
+          </select>
+        </label>
+        <label>
+          Preset
+          <select
+            value={draftControls.preset}
+            onChange={(e) => setDraftControls((prev) => ({ ...prev, preset: e.target.value as ProjectionPreset }))}
+          >
+            <option value="local">Local</option>
+            <option value="balanced">Balanced</option>
+            <option value="global">Global</option>
           </select>
         </label>
         <label>
@@ -220,7 +236,7 @@ export default function ChampionEmbeddings() {
           <section className="ce-stats">
             <Stat label="Punktów" value={`${visiblePoints.length}/${data.metadata.total_points}`} hint="po filtrze wyszukiwania" />
             <Stat label="Embedding dim" value={`${data.metadata.embedding_dim ?? '—'}`} hint={data.metadata.model_version} />
-            <Stat label="Źródło" value={`${data.metadata.source_rows ?? '—'}`} hint="player-game rows" />
+            <Stat label="Preset" value={data.metadata.preset_config?.label || data.metadata.preset || '—'} hint={data.metadata.preset_config?.description || 'projection parameters'} />
             <Stat label="Snapshot" value={data.metadata.snapshot || '—'} hint={data.metadata.reference_date?.slice(0, 10) || 'reference date'} />
           </section>
 
@@ -229,7 +245,15 @@ export default function ChampionEmbeddings() {
               <div className="ce-chart-head">
                 <div>
                   <h2>{data.metadata.method.toUpperCase()} champion-role space</h2>
-                  <p>Walk-forward: tylko historia przed snapshotem. Kolor = rola, rozmiar = liczba gier; kliknij punkt, żeby przypiąć szczegóły.</p>
+                  <p>
+                    Walk-forward: tylko historia przed snapshotem. Kolor = rola, rozmiar = liczba gier; kliknij punkt, żeby przypiąć szczegóły.
+                    {data.metadata.method === 'umap' && data.metadata.preset_config && (
+                      <> UMAP: n_neighbors={data.metadata.preset_config.umap_n_neighbors}, min_dist={data.metadata.preset_config.umap_min_dist}, metric={data.metadata.preset_config.umap_metric}.</>
+                    )}
+                    {data.metadata.method === 'tsne' && data.metadata.preset_config && (
+                      <> t-SNE: perplexity={data.metadata.preset_config.tsne_perplexity}.</>
+                    )}
+                  </p>
                 </div>
                 <div className="ce-legend">
                   {Object.entries(ROLE_COLORS).map(([r, color]) => (
