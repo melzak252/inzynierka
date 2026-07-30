@@ -843,16 +843,24 @@ def generate_thesis_hybrid_predictions(
         return []
 
     results: list[dict[str, Any]] = []
+    canonical_match_ids = [int(mid) for mid in rows["canonical_match_id"].dropna().unique().tolist()]
     with transaction() as connection:
-        # Mark old hybrid predictions as stale so only the latest per match stays active
-        connection.execute(
-            """
-            UPDATE canonical_predictions
-            SET prediction_status = 'stale'
-            WHERE prediction_status = 'active' AND model_name = ? AND model_version = ?
-            """,
-            (hybrid_model_name, hybrid_model_version),
-        )
+        # Mark old hybrid predictions as stale for matches that are about to be
+        # regenerated, regardless of hybrid version.  Otherwise changing alpha
+        # leaves multiple active Hybrid-Thesis-Market versions for the same
+        # upcoming match, which is confusing for generic prediction endpoints.
+        if canonical_match_ids:
+            placeholders = ",".join("?" for _ in canonical_match_ids)
+            connection.execute(
+                f"""
+                UPDATE canonical_predictions
+                SET prediction_status = 'stale'
+                WHERE prediction_status = 'active'
+                  AND model_name = ?
+                  AND canonical_match_id IN ({placeholders})
+                """,
+                (hybrid_model_name, *canonical_match_ids),
+            )
 
         for canonical_match_id, group in rows.groupby("canonical_match_id"):
             market_probs: list[float] = []
