@@ -248,6 +248,12 @@ def build_embeddings(raw_dataset: Any, cfg: ChampionRoleEmbeddingConfig) -> dict
         champion_name = str(item.champion_name)
         pair = df[(df["champion_key"] == champion_key) & (df["role"] == role)]
 
+        recent_window_days = int(cfg.windows_days[0]) if cfg.windows_days else 90
+        recent_cutoff = reference_date - pd.Timedelta(days=recent_window_days)
+        recent_pair = pair[pair["date"] >= recent_cutoff]
+        recent_games = int(len(recent_pair))
+        recent_date_max = recent_pair["date"].max().isoformat() if not recent_pair.empty else None
+
         selected: pd.DataFrame | None = None
         fallback = "all_history_decay"
         selected_window: int | None = None
@@ -274,7 +280,16 @@ def build_embeddings(raw_dataset: Any, cfg: ChampionRoleEmbeddingConfig) -> dict
             agg.update({"fallback_level": fallback, "window_days": selected_window})
 
         agg = _apply_role_shrinkage(agg, role_defaults.get(role, {}), prior_games=cfg.shrinkage_prior_games)
-        agg.update({"champion_id": champion_key, "champion_name": champion_name, "role": role})
+        agg.update(
+            {
+                "champion_id": champion_key,
+                "champion_name": champion_name,
+                "role": role,
+                "recent_window_days": recent_window_days,
+                "recent_games": recent_games,
+                "recent_date_max": recent_date_max,
+            }
+        )
         rows.append(agg)
 
     emb = pd.DataFrame(rows).sort_values(["role", "champion_name", "champion_id"]).reset_index(drop=True)
@@ -295,6 +310,8 @@ def build_embeddings(raw_dataset: Any, cfg: ChampionRoleEmbeddingConfig) -> dict
             "win_rate",
             "blue_side_rate",
             "shrinkage_weight_observed",
+            "recent_window_days",
+            "recent_games",
         }
     ]
     matrix = emb[feature_cols].replace([np.inf, -np.inf], np.nan)
@@ -326,7 +343,11 @@ def build_embeddings(raw_dataset: Any, cfg: ChampionRoleEmbeddingConfig) -> dict
         "median_games_per_pair": float(result["n_games"].median()),
         "min_games_per_pair": int(result["n_games"].min()),
         "max_games_per_pair": int(result["n_games"].max()),
-        "sparse_pairs_lt_min_recent": int((result["n_games"] < cfg.min_recent_games).sum()),
+        "recent_window_days": int(cfg.windows_days[0]) if cfg.windows_days else 90,
+        "median_recent_games_per_pair": float(result["recent_games"].median()),
+        "max_recent_games_per_pair": int(result["recent_games"].max()),
+        "stale_pairs_no_recent_games": int((result["recent_games"] == 0).sum()),
+        "sparse_pairs_lt_min_recent": int((result["recent_games"] < cfg.min_recent_games).sum()),
         "shrinkage_prior_games": float(cfg.shrinkage_prior_games),
         "mean_shrinkage_weight_observed": float(result["shrinkage_weight_observed"].mean()),
         "dataset_metadata": raw_dataset.metadata,

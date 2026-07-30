@@ -137,6 +137,16 @@ def _json_safe_float(value: object) -> float | None:
     return numeric
 
 
+def _json_safe_str(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    if pd.isna(value):
+        return None
+    return str(value)
+
+
 def _mtime_key(snapshot: str) -> tuple[str, float, str, float, str, tuple[str, ...]]:
     csv_path, metadata_path, resolved_snapshot, available_snapshots = _artifact_paths(snapshot)
     if not csv_path.exists():
@@ -185,8 +195,9 @@ def _project_champion_embeddings(
     filtered = df.copy()
     if role != "ALL":
         filtered = filtered[filtered["role"].astype(str) == role]
-    if "n_games" in filtered.columns:
-        filtered = filtered[pd.to_numeric(filtered["n_games"], errors="coerce").fillna(0) >= min_games]
+    min_games_column = "recent_games" if "recent_games" in filtered.columns else "n_games"
+    if min_games_column in filtered.columns:
+        filtered = filtered[pd.to_numeric(filtered[min_games_column], errors="coerce").fillna(0) >= min_games]
 
     if filtered.empty:
         raise HTTPException(status_code=404, detail="No champion-role embeddings match the selected filters.")
@@ -258,6 +269,9 @@ def _project_champion_embeddings(
                 "x_norm": float((x[idx] - x.min()) / span_x),
                 "y_norm": float((y[idx] - y.min()) / span_y),
                 "n_games": _json_safe_float(row.get("n_games")),
+                "recent_games": _json_safe_float(row.get("recent_games")),
+                "recent_window_days": _json_safe_float(row.get("recent_window_days")),
+                "recent_date_max": _json_safe_str(row.get("recent_date_max")),
                 "win_rate": _json_safe_float(row.get("win_rate")),
                 "fallback_level": row.get("fallback_level"),
                 "window_days": _json_safe_float(row.get("window_days")),
@@ -289,6 +303,8 @@ def _project_champion_embeddings(
             "available_snapshots": list(available_snapshots),
             "role": role,
             "min_games": min_games,
+            "min_games_column": min_games_column,
+            "recent_window_days": metadata.get("recent_window_days"),
             "total_points": int(len(points)),
             "available_roles": available_roles,
             "source_rows": metadata.get("source_rows"),

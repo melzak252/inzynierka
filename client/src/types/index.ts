@@ -570,6 +570,9 @@ export interface ChampionEmbeddingPoint {
   x_norm: number;
   y_norm: number;
   n_games: number | null;
+  recent_games: number | null;
+  recent_window_days: number | null;
+  recent_date_max: string | null;
   win_rate: number | null;
   fallback_level: string | null;
   window_days: number | null;
@@ -600,6 +603,8 @@ export interface ChampionEmbeddingProjectionResponse {
     available_snapshots: string[];
     role: string;
     min_games: number;
+    min_games_column: string;
+    recent_window_days: number | null;
     total_points: number;
     available_roles: string[];
     source_rows: number | null;

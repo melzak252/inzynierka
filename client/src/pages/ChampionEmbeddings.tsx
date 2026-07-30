@@ -57,6 +57,7 @@ function Tooltip({ point }: { point: ChampionEmbeddingPoint }) {
       </div>
       <dl>
         <dt>Gry</dt><dd>{num(point.n_games, 0)}</dd>
+        <dt>Gry recent</dt><dd>{num(point.recent_games, 0)}</dd>
         <dt>Win rate</dt><dd>{pct(point.win_rate)}</dd>
         <dt>KDA</dt><dd>{num(point.kda)}</dd>
         <dt>KP</dt><dd>{pct(point.kill_participation)}</dd>
@@ -204,7 +205,7 @@ export default function ChampionEmbeddings() {
           </select>
         </label>
         <label>
-          Min. gier
+          Min. gier recent
           <input
             type="number"
             min={0}
@@ -237,7 +238,7 @@ export default function ChampionEmbeddings() {
             <Stat label="Punktów" value={`${visiblePoints.length}/${data.metadata.total_points}`} hint="po filtrze wyszukiwania" />
             <Stat label="Embedding dim" value={`${data.metadata.embedding_dim ?? '—'}`} hint={data.metadata.model_version} />
             <Stat label="Preset" value={data.metadata.preset_config?.label || data.metadata.preset || '—'} hint={data.metadata.preset_config?.description || 'projection parameters'} />
-            <Stat label="Snapshot" value={data.metadata.snapshot || '—'} hint={data.metadata.reference_date?.slice(0, 10) || 'reference date'} />
+            <Stat label="Snapshot" value={data.metadata.snapshot || '—'} hint={`min. gry = ${data.metadata.min_games_column || 'recent_games'} / ${data.metadata.recent_window_days || 90}d`} />
           </section>
 
           <section className="ce-layout">
@@ -246,7 +247,7 @@ export default function ChampionEmbeddings() {
                 <div>
                   <h2>{data.metadata.method.toUpperCase()} champion-role space</h2>
                   <p>
-                    Walk-forward: tylko historia przed snapshotem. Kolor = rola, rozmiar = liczba gier; kliknij punkt, żeby przypiąć szczegóły.
+                    Walk-forward: tylko historia przed snapshotem. Filtr “Min. gier recent” używa gier z ostatnich {data.metadata.recent_window_days || 90} dni, więc stare fallbacki nie przechodzą filtra. Kolor = rola, rozmiar = liczba gier; kliknij punkt, żeby przypiąć szczegóły.
                     {data.metadata.method === 'umap' && data.metadata.preset_config && (
                       <> UMAP: n_neighbors={data.metadata.preset_config.umap_n_neighbors}, min_dist={data.metadata.preset_config.umap_min_dist}, metric={data.metadata.preset_config.umap_metric}.</>
                     )}
