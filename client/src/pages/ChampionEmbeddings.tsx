@@ -11,6 +11,8 @@ const ROLE_COLORS: Record<string, string> = {
   SUPPORT: '#facc15',
 }
 
+const CLUSTER_COLORS = ['#38bdf8', '#fb7185', '#a78bfa', '#34d399', '#fbbf24', '#f472b6', '#2dd4bf', '#c084fc']
+
 type ProjectionMethod = 'umap' | 'tsne' | 'pca'
 type ProjectionPreset = 'local' | 'balanced' | 'global'
 
@@ -35,6 +37,13 @@ function num(value: number | null | undefined, digits = 2): string {
 function pointRadius(point: ChampionEmbeddingPoint): number {
   const games = point.n_games ?? 0
   return Math.max(4, Math.min(12, 4 + Math.log10(games + 1) * 3.2))
+}
+
+function pointColor(point: ChampionEmbeddingPoint, useClusters: boolean): string {
+  if (useClusters && point.cluster_id !== null && point.cluster_id !== undefined) {
+    return CLUSTER_COLORS[point.cluster_id % CLUSTER_COLORS.length]
+  }
+  return ROLE_COLORS[point.role || ''] || '#94a3b8'
 }
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
@@ -63,6 +72,7 @@ function Tooltip({ point }: { point: ChampionEmbeddingPoint }) {
         <dt>KP</dt><dd>{pct(point.kill_participation)}</dd>
         <dt>Damage share</dt><dd>{pct(point.damage_share)}</dd>
         <dt>Gold share</dt><dd>{pct(point.gold_share)}</dd>
+        <dt>Klaster</dt><dd>{point.cluster_label || '—'}</dd>
         <dt>Fallback</dt><dd>{point.fallback_level || '—'}</dd>
         <dt>Shrinkage</dt><dd>{pct(point.shrinkage_weight_observed)}</dd>
       </dl>
@@ -135,6 +145,7 @@ export default function ChampionEmbeddings() {
     for (const p of data?.points ?? []) counts[p.role || 'UNKNOWN'] = (counts[p.role || 'UNKNOWN'] || 0) + 1
     return counts
   }, [data])
+  const useClusters = Boolean(data && data.metadata.role !== 'ALL' && data.metadata.cluster_count > 1)
   const controlsDirty =
     draftControls.method !== appliedControls.method ||
     draftControls.preset !== appliedControls.preset ||
@@ -238,6 +249,7 @@ export default function ChampionEmbeddings() {
             <Stat label="Punktów" value={`${visiblePoints.length}/${data.metadata.total_points}`} hint="po filtrze wyszukiwania" />
             <Stat label="Embedding dim" value={`${data.metadata.embedding_dim ?? '—'}`} hint={data.metadata.model_version} />
             <Stat label="Preset" value={data.metadata.preset_config?.label || data.metadata.preset || '—'} hint={data.metadata.preset_config?.description || 'projection parameters'} />
+            <Stat label="Klastry" value={useClusters ? `${data.metadata.cluster_count}` : 'role'} hint={useClusters ? 'KMeans na embeddingach' : 'kolor = rola'} />
             <Stat label="Snapshot" value={data.metadata.snapshot || '—'} hint={`min. gry = ${data.metadata.min_games_column || 'recent_games'} / ${data.metadata.recent_window_days || 90}d`} />
           </section>
 
@@ -247,7 +259,7 @@ export default function ChampionEmbeddings() {
                 <div>
                   <h2>{data.metadata.method.toUpperCase()} champion-role space</h2>
                   <p>
-                    Walk-forward: tylko historia przed snapshotem. Filtr “Min. gier recent” używa gier z ostatnich {data.metadata.recent_window_days || 90} dni, więc stare fallbacki nie przechodzą filtra. Kolor = rola, rozmiar = liczba gier; kliknij punkt, żeby przypiąć szczegóły.
+                    Walk-forward: tylko historia przed snapshotem. Filtr “Min. gier recent” używa gier z ostatnich {data.metadata.recent_window_days || 90} dni, więc stare fallbacki nie przechodzą filtra. {useClusters ? 'Kolor = klaster/archetyp w wybranej roli' : 'Kolor = rola'}, rozmiar = liczba gier; kliknij punkt, żeby przypiąć szczegóły.
                     {data.metadata.method === 'umap' && data.metadata.preset_config && (
                       <> UMAP: n_neighbors={data.metadata.preset_config.umap_n_neighbors}, min_dist={data.metadata.preset_config.umap_min_dist}, metric={data.metadata.preset_config.umap_metric}.</>
                     )}
@@ -257,9 +269,13 @@ export default function ChampionEmbeddings() {
                   </p>
                 </div>
                 <div className="ce-legend">
-                  {Object.entries(ROLE_COLORS).map(([r, color]) => (
-                    <span key={r}><i style={{ background: color }} />{r} <b>{roleCounts[r] || 0}</b></span>
-                  ))}
+                  {useClusters
+                    ? Object.entries(data.metadata.cluster_counts || {}).map(([cluster, count]) => (
+                      <span key={cluster}><i style={{ background: CLUSTER_COLORS[Number(cluster) % CLUSTER_COLORS.length] }} />Cluster {Number(cluster) + 1} <b>{count}</b></span>
+                    ))
+                    : Object.entries(ROLE_COLORS).map(([r, color]) => (
+                      <span key={r}><i style={{ background: color }} />{r} <b>{roleCounts[r] || 0}</b></span>
+                    ))}
                 </div>
               </div>
               <svg className="ce-scatter" viewBox="0 0 1000 680" role="img" aria-label="Champion embedding scatter plot">
@@ -276,7 +292,7 @@ export default function ChampionEmbeddings() {
                         cx={x}
                         cy={y}
                         r={pointRadius(p)}
-                        fill={ROLE_COLORS[p.role || ''] || '#94a3b8'}
+                        fill={pointColor(p, useClusters)}
                         className={isActive ? 'active' : ''}
                         onMouseEnter={() => setHovered(p)}
                         onMouseLeave={() => setHovered(null)}

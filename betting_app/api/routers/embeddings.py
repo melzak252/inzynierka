@@ -17,6 +17,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
+from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 
@@ -74,6 +75,12 @@ def _bounded_neighbor_count(value: object, n_points: int) -> int:
 def _bounded_perplexity(value: object, n_points: int) -> int:
     # sklearn requires perplexity < n_samples. Keep it conservative for small filters.
     return max(2, min(int(value), max(2, n_points - 1)))
+
+
+def _auto_cluster_count(n_points: int) -> int:
+    if n_points < 8:
+        return 0
+    return max(2, min(8, int(round(np.sqrt(n_points / 2.0)))))
 
 
 def _artifact_dir() -> Path:
@@ -205,6 +212,17 @@ def _project_champion_embeddings(
     filtered = filtered.sort_values(["role", "champion_name", "champion_id"], na_position="last").head(max_points)
     matrix = filtered[vector_cols].replace([np.inf, -np.inf], np.nan).fillna(0.0).to_numpy(dtype=float)
 
+    cluster_count = _auto_cluster_count(len(filtered)) if role != "ALL" else 0
+    cluster_labels: list[int | None]
+    cluster_counts: dict[str, int]
+    if cluster_count > 0:
+        labels = KMeans(n_clusters=cluster_count, n_init=20, random_state=42).fit_predict(matrix)
+        cluster_labels = [int(v) for v in labels]
+        cluster_counts = {str(i): int(np.sum(labels == i)) for i in range(cluster_count)}
+    else:
+        cluster_labels = [None] * len(filtered)
+        cluster_counts = {}
+
     actual_method = method
     preset_cfg = _preset_config(preset)
     if method in {"umap", "tsne"} and len(filtered) < 4:
@@ -281,6 +299,8 @@ def _project_champion_embeddings(
                 "damage_share": _json_safe_float(row.get("mean_damage_share")),
                 "gold_share": _json_safe_float(row.get("mean_gold_share")),
                 "kill_participation": _json_safe_float(row.get("mean_kill_participation")),
+                "cluster_id": cluster_labels[idx],
+                "cluster_label": f"Cluster {cluster_labels[idx] + 1}" if cluster_labels[idx] is not None else None,
             }
         )
 
@@ -306,6 +326,8 @@ def _project_champion_embeddings(
             "min_games_column": min_games_column,
             "recent_window_days": metadata.get("recent_window_days"),
             "total_points": int(len(points)),
+            "cluster_count": cluster_count,
+            "cluster_counts": cluster_counts,
             "available_roles": available_roles,
             "source_rows": metadata.get("source_rows"),
             "reference_date": metadata.get("reference_date"),

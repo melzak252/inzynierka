@@ -582,6 +582,8 @@ export interface ChampionEmbeddingPoint {
   damage_share: number | null;
   gold_share: number | null;
   kill_participation: number | null;
+  cluster_id: number | null;
+  cluster_label: string | null;
 }
 
 export interface ChampionEmbeddingProjectionResponse {
@@ -606,6 +608,8 @@ export interface ChampionEmbeddingProjectionResponse {
     min_games_column: string;
     recent_window_days: number | null;
     total_points: number;
+    cluster_count: number;
+    cluster_counts: Record<string, number>;
     available_roles: string[];
     source_rows: number | null;
     reference_date: string | null;
