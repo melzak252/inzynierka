@@ -156,7 +156,11 @@ def _fit_augmented(train: pd.DataFrame, feature_names: list[str]) -> Any:
 
 
 def _train_oof(frame: pd.DataFrame, feature_names: list[str], *, initial_train_before: str, update_interval: int) -> dict[str, Any]:
-    data = frame.dropna(subset=["date", "y_true", *feature_names]).sort_values(["date", "golgg_match_id"]).reset_index(drop=True)
+    # Do not drop rows with missing context vectors.  Missingness is expected for
+    # sparse teams/champion pools and is represented both by *_missing flags and
+    # by NaNs handled by the model pipeline's median imputer.  Dropping feature
+    # NaNs would bias the comparison toward only well-covered teams.
+    data = frame.dropna(subset=["date", "y_true"]).sort_values(["date", "golgg_match_id"]).reset_index(drop=True)
     cutoff = pd.Timestamp(initial_train_before)
     train_df = data[data["date"] < cutoff].copy()
     test_pool = data[data["date"] >= cutoff].copy()
@@ -268,6 +272,11 @@ def _attach_context(frame: pd.DataFrame, args: argparse.Namespace) -> tuple[pd.D
         _add_pair_features(row, "team_ctx", tv1, tv2, team_dim)
         _add_pair_features(row, "champ_pool", cv1, cv2, champ_dim)
         rows.append(row)
+    if not rows:
+        raise RuntimeError(
+            "No rows matched the available context snapshots. "
+            "Use a min-date/cutoff covered by walk-forward embedding snapshots."
+        )
     ctx = pd.DataFrame(rows).sort_values(["date", "golgg_match_id"]).reset_index(drop=True)
     context_features = [c for c in ctx.columns if c.startswith("team_ctx_") or c.startswith("champ_pool_")]
     metadata = {
