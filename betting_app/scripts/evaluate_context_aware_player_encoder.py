@@ -33,7 +33,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import accuracy_score, brier_score_loss, log_loss, roc_auc_score
 
-from betting_app.core.db import init_db
+from betting_app.core.db import init_db, query_df
+from betting_app.core.matching import normalize_team_name
 from betting_app.ml.training.player_embedding_match_dataset import (
     PlayerEmbeddingMatchDatasetConfig,
     build_match_dataset_from_embeddings,
@@ -76,6 +77,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-iter", type=int, default=1500)
     parser.add_argument("--tol", type=float, default=1e-3)
     parser.add_argument("--json-output", default=None)
+    parser.add_argument("--oof-output-dir", default=None, help="Optional directory for plain/context OOF CSV files.")
     return parser.parse_args()
 
 
@@ -278,6 +280,130 @@ def _oof_metrics(result: Any) -> dict[str, Any]:
     }
 
 
+def _load_market_alignment() -> pd.DataFrame:
+    sql = """
+    WITH latest_odds AS (
+      SELECT DISTINCT ON (os.canonical_match_id, os.bookmaker_id)
+        os.canonical_match_id,
+        os.bookmaker_id,
+        os.odds_a,
+        os.odds_b,
+        os.scraped_at
+      FROM odds_snapshots os
+      JOIN canonical_matches cm ON cm.id = os.canonical_match_id
+      WHERE os.odds_a > 1 AND os.odds_b > 1
+        AND os.scraped_at <= cm.start_time_normalized::timestamptz + interval '30 minutes'
+      ORDER BY os.canonical_match_id, os.bookmaker_id, os.scraped_at DESC
+    ), market AS (
+      SELECT
+        canonical_match_id,
+        COUNT(*) AS books,
+        AVG((1.0/odds_a) / ((1.0/odds_a) + (1.0/odds_b))) AS market_prob_a_novig,
+        AVG((1.0/odds_a) + (1.0/odds_b) - 1.0) AS avg_margin
+      FROM latest_odds
+      GROUP BY canonical_match_id
+    ), latest_pred AS (
+      SELECT DISTINCT ON (canonical_match_id, model_name, model_version)
+        canonical_match_id, model_name, model_version, prob_a, prob_b, predicted_at
+      FROM canonical_predictions
+      WHERE (model_name, model_version) IN (
+        ('Hybrid-Thesis-Market', 'a0.35-t0.80'),
+        ('Hybrid-Thesis-Market', 'a0.05-t0.80'),
+        ('Hybrid-Thesis-Market', 'a0.50-t0.80'),
+        ('Sym-Cal LR-ElasticNet-W20-Binomial', 'exp-039')
+      )
+      ORDER BY canonical_match_id, model_name, model_version, predicted_at DESC
+    )
+    SELECT
+      gmm.golgg_match_id::text AS match_id,
+      gm.team1_name AS golgg_team1,
+      gm.team2_name AS golgg_team2,
+      cm.id AS canonical_match_id,
+      cm.team_a_name,
+      cm.team_b_name,
+      cm.normalized_team_a,
+      cm.normalized_team_b,
+      cm.start_time_normalized::timestamptz AS start_at,
+      cm.winner_side,
+      m.books,
+      m.market_prob_a_novig,
+      m.avg_margin,
+      MAX(lp.prob_a) FILTER (WHERE lp.model_name='Hybrid-Thesis-Market' AND lp.model_version='a0.35-t0.80') AS hybrid_a035_prob_a,
+      MAX(lp.prob_a) FILTER (WHERE lp.model_name='Hybrid-Thesis-Market' AND lp.model_version='a0.05-t0.80') AS hybrid_a005_prob_a,
+      MAX(lp.prob_a) FILTER (WHERE lp.model_name='Hybrid-Thesis-Market' AND lp.model_version='a0.50-t0.80') AS hybrid_a050_prob_a,
+      MAX(lp.prob_a) FILTER (WHERE lp.model_name='Sym-Cal LR-ElasticNet-W20-Binomial') AS exp039_prob_a
+    FROM golgg_match_mappings gmm
+    JOIN golgg_matches gm ON gm.match_id::text = gmm.golgg_match_id::text
+    JOIN canonical_matches cm ON cm.id = gmm.canonical_match_id
+    LEFT JOIN market m ON m.canonical_match_id = cm.id
+    LEFT JOIN latest_pred lp ON lp.canonical_match_id = cm.id
+    WHERE cm.status='finished' AND cm.winner_side IN ('team_a','team_b','A','B')
+    GROUP BY gmm.golgg_match_id, gm.team1_name, gm.team2_name, cm.id, cm.team_a_name, cm.team_b_name,
+             cm.normalized_team_a, cm.normalized_team_b, cm.start_time_normalized, cm.winner_side,
+             m.books, m.market_prob_a_novig, m.avg_margin
+    """
+    return query_df(sql)
+
+
+def _align_prob_to_golgg_team1(row: pd.Series, prob_a_col: str) -> float:
+    p = row.get(prob_a_col)
+    if pd.isna(p):
+        return np.nan
+    g1 = normalize_team_name(str(row.get("golgg_team1") or ""))
+    ca = normalize_team_name(str(row.get("team_a_name") or row.get("normalized_team_a") or ""))
+    cb = normalize_team_name(str(row.get("team_b_name") or row.get("normalized_team_b") or ""))
+    if g1 and ca and g1 == ca:
+        return float(p)
+    if g1 and cb and g1 == cb:
+        return float(1.0 - float(p))
+    return np.nan
+
+
+def _market_compare(oof: pd.DataFrame, label: str) -> dict[str, Any]:
+    market = _load_market_alignment()
+    merged = oof.copy()
+    merged["match_id"] = merged["match_id"].astype(str)
+    merged = merged.merge(market, on="match_id", how="inner")
+    for src in ["market_prob_a_novig", "hybrid_a035_prob_a", "hybrid_a005_prob_a", "hybrid_a050_prob_a", "exp039_prob_a"]:
+        merged[f"{src}_team1"] = merged.apply(lambda r: _align_prob_to_golgg_team1(r, src), axis=1)
+    out: dict[str, Any] = {
+        "label": label,
+        "common_mapped_rows": int(len(merged)),
+        "date_min": str(pd.to_datetime(merged["date"], utc=True, errors="coerce").min()) if len(merged) else None,
+        "date_max": str(pd.to_datetime(merged["date"], utc=True, errors="coerce").max()) if len(merged) else None,
+        "metrics": {},
+    }
+    y = merged["target"].astype(int).to_numpy()
+    for name, col in [
+        (f"{label}_oof_calibrated", "oof_prob_calibrated"),
+        (f"{label}_oof_raw", "oof_prob_raw"),
+        ("market_no_vig", "market_prob_a_novig_team1"),
+        ("hybrid_a035", "hybrid_a035_prob_a_team1"),
+        ("hybrid_a005", "hybrid_a005_prob_a_team1"),
+        ("hybrid_a050", "hybrid_a050_prob_a_team1"),
+        ("exp039", "exp039_prob_a_team1"),
+    ]:
+        mask = merged[col].notna()
+        if int(mask.sum()) == 0:
+            continue
+        out["metrics"][name] = _metrics(y[mask.to_numpy()], merged.loc[mask, col].to_numpy(dtype=float))
+    return out
+
+
+def _write_oof_frames(output_dir: Path, plain_result: Any, context_result: Any) -> dict[str, str]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths: dict[str, str] = {}
+    if plain_result.oof_frame is not None:
+        path = output_dir / "plain_oof.csv"
+        plain_result.oof_frame.to_csv(path, index=False)
+        paths["plain_oof"] = str(path)
+    if context_result.oof_frame is not None:
+        path = output_dir / "context_oof.csv"
+        context_result.oof_frame.to_csv(path, index=False)
+        paths["context_oof"] = str(path)
+    return paths
+
+
 def main() -> None:
     args = parse_args()
     init_db()
@@ -334,18 +460,30 @@ def main() -> None:
     plain_result = _train_match_oof(plain_match, name="EXP064-PlainPlayerEncoder-MatchLR", args=args)
     context_result = _train_match_oof(context_match, name="EXP064-ContextAwarePlayerEncoder-MatchLR", args=args)
 
+    oof_paths = _write_oof_frames(Path(args.oof_output_dir), plain_result, context_result) if args.oof_output_dir else {}
     payload = {
         "experiment_id": "EXP-064",
         "description": "Context-aware player-game encoder vs plain player-game encoder, both aggregated leakage-safely to match level.",
         "args": vars(args),
+        "oof_outputs": oof_paths,
         "plain_player_dataset_metadata": plain_player.metadata,
         "context_player_dataset_metadata": context_player.metadata,
         "plain_encoder": {"artifact_path": str(plain_encoder.artifact_path), "metadata": plain_encoder.metadata, "history_tail": plain_encoder.history[-5:]},
         "context_encoder": {"artifact_path": str(context_encoder.artifact_path), "metadata": context_encoder.metadata, "history_tail": context_encoder.history[-5:]},
         "plain_match_dataset_metadata": plain_match.metadata,
         "context_match_dataset_metadata": context_match.metadata,
-        "plain_match_model": {"metrics": plain_result.metrics, "oof_metrics": _oof_metrics(plain_result), "folds": [asdict(f) for f in plain_result.folds]},
-        "context_match_model": {"metrics": context_result.metrics, "oof_metrics": _oof_metrics(context_result), "folds": [asdict(f) for f in context_result.folds]},
+        "plain_match_model": {
+            "metrics": plain_result.metrics,
+            "oof_metrics": _oof_metrics(plain_result),
+            "folds": [asdict(f) for f in plain_result.folds],
+            "market_comparison": _market_compare(plain_result.oof_frame, "plain") if plain_result.oof_frame is not None else {},
+        },
+        "context_match_model": {
+            "metrics": context_result.metrics,
+            "oof_metrics": _oof_metrics(context_result),
+            "folds": [asdict(f) for f in context_result.folds],
+            "market_comparison": _market_compare(context_result.oof_frame, "context") if context_result.oof_frame is not None else {},
+        },
     }
     text = json.dumps(payload, indent=2, sort_keys=True, default=str)
     if args.json_output:
