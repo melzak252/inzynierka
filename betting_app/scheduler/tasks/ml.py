@@ -106,6 +106,43 @@ def run_thesis_model_healthcheck() -> dict:
     }
 
 
+def refresh_champion_role_embeddings() -> dict:
+    """Rebuild current and walk-forward champion-role embedding snapshots.
+
+    The dashboard visualisation should reflect how champions are played as of a
+    selected date, not after seeing future games.  This scheduled refresh writes
+    a latest artifact plus monthly leakage-safe snapshots from 2026 onward;
+    each snapshot is computed using only games before its reference date.
+    """
+    logger.info("Starting champion-role embedding refresh")
+    start = datetime.utcnow()
+
+    success = _run_module(
+        "betting_app.scripts.build_champion_role_embeddings",
+        args=[
+            "--min-date",
+            "2020-01-01",
+            "--walk-forward",
+            "--snapshot-start",
+            "2026-01-01",
+            "--snapshot-frequency",
+            "MS",
+            "--output-dir",
+            "/app/betting_app/models/ml/champion_role_embeddings/exp-056",
+        ],
+        timeout=1800,
+    )
+
+    duration = (datetime.utcnow() - start).total_seconds()
+    logger.info(f"Champion-role embedding refresh: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+
+    return {
+        "success": success,
+        "duration_s": duration,
+        "timestamp": start.isoformat(),
+    }
+
+
 def run_scheduler_healthcheck() -> dict:
     """Check recent scheduler/scraper health and fail loudly on regressions.
 

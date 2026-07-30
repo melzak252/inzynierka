@@ -586,6 +586,8 @@ export interface ChampionEmbeddingProjectionResponse {
     artifact_path: string;
     method: 'umap' | 'tsne' | 'pca';
     requested_method: 'umap' | 'tsne' | 'pca';
+    snapshot: string;
+    available_snapshots: string[];
     role: string;
     min_games: number;
     total_points: number;

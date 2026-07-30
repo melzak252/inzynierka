@@ -269,12 +269,14 @@ export async function fetchHorizonBootstrap(): Promise<HorizonBootstrapResponse>
 export async function fetchChampionEmbeddings(
   method: 'umap' | 'tsne' | 'pca' = 'umap',
   role: string = 'ALL',
-  minGames: number = 0
+  minGames: number = 0,
+  snapshot: string = 'latest'
 ): Promise<ChampionEmbeddingProjectionResponse> {
   const params = new URLSearchParams({
     method,
     role,
     min_games: minGames.toString(),
+    snapshot,
   });
   const response = await fetch(`${API_BASE}/embeddings/champions?${params}`);
   if (!response.ok) {

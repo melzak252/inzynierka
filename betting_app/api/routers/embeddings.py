@@ -32,9 +32,47 @@ def _artifact_dir() -> Path:
     return LOCAL_ARTIFACT_DIR
 
 
-def _artifact_paths() -> tuple[Path, Path]:
+def _load_manifest(artifact_dir: Path) -> dict:
+    manifest_path = artifact_dir / "walk_forward_manifest.json"
+    if not manifest_path.exists():
+        return {"snapshots": []}
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {"snapshots": []}
+
+
+def _available_snapshot_ids(artifact_dir: Path) -> list[str]:
+    manifest = _load_manifest(artifact_dir)
+    snapshots = [str(item.get("snapshot")) for item in manifest.get("snapshots", []) if item.get("snapshot")]
+    return sorted(set(snapshots))
+
+
+def _resolve_snapshot_dir(artifact_dir: Path, snapshot: str) -> tuple[Path, str]:
+    snapshot_norm = snapshot.strip() or "latest"
+    if snapshot_norm in {"latest", "current"}:
+        snapshots = _available_snapshot_ids(artifact_dir)
+        if snapshots:
+            latest = snapshots[-1]
+            return artifact_dir / "snapshots" / latest, latest
+        return artifact_dir, "current"
+    if not snapshot_norm.replace("-", "").isdigit():
+        raise HTTPException(status_code=400, detail="Snapshot must be 'latest' or YYYY-MM-DD.")
+    snapshot_dir = artifact_dir / "snapshots" / snapshot_norm
+    if not snapshot_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Champion embedding snapshot not found: {snapshot_norm}")
+    return snapshot_dir, snapshot_norm
+
+
+def _artifact_paths(snapshot: str = "latest") -> tuple[Path, Path, str, list[str]]:
     artifact_dir = _artifact_dir()
-    return artifact_dir / "champion_role_embeddings.csv", artifact_dir / "metadata.json"
+    resolved_dir, resolved_snapshot = _resolve_snapshot_dir(artifact_dir, snapshot)
+    return (
+        resolved_dir / "champion_role_embeddings.csv",
+        resolved_dir / "metadata.json",
+        resolved_snapshot,
+        _available_snapshot_ids(artifact_dir),
+    )
 
 
 def _json_safe_float(value: object) -> float | None:
@@ -49,8 +87,8 @@ def _json_safe_float(value: object) -> float | None:
     return numeric
 
 
-def _mtime_key() -> tuple[str, float, str, float]:
-    csv_path, metadata_path = _artifact_paths()
+def _mtime_key(snapshot: str) -> tuple[str, float, str, float, str, tuple[str, ...]]:
+    csv_path, metadata_path, resolved_snapshot, available_snapshots = _artifact_paths(snapshot)
     if not csv_path.exists():
         raise HTTPException(
             status_code=404,
@@ -60,7 +98,7 @@ def _mtime_key() -> tuple[str, float, str, float]:
             ),
         )
     metadata_mtime = metadata_path.stat().st_mtime if metadata_path.exists() else 0.0
-    return str(csv_path), csv_path.stat().st_mtime, str(metadata_path), metadata_mtime
+    return str(csv_path), csv_path.stat().st_mtime, str(metadata_path), metadata_mtime, resolved_snapshot, tuple(available_snapshots)
 
 
 @lru_cache(maxsize=32)
@@ -69,6 +107,8 @@ def _project_champion_embeddings(
     csv_mtime: float,
     metadata_path_str: str,
     metadata_mtime: float,
+    resolved_snapshot: str,
+    available_snapshots: tuple[str, ...],
     method: str,
     role: str,
     min_games: int,
@@ -171,6 +211,8 @@ def _project_champion_embeddings(
             "artifact_path": str(csv_path),
             "method": actual_method,
             "requested_method": method,
+            "snapshot": resolved_snapshot,
+            "available_snapshots": list(available_snapshots),
             "role": role,
             "min_games": min_games,
             "total_points": int(len(points)),
@@ -189,6 +231,7 @@ def _project_champion_embeddings(
 @router.get("/champions")
 def champion_embedding_projection(
     method: Literal["umap", "tsne", "pca"] = Query("umap", description="2D projection method."),
+    snapshot: str = Query("latest", description="Walk-forward snapshot: latest/current or YYYY-MM-DD."),
     role: str = Query("ALL", description="Role filter: ALL, TOP, JUNGLE, MID, ADC, SUPPORT."),
     min_games: int = Query(0, ge=0, le=1000),
     max_points: int = Query(800, ge=10, le=2000),
@@ -198,6 +241,6 @@ def champion_embedding_projection(
     UMAP is the default nonlinear view; t-SNE and PCA are available for
     comparison/debugging.
     """
-    key = _mtime_key()
+    key = _mtime_key(snapshot)
     role_norm = role.upper()
     return _project_champion_embeddings(*key, method, role_norm, int(min_games), int(max_points))

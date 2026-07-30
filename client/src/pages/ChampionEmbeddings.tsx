@@ -60,6 +60,7 @@ function Tooltip({ point }: { point: ChampionEmbeddingPoint }) {
 
 export default function ChampionEmbeddings() {
   const [method, setMethod] = useState<'umap' | 'tsne' | 'pca'>('umap')
+  const [snapshot, setSnapshot] = useState('latest')
   const [role, setRole] = useState('ALL')
   const [minGames, setMinGames] = useState(0)
   const [query, setQuery] = useState('')
@@ -74,9 +75,12 @@ export default function ChampionEmbeddings() {
     async function load() {
       try {
         setLoading(true)
-        const result = await fetchChampionEmbeddings(method, role, minGames)
+        const result = await fetchChampionEmbeddings(method, role, minGames, snapshot)
         if (!cancelled) {
           setData(result)
+          if (snapshot === 'latest' && result.metadata.snapshot && result.metadata.snapshot !== 'current') {
+            setSnapshot(result.metadata.snapshot)
+          }
           setError(null)
           setSelected(null)
           setHovered(null)
@@ -89,9 +93,10 @@ export default function ChampionEmbeddings() {
     }
     load()
     return () => { cancelled = true }
-  }, [method, role, minGames])
+  }, [method, role, minGames, snapshot])
 
   const roles = data?.metadata.available_roles?.length ? ['ALL', ...data.metadata.available_roles] : ['ALL', 'TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT']
+  const snapshots = data?.metadata.available_snapshots?.length ? data.metadata.available_snapshots : []
   const visiblePoints = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!data) return []
@@ -113,8 +118,8 @@ export default function ChampionEmbeddings() {
           <p className="ce-kicker">Embedding diagnostics</p>
           <h1>Champion embeddings</h1>
           <p>
-            Interaktywna mapa 2D pokazująca, jak rozkładają się embeddingi championów per rola
-            z artefaktu EXP-056. Punkt = para <strong>champion + role</strong>.
+            Interaktywna mapa 2D pokazująca walk-forward embeddingi championów per rola
+            z artefaktu EXP-056. Punkt = para <strong>champion + role</strong>, liczona tylko z gier sprzed wybranej daty.
           </p>
         </div>
       </header>
@@ -126,6 +131,13 @@ export default function ChampionEmbeddings() {
             <option value="umap">UMAP</option>
             <option value="tsne">t-SNE</option>
             <option value="pca">PCA</option>
+          </select>
+        </label>
+        <label>
+          Snapshot walk-forward
+          <select value={snapshot} onChange={(e) => setSnapshot(e.target.value)}>
+            <option value="latest">Najnowszy</option>
+            {snapshots.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
         <label>
@@ -159,7 +171,7 @@ export default function ChampionEmbeddings() {
             <Stat label="Punktów" value={`${visiblePoints.length}/${data.metadata.total_points}`} hint="po filtrze wyszukiwania" />
             <Stat label="Embedding dim" value={`${data.metadata.embedding_dim ?? '—'}`} hint={data.metadata.model_version} />
             <Stat label="Źródło" value={`${data.metadata.source_rows ?? '—'}`} hint="player-game rows" />
-            <Stat label="Reference date" value={data.metadata.reference_date?.slice(0, 10) || '—'} />
+            <Stat label="Snapshot" value={data.metadata.snapshot || '—'} hint={data.metadata.reference_date?.slice(0, 10) || 'reference date'} />
           </section>
 
           <section className="ce-layout">
@@ -167,7 +179,7 @@ export default function ChampionEmbeddings() {
               <div className="ce-chart-head">
                 <div>
                   <h2>{data.metadata.method.toUpperCase()} champion-role space</h2>
-                  <p>Kolor = rola, rozmiar = liczba gier; kliknij punkt, żeby przypiąć szczegóły.</p>
+                  <p>Walk-forward: tylko historia przed snapshotem. Kolor = rola, rozmiar = liczba gier; kliknij punkt, żeby przypiąć szczegóły.</p>
                 </div>
                 <div className="ce-legend">
                   {Object.entries(ROLE_COLORS).map(([r, color]) => (

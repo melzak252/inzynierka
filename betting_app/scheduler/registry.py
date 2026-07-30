@@ -136,6 +136,18 @@ def register_all_tasks():
         enabled=True
     ))
 
+    # Champion embedding refresh - daily after GOL.GG/rating maintenance.
+    # Writes current artifact plus monthly walk-forward snapshots for the
+    # embedding diagnostics page.
+    registry.register(TaskDefinition(
+        id="refresh_champion_role_embeddings",
+        name="Refresh Champion Role Embeddings",
+        func=ml.refresh_champion_role_embeddings,
+        cron_trigger="20 5 * * *",  # Daily 05:20 UTC
+        description="Rebuild champion-role embeddings and walk-forward snapshots",
+        enabled=True
+    ))
+
     # Scheduler healthcheck - frequent lightweight alerting via automation_runs
     registry.register(TaskDefinition(
         id="scheduler_healthcheck",

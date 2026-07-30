@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +95,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--shrinkage-prior-games", type=float, default=ChampionRoleEmbeddingConfig.shrinkage_prior_games, help="Empirical-Bayes prior strength toward role default for sparse champion-role pairs.")
     parser.add_argument("--limit-rows", type=int, default=None, help="Smoke-test row limit.")
     parser.add_argument("--output-dir", default=ChampionRoleEmbeddingConfig.output_dir)
+    parser.add_argument("--walk-forward", action="store_true", help="Also build leakage-safe historical snapshots.")
+    parser.add_argument("--snapshot-start", default=None, help="First snapshot reference date, e.g. 2025-01-01. Defaults to last 18 months.")
+    parser.add_argument("--snapshot-end", default=None, help="Last snapshot reference date. Defaults to latest available date + 1 day.")
+    parser.add_argument("--snapshot-frequency", choices=("MS", "W-MON"), default="MS", help="Snapshot cadence: month-start or weekly Monday.")
     return parser.parse_args()
 
 
@@ -330,6 +334,42 @@ def build_embeddings(raw_dataset: Any, cfg: ChampionRoleEmbeddingConfig) -> dict
     return {"embeddings": result, "diagnostics": diagnostics, "fill_values": fill_values.to_dict()}
 
 
+def _write_artifact(artifact: dict[str, Any], output_dir: Path) -> dict[str, Any]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    embeddings = artifact["embeddings"]
+    try:
+        embeddings.to_parquet(output_dir / "champion_role_embeddings.parquet", index=False)
+        parquet_written = True
+    except Exception as exc:  # optional dependency / platform fallback
+        parquet_written = False
+        print(f"WARN: parquet export skipped for {output_dir}: {exc}")
+    embeddings.to_csv(output_dir / "champion_role_embeddings.csv", index=False)
+    artifact["diagnostics"]["parquet_written"] = parquet_written
+    with (output_dir / "metadata.json").open("w", encoding="utf-8") as fh:
+        json.dump(artifact["diagnostics"], fh, indent=2, ensure_ascii=False, default=_json_default)
+    with (output_dir / "feature_fill_values.json").open("w", encoding="utf-8") as fh:
+        json.dump(artifact["fill_values"], fh, indent=2, ensure_ascii=False, default=_json_default)
+    return artifact["diagnostics"]
+
+
+def _snapshot_dates(dataset_frame: pd.DataFrame, args: argparse.Namespace) -> list[pd.Timestamp]:
+    dates = pd.to_datetime(dataset_frame["date"], utc=True, errors="coerce").dropna()
+    if dates.empty:
+        return []
+    latest_ref = dates.max().normalize() + pd.Timedelta(days=1)
+    start = pd.Timestamp(args.snapshot_start, tz="UTC") if args.snapshot_start else latest_ref - pd.DateOffset(months=18)
+    end = pd.Timestamp(args.snapshot_end, tz="UTC") if args.snapshot_end else latest_ref
+    start = start.normalize()
+    end = end.normalize()
+    if start > end:
+        return []
+    refs = pd.date_range(start=start, end=end, freq=args.snapshot_frequency, tz="UTC").to_list()
+    if latest_ref not in refs:
+        refs.append(latest_ref)
+    return sorted({pd.Timestamp(ref).normalize() for ref in refs})
+
+
 def _json_default(value: Any) -> Any:
     if isinstance(value, (np.integer,)):
         return int(value)
@@ -363,23 +403,47 @@ def main() -> None:
     )
     artifact = build_embeddings(dataset, cfg)
     output_dir = Path(cfg.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    latest_metadata = _write_artifact(artifact, output_dir)
 
-    embeddings = artifact["embeddings"]
-    try:
-        embeddings.to_parquet(output_dir / "champion_role_embeddings.parquet", index=False)
-        parquet_written = True
-    except Exception as exc:  # optional dependency / platform fallback
-        parquet_written = False
-        print(f"WARN: parquet export skipped: {exc}")
-    embeddings.to_csv(output_dir / "champion_role_embeddings.csv", index=False)
-    artifact["diagnostics"]["parquet_written"] = parquet_written
-    with (output_dir / "metadata.json").open("w", encoding="utf-8") as fh:
-        json.dump(artifact["diagnostics"], fh, indent=2, ensure_ascii=False, default=_json_default)
-    with (output_dir / "feature_fill_values.json").open("w", encoding="utf-8") as fh:
-        json.dump(artifact["fill_values"], fh, indent=2, ensure_ascii=False, default=_json_default)
+    if args.walk_forward:
+        snapshots_root = output_dir / "snapshots"
+        manifest: dict[str, Any] = {
+            "mode": "walk_forward_snapshots",
+            "cadence": args.snapshot_frequency,
+            "snapshot_start": args.snapshot_start,
+            "snapshot_end": args.snapshot_end,
+            "snapshots": [],
+        }
+        for ref_date in _snapshot_dates(dataset.frame, args):
+            ref_str = ref_date.strftime("%Y-%m-%d")
+            snapshot_cfg = replace(cfg, reference_date=ref_date.isoformat())
+            try:
+                snapshot_artifact = build_embeddings(dataset, snapshot_cfg)
+            except RuntimeError as exc:
+                print(f"WARN: snapshot {ref_str} skipped: {exc}")
+                continue
+            snapshot_dir = snapshots_root / ref_str
+            snapshot_metadata = _write_artifact(snapshot_artifact, snapshot_dir)
+            manifest["snapshots"].append(
+                {
+                    "snapshot": ref_str,
+                    "reference_date": snapshot_metadata.get("reference_date"),
+                    "champion_role_rows": snapshot_metadata.get("champion_role_rows"),
+                    "distinct_champions": snapshot_metadata.get("distinct_champions"),
+                    "source_rows": snapshot_metadata.get("source_rows"),
+                    "source_date_min": snapshot_metadata.get("source_date_min"),
+                    "source_date_max": snapshot_metadata.get("source_date_max"),
+                    "fallback_counts": snapshot_metadata.get("fallback_counts", {}),
+                }
+            )
+            print(f"WROTE snapshot {ref_str}: {snapshot_metadata.get('champion_role_rows')} champion-role rows")
+        manifest["snapshots"].sort(key=lambda item: item["snapshot"])
+        with (output_dir / "walk_forward_manifest.json").open("w", encoding="utf-8") as fh:
+            json.dump(manifest, fh, indent=2, ensure_ascii=False, default=_json_default)
+        latest_metadata["walk_forward_manifest"] = str(output_dir / "walk_forward_manifest.json")
+        latest_metadata["walk_forward_snapshot_count"] = len(manifest["snapshots"])
 
-    print(json.dumps(artifact["diagnostics"], indent=2, ensure_ascii=False, default=_json_default))
+    print(json.dumps(latest_metadata, indent=2, ensure_ascii=False, default=_json_default))
 
 
 if __name__ == "__main__":
