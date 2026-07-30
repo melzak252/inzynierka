@@ -13,25 +13,24 @@ logger = logging.getLogger(__name__)
 
 
 def run_weekly_retraining() -> dict:
-    """Run the production ML weekly retraining pipeline.
+    """Run weekly retraining for the EXP-039 model family.
 
-    The pipeline trains candidate models on historical finished matches,
-    performs walk-forward validation, saves an immutable dataset/model artifact,
-    and registers the model version as a shadow candidate.
+    The frozen thesis version ``exp-039`` remains immutable.  This scheduled
+    task trains a new ``exp039-weekly-*`` artifact with the same 46-feature,
+    order-symmetric, Platt-calibrated methodology and registers it as a
+    candidate for inspection/promotion.
     """
     logger.info("Starting weekly ML retraining")
     start = datetime.utcnow()
 
     success = _run_module(
-        "betting_app.ml.pipelines.weekly_retrain_cli",
+        "betting_app.ml.pipelines.exp039_weekly_retrain",
         args=[
-            "--model-name",
-            "Operational-Retrained-Tabular",
             "--status-on-success",
-            "shadow",
+            "candidate",
             "--json",
         ],
-        timeout=1800,
+        timeout=3600,
     )
 
     duration = (datetime.utcnow() - start).total_seconds()
