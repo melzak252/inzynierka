@@ -37,7 +37,7 @@
 }
 
 .ce-controls {
-  grid-template-columns: 160px 150px 140px 1fr;
+  grid-template-columns: 140px 150px 120px 110px 110px minmax(180px, 1fr);
   align-items: end;
   padding: 1rem;
   border: 1px solid rgba(148, 163, 184, 0.2);
@@ -61,6 +61,24 @@
   border-radius: 10px;
   background: #0f172a;
   color: #fff;
+}
+
+.ce-apply {
+  min-height: 42px;
+  padding: 0.65rem 1rem;
+  border: 1px solid rgba(79, 195, 247, 0.45);
+  border-radius: 10px;
+  background: linear-gradient(135deg, #0284c7, #2563eb);
+  color: #fff;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.ce-apply:disabled {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(51, 65, 85, 0.65);
+  color: rgba(255, 255, 255, 0.55);
+  cursor: default;
 }
 
 .ce-stats {

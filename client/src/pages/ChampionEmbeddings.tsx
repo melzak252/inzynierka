@@ -11,6 +11,15 @@ const ROLE_COLORS: Record<string, string> = {
   SUPPORT: '#facc15',
 }
 
+type ProjectionMethod = 'umap' | 'tsne' | 'pca'
+
+type ProjectionControls = {
+  method: ProjectionMethod
+  snapshot: string
+  role: string
+  minGames: number
+}
+
 function pct(value: number | null | undefined, digits = 1): string {
   if (value === null || value === undefined || Number.isNaN(value)) return '—'
   return `${(value * 100).toFixed(digits)}%`
@@ -59,11 +68,13 @@ function Tooltip({ point }: { point: ChampionEmbeddingPoint }) {
 }
 
 export default function ChampionEmbeddings() {
-  const [method, setMethod] = useState<'umap' | 'tsne' | 'pca'>('umap')
-  const [snapshot, setSnapshot] = useState('latest')
-  const [role, setRole] = useState('ALL')
-  const [minGames, setMinGames] = useState(0)
-  const [debouncedMinGames, setDebouncedMinGames] = useState(0)
+  const [draftControls, setDraftControls] = useState<ProjectionControls>({
+    method: 'umap',
+    snapshot: 'latest',
+    role: 'ALL',
+    minGames: 0,
+  })
+  const [appliedControls, setAppliedControls] = useState<ProjectionControls>(draftControls)
   const [query, setQuery] = useState('')
   const [data, setData] = useState<ChampionEmbeddingProjectionResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -72,24 +83,20 @@ export default function ChampionEmbeddings() {
   const [hovered, setHovered] = useState<ChampionEmbeddingPoint | null>(null)
 
   useEffect(() => {
-    const timeoutId = window.setTimeout(() => {
-      setDebouncedMinGames(minGames)
-    }, 350)
-    return () => window.clearTimeout(timeoutId)
-  }, [minGames])
-
-  useEffect(() => {
     const controller = new AbortController()
     let cancelled = false
     async function load() {
       try {
         setLoading(true)
-        const result = await fetchChampionEmbeddings(method, role, debouncedMinGames, snapshot, controller.signal)
+        const result = await fetchChampionEmbeddings(
+          appliedControls.method,
+          appliedControls.role,
+          appliedControls.minGames,
+          appliedControls.snapshot,
+          controller.signal,
+        )
         if (!cancelled) {
           setData(result)
-          if (snapshot === 'latest' && result.metadata.snapshot && result.metadata.snapshot !== 'current') {
-            setSnapshot(result.metadata.snapshot)
-          }
           setError(null)
           setSelected(null)
           setHovered(null)
@@ -106,7 +113,7 @@ export default function ChampionEmbeddings() {
       cancelled = true
       controller.abort()
     }
-  }, [method, role, debouncedMinGames, snapshot])
+  }, [appliedControls])
 
   const roles = data?.metadata.available_roles?.length ? ['ALL', ...data.metadata.available_roles] : ['ALL', 'TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT']
   const snapshots = data?.metadata.available_snapshots?.length ? data.metadata.available_snapshots : []
@@ -123,6 +130,18 @@ export default function ChampionEmbeddings() {
     for (const p of data?.points ?? []) counts[p.role || 'UNKNOWN'] = (counts[p.role || 'UNKNOWN'] || 0) + 1
     return counts
   }, [data])
+  const controlsDirty =
+    draftControls.method !== appliedControls.method ||
+    draftControls.snapshot !== appliedControls.snapshot ||
+    draftControls.role !== appliedControls.role ||
+    draftControls.minGames !== appliedControls.minGames
+
+  const applyControls = () => {
+    setAppliedControls({
+      ...draftControls,
+      minGames: Math.max(0, Math.min(1000, Number(draftControls.minGames) || 0)),
+    })
+  }
 
   return (
     <div className="ce-page">
@@ -140,7 +159,10 @@ export default function ChampionEmbeddings() {
       <section className="ce-controls">
         <label>
           Projekcja
-          <select value={method} onChange={(e) => setMethod(e.target.value as 'umap' | 'tsne' | 'pca')}>
+          <select
+            value={draftControls.method}
+            onChange={(e) => setDraftControls((prev) => ({ ...prev, method: e.target.value as ProjectionMethod }))}
+          >
             <option value="umap">UMAP</option>
             <option value="tsne">t-SNE</option>
             <option value="pca">PCA</option>
@@ -148,14 +170,20 @@ export default function ChampionEmbeddings() {
         </label>
         <label>
           Snapshot walk-forward
-          <select value={snapshot} onChange={(e) => setSnapshot(e.target.value)}>
+          <select
+            value={draftControls.snapshot}
+            onChange={(e) => setDraftControls((prev) => ({ ...prev, snapshot: e.target.value }))}
+          >
             <option value="latest">Najnowszy</option>
             {snapshots.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
         <label>
           Rola
-          <select value={role} onChange={(e) => setRole(e.target.value)}>
+          <select
+            value={draftControls.role}
+            onChange={(e) => setDraftControls((prev) => ({ ...prev, role: e.target.value }))}
+          >
             {roles.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </label>
@@ -165,10 +193,16 @@ export default function ChampionEmbeddings() {
             type="number"
             min={0}
             max={1000}
-            value={minGames}
-            onChange={(e) => setMinGames(Math.max(0, Number(e.target.value) || 0))}
+            value={draftControls.minGames}
+            onChange={(e) => setDraftControls((prev) => ({
+              ...prev,
+              minGames: Math.max(0, Number(e.target.value) || 0),
+            }))}
           />
         </label>
+        <button className="ce-apply" type="button" onClick={applyControls} disabled={loading || (!controlsDirty && !error)}>
+          {loading ? 'Liczenie…' : controlsDirty ? 'Przelicz' : error ? 'Spróbuj ponownie' : 'Aktualne'}
+        </button>
         <label className="ce-search">
           Szukaj championa
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="np. Ahri, Zeri, 103…" />
@@ -176,7 +210,7 @@ export default function ChampionEmbeddings() {
       </section>
 
       {error && <div className="ce-state error">{error}</div>}
-      {loading && <div className="ce-state">Liczenie projekcji {method.toUpperCase()}…</div>}
+      {loading && <div className="ce-state">Liczenie projekcji {appliedControls.method.toUpperCase()}…</div>}
       {data?.metadata.projection_warning && !error && (
         <div className="ce-state">{data.metadata.projection_warning}</div>
       )}
