@@ -143,6 +143,43 @@ def refresh_champion_role_embeddings() -> dict:
     }
 
 
+def refresh_team_context_embeddings() -> dict:
+    """Rebuild current and walk-forward team/opponent context embeddings.
+
+    These EXP-057 artifacts are leakage-safe team form/style snapshots used as
+    future ``own_team_embedding`` and ``opponent_team_embedding`` context.  They
+    intentionally refresh after the GOL.GG import/rating maintenance cycle and
+    after champion-role embeddings.
+    """
+    logger.info("Starting team-context embedding refresh")
+    start = datetime.utcnow()
+
+    success = _run_module(
+        "betting_app.scripts.build_team_context_embeddings",
+        args=[
+            "--min-date",
+            "2020-01-01",
+            "--walk-forward",
+            "--snapshot-start",
+            "2026-01-01",
+            "--snapshot-frequency",
+            "MS",
+            "--output-dir",
+            "/app/betting_app/models/ml/team_context_embeddings/exp-057",
+        ],
+        timeout=1800,
+    )
+
+    duration = (datetime.utcnow() - start).total_seconds()
+    logger.info(f"Team-context embedding refresh: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+
+    return {
+        "success": success,
+        "duration_s": duration,
+        "timestamp": start.isoformat(),
+    }
+
+
 def run_scheduler_healthcheck() -> dict:
     """Check recent scheduler/scraper health and fail loudly on regressions.
 

@@ -106,3 +106,51 @@ Post-draft/live-draft model can additionally use:
 3. Save vectors + metadata as reusable artifacts.
 4. Evaluate quality with descriptive diagnostics first: coverage, sparse champions, role defaults, recent-vs-fallback distribution.
 5. Next: plug champion embeddings into PlayerGameEncoder and compare against EXP-054/055.
+
+## Roadmap after champion-role embeddings
+
+### EXP-057 — Team/opponent statistical embeddings
+
+Build leakage-safe walk-forward team embeddings.  For a team at reference date `T`, use only games with `date < T` and summarise:
+
+- recent form: win rate, side profile, game duration, team kills/gold/objectives when available;
+- style: kill pace, gold pace, early-game diffs, vision/ward profile aggregated from players;
+- opponent-adjusted proxies: gold diff, kill diff, relative performance against recent opponents;
+- roster/player composition proxies: distinct players, role coverage, champion pool size;
+- recency: 90/180/365 day fallback, then all-history exponential decay.
+
+The artifact is intentionally statistical/interpretable first.  It becomes both a match-level feature source and context for the next PlayerGameEncoder.
+
+### EXP-058 — Champion + team context dataset
+
+Join every player-game row with:
+
+```text
+champion-role embedding at T
+own-team embedding at T
+opponent-team embedding at T
+role/side/patch/league metadata
+raw player stats
+```
+
+This step is primarily a data/coverage/leakage audit before neural training.
+
+### EXP-059 — ContextAwarePlayerGameEncoder
+
+Train a small neural encoder that consumes player stats plus champion/team/opponent context and emits a player-game latent vector.  Candidate objectives:
+
+- supervised win/loss and match outcome heads;
+- auxiliary role-specific targets such as gold diff @15, damage share, KP, deaths/min;
+- denoising/reconstruction of stat profile;
+- later contrastive objectives for similar performances in similar context.
+
+### EXP-060 — Contextual match model
+
+Aggregate context-aware player-game embeddings into team/match features, then compare against:
+
+- bookmaker no-vig market;
+- EXP-039 symmetric calibrated LR;
+- current market-shrink hybrid;
+- EXP-054/055 embedding baselines.
+
+Deployment rule remains conservative: if learned signal does not beat market reliably, use it only as a small residual correction to market probability.

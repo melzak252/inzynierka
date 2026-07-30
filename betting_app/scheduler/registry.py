@@ -148,6 +148,16 @@ def register_all_tasks():
         enabled=True
     ))
 
+    # Team/opponent embedding refresh - daily after champion embeddings.
+    registry.register(TaskDefinition(
+        id="refresh_team_context_embeddings",
+        name="Refresh Team Context Embeddings",
+        func=ml.refresh_team_context_embeddings,
+        cron_trigger="35 5 * * *",  # Daily 05:35 UTC
+        description="Rebuild team/opponent context embeddings and walk-forward snapshots",
+        enabled=True
+    ))
+
     # Scheduler healthcheck - frequent lightweight alerting via automation_runs
     registry.register(TaskDefinition(
         id="scheduler_healthcheck",
