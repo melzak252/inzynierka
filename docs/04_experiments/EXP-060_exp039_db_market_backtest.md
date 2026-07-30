@@ -33,6 +33,50 @@
 - Features: 46 total — rating/uncertainty features, W20 rolling features, and binomial series-probability features.
 - Prediction: point-in-time chronological DB features; final pipeline + Platt calibrator; symmetric order correction.
 
+
+### Exact Calculation Procedure
+
+1. **Load historical GOL.GG matches from the production DB**
+   - Source tables: `golgg_matches`, `golgg_games`, `golgg_game_players`.
+   - Matches are processed chronologically by `(date, match_id)`.
+   - Draws, matches without games, and matches without a usable first-game roster are skipped.
+   - Team/player orientation is taken from the first game: `golgg_games.team1_id/team2_id` and `golgg_game_players.side IN ('t1','t2')`.
+
+2. **Generate point-in-time EXP-039 features**
+   - Before each match, call the same rating stack used by the thesis pipeline to obtain pre-match rating features.
+   - W20 features are computed only from prior matches already seen in the chronological pass.
+   - Binomial series features are derived from the pre-match base probability and `best_of`/series format.
+   - After prediction features are stored, the rating and rolling-history state is updated with the observed games from that match.
+   - This prevents feature leakage from future matches into earlier predictions.
+
+3. **Apply the fixed final EXP-039 artifact**
+   - Load `sym_cal_lr_elasticnet_w20_binomial_pipeline.joblib` and `sym_cal_lr_elasticnet_w20_binomial_calibrator.joblib`.
+   - Compute original-side probability from the pipeline.
+   - Build a swapped team-order feature vector and compute swapped-side probability.
+   - Apply symmetry correction: `p_sym = 0.5 * (p_original + (1 - p_swapped))`.
+   - Apply Platt calibration on `logit(p_sym)` to obtain final `p_team1`.
+
+4. **Join model predictions to canonical market data**
+   - Direct market comparison uses only matches mapped between GOL.GG and canonical DB rows via `golgg_match_mappings` or `canonical_matches.result_source_match_id`.
+   - Canonical ground truth is `canonical_matches.winner_side`; model probability is inverted when canonical team A corresponds to GOL.GG team2.
+   - This produces the common model+market sample used for market timing comparison.
+
+5. **Construct opening/mid/closing market probabilities**
+   - Source table: `odds_snapshots` where `market_type='match_winner'`, `is_live=0`, odds are valid, and `scraped_at <= match_start`.
+   - For each match/bookmaker pair:
+     - **Opening** = earliest valid pre-match snapshot.
+     - **Mid** = middle chronological valid pre-match snapshot.
+     - **Close** = latest valid pre-match snapshot before match start.
+   - Convert odds to no-vig probabilities: `p_a = (1/odds_a) / ((1/odds_a) + (1/odds_b))`.
+   - Average no-vig probabilities across bookmakers to get one market probability per match/timing point.
+   - Raw implied probabilities are also saved for diagnostics, but no-vig metrics are treated as headline results.
+
+6. **Compute metrics**
+   - EXP-039 full-history metrics use target `team1_win` on all eligible GOL.GG matches.
+   - Common market metrics use target `canonical team_a won` on the mapped canonical sample.
+   - Metrics: LogLoss, Brier, ROC-AUC, and accuracy at threshold `0.5`.
+   - All probabilities are clipped to a safe `(0,1)` interval before LogLoss.
+
 > [!bug]
 > This is not an out-of-fold retraining backtest. The final serialized EXP-039 model/calibrator is applied to recomputed historical DB features. Use OOF thesis results for strict training-period claims.
 

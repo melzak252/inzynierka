@@ -170,7 +170,7 @@ export async function fetchHorizonAccuracy(
   minMatchesPerBin: number = 10
 ): Promise<HorizonAccuracyResponse> {
   const params = new URLSearchParams({
-    days_back: daysBack.toString(),
+    max_days_back: daysBack.toString(),
     min_matches_per_bin: minMatchesPerBin.toString(),
   });
   const response = await fetch(`${API_BASE}/timing/horizon-accuracy?${params}`);

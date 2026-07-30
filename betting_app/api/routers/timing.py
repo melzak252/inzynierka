@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -61,12 +62,33 @@ def _align(
     raw_a: str, raw_b: str,
     odds_a: float | None, odds_b: float | None,
 ) -> tuple[float, float] | None:
-    """Align odds to canonical sides."""
-    from betting_app.services.canonical_match_service import align_snapshot_odds
-    aligned = align_snapshot_odds(n_a, n_b, raw_a, raw_b, odds_a, odds_b)
-    if aligned and aligned[0] and aligned[1]:
-        return (float(aligned[0]), float(aligned[1]))
-    return None
+    """Align bookmaker odds to canonical sides.
+
+    This endpoint can process tens of thousands of odds snapshots.  The generic
+    canonical aligner resolves scoped aliases from the database on every call,
+    which makes the Model Analysis page effectively hang.  Cache the normalized
+    raw-team keys here; bookmaker names repeat heavily across snapshots, so this
+    keeps the same semantics while avoiding an N+1 alias lookup pattern.
+    """
+    if odds_a is None or odds_b is None:
+        return None
+    from betting_app.services.canonical_match_service import similarity
+
+    raw_a_key = _cached_canonical_team_key(raw_a)
+    raw_b_key = _cached_canonical_team_key(raw_b)
+    direct = (similarity(n_a, raw_a_key) + similarity(n_b, raw_b_key)) / 2
+    swapped = (similarity(n_a, raw_b_key) + similarity(n_b, raw_a_key)) / 2
+    left = float(odds_a)
+    right = float(odds_b)
+    if swapped > direct:
+        return right, left
+    return left, right
+
+
+@lru_cache(maxsize=4096)
+def _cached_canonical_team_key(name: str) -> str:
+    from betting_app.services.canonical_match_service import canonical_team_key
+    return canonical_team_key(name or "")
 
 
 @router.get("/analysis")
@@ -1450,7 +1472,10 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
                     "bins": hybrid_bin_metrics,
                 })
         else:
-            # For pure models: compute single LogLoss/AUC
+            # For pure models: compute single overall LogLoss/AUC plus
+            # per-horizon metrics on the exact match/bin samples defined by
+            # odds snapshot availability.  The Model Analysis page plots by
+            # horizon; using one global model value in every bin is misleading.
             preds = query_df(
                 db,
                 """
@@ -1507,7 +1532,166 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
                 "n_matches": len(y_true),
             })
 
+            pure_bin_metrics = _compute_pure_model_bins_dynamic(
+                db, cutoff, model_name, model_version, BIN_DEFS, min_matches
+            )
+            if pure_bin_metrics:
+                hybrid_bins.append({
+                    "model_name": model_name,
+                    "model_version": model_version,
+                    "bins": pure_bin_metrics,
+                })
+
     return refs, hybrid_bins
+
+
+def _compute_pure_model_bins_dynamic(
+    db, cutoff: str, model_name: str, model_version: str, bin_defs: list, min_matches: int = 10
+) -> list[dict]:
+    """Compute pure-model metrics on the same horizon samples as market odds.
+
+    A pure prediction has one probability per match, but a match should only
+    contribute to a horizon bin if we also have bookmaker snapshots in that bin.
+    This makes the model-vs-market line chart compare both predictors on the
+    same match/horizon population.
+    """
+    preds = query_df(
+        db,
+        """
+        WITH ranked AS (
+            SELECT cp.canonical_match_id, cp.prob_a,
+                   cm.winner_side, cm.start_time_normalized,
+                   cm.normalized_team_a, cm.normalized_team_b,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY cp.canonical_match_id
+                       ORDER BY cp.predicted_at DESC NULLS LAST, cp.id DESC
+                   ) AS rn
+            FROM canonical_predictions cp
+            JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+            WHERE cp.model_name = :mname
+              AND cp.model_version = :mver
+              AND cm.status IN ('finished', 'completed')
+              AND cm.winner_side IS NOT NULL
+              AND cm.start_time_normalized > :cutoff
+        )
+        SELECT canonical_match_id, prob_a, winner_side, start_time_normalized,
+               normalized_team_a, normalized_team_b
+        FROM ranked
+        WHERE rn = 1
+        """,
+        {"mname": model_name, "mver": model_version, "cutoff": cutoff},
+    )
+    if not preds:
+        return []
+
+    match_pred: dict[int, dict[str, Any]] = {}
+    for p in preds:
+        try:
+            prob_a = float(p["prob_a"])
+            mid = int(p["canonical_match_id"])
+        except (TypeError, ValueError):
+            continue
+        if not (0 < prob_a < 1):
+            continue
+        winner = str(p.get("winner_side") or "")
+        if winner not in ("team_a", "team_b"):
+            continue
+        match_pred[mid] = dict(p)
+
+    if not match_pred:
+        return []
+
+    match_ids = list(match_pred.keys())
+    placeholders = ",".join(f":mid{i}" for i in range(len(match_ids)))
+    params = {f"mid{i}": mid for i, mid in enumerate(match_ids)}
+    snapshots = query_df(
+        db,
+        f"""
+        SELECT os.canonical_match_id, os.scraped_at,
+               os.bookmaker_id, os.odds_a, os.odds_b,
+               os.raw_team_a, os.raw_team_b
+        FROM odds_snapshots os
+        WHERE os.canonical_match_id IN ({placeholders})
+          AND os.market_type = 'match_winner'
+          AND COALESCE(os.is_live, 0) = 0
+          AND os.odds_a IS NOT NULL
+          AND os.odds_b IS NOT NULL
+        ORDER BY os.canonical_match_id, os.scraped_at
+        """,
+        params,
+    )
+
+    bin_data = {
+        label: {
+            "per_match": defaultdict(lambda: {"y_true": None, "scores": []}),
+            "snapshot_count": 0,
+        }
+        for label, _, _ in bin_defs
+    }
+
+    for snap in snapshots:
+        try:
+            mid = int(snap["canonical_match_id"])
+        except (TypeError, ValueError):
+            continue
+        meta = match_pred.get(mid)
+        if not meta:
+            continue
+        match_start = _parse_dt(meta.get("start_time_normalized"))
+        scraped = _parse_dt(snap.get("scraped_at"))
+        if not match_start or not scraped:
+            continue
+        hours_before = (match_start - scraped).total_seconds() / 3600.0
+        if hours_before < 0:
+            continue
+        aligned = _align(
+            str(meta.get("normalized_team_a") or ""),
+            str(meta.get("normalized_team_b") or ""),
+            str(snap.get("raw_team_a") or ""),
+            str(snap.get("raw_team_b") or ""),
+            snap.get("odds_a"),
+            snap.get("odds_b"),
+        )
+        if not aligned:
+            continue
+
+        winner_side = str(meta.get("winner_side") or "")
+        y_true = 1 if winner_side == "team_a" else 0
+        y_score = float(meta["prob_a"])
+        for label, hmin, hmax in bin_defs:
+            if hmin <= hours_before < hmax:
+                bd = bin_data[label]
+                md = bd["per_match"][mid]
+                md["y_true"] = y_true
+                md["scores"].append(y_score)
+                bd["snapshot_count"] += 1
+                break
+
+    result_bins = []
+    for label, hmin, hmax in bin_defs:
+        bd = bin_data[label]
+        if len(bd["per_match"]) < min_matches:
+            continue
+        y_true: list[int] = []
+        y_score: list[float] = []
+        for md in bd["per_match"].values():
+            if md["y_true"] is None or not md["scores"]:
+                continue
+            y_true.append(int(md["y_true"]))
+            y_score.append(float(np.mean(md["scores"])))
+        if len(y_true) < min_matches or len(set(y_true)) < 2:
+            continue
+        result_bins.append({
+            "label": label,
+            "hours_start": hmin,
+            "hours_end": hmax if hmax < 9999 else None,
+            "snapshot_count": int(bd["snapshot_count"]),
+            "match_count": len(y_true),
+            "avg_logloss": _compute_logloss(y_true, y_score),
+            "avg_auc": _compute_auc(y_true, y_score),
+        })
+
+    return result_bins
 
 
 def _compute_hybrid_bins_dynamic(

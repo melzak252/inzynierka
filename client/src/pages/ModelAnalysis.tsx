@@ -308,10 +308,12 @@ function ModelAnalysis() {
 
   const selectedModelBins = useMemo(() => {
     if (!accuracy) return []
-    if (selected === 'hybrid') {
-      const hybrid = accuracy.hybrid_model_bins.find((m) => modelKeyFromName(m.model_name) === 'hybrid')
-      return binSort(hybrid?.bins ?? [])
-    }
+    const binnedModel = accuracy.hybrid_model_bins.find((m) => modelKeyFromName(m.model_name) === selected)
+    if (binnedModel?.bins?.length) return binSort(binnedModel.bins)
+
+    // Backward-compatible fallback for older API responses: pure thesis models
+    // used to be returned only as one global reference.  Prefer per-horizon
+    // bins whenever the backend provides them.
     const ref = accuracy.model_references.find((m) => modelKeyFromName(m.model_name) === 'thesis')
     return binSort(accuracy.bins.map((b) => ({
       label: b.label,
