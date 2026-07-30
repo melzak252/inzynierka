@@ -558,3 +558,44 @@ export interface MappingCheckResponse {
   team_b: string | null;
   start_time: string | null;
 }
+
+// ─── Embedding Diagnostics ───────────────────────────────────────────
+
+export interface ChampionEmbeddingPoint {
+  champion_id: string;
+  champion_name: string;
+  role: string | null;
+  x: number;
+  y: number;
+  x_norm: number;
+  y_norm: number;
+  n_games: number | null;
+  win_rate: number | null;
+  fallback_level: string | null;
+  window_days: number | null;
+  shrinkage_weight_observed: number | null;
+  age_days_mean: number | null;
+  kda: number | null;
+  damage_share: number | null;
+  gold_share: number | null;
+  kill_participation: number | null;
+}
+
+export interface ChampionEmbeddingProjectionResponse {
+  metadata: {
+    artifact_path: string;
+    method: 'tsne' | 'pca';
+    requested_method: 'tsne' | 'pca';
+    role: string;
+    min_games: number;
+    total_points: number;
+    available_roles: string[];
+    source_rows: number | null;
+    reference_date: string | null;
+    embedding_dim: number | null;
+    model_name: string;
+    model_version: string;
+    fallback_counts: Record<string, number>;
+  };
+  points: ChampionEmbeddingPoint[];
+}

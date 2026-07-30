@@ -5,6 +5,7 @@ import MatchResults from './pages/MatchResults'
 import SystemPage from './pages/SystemPage'
 import ModelAnalysis from './pages/ModelAnalysis'
 import ManualMapping from './pages/ManualMapping'
+import ChampionEmbeddings from './pages/ChampionEmbeddings'
 import './App.css'
 
 function Nav() {
@@ -14,6 +15,7 @@ function Nav() {
     { to: '/', label: 'Mecze' },
     { to: '/results', label: 'Wyniki' },
     { to: '/mapping', label: 'Mapowanie' },
+    { to: '/embeddings/champions', label: 'Champion Embeddings' },
     { to: '/horizon', label: 'Model Analysis' },
     { to: '/system', label: 'System' },
   ]
@@ -48,6 +50,7 @@ function App() {
           <Route path="/matches/:id" element={<MatchDetail />} />
           <Route path="/results" element={<MatchResults />} />
           <Route path="/mapping" element={<ManualMapping />} />
+          <Route path="/embeddings/champions" element={<ChampionEmbeddings />} />
           <Route path="/system" element={<SystemPage />} />
           <Route path="/horizon" element={<ModelAnalysis />} />
           <Route path="/bootstrap" element={<ModelAnalysis />} />

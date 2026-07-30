@@ -17,6 +17,7 @@ import type {
   GolggTeamsResponse,
   HorizonBootstrapResponse,
   ModelClvByHorizonResponse,
+  ChampionEmbeddingProjectionResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -260,5 +261,25 @@ export async function searchGolggTeams(q: string = '', limit: number = 50): Prom
 export async function fetchHorizonBootstrap(): Promise<HorizonBootstrapResponse> {
   const response = await fetch(`${API_BASE}/bootstrap/horizon`);
   if (!response.ok) throw new Error(`Failed to fetch bootstrap results: ${response.statusText}`);
+  return response.json();
+}
+
+// ─── Embedding Diagnostics ───────────────────────────────────
+
+export async function fetchChampionEmbeddings(
+  method: 'tsne' | 'pca' = 'tsne',
+  role: string = 'ALL',
+  minGames: number = 0
+): Promise<ChampionEmbeddingProjectionResponse> {
+  const params = new URLSearchParams({
+    method,
+    role,
+    min_games: minGames.toString(),
+  });
+  const response = await fetch(`${API_BASE}/embeddings/champions?${params}`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch champion embeddings: ${response.statusText}`);
+  }
   return response.json();
 }
