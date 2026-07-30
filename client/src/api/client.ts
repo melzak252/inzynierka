@@ -270,7 +270,8 @@ export async function fetchChampionEmbeddings(
   method: 'umap' | 'tsne' | 'pca' = 'umap',
   role: string = 'ALL',
   minGames: number = 0,
-  snapshot: string = 'latest'
+  snapshot: string = 'latest',
+  signal?: AbortSignal
 ): Promise<ChampionEmbeddingProjectionResponse> {
   const params = new URLSearchParams({
     method,
@@ -278,7 +279,7 @@ export async function fetchChampionEmbeddings(
     min_games: minGames.toString(),
     snapshot,
   });
-  const response = await fetch(`${API_BASE}/embeddings/champions?${params}`);
+  const response = await fetch(`${API_BASE}/embeddings/champions?${params}`, { signal });
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || `Failed to fetch champion embeddings: ${response.statusText}`);

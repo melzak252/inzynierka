@@ -9,6 +9,7 @@ rebuild without adding a database table.
 from __future__ import annotations
 
 import json
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -21,6 +22,13 @@ from sklearn.manifold import TSNE
 
 
 router = APIRouter(prefix="/embeddings", tags=["embeddings"])
+
+# umap-learn uses numba under the hood.  The default numba workqueue threading
+# layer is not safe when several FastAPI worker threads call UMAP concurrently;
+# it can terminate the whole API process with "Concurrent access has been
+# detected".  Serialize only the projection fit; cached responses still return
+# immediately.
+_UMAP_LOCK = threading.Lock()
 
 DEFAULT_ARTIFACT_DIR = Path("/app/betting_app/models/ml/champion_role_embeddings/exp-056")
 LOCAL_ARTIFACT_DIR = Path("betting_app/models/ml/champion_role_embeddings/exp-056")
@@ -147,34 +155,46 @@ def _project_champion_embeddings(
     if method in {"umap", "tsne"} and len(filtered) < 4:
         actual_method = "pca"
 
+    projection_warning = None
+
     if actual_method == "umap":
         try:
             import umap  # type: ignore[import-untyped]
+
+            with _UMAP_LOCK:
+                projection = umap.UMAP(
+                    n_components=2,
+                    n_neighbors=max(2, min(30, len(filtered) - 1)),
+                    min_dist=0.08,
+                    metric="euclidean",
+                    random_state=42,
+                ).fit_transform(matrix)
         except ImportError as exc:
             raise HTTPException(
                 status_code=503,
                 detail="UMAP is not installed in the API container. Rebuild after installing umap-learn.",
             ) from exc
-
-        projection = umap.UMAP(
-            n_components=2,
-            n_neighbors=max(2, min(30, len(filtered) - 1)),
-            min_dist=0.08,
-            metric="euclidean",
-            random_state=42,
-        ).fit_transform(matrix)
+        except Exception as exc:  # pragma: no cover - defensive API fallback
+            projection_warning = f"UMAP failed ({type(exc).__name__}); returned PCA fallback."
+            actual_method = "pca"
+            projection = PCA(n_components=2, random_state=42).fit_transform(matrix)
     elif actual_method == "pca":
         projection = PCA(n_components=2, random_state=42).fit_transform(matrix)
     elif actual_method == "tsne":
         perplexity = max(2, min(30, (len(filtered) - 1) // 3))
-        projection = TSNE(
-            n_components=2,
-            init="pca",
-            learning_rate="auto",
-            perplexity=perplexity,
-            random_state=42,
-            max_iter=1200,
-        ).fit_transform(matrix)
+        try:
+            projection = TSNE(
+                n_components=2,
+                init="pca",
+                learning_rate="auto",
+                perplexity=perplexity,
+                random_state=42,
+                max_iter=1200,
+            ).fit_transform(matrix)
+        except Exception as exc:  # pragma: no cover - defensive API fallback
+            projection_warning = f"t-SNE failed ({type(exc).__name__}); returned PCA fallback."
+            actual_method = "pca"
+            projection = PCA(n_components=2, random_state=42).fit_transform(matrix)
     else:
         raise HTTPException(status_code=400, detail="Unsupported projection method.")
 
@@ -211,6 +231,7 @@ def _project_champion_embeddings(
             "artifact_path": str(csv_path),
             "method": actual_method,
             "requested_method": method,
+            "projection_warning": projection_warning,
             "snapshot": resolved_snapshot,
             "available_snapshots": list(available_snapshots),
             "role": role,

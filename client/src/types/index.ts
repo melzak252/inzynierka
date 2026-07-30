@@ -586,6 +586,7 @@ export interface ChampionEmbeddingProjectionResponse {
     artifact_path: string;
     method: 'umap' | 'tsne' | 'pca';
     requested_method: 'umap' | 'tsne' | 'pca';
+    projection_warning?: string | null;
     snapshot: string;
     available_snapshots: string[];
     role: string;

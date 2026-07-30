@@ -63,6 +63,7 @@ export default function ChampionEmbeddings() {
   const [snapshot, setSnapshot] = useState('latest')
   const [role, setRole] = useState('ALL')
   const [minGames, setMinGames] = useState(0)
+  const [debouncedMinGames, setDebouncedMinGames] = useState(0)
   const [query, setQuery] = useState('')
   const [data, setData] = useState<ChampionEmbeddingProjectionResponse | null>(null)
   const [loading, setLoading] = useState(true)
@@ -71,11 +72,19 @@ export default function ChampionEmbeddings() {
   const [hovered, setHovered] = useState<ChampionEmbeddingPoint | null>(null)
 
   useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedMinGames(minGames)
+    }, 350)
+    return () => window.clearTimeout(timeoutId)
+  }, [minGames])
+
+  useEffect(() => {
+    const controller = new AbortController()
     let cancelled = false
     async function load() {
       try {
         setLoading(true)
-        const result = await fetchChampionEmbeddings(method, role, minGames, snapshot)
+        const result = await fetchChampionEmbeddings(method, role, debouncedMinGames, snapshot, controller.signal)
         if (!cancelled) {
           setData(result)
           if (snapshot === 'latest' && result.metadata.snapshot && result.metadata.snapshot !== 'current') {
@@ -86,14 +95,18 @@ export default function ChampionEmbeddings() {
           setHovered(null)
         }
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
         if (!cancelled) setError(err instanceof Error ? err.message : 'Nie udało się pobrać embeddingów championów')
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
     load()
-    return () => { cancelled = true }
-  }, [method, role, minGames, snapshot])
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [method, role, debouncedMinGames, snapshot])
 
   const roles = data?.metadata.available_roles?.length ? ['ALL', ...data.metadata.available_roles] : ['ALL', 'TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT']
   const snapshots = data?.metadata.available_snapshots?.length ? data.metadata.available_snapshots : []
@@ -164,6 +177,9 @@ export default function ChampionEmbeddings() {
 
       {error && <div className="ce-state error">{error}</div>}
       {loading && <div className="ce-state">Liczenie projekcji {method.toUpperCase()}…</div>}
+      {data?.metadata.projection_warning && !error && (
+        <div className="ce-state">{data.metadata.projection_warning}</div>
+      )}
 
       {data && !loading && !error && (
         <>
