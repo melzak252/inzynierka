@@ -30,6 +30,7 @@ services:
       dockerfile: Dockerfile.betting
     container_name: ensemblelegends-betting-scheduler
     restart: unless-stopped
+    gpus: all
     depends_on:
       timescaledb:
         condition: service_healthy
