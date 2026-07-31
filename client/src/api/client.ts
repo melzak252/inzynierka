@@ -55,8 +55,18 @@ export async function updateMatchBestOf(matchId: number, bestOf: number): Promis
   return response.json();
 }
 
-export async function fetchMatchResults(daysBack: number = 30): Promise<MatchResultsResponse> {
-  const params = new URLSearchParams({ days_back: daysBack.toString() });
+export async function fetchMatchResults(
+  daysBack: number = 30,
+  oddsMode: string = 'close',
+  modelName: string = 'Hybrid-Thesis-Market',
+  modelVersion: string = 'a0.35-t0.80'
+): Promise<MatchResultsResponse> {
+  const params = new URLSearchParams({
+    days_back: daysBack.toString(),
+    odds_mode: oddsMode,
+    model_name: modelName,
+    model_version: modelVersion,
+  });
   const response = await fetch(`${API_BASE}/matches/results?${params}`);
   if (!response.ok) throw new Error(`Failed to fetch match results: ${response.statusText}`);
   return response.json();

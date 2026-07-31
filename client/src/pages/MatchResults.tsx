@@ -9,6 +9,25 @@ const TAX_RATE = 0.12
 const FIXED_BET_SIZE = 10
 const KELLY_BANKROLL = 1000
 const KELLY_FRACTION = 0.25 // quarter-Kelly for realistic staking
+const MODEL_OPTIONS = [
+  {
+    label: 'Hybrid a0.35',
+    name: 'Hybrid-Thesis-Market',
+    version: 'a0.35-t0.80',
+    description: '35% EXP-039 + 65% rynek',
+  },
+  {
+    label: 'EXP-039',
+    name: 'Sym-Cal LR-ElasticNet-W20-Binomial',
+    version: 'exp-039',
+    description: 'czysty model thesis',
+  },
+]
+const ODDS_MODE_OPTIONS = [
+  { value: 'open', label: 'Open' },
+  { value: 'mid', label: 'Mid' },
+  { value: 'close', label: 'Close' },
+]
 
 type StakingMode = 'fixed' | 'kelly'
 
@@ -29,24 +48,28 @@ export default function MatchResults() {
   const [showPositiveEvOnly, setShowPositiveEvOnly] = useState(false)
   const [selectedBookmaker, setSelectedBookmaker] = useState<string | null>(null)
   const [stakingMode, setStakingMode] = useState<StakingMode>('kelly')
+  const [oddsMode, setOddsMode] = useState('close')
+  const [selectedModelIndex, setSelectedModelIndex] = useState(0)
+  const selectedModel = MODEL_OPTIONS[selectedModelIndex]
 
   useEffect(() => {
     setLoading(true)
     setError(null)
-    fetchMatchResults(daysBack)
+    setSelectedBookmaker(null)
+    fetchMatchResults(daysBack, oddsMode, selectedModel.name, selectedModel.version)
       .then((data) => {
         setResults(data.results)
         setTotal(data.total)
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
-  }, [daysBack])
+  }, [daysBack, oddsMode, selectedModel.name, selectedModel.version])
 
   // Extract unique bookmakers from results
   const availableBookmakers = useMemo(() => {
     const bookmakers = new Set<string>()
     for (const r of results) {
-      for (const b of r.bookmakers_with_ev) {
+      for (const b of Object.keys(r.bookmaker_ev_details || {})) {
         bookmakers.add(b)
       }
     }
@@ -103,7 +126,7 @@ export default function MatchResults() {
       if (showPositiveEvOnly && evA <= 0 && evB <= 0) {
         return false
       }
-      if (selectedBookmaker && !r.bookmakers_with_ev.includes(selectedBookmaker)) {
+      if (selectedBookmaker && !r.bookmaker_ev_details[selectedBookmaker]) {
         return false
       }
       return true
@@ -301,6 +324,36 @@ export default function MatchResults() {
                 {d}d
               </button>
             ))}
+          </div>
+          <div className="staking-toggle">
+            <span className="controls-label">Model:</span>
+            <div className="staking-pills">
+              {MODEL_OPTIONS.map((model, idx) => (
+                <button
+                  key={`${model.name}:${model.version}`}
+                  className={`staking-pill${selectedModelIndex === idx ? ' active' : ''}`}
+                  onClick={() => setSelectedModelIndex(idx)}
+                  title={model.description}
+                >
+                  {model.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="staking-toggle">
+            <span className="controls-label">Kurs:</span>
+            <div className="staking-pills">
+              {ODDS_MODE_OPTIONS.map((mode) => (
+                <button
+                  key={mode.value}
+                  className={`staking-pill${oddsMode === mode.value ? ' active' : ''}`}
+                  onClick={() => setOddsMode(mode.value)}
+                  title="Open/mid/close wybierane z nie-live snapshotów przed startem meczu"
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>
           </div>
           {/* Staking mode toggle */}
           <div className="staking-toggle">

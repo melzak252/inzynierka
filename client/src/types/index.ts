@@ -401,6 +401,9 @@ export interface BookmakerEvSide {
   odds: number | null;
   model_prob: number | null;
   kelly: number | null;
+  market_prob?: number | null;
+  odds_snapshot_id?: number | null;
+  scraped_at?: string | null;
 }
 
 export interface BookmakerEvDetail {
@@ -433,11 +436,17 @@ export interface MatchResultItem {
   kelly_a: number | null;
   kelly_b: number | null;
   bookmaker_ev_details: Record<string, BookmakerEvDetail>;
+  model_name?: string | null;
+  model_version?: string | null;
+  odds_mode?: string | null;
 }
 
 export interface MatchResultsResponse {
   total: number;
   days_back: number;
+  model_name?: string | null;
+  model_version?: string | null;
+  odds_mode?: string | null;
   results: MatchResultItem[];
 }
 

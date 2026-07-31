@@ -7,6 +7,8 @@ Compatible with SQLite and PostgreSQL.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import math
+import re
 from typing import Any
 
 from sqlalchemy import text
@@ -103,6 +105,33 @@ TAX_RATE = 0.12
 DEFAULT_MAX_ODDS_AGE_HOURS = 24.0
 HYBRID_MODEL_NAME = THESIS_HYBRID_MODEL_NAME
 HYBRID_MODEL_VERSION = "a0.35-t0.80"
+
+
+def _parse_hybrid_version(version: str) -> tuple[float, float]:
+    match = re.fullmatch(r"a([0-9]+(?:\.[0-9]+)?)-t([0-9]+(?:\.[0-9]+)?)", version)
+    if not match:
+        return THESIS_HYBRID_ALPHA, THESIS_HYBRID_TEMPERATURE
+    return float(match.group(1)), float(match.group(2))
+
+
+def _temperature_probability(prob: float, temperature: float) -> float:
+    p = min(max(float(prob), EPSILON), 1.0 - EPSILON)
+    temp = max(float(temperature), 1e-6)
+    z = math.log(p / (1.0 - p)) / temp
+    return 1.0 / (1.0 + math.exp(-z))
+
+
+def _pick_snapshot(rows: list[dict[str, Any]], odds_mode: str) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    ordered = sorted(rows, key=lambda r: str(r.get("scraped_at") or ""))
+    mode = odds_mode.lower()
+    if mode == "open":
+        return ordered[0]
+    if mode == "mid":
+        return ordered[(len(ordered) - 1) // 2]
+    # `close` and `latest` are the last non-live pre-match quote.
+    return ordered[-1]
 
 
 def _align(row: dict, n_a: str, n_b: str) -> tuple[float | None, float | None]:
@@ -350,13 +379,30 @@ def list_matches(
 @router.get("/results", response_model=MatchResultsResponse)
 def list_results(
     days_back: int = 30,
+    model_name: str = HYBRID_MODEL_NAME,
+    model_version: str = HYBRID_MODEL_VERSION,
+    odds_mode: str = "close",
     db=Depends(get_db),
 ):
-    """Return finished matches with results (scores from golgg_matches)."""
+    """Return finished matches with auditable EV results.
+
+    Unlike the legacy implementation, this does not read precomputed
+    model_ev_signals.  It recomputes EV from the requested model/version and a
+    deterministic bookmaker quote selection: open/mid/close/latest.
+    """
+    odds_mode = odds_mode.lower().strip()
+    if odds_mode not in {"open", "mid", "close", "latest"}:
+        raise HTTPException(status_code=400, detail="odds_mode must be one of: open, mid, close, latest")
+
     now = datetime.now(UTC)
     min_dt = (now - timedelta(days=days_back)).isoformat(timespec="seconds")
 
-    rows = query_df(
+    use_hybrid = model_name == HYBRID_MODEL_NAME
+    prediction_model_name = THESIS_MODEL_NAME if use_hybrid else model_name
+    prediction_model_version = THESIS_MODEL_VERSION if use_hybrid else model_version
+    hybrid_alpha, hybrid_temperature = _parse_hybrid_version(model_version)
+
+    match_rows = query_df(
         db,
         """
         SELECT cm.id AS canonical_match_id,
@@ -366,68 +412,160 @@ def list_results(
                cm.winner_name, cm.loser_name, cm.winner_side,
                cm.result_source, cm.result_recorded_at,
                gm.team1_score, gm.team2_score,
-               ev.best_ev_a, ev.best_ev_b,
-               ev.best_odds_a, ev.best_odds_b,
-               ev.best_model_prob_a, ev.best_model_prob_b,
-               ev.bookmakers_with_ev,
-               ev.bookmaker_ev_json
+               p.id AS prediction_id, p.model_name AS prediction_model_name,
+               p.model_version AS prediction_model_version,
+               p.prob_a, p.prob_b
         FROM canonical_matches cm
         LEFT JOIN golgg_match_mappings gmm ON gmm.canonical_match_id = cm.id
         LEFT JOIN golgg_matches gm ON gm.match_id = gmm.golgg_match_id
         LEFT JOIN LATERAL (
-            SELECT MAX(CASE WHEN es.side = 'a' THEN es.ev END) AS best_ev_a,
-                   MAX(CASE WHEN es.side = 'b' THEN es.ev END) AS best_ev_b,
-                   MAX(CASE WHEN es.side = 'a' THEN es.odds END) AS best_odds_a,
-                   MAX(CASE WHEN es.side = 'b' THEN es.odds END) AS best_odds_b,
-                   MAX(CASE WHEN es.side = 'a' THEN es.model_prob END) AS best_model_prob_a,
-                   MAX(CASE WHEN es.side = 'b' THEN es.model_prob END) AS best_model_prob_b,
-                   array_agg(DISTINCT b.name) FILTER (WHERE es.ev > 0) AS bookmakers_with_ev,
-                   COALESCE(
-                       (SELECT json_object_agg(bk_name, bk_data)
-                        FROM (
-                            SELECT b2.name AS bk_name,
-                                   jsonb_build_object(
-                                       'side_a', jsonb_build_object('ev', MAX(CASE WHEN es2.side = 'a' THEN es2.ev END), 'odds', MAX(CASE WHEN es2.side = 'a' THEN es2.odds END), 'model_prob', MAX(CASE WHEN es2.side = 'a' THEN es2.model_prob END)),
-                                       'side_b', jsonb_build_object('ev', MAX(CASE WHEN es2.side = 'b' THEN es2.ev END), 'odds', MAX(CASE WHEN es2.side = 'b' THEN es2.odds END), 'model_prob', MAX(CASE WHEN es2.side = 'b' THEN es2.model_prob END))
-                                   ) AS bk_data
-                            FROM model_ev_signals es2
-                            JOIN bookmakers b2 ON b2.id = es2.bookmaker_id
-                            WHERE es2.canonical_match_id = cm.id
-                            GROUP BY b2.name
-                        ) sub
-                       ),
-                       '{}'::json
-                   ) AS bookmaker_ev_json
-            FROM model_ev_signals es
-            JOIN bookmakers b ON b.id = es.bookmaker_id
-            WHERE es.canonical_match_id = cm.id
-        ) ev ON true
+            SELECT p1.*
+            FROM canonical_predictions p1
+            WHERE p1.canonical_match_id = cm.id
+              AND p1.model_name = :prediction_model_name
+              AND p1.model_version = :prediction_model_version
+            ORDER BY CASE WHEN p1.prediction_status = 'active' THEN 0 ELSE 1 END,
+                     p1.predicted_at DESC NULLS LAST,
+                     p1.id DESC
+            LIMIT 1
+        ) p ON true
         WHERE cm.status = 'finished'
           AND REPLACE(cm.start_time_normalized, 'T', ' ') >= REPLACE(:min_dt, 'T', ' ')
         ORDER BY cm.start_time_normalized DESC, cm.id DESC
         """,
-        {"min_dt": min_dt},
+        {
+            "min_dt": min_dt,
+            "prediction_model_name": prediction_model_name,
+            "prediction_model_version": prediction_model_version,
+        },
     )
 
-    if not rows:
-        return MatchResultsResponse(total=0, results=[])
+    if not match_rows:
+        return MatchResultsResponse(
+            total=0,
+            days_back=days_back,
+            model_name=model_name,
+            model_version=model_version,
+            odds_mode=odds_mode,
+            results=[],
+        )
+
+    match_ids = [int(r["canonical_match_id"]) for r in match_rows]
+    odds_rows: list[dict[str, Any]] = []
+    # Avoid relying on array parameter support across drivers.
+    for start in range(0, len(match_ids), 500):
+        chunk = match_ids[start : start + 500]
+        placeholders = ",".join(f":id_{i}" for i in range(len(chunk)))
+        params = {f"id_{i}": mid for i, mid in enumerate(chunk)}
+        odds_rows.extend(query_df(
+            db,
+            f"""
+            SELECT os.id AS odds_snapshot_id, os.canonical_match_id, os.bookmaker_id,
+                   b.name AS bookmaker, os.raw_team_a, os.raw_team_b,
+                   os.odds_a, os.odds_b, os.scraped_at, os.offer_url
+            FROM odds_snapshots os
+            JOIN bookmakers b ON b.id = os.bookmaker_id
+            JOIN canonical_matches cm ON cm.id = os.canonical_match_id
+            WHERE os.canonical_match_id IN ({placeholders})
+              AND os.market_type = 'match_winner'
+              AND COALESCE(os.is_live, 0) = 0
+              AND os.odds_a IS NOT NULL AND os.odds_b IS NOT NULL
+              AND os.scraped_at IS NOT NULL
+              AND REPLACE(CAST(os.scraped_at AS TEXT), 'T', ' ') <= REPLACE(CAST(cm.start_time_normalized AS TEXT), 'T', ' ')
+            ORDER BY os.canonical_match_id, os.bookmaker_id, os.scraped_at
+            """,
+            params,
+        ))
+
+    odds_by_match_bookmaker: dict[tuple[int, int], list[dict[str, Any]]] = {}
+    odds_by_match: dict[int, list[list[dict[str, Any]]]] = {}
+    for row in odds_rows:
+        key = (int(row["canonical_match_id"]), int(row["bookmaker_id"]))
+        odds_by_match_bookmaker.setdefault(key, []).append(row)
+    for (match_id, _bookmaker_id), snapshots in odds_by_match_bookmaker.items():
+        odds_by_match.setdefault(match_id, []).append(snapshots)
 
     items: list[MatchResultItem] = []
-    for r in rows:
-        # bookmakers_with_ev comes as a string like "{betclic,totalbet}" from PostgreSQL
-        bookmakers_raw = r.get("bookmakers_with_ev")
-        if isinstance(bookmakers_raw, str):
-            # Strip curly braces and split
-            bookmakers_list = [b.strip() for b in bookmakers_raw.strip("{}").split(",") if b.strip()]
-        elif isinstance(bookmakers_raw, list):
-            bookmakers_list = bookmakers_raw
-        else:
-            bookmakers_list = []
+    for r in match_rows:
+        match_id = int(r["canonical_match_id"])
+        base_prob_a = none_or_float(r.get("prob_a"))
+        base_prob_b = none_or_float(r.get("prob_b"))
 
-        model_prob_a = none_or_float(r.get("best_model_prob_a"))
-        model_prob_b = none_or_float(r.get("best_model_prob_b"))
-        best_odds_a = none_or_float(r.get("best_odds_a"))
-        best_odds_b = none_or_float(r.get("best_odds_b"))
+        bookmaker_ev_details: dict[str, Any] = {}
+        bookmakers_with_ev: list[str] = []
+        best_ev_a: float | None = None
+        best_ev_b: float | None = None
+        best_odds_a: float | None = None
+        best_odds_b: float | None = None
+        best_model_prob_a: float | None = None
+        best_model_prob_b: float | None = None
+
+        for snapshots in odds_by_match.get(match_id, []):
+            selected = _pick_snapshot(snapshots, odds_mode)
+            if selected is None:
+                continue
+            aligned = align_snapshot_odds(
+                str(r.get("team_a_name") or ""),
+                str(r.get("team_b_name") or ""),
+                str(selected.get("raw_team_a") or ""),
+                str(selected.get("raw_team_b") or ""),
+                selected.get("odds_a"),
+                selected.get("odds_b"),
+            )
+            if aligned is None:
+                continue
+            odds_a, odds_b = aligned
+            odds_a = none_or_float(odds_a)
+            odds_b = none_or_float(odds_b)
+            if odds_a is None or odds_b is None or odds_a <= 1.0 or odds_b <= 1.0:
+                continue
+            market_prob_a, market_prob_b = fair_market_probabilities(odds_a, odds_b)
+
+            if base_prob_a is None or base_prob_b is None:
+                model_prob_a = None
+                model_prob_b = None
+            elif use_hybrid:
+                thesis_prob_a = _temperature_probability(base_prob_a, hybrid_temperature)
+                thesis_prob_b = 1.0 - thesis_prob_a
+                model_prob_a = hybrid_alpha * thesis_prob_a + (1.0 - hybrid_alpha) * market_prob_a
+                model_prob_b = hybrid_alpha * thesis_prob_b + (1.0 - hybrid_alpha) * market_prob_b
+            else:
+                model_prob_a = base_prob_a
+                model_prob_b = base_prob_b
+
+            ev_a = expected_value(model_prob_a, odds_a, TAX_RATE) if model_prob_a is not None else None
+            ev_b = expected_value(model_prob_b, odds_b, TAX_RATE) if model_prob_b is not None else None
+            bk_name = str(selected.get("bookmaker") or "?")
+            if (ev_a is not None and ev_a > 0) or (ev_b is not None and ev_b > 0):
+                bookmakers_with_ev.append(bk_name)
+            if ev_a is not None and (best_ev_a is None or ev_a > best_ev_a):
+                best_ev_a = ev_a
+                best_odds_a = odds_a
+                best_model_prob_a = model_prob_a
+            if ev_b is not None and (best_ev_b is None or ev_b > best_ev_b):
+                best_ev_b = ev_b
+                best_odds_b = odds_b
+                best_model_prob_b = model_prob_b
+            bookmaker_ev_details[bk_name] = {
+                "side_a": {
+                    "ev": ev_a,
+                    "odds": odds_a,
+                    "model_prob": model_prob_a,
+                    "market_prob": market_prob_a,
+                    "kelly": kelly_fraction(model_prob_a, odds_a, TAX_RATE) if model_prob_a is not None else None,
+                    "odds_snapshot_id": int(selected["odds_snapshot_id"]),
+                    "scraped_at": selected.get("scraped_at"),
+                },
+                "side_b": {
+                    "ev": ev_b,
+                    "odds": odds_b,
+                    "model_prob": model_prob_b,
+                    "market_prob": market_prob_b,
+                    "kelly": kelly_fraction(model_prob_b, odds_b, TAX_RATE) if model_prob_b is not None else None,
+                    "odds_snapshot_id": int(selected["odds_snapshot_id"]),
+                    "scraped_at": selected.get("scraped_at"),
+                },
+            }
 
         items.append(MatchResultItem(
             canonical_match_id=r["canonical_match_id"],
@@ -444,19 +582,29 @@ def list_results(
             team_b_score=r.get("team2_score"),
             result_source=r.get("result_source"),
             result_recorded_at=str(r["result_recorded_at"]) if r.get("result_recorded_at") else None,
-            best_ev_a=none_or_float(r.get("best_ev_a")),
-            best_ev_b=none_or_float(r.get("best_ev_b")),
+            best_ev_a=best_ev_a,
+            best_ev_b=best_ev_b,
             best_odds_a=best_odds_a,
             best_odds_b=best_odds_b,
-            model_prob_a=model_prob_a,
-            model_prob_b=model_prob_b,
-            kelly_a=kelly_fraction(model_prob_a, best_odds_a, TAX_RATE) if model_prob_a is not None and best_odds_a else None,
-            kelly_b=kelly_fraction(model_prob_b, best_odds_b, TAX_RATE) if model_prob_b is not None and best_odds_b else None,
-            bookmakers_with_ev=bookmakers_list,
-            bookmaker_ev_details=_parse_bookmaker_ev_json(r.get("bookmaker_ev_json")),
+            model_prob_a=best_model_prob_a,
+            model_prob_b=best_model_prob_b,
+            kelly_a=kelly_fraction(best_model_prob_a, best_odds_a, TAX_RATE) if best_model_prob_a is not None and best_odds_a else None,
+            kelly_b=kelly_fraction(best_model_prob_b, best_odds_b, TAX_RATE) if best_model_prob_b is not None and best_odds_b else None,
+            bookmakers_with_ev=sorted(set(bookmakers_with_ev)),
+            bookmaker_ev_details=bookmaker_ev_details,
+            model_name=model_name,
+            model_version=model_version,
+            odds_mode=odds_mode,
         ))
 
-    return MatchResultsResponse(total=len(items), results=items)
+    return MatchResultsResponse(
+        total=len(items),
+        days_back=days_back,
+        model_name=model_name,
+        model_version=model_version,
+        odds_mode=odds_mode,
+        results=items,
+    )
 
 
 # ── GET /matches/unmapped ───────────────────────────────────────────────────

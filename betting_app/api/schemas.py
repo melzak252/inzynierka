@@ -140,6 +140,9 @@ class BookmakerEvSide(BaseModel):
     odds: float | None = None
     model_prob: float | None = None
     kelly: float | None = None
+    market_prob: float | None = None
+    odds_snapshot_id: int | None = None
+    scraped_at: str | None = None
 
 
 class BookmakerEvDetail(BaseModel):
@@ -176,10 +179,17 @@ class MatchResultItem(BaseModel):
     kelly_b: float | None = None
     # Per-bookmaker EV/odds details
     bookmaker_ev_details: dict[str, BookmakerEvDetail] = {}
+    model_name: str | None = None
+    model_version: str | None = None
+    odds_mode: str | None = None
 
 
 class MatchResultsResponse(BaseModel):
     total: int
+    days_back: int | None = None
+    model_name: str | None = None
+    model_version: str | None = None
+    odds_mode: str | None = None
     results: list[MatchResultItem]
 
 
