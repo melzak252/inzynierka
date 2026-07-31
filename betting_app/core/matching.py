@@ -111,8 +111,28 @@ ALIASES: dict[str, str] = {
     "solary": "solary",
     "giantx academy": "giantx",
     "giantx itero": "giantx",
-    "koi academy": "movistar koi",
-    "movistar koi fenix": "movistar koi",
+    # Keep the main LEC roster distinct from the Spanish academy/Fenix roster.
+    # Older mappings collapsed these to "movistar koi", which allowed upcoming
+    # main-team matches to inherit academy mappings/ratings and vice versa.
+    "mkoi": "movistar koi",
+    "movistar koi": "movistar koi",
+    "koi academy": "movistar koi fenix",
+    "movistar koi academy": "movistar koi fenix",
+    "mkf": "movistar koi fenix",
+    "movistar koi fenix": "movistar koi fenix",
+}
+
+SECONDARY_TEAM_MARKERS = {
+    "academy",
+    "challengers",
+    "fenix",
+    "prime",
+    "pride",
+    "bee",
+    "cl",
+    "eclipse",
+    "youth",
+    "junior",
 }
 
 
@@ -154,11 +174,18 @@ def similarity(left: str, right: str) -> float:
         return 0.0
     if norm_left == norm_right:
         return 1.0
+    left_markers = set(norm_left.split()) & SECONDARY_TEAM_MARKERS
+    right_markers = set(norm_right.split()) & SECONDARY_TEAM_MARKERS
     token_left = set(norm_left.split())
     token_right = set(norm_right.split())
     token_score = len(token_left & token_right) / max(len(token_left | token_right), 1)
     seq_score = SequenceMatcher(None, norm_left, norm_right).ratio()
-    return max(seq_score, token_score)
+    score = max(seq_score, token_score)
+    if left_markers != right_markers:
+        # Do not let fuzzy string overlap (e.g. "Movistar KOI" vs
+        # "Movistar KOI Fenix") cross the default match threshold.
+        score = min(score, 0.65)
+    return score
 
 
 def best_match(raw_name: str, candidates: list[str], min_confidence: float = 0.72) -> tuple[str | None, float]:

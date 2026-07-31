@@ -28,10 +28,16 @@ def test_normalize_solary_eclipse_alias() -> None:
 def test_normalize_les_academy_aliases() -> None:
     assert normalize_team_name("GIANTX Academy") == "giantx"
     assert normalize_team_name("GIANTX iTero") == "giantx"
-    assert normalize_team_name("KOI Academy") == "movistar koi"
-    assert normalize_team_name("Movistar KOI Fenix") == "movistar koi"
+    assert normalize_team_name("MKOI") == "movistar koi"
+    assert normalize_team_name("Movistar KOI") == "movistar koi"
+    assert normalize_team_name("KOI Academy") == "movistar koi fenix"
+    assert normalize_team_name("Movistar KOI Academy") == "movistar koi fenix"
+    assert normalize_team_name("MKF") == "movistar koi fenix"
+    assert normalize_team_name("Movistar KOI Fenix") == "movistar koi fenix"
     assert similarity("GIANTX Academy", "GIANTX iTero") == 1.0
     assert similarity("KOI Academy", "Movistar KOI Fenix") == 1.0
+    assert similarity("Movistar KOI", "Movistar KOI Fenix") < 0.72
+    assert similarity("MKOI", "MKF") < 0.72
 
 
 def test_normalize_big_alias_after_esports_suffix_cleanup() -> None:
