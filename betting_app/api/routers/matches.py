@@ -36,6 +36,7 @@ from betting_app.api.schemas import (
     OddsHistoryPoint,
     TeamComparisonInfo,
     TeamMappingInfo,
+    TeamRecentStats,
     UnmappedMatchItem,
     UnmappedMatchesResponse,
     GolggMatchCandidate,
@@ -119,6 +120,13 @@ def _temperature_probability(prob: float, temperature: float) -> float:
     temp = max(float(temperature), 1e-6)
     z = math.log(p / (1.0 - p)) / temp
     return 1.0 / (1.0 + math.exp(-z))
+
+
+def _finite_float(value: Any) -> float | None:
+    number = none_or_float(value)
+    if number is None or not math.isfinite(number):
+        return None
+    return number
 
 
 def _pick_snapshot(rows: list[dict[str, Any]], odds_mode: str) -> dict[str, Any] | None:
@@ -1022,6 +1030,8 @@ def match_detail(
     # Rosters from features_json
     roster_a: RosterInfo | None = None
     roster_b: RosterInfo | None = None
+    recent_stats_a: TeamRecentStats | None = None
+    recent_stats_b: TeamRecentStats | None = None
     team_comparison: TeamComparisonInfo | None = None
     
     feat = query_df(
@@ -1089,19 +1099,43 @@ def match_detail(
             team_a_rating = None
             team_b_rating = None
             rating_system = None
+            team_a_elo = team_b_elo = None
+            team_a_glicko = team_b_glicko = None
+            team_a_glicko_rd = team_b_glicko_rd = None
+            team_a_games_played = team_b_games_played = None
+            rating_probabilities: dict[str, float] = {}
             
             if isinstance(ratings, dict):
                 team_a_ratings = ratings.get("team_a", {})
                 team_b_ratings = ratings.get("team_b", {})
+                probs = ratings.get("probabilities", {})
+                if isinstance(probs, dict):
+                    rating_probabilities = {
+                        str(k): parsed
+                        for k, v in probs.items()
+                        if (parsed := _finite_float(v)) is not None
+                    }
+
+                if isinstance(team_a_ratings, dict) and isinstance(team_b_ratings, dict):
+                    team_a_elo = _finite_float(safe_json_get(team_a_ratings, ["elo", "rating_value"]))
+                    team_b_elo = _finite_float(safe_json_get(team_b_ratings, ["elo", "rating_value"]))
+                    team_a_glicko = _finite_float(safe_json_get(team_a_ratings, ["gl", "rating_value"]))
+                    team_b_glicko = _finite_float(safe_json_get(team_b_ratings, ["gl", "rating_value"]))
+                    team_a_glicko_rd = _finite_float(safe_json_get(team_a_ratings, ["gl", "rd"]))
+                    team_b_glicko_rd = _finite_float(safe_json_get(team_b_ratings, ["gl", "rd"]))
+                    gp_a = none_or_float(safe_json_get(team_a_ratings, ["gl", "games_played"]))
+                    gp_b = none_or_float(safe_json_get(team_b_ratings, ["gl", "games_played"]))
+                    team_a_games_played = int(gp_a) if gp_a is not None else None
+                    team_b_games_played = int(gp_b) if gp_b is not None else None
                 
                 # Prefer Glicko rating system
                 if "gl" in team_a_ratings and "gl" in team_b_ratings:
-                    team_a_rating = none_or_float(team_a_ratings["gl"].get("rating_value"))
-                    team_b_rating = none_or_float(team_b_ratings["gl"].get("rating_value"))
+                    team_a_rating = _finite_float(team_a_ratings["gl"].get("rating_value"))
+                    team_b_rating = _finite_float(team_b_ratings["gl"].get("rating_value"))
                     rating_system = "Glicko"
                 elif "elo" in team_a_ratings and "elo" in team_b_ratings:
-                    team_a_rating = none_or_float(team_a_ratings["elo"].get("rating_value"))
-                    team_b_rating = none_or_float(team_b_ratings["elo"].get("rating_value"))
+                    team_a_rating = _finite_float(team_a_ratings["elo"].get("rating_value"))
+                    team_b_rating = _finite_float(team_b_ratings["elo"].get("rating_value"))
                     rating_system = "Elo"
             
             # Don't show ratings for unmapped/blocked teams
@@ -1116,28 +1150,101 @@ def match_detail(
                 team_a_rating=team_a_rating,
                 team_b_rating=team_b_rating,
                 rating_system=rating_system,
+                team_a_elo=team_a_elo,
+                team_b_elo=team_b_elo,
+                team_a_glicko=team_a_glicko,
+                team_b_glicko=team_b_glicko,
+                team_a_glicko_rd=team_a_glicko_rd,
+                team_b_glicko_rd=team_b_glicko_rd,
+                team_a_games_played=team_a_games_played,
+                team_b_games_played=team_b_games_played,
+                rating_probabilities=rating_probabilities,
             )
+
+        def build_recent_stats(raw: Any) -> TeamRecentStats | None:
+            if not isinstance(raw, dict):
+                return None
+            games = none_or_float(raw.get("games_count"))
+            matches = none_or_float(raw.get("matches_count"))
+            return TeamRecentStats(
+                team_name=raw.get("team_name"),
+                matches_count=int(matches) if matches is not None else None,
+                games_count=int(games) if games is not None else None,
+                win_rate=_finite_float(raw.get("win_rate")),
+                avg_kills=_finite_float(raw.get("avg_kills")),
+                avg_deaths=_finite_float(raw.get("avg_deaths")),
+                avg_gd15=_finite_float(raw.get("avg_gd15")),
+                avg_dragons=_finite_float(raw.get("avg_dragons")),
+                avg_nashors=_finite_float(raw.get("avg_nashors")),
+                avg_towers=_finite_float(raw.get("avg_towers")),
+                avg_game_duration=_finite_float(raw.get("avg_game_duration")),
+                last_match_at=raw.get("last_match_at"),
+            )
+
+        w20 = safe_json_get(f, ["w20"])
+        if isinstance(w20, dict):
+            recent_stats_a = build_recent_stats(w20.get("team_a"))
+            recent_stats_b = build_recent_stats(w20.get("team_b"))
+
+        player_ratings = safe_json_get(f, ["player_ratings"])
+        roster_source = safe_json_get(player_ratings, ["roster_source"]) if isinstance(player_ratings, dict) else None
+
+        def players_by_id(side_key: str, system: str) -> dict[str, dict[str, Any]]:
+            raw_players = safe_json_get(player_ratings, [side_key, system, "players"])
+            out: dict[str, dict[str, Any]] = {}
+            if isinstance(raw_players, list):
+                for player in raw_players:
+                    if not isinstance(player, dict):
+                        continue
+                    pid = str(player.get("normalized_entity_name") or player.get("player_id") or player.get("entity_name") or "")
+                    if pid:
+                        out[pid] = player
+            return out
 
         for side_key, side_label, out in [
             ("team_a_roster", m.get("team_a_name", "Team A"), "a"),
             ("team_b_roster", m.get("team_b_name", "Team B"), "b"),
         ]:
             players: list[RosterPlayer] = []
-            raw_pl = safe_json_get(f, ["player_ratings", side_key])
-            if isinstance(raw_pl, list):
-                for pl in raw_pl:
+            raw_roster = safe_json_get(player_ratings, [side_key]) if isinstance(player_ratings, dict) else None
+            rating_side_key = "team_a" if side_key.startswith("team_a") else "team_b"
+            gl_by_id = players_by_id(rating_side_key, "gl")
+            elo_by_id = players_by_id(rating_side_key, "elo")
+            ts_by_id = players_by_id(rating_side_key, "ts")
+            gl_summary = safe_json_get(player_ratings, [rating_side_key, "gl"]) if isinstance(player_ratings, dict) else {}
+            elo_summary = safe_json_get(player_ratings, [rating_side_key, "elo"]) if isinstance(player_ratings, dict) else {}
+
+            if isinstance(raw_roster, dict) and isinstance(raw_roster.get("players"), list):
+                for pl in raw_roster["players"]:
+                    if not isinstance(pl, dict):
+                        continue
+                    pid = str(pl.get("player_id") or pl.get("normalized_entity_name") or pl.get("player_name") or "")
+                    gl = gl_by_id.get(pid) or gl_by_id.get(str(pl.get("player_name") or "")) or {}
+                    elo = elo_by_id.get(pid) or elo_by_id.get(str(pl.get("player_name") or "")) or {}
+                    ts = ts_by_id.get(pid) or ts_by_id.get(str(pl.get("player_name") or "")) or {}
+                    gp = none_or_float(gl.get("games_played") or elo.get("games_played"))
                     players.append(RosterPlayer(
-                        player_name=pl.get("player_name"),
+                        player_id=pid or None,
+                        player_name=pl.get("player_name") or gl.get("entity_name") or elo.get("entity_name"),
                         role=pl.get("role"),
                         champion_name=pl.get("champion_name"),
-                        glicko_rating=none_or_float(safe_json_get(pl, ["ratings", "gl", "rating_value"])),
-                        glicko_rd=none_or_float(safe_json_get(pl, ["ratings", "gl", "rd"])),
-                        games_played=none_or_float(safe_json_get(pl, ["ratings", "gl", "games_played"])),
+                        elo_rating=_finite_float(elo.get("rating_value")),
+                        glicko_rating=_finite_float(gl.get("rating_value")),
+                        glicko_rd=_finite_float(gl.get("rd")),
+                        trueskill_rating=_finite_float(ts.get("rating_value")),
+                        rating_uncertainty=_finite_float(ts.get("sigma")),
+                        games_played=int(gp) if gp is not None else None,
                     ))
             ri = RosterInfo(
-                team_name=side_label,
-                source_match_id=str(safe_json_get(raw_pl, ["source_match_id"])) if isinstance(raw_pl, dict) and raw_pl.get("source_match_id") else None,
-                source_date=str(safe_json_get(raw_pl, ["source_date"])) if isinstance(raw_pl, dict) and raw_pl.get("source_date") else None,
+                team_name=(raw_roster.get("team_name") if isinstance(raw_roster, dict) else None) or side_label,
+                source_match_id=str(raw_roster.get("source_match_id")) if isinstance(raw_roster, dict) and raw_roster.get("source_match_id") else None,
+                source_date=str(raw_roster.get("source_match_date")) if isinstance(raw_roster, dict) and raw_roster.get("source_match_date") else None,
+                source_tournament=str(raw_roster.get("source_tournament")) if isinstance(raw_roster, dict) and raw_roster.get("source_tournament") else None,
+                roster_source=str(roster_source) if roster_source else None,
+                avg_elo=_finite_float(safe_json_get(elo_summary, ["avg_rating_value"])),
+                avg_glicko=_finite_float(safe_json_get(gl_summary, ["avg_rating_value"])),
+                avg_glicko_rd=_finite_float(safe_json_get(gl_summary, ["avg_rd"])),
+                players_with_rating=int(none_or_float(safe_json_get(gl_summary, ["players_with_rating"])) or 0) if isinstance(gl_summary, dict) else None,
                 players=players,
             )
             if out == "a":
@@ -1157,6 +1264,8 @@ def match_detail(
         predictions=pred_rows,
         roster_a=roster_a,
         roster_b=roster_b,
+        recent_stats_a=recent_stats_a,
+        recent_stats_b=recent_stats_b,
         team_comparison=team_comparison,
     )
 

@@ -105,11 +105,15 @@ class PredictionRow(BaseModel):
 
 
 class RosterPlayer(BaseModel):
+    player_id: str | None = None
     player_name: str | None = None
     role: str | None = None
     champion_name: str | None = None
+    elo_rating: float | None = None
     glicko_rating: float | None = None
     glicko_rd: float | None = None
+    trueskill_rating: float | None = None
+    rating_uncertainty: float | None = None
     games_played: int | None = None
 
 
@@ -117,7 +121,28 @@ class RosterInfo(BaseModel):
     team_name: str | None = None
     source_match_id: str | None = None
     source_date: str | None = None
+    source_tournament: str | None = None
+    roster_source: str | None = None
+    avg_elo: float | None = None
+    avg_glicko: float | None = None
+    avg_glicko_rd: float | None = None
+    players_with_rating: int | None = None
     players: list[RosterPlayer] = []
+
+
+class TeamRecentStats(BaseModel):
+    team_name: str | None = None
+    matches_count: int | None = None
+    games_count: int | None = None
+    win_rate: float | None = None
+    avg_kills: float | None = None
+    avg_deaths: float | None = None
+    avg_gd15: float | None = None
+    avg_dragons: float | None = None
+    avg_nashors: float | None = None
+    avg_towers: float | None = None
+    avg_game_duration: float | None = None
+    last_match_at: str | None = None
 
 
 class TeamMappingInfo(BaseModel):
@@ -133,6 +158,15 @@ class TeamComparisonInfo(BaseModel):
     team_a_rating: float | None = None
     team_b_rating: float | None = None
     rating_system: str | None = None
+    team_a_elo: float | None = None
+    team_b_elo: float | None = None
+    team_a_glicko: float | None = None
+    team_b_glicko: float | None = None
+    team_a_glicko_rd: float | None = None
+    team_b_glicko_rd: float | None = None
+    team_a_games_played: int | None = None
+    team_b_games_played: int | None = None
+    rating_probabilities: dict[str, float] = {}
 
 
 class BookmakerEvSide(BaseModel):
@@ -210,6 +244,8 @@ class MatchDetailResponse(BaseModel):
     predictions: list[PredictionRow] = []
     roster_a: RosterInfo | None = None
     roster_b: RosterInfo | None = None
+    recent_stats_a: TeamRecentStats | None = None
+    recent_stats_b: TeamRecentStats | None = None
     team_comparison: TeamComparisonInfo | None = None
 
 

@@ -622,3 +622,188 @@ section h2 {
   opacity: 0.4;
   cursor: wait;
 }
+
+.match-intel-section,
+.rosters-section {
+  background: linear-gradient(135deg, rgba(26, 26, 46, 0.96), rgba(18, 24, 44, 0.96));
+  border: 1px solid #2a2a4a;
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.section-hint {
+  color: #9aa0c6;
+  margin-top: -0.5rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.team-detail-grid,
+.rosters-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.team-detail-card,
+.roster-card {
+  border: 1px solid #303058;
+  border-radius: 10px;
+  background: #151528;
+  padding: 1rem;
+}
+
+.team-detail-card.team-a-card { border-left: 3px solid #4fc3f7; }
+.team-detail-card.team-b-card { border-left: 3px solid #ff9800; }
+
+.team-detail-head,
+.roster-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: baseline;
+  margin-bottom: 0.75rem;
+}
+
+.team-detail-head h3,
+.roster-card-head h3 {
+  margin: 0;
+  color: #f2f2ff;
+  font-size: 1.05rem;
+}
+
+.team-detail-head span,
+.roster-card-head span,
+.roster-meta span {
+  color: #8f96bd;
+  font-size: 0.8rem;
+}
+
+.rating-kpis,
+.recent-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.8rem;
+}
+
+.recent-stats-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rating-kpis div,
+.recent-stats-grid div,
+.rating-prob-item {
+  background: #1f1f38;
+  border: 1px solid #2c2c52;
+  border-radius: 8px;
+  padding: 0.55rem;
+}
+
+.rating-kpis strong,
+.recent-stats-grid strong,
+.rating-prob-item strong {
+  display: block;
+  color: #e8f4ff;
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.rating-kpis span,
+.recent-stats-grid span,
+.rating-prob-item span,
+.rating-prob-item small {
+  color: #969bbd;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.roster-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid #2a2a4a;
+}
+
+.rating-prob-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(95px, 1fr));
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.players-table {
+  border: 1px solid #2a2a4a;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.players-header,
+.players-row {
+  display: grid;
+  grid-template-columns: 0.8fr 1.8fr 0.8fr 0.9fr 0.7fr 0.6fr;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.55rem 0.65rem;
+}
+
+.players-header {
+  background: #16213e;
+  color: #8f96bd;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.players-row {
+  border-top: 1px solid #2a2a4a;
+  color: #d8d8ee;
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.role-pill {
+  display: inline-block;
+  width: fit-content;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  background: #283056;
+  color: #9ddcff;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.player-name {
+  color: #fff;
+  font-weight: 600;
+}
+
+.no-data.small {
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+.rating-diff-muted {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 900px) {
+  .team-detail-grid,
+  .rosters-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rating-kpis,
+  .recent-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .players-header,
+  .players-row {
+    grid-template-columns: 0.8fr 1.6fr 0.7fr 0.8fr 0.7fr 0.5fr;
+    font-size: 0.78rem;
+  }
+}

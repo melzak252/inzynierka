@@ -67,11 +67,15 @@ export interface PredictionRow {
 }
 
 export interface RosterPlayer {
+  player_id: string | null;
   player_name: string | null;
   role: string | null;
   champion_name: string | null;
+  elo_rating: number | null;
   glicko_rating: number | null;
   glicko_rd: number | null;
+  trueskill_rating: number | null;
+  rating_uncertainty: number | null;
   games_played: number | null;
 }
 
@@ -79,7 +83,28 @@ export interface RosterInfo {
   team_name: string | null;
   source_match_id: string | null;
   source_date: string | null;
+  source_tournament: string | null;
+  roster_source: string | null;
+  avg_elo: number | null;
+  avg_glicko: number | null;
+  avg_glicko_rd: number | null;
+  players_with_rating: number | null;
   players: RosterPlayer[];
+}
+
+export interface TeamRecentStats {
+  team_name: string | null;
+  matches_count: number | null;
+  games_count: number | null;
+  win_rate: number | null;
+  avg_kills: number | null;
+  avg_deaths: number | null;
+  avg_gd15: number | null;
+  avg_dragons: number | null;
+  avg_nashors: number | null;
+  avg_towers: number | null;
+  avg_game_duration: number | null;
+  last_match_at: string | null;
 }
 
 export interface TeamMappingInfo {
@@ -95,6 +120,15 @@ export interface TeamComparisonInfo {
   team_a_rating: number | null;
   team_b_rating: number | null;
   rating_system: string | null;
+  team_a_elo: number | null;
+  team_b_elo: number | null;
+  team_a_glicko: number | null;
+  team_b_glicko: number | null;
+  team_a_glicko_rd: number | null;
+  team_b_glicko_rd: number | null;
+  team_a_games_played: number | null;
+  team_b_games_played: number | null;
+  rating_probabilities: Record<string, number>;
 }
 
 export interface MatchDetailResponse {
@@ -109,6 +143,8 @@ export interface MatchDetailResponse {
   predictions: PredictionRow[];
   roster_a: RosterInfo | null;
   roster_b: RosterInfo | null;
+  recent_stats_a: TeamRecentStats | null;
+  recent_stats_b: TeamRecentStats | null;
   team_comparison: TeamComparisonInfo | null;
 }
 

@@ -586,6 +586,91 @@ export default function MatchDetail() {
     });
   };
 
+  const fmtNum = (value: number | null | undefined, digits = 1) => (
+    value == null || !Number.isFinite(value) ? '—' : value.toFixed(digits)
+  );
+
+  const fmtPct = (value: number | null | undefined, digits = 1) => (
+    value == null || !Number.isFinite(value) ? '—' : `${(value * 100).toFixed(digits)}%`
+  );
+
+  const ratingProbRows = Object.entries(match.team_comparison?.rating_probabilities || {})
+    .filter(([, value]) => Number.isFinite(value))
+    .sort(([a], [b]) => a.localeCompare(b));
+
+  const renderTeamSummary = (side: 'a' | 'b') => {
+    const roster = side === 'a' ? match.roster_a : match.roster_b;
+    const stats = side === 'a' ? match.recent_stats_a : match.recent_stats_b;
+    const comparison = match.team_comparison;
+    const teamName = side === 'a' ? match.team_a_name : match.team_b_name;
+    const elo = side === 'a' ? comparison?.team_a_elo : comparison?.team_b_elo;
+    const glicko = side === 'a' ? comparison?.team_a_glicko : comparison?.team_b_glicko;
+    const rd = side === 'a' ? comparison?.team_a_glicko_rd : comparison?.team_b_glicko_rd;
+    const games = side === 'a' ? comparison?.team_a_games_played : comparison?.team_b_games_played;
+    return (
+      <article className={`team-detail-card ${side === 'a' ? 'team-a-card' : 'team-b-card'}`}>
+        <div className="team-detail-head">
+          <h3>{teamName || roster?.team_name || '—'}</h3>
+          <span>{roster?.team_name && roster.team_name !== teamName ? roster.team_name : 'GOL.GG / DB'}</span>
+        </div>
+        <div className="rating-kpis">
+          <div><strong>{fmtNum(elo, 0)}</strong><span>Team Elo</span></div>
+          <div><strong>{fmtNum(glicko, 0)}</strong><span>Glicko2</span></div>
+          <div><strong>{fmtNum(rd, 0)}</strong><span>RD</span></div>
+          <div><strong>{games ?? '—'}</strong><span>Gry ratingu</span></div>
+        </div>
+        {stats && (
+          <div className="recent-stats-grid">
+            <div><span>W20 winrate</span><strong>{fmtPct(stats.win_rate)}</strong></div>
+            <div><span>Mecze / gry</span><strong>{stats.matches_count ?? '—'} / {stats.games_count ?? '—'}</strong></div>
+            <div><span>K / D</span><strong>{fmtNum(stats.avg_kills)} / {fmtNum(stats.avg_deaths)}</strong></div>
+            <div><span>GD@15</span><strong>{fmtNum(stats.avg_gd15, 0)}</strong></div>
+            <div><span>Smoki</span><strong>{fmtNum(stats.avg_dragons)}</strong></div>
+            <div><span>Nashory</span><strong>{fmtNum(stats.avg_nashors)}</strong></div>
+          </div>
+        )}
+        {roster && (
+          <div className="roster-meta">
+            <span>Roster: {roster.roster_source || '—'}</span>
+            <span>Źródło: {roster.source_date ? formatDateTime(roster.source_date) : '—'}</span>
+            {roster.source_tournament && <span>{roster.source_tournament}</span>}
+          </div>
+        )}
+      </article>
+    );
+  };
+
+  const renderRoster = (roster: MatchDetailResponse['roster_a'], side: 'a' | 'b') => {
+    const teamName = side === 'a' ? match.team_a_name : match.team_b_name;
+    return (
+      <article className="roster-card">
+        <div className="roster-card-head">
+          <h3>{teamName || roster?.team_name || '—'}</h3>
+          <span>avg Elo {fmtNum(roster?.avg_elo, 0)} · avg Glicko {fmtNum(roster?.avg_glicko, 0)}</span>
+        </div>
+        {!roster || roster.players.length === 0 ? (
+          <p className="no-data small">Brak przewidywanego rosteru w features_json.</p>
+        ) : (
+          <div className="players-table">
+            <div className="players-header">
+              <span>Rola</span><span>Zawodnik</span><span>Elo</span><span>Glicko2</span><span>RD</span><span>Gry</span>
+            </div>
+            {roster.players.map((player, idx) => (
+              <div key={`${player.player_id || player.player_name || idx}`} className="players-row">
+                <span className="role-pill">{player.role || '—'}</span>
+                <span className="player-name">{player.player_name || player.player_id || '—'}</span>
+                <span>{fmtNum(player.elo_rating, 0)}</span>
+                <span>{fmtNum(player.glicko_rating, 0)}</span>
+                <span>{fmtNum(player.glicko_rd, 0)}</span>
+                <span>{player.games_played ?? '—'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </article>
+    );
+  };
+
   return (
     <div className="match-detail">
       <Link to="/" className="back-link">
@@ -773,6 +858,40 @@ export default function MatchDetail() {
           teamA={match.team_a_name || 'A'}
           teamB={match.team_b_name || 'B'}
         />
+      )}
+
+      {(match.team_comparison || match.recent_stats_a || match.recent_stats_b) && (
+        <section className="match-intel-section">
+          <h2>Intel przedmeczowy</h2>
+          <div className="team-detail-grid">
+            {renderTeamSummary('a')}
+            {renderTeamSummary('b')}
+          </div>
+          {ratingProbRows.length > 0 && (
+            <div className="rating-prob-strip">
+              {ratingProbRows.map(([system, value]) => (
+                <div key={system} className="rating-prob-item">
+                  <span>{system.toUpperCase()}</span>
+                  <strong>{fmtPct(value)}</strong>
+                  <small>{match.team_a_name || 'A'}</small>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {(match.roster_a || match.roster_b) && (
+        <section className="rosters-section">
+          <h2>Przewidywane składy i ratingi zawodników</h2>
+          <p className="section-hint">
+            Składy pochodzą z ostatniego znanego meczu / feature cache przed spotkaniem. Ratingi są punktowe z aktualnej wersji ratingów używanej przez pipeline.
+          </p>
+          <div className="rosters-grid">
+            {renderRoster(match.roster_a, 'a')}
+            {renderRoster(match.roster_b, 'b')}
+          </div>
+        </section>
       )}
 
       {match.team_comparison && (
@@ -1042,13 +1161,26 @@ export default function MatchDetail() {
                   : '—'}
               </span>
             </div>
+            <div className="comparison-row">
+              <span className="comparison-label">Team Elo</span>
+              <span>{fmtNum(match.team_comparison.team_a_elo, 0)}</span>
+              <span>{fmtNum(match.team_comparison.team_b_elo, 0)}</span>
+            </div>
+            <div className="comparison-row">
+              <span className="comparison-label">Team Glicko2 / RD</span>
+              <span>{fmtNum(match.team_comparison.team_a_glicko, 0)} / {fmtNum(match.team_comparison.team_a_glicko_rd, 0)}</span>
+              <span>{fmtNum(match.team_comparison.team_b_glicko, 0)} / {fmtNum(match.team_comparison.team_b_glicko_rd, 0)}</span>
+            </div>
             {match.team_comparison.team_a_rating && match.team_comparison.team_b_rating && (
               <div className="comparison-row">
                 <span className="comparison-label">Różnica ratingów</span>
-                <td className="rating-diff" colSpan={2}>
+                <span className="rating-diff">
                   {(match.team_comparison.team_a_rating - match.team_comparison.team_b_rating) > 0 ? '+' : ''}
                   {(match.team_comparison.team_a_rating - match.team_comparison.team_b_rating).toFixed(1)}
-                </td>
+                </span>
+                <span className="rating-diff-muted">
+                  {match.team_comparison.rating_system || 'rating'}
+                </span>
               </div>
             )}
           </div>
