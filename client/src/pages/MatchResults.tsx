@@ -278,7 +278,10 @@ export default function MatchResults() {
       <div className="results-header">
         <div className="results-title-row">
           <div className="results-title">
-            <h1>Wyniki meczów</h1>
+            <div>
+              <h1>Backtest zakładów</h1>
+              <p>Symulacja fixed/Kelly dla wybranego modelu, bukmachera i momentu kursu.</p>
+            </div>
             <span className="results-count">
               {filteredResults.length} {filteredResults.length === 1 ? 'mecz' : filteredResults.length < 5 ? 'mecze' : 'meczów'}
               {total !== filteredResults.length && ` z ${total}`}

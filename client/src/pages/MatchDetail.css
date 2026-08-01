@@ -790,6 +790,383 @@ section h2 {
   font-size: 0.85rem;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Visual refresh overrides — keep component logic unchanged
+   ───────────────────────────────────────────────────────────── */
+
+.match-detail {
+  max-width: 1180px;
+  padding: 1.25rem 0 3rem;
+}
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  font-size: 0.86rem;
+  font-weight: 800;
+  text-decoration: none;
+  transition: color 0.18s, transform 0.18s;
+}
+
+.back-link:hover {
+  color: #bae6fd;
+  text-decoration: none;
+  transform: translateX(-2px);
+}
+
+.match-header-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.17), transparent 28rem),
+    linear-gradient(135deg, rgba(20, 31, 50, 0.96), rgba(11, 16, 32, 0.98));
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 1.55rem;
+  margin-bottom: 1.3rem;
+  box-shadow: var(--shadow-card);
+}
+
+.match-header-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.league-info {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.league {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+.status,
+.best-of-badge,
+.bo-pill {
+  border-radius: 999px;
+  font-weight: 850;
+}
+
+.status {
+  color: #cbd5e1;
+  background: rgba(148, 163, 184, 0.1);
+  border: 1px solid var(--border);
+  padding: 0.22rem 0.62rem;
+}
+
+.best-of-badge {
+  display: inline-flex;
+  color: #dbeafe;
+  background: rgba(59, 130, 246, 0.16);
+  border: 1px solid rgba(96, 165, 250, 0.24);
+  padding: 0.18rem 0.58rem;
+}
+
+.best-of-badge:hover {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.bo-pill {
+  color: var(--text-muted);
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid var(--border);
+}
+
+.bo-pill:hover {
+  color: var(--text);
+  background: rgba(30, 41, 59, 0.95);
+}
+
+.bo-pill.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06121f;
+}
+
+.predict-btn {
+  color: #e0f2fe;
+  background: rgba(14, 165, 233, 0.13);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 999px;
+  padding: 0.32rem 0.78rem;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.predict-btn:hover {
+  background: rgba(14, 165, 233, 0.22);
+  border-color: rgba(125, 211, 252, 0.7);
+}
+
+.match-header-card h1 {
+  position: relative;
+  z-index: 1;
+  margin: 0.4rem 0;
+  color: var(--text);
+  font-size: clamp(1.7rem, 3vw, 2.75rem);
+  letter-spacing: -0.055em;
+  line-height: 1.02;
+}
+
+.datetime {
+  position: relative;
+  z-index: 1;
+  color: var(--text-muted);
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+
+.match-detail section {
+  margin-bottom: 1.25rem;
+}
+
+.match-detail section h2 {
+  color: var(--text);
+  margin: 0 0 0.8rem;
+  font-size: 1.08rem;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+}
+
+.no-data {
+  color: var(--text-muted);
+}
+
+.odds-table,
+.predictions-table,
+.comparison-table,
+.prediction-history-section,
+.match-intel-section,
+.rosters-section {
+  background: linear-gradient(180deg, rgba(20, 31, 50, 0.94), rgba(14, 22, 38, 0.94));
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow-soft);
+}
+
+.odds-table,
+.predictions-table,
+.comparison-table {
+  overflow-x: auto;
+}
+
+.odds-header,
+.predictions-header,
+.comparison-header,
+.players-header {
+  background: rgba(15, 23, 42, 0.78);
+  color: var(--text-subtle);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.odds-row,
+.predictions-row,
+.comparison-row,
+.players-row {
+  border-top: 1px solid var(--border);
+  color: var(--text);
+}
+
+.odds-row:hover,
+.predictions-row:hover,
+.comparison-row:hover,
+.players-row:hover {
+  background: rgba(148, 163, 184, 0.04);
+}
+
+.bookmaker-name,
+.model-name,
+.player-name {
+  color: var(--text);
+  font-weight: 850;
+}
+
+.model-name small,
+.scraped-at,
+.comparison-label {
+  color: var(--text-muted);
+}
+
+.odds-value {
+  color: #bae6fd;
+  font-weight: 900;
+}
+
+.prob-value,
+.rating-value,
+.players-row {
+  font-variant-numeric: tabular-nums;
+}
+
+.min-odds-value {
+  color: #fcd34d;
+  font-weight: 850;
+}
+
+.ev-value.positive,
+.rating-higher,
+.ev-info-table .ev-positive {
+  color: #86efac;
+}
+
+.kelly-value.positive {
+  color: #93c5fd;
+}
+
+.rating-lower,
+.ev-info-table .ev-negative {
+  color: #fca5a5;
+}
+
+.rating-diff {
+  color: #7dd3fc;
+}
+
+.prediction-history-section,
+.match-intel-section,
+.rosters-section {
+  padding: 1.15rem;
+}
+
+.chart-legend,
+.ev-info-table,
+.roster-meta {
+  border-top: 1px solid var(--border);
+}
+
+.legend-item,
+.section-hint,
+.team-detail-head span,
+.roster-card-head span,
+.roster-meta span {
+  color: var(--text-muted);
+}
+
+.team-detail-card,
+.roster-card {
+  background: rgba(15, 23, 42, 0.58);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 1rem;
+}
+
+.team-detail-card.team-a-card {
+  border-left: 3px solid var(--accent);
+}
+
+.team-detail-card.team-b-card {
+  border-left: 3px solid var(--warning);
+}
+
+.team-detail-head h3,
+.roster-card-head h3,
+.ev-info-table h3 {
+  color: var(--text);
+  font-weight: 850;
+}
+
+.rating-kpis div,
+.recent-stats-grid div,
+.rating-prob-item {
+  background: rgba(8, 13, 24, 0.54);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.62rem;
+}
+
+.rating-kpis strong,
+.recent-stats-grid strong,
+.rating-prob-item strong {
+  color: #e0f2fe;
+  font-size: 1.08rem;
+  font-weight: 900;
+}
+
+.rating-kpis span,
+.recent-stats-grid span,
+.rating-prob-item span,
+.rating-prob-item small {
+  color: var(--text-subtle);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.players-table {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow-x: auto;
+}
+
+.role-pill {
+  background: rgba(56, 189, 248, 0.12);
+  color: #bae6fd;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  font-weight: 900;
+}
+
+.alias-link-btn,
+.alias-delete-btn,
+.alias-unblock-btn {
+  border-radius: 999px;
+}
+
+.alias-link-btn {
+  border: 1px solid var(--border);
+  color: #bae6fd;
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.alias-dropdown {
+  background: var(--surface-raised);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+.loading,
+.empty,
+.error {
+  max-width: 720px;
+  margin: 4rem auto;
+  text-align: center;
+  padding: 2.5rem;
+  color: var(--text-muted);
+  background: rgba(16, 24, 39, 0.72);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.error {
+  color: #fecaca;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
 @media (max-width: 900px) {
   .team-detail-grid,
   .rosters-grid {
@@ -805,5 +1182,36 @@ section h2 {
   .players-row {
     grid-template-columns: 0.8fr 1.6fr 0.7fr 0.8fr 0.7fr 0.5fr;
     font-size: 0.78rem;
+  }
+}
+
+@media (max-width: 760px) {
+  .match-detail {
+    padding-top: 0.5rem;
+  }
+
+  .match-header-card,
+  .prediction-history-section,
+  .match-intel-section,
+  .rosters-section {
+    border-radius: 16px;
+    padding: 1rem;
+  }
+
+  .odds-header,
+  .odds-row,
+  .predictions-header,
+  .predictions-row {
+    min-width: 820px;
+  }
+
+  .comparison-header,
+  .comparison-row {
+    min-width: 620px;
+  }
+
+  .players-header,
+  .players-row {
+    min-width: 640px;
   }
 }
