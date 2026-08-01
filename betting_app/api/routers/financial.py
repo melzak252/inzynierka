@@ -112,15 +112,17 @@ def financial_analysis(
     """Simulate one highest-EV positive side per bookmaker/match.
 
     ``live`` uses only actual scheduled predictions and quotes observed after the
-    prediction timestamp. ``retrospective`` is a research-only EXP-060 view.
+    prediction timestamp. ``historical`` uses actual predictions with the selected
+    pre-match price snapshot, but does not claim that price was available at the
+    exact prediction timestamp. ``retrospective`` is an EXP-060 research view.
     """
     odds_mode = odds_mode.lower().strip()
     if odds_mode not in {"open", "mid", "close"}:
         raise HTTPException(400, "odds_mode must be one of: open, mid, close")
     if staking_mode not in {"fixed", "kelly"}:
         raise HTTPException(400, "staking_mode must be fixed or kelly")
-    if data_scope not in {"live", "retrospective"}:
-        raise HTTPException(400, "data_scope must be live or retrospective")
+    if data_scope not in {"live", "historical", "retrospective"}:
+        raise HTTPException(400, "data_scope must be live, historical or retrospective")
     if not (0 <= min_ev < 2 and initial_bankroll > 0 and fixed_stake > 0):
         raise HTTPException(400, "Invalid financial simulation parameters")
 
@@ -130,7 +132,7 @@ def financial_analysis(
     alpha, temperature = _parse_hybrid_version(model_version)
     min_dt = (datetime.now(UTC) - timedelta(days=min(days_back, 730))).isoformat(timespec="seconds")
 
-    features_version = "thesis-exp039" if data_scope == "live" else BACKTEST_FEATURES_VERSION
+    features_version = "thesis-exp039" if data_scope in {"live", "historical"} else BACKTEST_FEATURES_VERSION
     matches = query_df(db, """
         SELECT cm.id AS canonical_match_id, cm.team_a_name, cm.team_b_name, cm.league,
                cm.start_time_normalized, cm.winner_side, p.prob_a, p.prob_b, p.predicted_at
@@ -268,6 +270,8 @@ def financial_analysis(
             "Zweryfikowany live ledger: wyłącznie predykcje thesis-exp039 zapisane przed meczem, a kurs wejścia musi być zebrany po czasie predykcji. "
             "CLV porównuje kurs wejścia z ostatnim kursem tego samego bukmachera przed startem."
             if data_scope == "live" else
+            "PRZYBLIŻONA HISTORIA: używa rzeczywistych predykcji thesis-exp039 i wybranego snapshotu kursu przed startem. Kurs może być starszy od predykcji, więc ROI nie jest wykonalnym wynikiem live; używaj do porównania open/mid/close i pokrycia danych."
+            if data_scope == "historical" else
             "ANALIZA BADAWCZA EXP-060: finalny model został przeliczony na historii. Nie jest to wykonalny backtest live i nie wolno interpretować ROI jako oczekiwanego zysku."
         ),
         data_scope=data_scope,
