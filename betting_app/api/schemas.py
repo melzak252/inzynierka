@@ -269,6 +269,7 @@ class FinancialBucket(BaseModel):
 
 class FinancialAnalysisResponse(BaseModel):
     methodology: str
+    data_scope: str
     days_back: int
     odds_mode: str
     model_name: str

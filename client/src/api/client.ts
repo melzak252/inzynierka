@@ -82,6 +82,7 @@ export async function fetchFinancialAnalysis(options: {
   fixedStake: number;
   modelName: string;
   modelVersion: string;
+  dataScope: string;
 }): Promise<FinancialAnalysisResponse> {
   const params = new URLSearchParams({
     days_back: options.daysBack.toString(),
@@ -92,6 +93,7 @@ export async function fetchFinancialAnalysis(options: {
     fixed_stake: options.fixedStake.toString(),
     model_name: options.modelName,
     model_version: options.modelVersion,
+    data_scope: options.dataScope,
   });
   const response = await fetch(`${API_BASE}/financial/analysis?${params}`);
   if (!response.ok) throw new Error(`Failed to fetch financial analysis: ${response.statusText}`);

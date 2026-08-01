@@ -531,6 +531,7 @@ export interface FinancialLedgerEntry {
 
 export interface FinancialAnalysisResponse {
   methodology: string;
+  data_scope: string;
   days_back: number;
   odds_mode: string;
   model_name: string;

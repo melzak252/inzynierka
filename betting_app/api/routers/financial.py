@@ -105,18 +105,21 @@ def financial_analysis(
     fixed_stake: float = 10.0,
     kelly_fraction_multiplier: float = 0.25,
     max_stake_pct: float = 0.05,
+    data_scope: str = "live",
     db=Depends(get_db),
 ):
     """Simulate one highest-EV positive side per bookmaker/match.
 
-    This intentionally uses only the timestamp-safe EXP-060 backfill source.
-    It is a retrospective research tool, not a claim of live executable ROI.
+    ``live`` uses only actual scheduled predictions and quotes observed after the
+    prediction timestamp. ``retrospective`` is a research-only EXP-060 view.
     """
     odds_mode = odds_mode.lower().strip()
     if odds_mode not in {"open", "mid", "close"}:
         raise HTTPException(400, "odds_mode must be one of: open, mid, close")
     if staking_mode not in {"fixed", "kelly"}:
         raise HTTPException(400, "staking_mode must be fixed or kelly")
+    if data_scope not in {"live", "retrospective"}:
+        raise HTTPException(400, "data_scope must be live or retrospective")
     if not (0 <= min_ev < 2 and initial_bankroll > 0 and fixed_stake > 0):
         raise HTTPException(400, "Invalid financial simulation parameters")
 
@@ -126,9 +129,10 @@ def financial_analysis(
     alpha, temperature = _parse_hybrid_version(model_version)
     min_dt = (datetime.now(UTC) - timedelta(days=min(days_back, 730))).isoformat(timespec="seconds")
 
+    features_version = "thesis-exp039" if data_scope == "live" else BACKTEST_FEATURES_VERSION
     matches = query_df(db, """
         SELECT cm.id AS canonical_match_id, cm.team_a_name, cm.team_b_name, cm.league,
-               cm.start_time_normalized, cm.winner_side, p.prob_a, p.prob_b
+               cm.start_time_normalized, cm.winner_side, p.prob_a, p.prob_b, p.predicted_at
         FROM canonical_matches cm
         JOIN LATERAL (
           SELECT p1.prob_a, p1.prob_b
@@ -145,11 +149,11 @@ def financial_analysis(
         ORDER BY cm.start_time_normalized, cm.id
     """, {
         "thesis_name": THESIS_MODEL_NAME, "thesis_version": THESIS_MODEL_VERSION,
-        "features_version": BACKTEST_FEATURES_VERSION, "min_dt": min_dt,
+        "features_version": features_version, "min_dt": min_dt,
     })
     if not matches:
         return FinancialAnalysisResponse(
-            methodology="Brak meczów w ścisłym zbiorze EXP-060.", days_back=days_back,
+            methodology="Brak meczów dla wybranego zakresu predykcji.", data_scope=data_scope, days_back=days_back,
             odds_mode=odds_mode, model_name=model_name, model_version=model_version,
             staking_mode=staking_mode, min_ev=min_ev, initial_bankroll=initial_bankroll,
             final_bankroll=initial_bankroll, total_bets=0, total_staked=0, total_profit=0,
@@ -180,8 +184,15 @@ def financial_analysis(
     candidates: list[dict[str, Any]] = []
     for (match_id, _bookmaker_id), snapshots in odds_by_key.items():
         match = match_by_id[match_id]
-        entry = _pick_snapshot(snapshots, odds_mode)
-        close = _pick_snapshot(snapshots, "close")
+        # A live backtest may only enter after this exact model prediction was
+        # available. EXP-060 rows are intentionally left as research-only: they
+        # were generated one minute before kick-off after the historical run.
+        available = snapshots
+        if data_scope == "live":
+            predicted_at = _parse_time(match.get("predicted_at"))
+            available = [row for row in snapshots if predicted_at is not None and (_parse_time(row.get("scraped_at")) or predicted_at) >= predicted_at]
+        entry = _pick_snapshot(available, odds_mode)
+        close = _pick_snapshot(available, "close")
         if not entry:
             continue
         aligned = align_snapshot_odds(match["team_a_name"] or "", match["team_b_name"] or "", entry["raw_team_a"] or "", entry["raw_team_b"] or "", entry["odds_a"], entry["odds_b"])
@@ -251,7 +262,13 @@ def financial_analysis(
     total_staked = sum(float(row["stake"]) for row in candidates)
     total_profit = bankroll - initial_bankroll
     return FinancialAnalysisResponse(
-        methodology="Retrospektywny ledger: jeden najlepszy dodatni EV zakład na bukmachera i mecz; tylko EXP-060 pre-start. CLV porównuje kurs wejścia z ostatnim kursem tego samego bukmachera przed startem.",
+        methodology=(
+            "Zweryfikowany live ledger: wyłącznie predykcje thesis-exp039 zapisane przed meczem, a kurs wejścia musi być zebrany po czasie predykcji. "
+            "CLV porównuje kurs wejścia z ostatnim kursem tego samego bukmachera przed startem."
+            if data_scope == "live" else
+            "ANALIZA BADAWCZA EXP-060: finalny model został przeliczony na historii. Nie jest to wykonalny backtest live i nie wolno interpretować ROI jako oczekiwanego zysku."
+        ),
+        data_scope=data_scope,
         days_back=days_back, odds_mode=odds_mode, model_name=model_name, model_version=model_version,
         staking_mode=staking_mode, min_ev=min_ev, initial_bankroll=initial_bankroll, final_bankroll=bankroll,
         total_bets=len(candidates), total_staked=total_staked, total_profit=total_profit,

@@ -46,6 +46,7 @@ function BucketTable({ title, subtitle, rows, limit }: { title: string; subtitle
 export default function FinancialAnalysis() {
   const [daysBack, setDaysBack] = useState(90)
   const [oddsMode, setOddsMode] = useState('open')
+  const [dataScope, setDataScope] = useState('live')
   const [stakingMode, setStakingMode] = useState('kelly')
   const [minEv, setMinEv] = useState(0.03)
   const [bankroll, setBankroll] = useState(1000)
@@ -56,7 +57,7 @@ export default function FinancialAnalysis() {
 
   const load = () => {
     setLoading(true); setError(null)
-    fetchFinancialAnalysis({ daysBack, oddsMode, stakingMode, minEv, initialBankroll: bankroll, fixedStake, modelName: MODEL.name, modelVersion: MODEL.version })
+    fetchFinancialAnalysis({ daysBack, oddsMode, stakingMode, minEv, initialBankroll: bankroll, fixedStake, modelName: MODEL.name, modelVersion: MODEL.version, dataScope })
       .then(setData).catch(err => setError(err.message)).finally(() => setLoading(false))
   }
   useEffect(() => { load() }, []) // User applies draft filters explicitly.
@@ -68,6 +69,7 @@ export default function FinancialAnalysis() {
     <section className="financial-controls"><div className="control-group"><label>Okres</label><div className="financial-pills">{DAYS.map(days => <button className={daysBack === days ? 'active' : ''} onClick={() => setDaysBack(days)} key={days}>{days}d</button>)}</div></div>
       <div className="control-group"><label>Kurs wejścia</label><div className="financial-pills">{[['open','Open'],['mid','Mid'],['close','Close']].map(([value,label]) => <button className={oddsMode === value ? 'active' : ''} onClick={() => setOddsMode(value)} key={value}>{label}</button>)}</div></div>
       <div className="control-group"><label>Staking</label><div className="financial-pills"><button className={stakingMode === 'kelly' ? 'active' : ''} onClick={() => setStakingMode('kelly')}>¼ Kelly</button><button className={stakingMode === 'fixed' ? 'active' : ''} onClick={() => setStakingMode('fixed')}>Fixed</button></div></div>
+      <div className="control-group"><label>Źródło danych</label><div className="financial-pills"><button className={dataScope === 'live' ? 'active' : ''} onClick={() => setDataScope('live')}>Live</button><button className={dataScope === 'retrospective' ? 'active' : ''} onClick={() => setDataScope('retrospective')}>Badawcze</button></div></div>
       <label className="financial-number">Min. EV<input type="number" min="0" max="0.5" step="0.01" value={minEv} onChange={event => setMinEv(Number(event.target.value))} /><span>{pct(minEv, 0)}</span></label>
       <label className="financial-number">Bankroll<input type="number" min="100" step="100" value={bankroll} onChange={event => setBankroll(Number(event.target.value))} /><span>PLN</span></label>
       {stakingMode === 'fixed' && <label className="financial-number">Stawka<input type="number" min="1" step="1" value={fixedStake} onChange={event => setFixedStake(Number(event.target.value))} /><span>PLN</span></label>}
@@ -77,7 +79,7 @@ export default function FinancialAnalysis() {
     {error && <div className="financial-error">Nie udało się pobrać analizy: {error}</div>}
     {loading && !data && <div className="financial-loading">Tworzę audytowalny ledger zakładów…</div>}
     {data && <>
-      <div className="financial-method"><strong>Metoda:</strong> {data.methodology}</div>
+      <div className={`financial-method ${data.data_scope === 'retrospective' ? 'research-warning' : ''}`}><strong>{data.data_scope === 'live' ? 'Zweryfikowany zakres:' : 'Uwaga — zakres badawczy:'}</strong> {data.methodology}</div>
       <section className="financial-kpis"><article><span>Wynik netto</span><strong className={data.total_profit >= 0 ? 'positive' : 'negative'}>{money(data.total_profit)}</strong><small>ROI {pct(data.roi)}</small></article><article><span>Bankroll końcowy</span><strong>{data.final_bankroll.toFixed(2)} PLN</strong><small>start: {data.initial_bankroll.toFixed(0)} PLN</small></article><article><span>Zakłady</span><strong>{data.total_bets}</strong><small>stawka: {data.total_staked.toFixed(0)} PLN · skut. {pct(data.hit_rate, 0)}</small></article><article><span>CLV</span><strong className={(data.avg_clv_odds_pct ?? 0) >= 0 ? 'positive' : 'negative'}>{pct(data.avg_clv_odds_pct)}</strong><small>dodatni CLV: {pct(data.positive_clv_rate, 0)}</small></article><article><span>Max drawdown</span><strong className="negative">-{pct(data.max_drawdown_pct, 1).replace('+','')}</strong><small>¼ Kelly ograniczone do 5% bankrolla</small></article></section>
       <section className="financial-section bankroll-section"><div className="financial-section-title"><div><h2>Krzywa bankrolla</h2><p>{stakingMode === 'kelly' ? '¼ Kelly, maks. 5% bieżącego bankrolla na zakład' : `Fixed ${fixedStake} PLN na zakład`}</p></div>{bestHorizon && <div className="best-horizon"><span>Najlepszy segment*</span><strong>{bestHorizon.label}</strong><small>ROI {pct(bestHorizon.roi)} · N={bestHorizon.bets}</small></div>}</div><MiniCurve data={data.bankroll_curve}/><p className="financial-note">* ranking wymaga co najmniej 5 zakładów; ROI i CLV należy oceniać razem z liczebnością oraz drawdownem.</p></section>
       <BucketTable title="Kiedy najlepiej obstawiać?" subtitle="Godziny liczone od snapshotu kursu do rozpoczęcia meczu. To bezpośrednia odpowiedź na pytanie: ile wcześniej wejść." rows={data.horizon_buckets}/>
