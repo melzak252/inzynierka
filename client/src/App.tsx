@@ -13,17 +13,23 @@ function Nav() {
 
   const links = [
     { to: '/', label: 'Mecze' },
-    { to: '/results', label: 'Wyniki' },
-    { to: '/mapping', label: 'Mapowanie' },
-    { to: '/embeddings/champions', label: 'Champion Embeddings' },
-    { to: '/horizon', label: 'Model Analysis' },
-    { to: '/system', label: 'System' },
+    { to: '/results', label: 'Backtest' },
+    { to: '/horizon', label: 'Analiza modelu' },
+    { to: '/embeddings/champions', label: 'Embeddingi' },
+    { to: '/mapping', label: 'Mapowania' },
+    { to: '/system', label: 'Monitoring' },
   ]
 
   return (
     <nav className="main-nav">
       <div className="nav-brand">
-        <Link to="/">EnsembleLegends</Link>
+        <Link to="/">
+          <span className="brand-mark">EL</span>
+          <span className="brand-copy">
+            <strong>EnsembleLegends</strong>
+            <small>betting intelligence</small>
+          </span>
+        </Link>
       </div>
       <div className="nav-links">
         {links.map((link) => (
