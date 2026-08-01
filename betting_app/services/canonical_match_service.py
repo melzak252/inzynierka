@@ -52,8 +52,17 @@ TEAM_ALIASES = {
     "barca esports": "barca esports",
     "barca": "barca esports",
     "fc barcelona": "barca esports",
-    "movistar koi": "koi",
-    "movister koi": "koi",
+    # Keep Movistar KOI main roster distinct from the academy/Fenix roster.
+    # The LES feeds sometimes omit the "Fenix/Academy" suffix; context rules
+    # in ``canonical_team_key`` handle that, but the neutral alias must not
+    # collapse both squads to a generic "koi" bucket.
+    "movistar koi": "movistar koi",
+    "movister koi": "movistar koi",
+    "koi academy": "movistar koi fenix",
+    "movistar koi academy": "movistar koi fenix",
+    "movistar koi fenix": "movistar koi fenix",
+    "movistar koi fénix": "movistar koi fenix",
+    "mkf": "movistar koi fenix",
     "nongshim redforce": "nongshim redforce",
     "ns red force": "nongshim redforce",
     "red canids": "red canids",
@@ -150,6 +159,21 @@ def canonical_team_key(
         return scoped.normalized_target or normalize_team_name(scoped.target_name)
 
     normalized = normalize_team_name(name)
+    league_norm = normalize_team_name(league or "")
+
+    # Context-sensitive KOI handling: in LEC/EWC "Movistar KOI" is the main
+    # roster, but in Spanish ERL feeds (LES/LVP/Lastlap) bookmakers often show
+    # the academy as just "Movistar KOI" while other books use
+    # "Movistar KOI Fenix" / "KOI Academy".  Without this rule those rows are
+    # merged and whichever bookmaker refreshed last controls the roster used
+    # for automatic predictions.
+    if normalized in {"movistar koi", "movister koi", "koi"}:
+        if any(marker in league_norm for marker in ("les", "lvp", "lastlap")):
+            return "movistar koi fenix"
+        return "movistar koi"
+    if normalized in {"movistar koi fenix", "movistar koi academy", "koi academy", "mkf"}:
+        return "movistar koi fenix"
+
     compact = normalized.replace(" ", "")
     if normalized in TEAM_ALIASES:
         return TEAM_ALIASES[normalized]
@@ -263,8 +287,16 @@ def canonical_match_score(
 
     cand_a = str(candidate.get("normalized_team_a") or "")
     cand_b = str(candidate.get("normalized_team_b") or "")
+
+    if _squad_marker_mismatch(team_a_key, cand_a) or _squad_marker_mismatch(team_b_key, cand_b):
+        return 0.0
+    if _squad_marker_mismatch(team_a_key, cand_b) or _squad_marker_mismatch(team_b_key, cand_a):
+        swapped_marker_ok = False
+    else:
+        swapped_marker_ok = True
+
     direct = (similarity(team_a_key, cand_a) + similarity(team_b_key, cand_b)) / 2
-    swapped = (similarity(team_a_key, cand_b) + similarity(team_b_key, cand_a)) / 2
+    swapped = (similarity(team_a_key, cand_b) + similarity(team_b_key, cand_a)) / 2 if swapped_marker_ok else 0.0
     team_score = max(direct, swapped)
     if team_score < 0.68:
         return team_score * 0.7
@@ -282,6 +314,29 @@ def canonical_match_score(
         score = max(score, 0.85)
 
     return score
+
+
+def _squad_marker_mismatch(left: str, right: str) -> bool:
+    """Return True when two names are same org but different squad level.
+
+    This deliberately handles the common bookmaker problem where an academy
+    suffix is present in one source and omitted in another.  For identical orgs
+    (e.g. Movistar KOI), a main-vs-Fenix/Academy mismatch must never be rescued
+    by an exact kickoff time because it corrupts rosters and automatic
+    predictions.
+    """
+
+    l_norm = normalize_team_name(left)
+    r_norm = normalize_team_name(right)
+    if l_norm == r_norm:
+        return False
+    l_has = any(marker in l_norm for marker in ("academy", "challengers", "fenix", "fénix"))
+    r_has = any(marker in r_norm for marker in ("academy", "challengers", "fenix", "fénix"))
+    if l_has == r_has:
+        return False
+    l_base = re.sub(r"\b(academy|challengers|fenix|fénix)\b", "", l_norm).strip()
+    r_base = re.sub(r"\b(academy|challengers|fenix|fénix)\b", "", r_norm).strip()
+    return bool(l_base and r_base and similarity(l_base, r_base) >= 0.70)
 
 
 def time_match_score(left: str | None, right: str | None) -> float:

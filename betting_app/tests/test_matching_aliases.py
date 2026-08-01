@@ -40,6 +40,29 @@ def test_normalize_les_academy_aliases() -> None:
     assert similarity("MKOI", "MKF") < 0.72
 
 
+def test_canonical_koi_context_keeps_main_and_fenix_distinct() -> None:
+    from betting_app.services.canonical_match_service import canonical_match_score, canonical_team_key
+
+    assert canonical_team_key("Movistar KOI", league="LEC") == "movistar koi"
+    assert canonical_team_key("Movistar KOI", league="LES") == "movistar koi fenix"
+    assert canonical_team_key("KOI Academy", league="LES") == "movistar koi fenix"
+
+    score = canonical_match_score(
+        "ucam",
+        canonical_team_key("Movistar KOI Fenix", league="LES"),
+        "2026-08-05T17:30:00+00:00",
+        "les",
+        {
+            "normalized_team_a": "ucam",
+            "normalized_team_b": canonical_team_key("Movistar KOI", league="LEC"),
+            "start_time_normalized": "2026-08-05T17:30:00+00:00",
+            "league": "LEC",
+            "status": "upcoming",
+        },
+    )
+    assert score < 0.78
+
+
 def test_normalize_big_alias_after_esports_suffix_cleanup() -> None:
     assert normalize_team_name("BIG") == "big"
     assert normalize_team_name("Berlin International Gaming") == "big"

@@ -65,7 +65,7 @@ def make_match_key(bookmaker: str, raw_team_a: str, raw_team_b: str, start_time:
     )
 
 
-def _resolve_golgg_team_id(team_name: str) -> int | None:
+def _resolve_golgg_team_id(team_name: str, league: str | None = None) -> int | None:
     """Resolve a GOL.GG team ID from a bookmaker team name.
 
     Uses suggest_mapping() to find the matching GOL.GG team name,
@@ -74,9 +74,26 @@ def _resolve_golgg_team_id(team_name: str) -> int | None:
     """
     from betting_app.services.mapping_service import suggest_mapping
 
-    golgg_name, conf, source = suggest_mapping(team_name)
-    if not golgg_name or conf <= 0:
-        return None
+    normalized = normalize_team_name(team_name)
+    league_norm = normalize_team_name(league or "")
+
+    # Context-sensitive Movistar KOI disambiguation.  Some Spanish ERL feeds
+    # omit the Fenix/Academy suffix and publish "Movistar KOI" in LES/LVP;
+    # that must resolve to the academy GOL.GG team, not the LEC main roster.
+    forced_golgg_name: str | None = None
+    if normalized in {"movistar koi", "movister koi", "koi"}:
+        forced_golgg_name = "Movistar KOI Fenix" if any(
+            marker in league_norm for marker in ("les", "lvp", "lastlap")
+        ) else "Movistar KOI"
+    elif normalized in {"movistar koi fenix", "movistar koi academy", "koi academy", "mkf"}:
+        forced_golgg_name = "Movistar KOI Fenix"
+
+    if forced_golgg_name:
+        golgg_name = forced_golgg_name
+    else:
+        golgg_name, conf, source = suggest_mapping(team_name)
+        if not golgg_name or conf <= 0:
+            return None
 
     # Try exact team_name match first
     with transaction() as connection:
@@ -133,8 +150,8 @@ def upsert_upcoming_match(
         )
 
     # Resolve GOL.GG team IDs using suggest_mapping()
-    team_a_id = _resolve_golgg_team_id(norm_a)
-    team_b_id = _resolve_golgg_team_id(norm_b)
+    team_a_id = _resolve_golgg_team_id(norm_a, league)
+    team_b_id = _resolve_golgg_team_id(norm_b, league)
 
     with transaction() as connection:
         connection.execute(
