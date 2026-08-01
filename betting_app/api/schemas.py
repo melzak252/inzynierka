@@ -227,6 +227,71 @@ class MatchResultsResponse(BaseModel):
     results: list[MatchResultItem]
 
 
+# ── Financial backtest ─────────────────────────────────────────────────────
+
+
+class FinancialLedgerEntry(BaseModel):
+    canonical_match_id: int
+    start_time: str | None = None
+    league: str | None = None
+    team_a_name: str | None = None
+    team_b_name: str | None = None
+    bookmaker: str
+    side: str
+    entry_odds: float
+    close_odds: float | None = None
+    hours_before: float | None = None
+    horizon: str
+    model_prob: float
+    market_prob: float
+    ev: float
+    stake: float
+    profit: float
+    bankroll_after: float
+    won: bool
+    clv_odds_pct: float | None = None
+    entry_scraped_at: str | None = None
+    close_scraped_at: str | None = None
+
+
+class FinancialBucket(BaseModel):
+    key: str
+    label: str
+    bets: int
+    staked: float
+    profit: float
+    roi: float | None = None
+    hit_rate: float | None = None
+    avg_ev: float | None = None
+    avg_clv_odds_pct: float | None = None
+    median_clv_odds_pct: float | None = None
+
+
+class FinancialAnalysisResponse(BaseModel):
+    methodology: str
+    days_back: int
+    odds_mode: str
+    model_name: str
+    model_version: str
+    staking_mode: str
+    min_ev: float
+    initial_bankroll: float
+    final_bankroll: float
+    total_bets: int
+    total_staked: float
+    total_profit: float
+    roi: float | None = None
+    hit_rate: float | None = None
+    max_drawdown_pct: float | None = None
+    avg_clv_odds_pct: float | None = None
+    positive_clv_rate: float | None = None
+    horizon_buckets: list[FinancialBucket] = []
+    bookmaker_buckets: list[FinancialBucket] = []
+    league_buckets: list[FinancialBucket] = []
+    bankroll_curve: list[dict[str, float | str | int | None]] = []
+    ledger: list[FinancialLedgerEntry] = []
+
+
 class MatchBestOfUpdate(BaseModel):
     best_of: int = Field(ge=1, le=7)
 

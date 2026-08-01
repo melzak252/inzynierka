@@ -6,6 +6,7 @@ import SystemPage from './pages/SystemPage'
 import ModelAnalysis from './pages/ModelAnalysis'
 import ManualMapping from './pages/ManualMapping'
 import ChampionEmbeddings from './pages/ChampionEmbeddings'
+import FinancialAnalysis from './pages/FinancialAnalysis'
 import './App.css'
 
 function Nav() {
@@ -14,6 +15,7 @@ function Nav() {
   const links = [
     { to: '/', label: 'Mecze' },
     { to: '/results', label: 'Backtest' },
+    { to: '/financial', label: 'Finanse' },
     { to: '/horizon', label: 'Analiza modelu' },
     { to: '/embeddings/champions', label: 'Embeddingi' },
     { to: '/mapping', label: 'Mapowania' },
@@ -55,6 +57,7 @@ function App() {
           <Route path="/" element={<MatchList />} />
           <Route path="/matches/:id" element={<MatchDetail />} />
           <Route path="/results" element={<MatchResults />} />
+          <Route path="/financial" element={<FinancialAnalysis />} />
           <Route path="/mapping" element={<ManualMapping />} />
           <Route path="/embeddings/champions" element={<ChampionEmbeddings />} />
           <Route path="/system" element={<SystemPage />} />

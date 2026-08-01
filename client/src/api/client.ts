@@ -18,6 +18,7 @@ import type {
   HorizonBootstrapResponse,
   ModelClvByHorizonResponse,
   ChampionEmbeddingProjectionResponse,
+  FinancialAnalysisResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -69,6 +70,31 @@ export async function fetchMatchResults(
   });
   const response = await fetch(`${API_BASE}/matches/results?${params}`);
   if (!response.ok) throw new Error(`Failed to fetch match results: ${response.statusText}`);
+  return response.json();
+}
+
+export async function fetchFinancialAnalysis(options: {
+  daysBack: number;
+  oddsMode: string;
+  stakingMode: string;
+  minEv: number;
+  initialBankroll: number;
+  fixedStake: number;
+  modelName: string;
+  modelVersion: string;
+}): Promise<FinancialAnalysisResponse> {
+  const params = new URLSearchParams({
+    days_back: options.daysBack.toString(),
+    odds_mode: options.oddsMode,
+    staking_mode: options.stakingMode,
+    min_ev: options.minEv.toString(),
+    initial_bankroll: options.initialBankroll.toString(),
+    fixed_stake: options.fixedStake.toString(),
+    model_name: options.modelName,
+    model_version: options.modelVersion,
+  });
+  const response = await fetch(`${API_BASE}/financial/analysis?${params}`);
+  if (!response.ok) throw new Error(`Failed to fetch financial analysis: ${response.statusText}`);
   return response.json();
 }
 

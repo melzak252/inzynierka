@@ -492,6 +492,68 @@ export interface MatchResultsResponse {
   results: MatchResultItem[];
 }
 
+export interface FinancialBucket {
+  key: string;
+  label: string;
+  bets: number;
+  staked: number;
+  profit: number;
+  roi: number | null;
+  hit_rate: number | null;
+  avg_ev: number | null;
+  avg_clv_odds_pct: number | null;
+  median_clv_odds_pct: number | null;
+}
+
+export interface FinancialLedgerEntry {
+  canonical_match_id: number;
+  start_time: string | null;
+  league: string | null;
+  team_a_name: string | null;
+  team_b_name: string | null;
+  bookmaker: string;
+  side: string;
+  entry_odds: number;
+  close_odds: number | null;
+  hours_before: number | null;
+  horizon: string;
+  model_prob: number;
+  market_prob: number;
+  ev: number;
+  stake: number;
+  profit: number;
+  bankroll_after: number;
+  won: boolean;
+  clv_odds_pct: number | null;
+  entry_scraped_at: string | null;
+  close_scraped_at: string | null;
+}
+
+export interface FinancialAnalysisResponse {
+  methodology: string;
+  days_back: number;
+  odds_mode: string;
+  model_name: string;
+  model_version: string;
+  staking_mode: string;
+  min_ev: number;
+  initial_bankroll: number;
+  final_bankroll: number;
+  total_bets: number;
+  total_staked: number;
+  total_profit: number;
+  roi: number | null;
+  hit_rate: number | null;
+  max_drawdown_pct: number | null;
+  avg_clv_odds_pct: number | null;
+  positive_clv_rate: number | null;
+  horizon_buckets: FinancialBucket[];
+  bookmaker_buckets: FinancialBucket[];
+  league_buckets: FinancialBucket[];
+  bankroll_curve: Array<{ index: number; bankroll: number; profit: number; start_time: string | null; canonical_match_id?: number | null }>;
+  ledger: FinancialLedgerEntry[];
+}
+
 // Alias mapping types
 export interface AliasCreateRequest {
   raw_name: string;
