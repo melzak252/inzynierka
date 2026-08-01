@@ -37,6 +37,10 @@ THESIS_HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
 # predictions left over from earlier deployments (some were written after the
 # match had already begun).
 ANALYSIS_FEATURES_VERSION = "exp060-db-backfill-v1"
+# Unlike accuracy, CLV needs the timestamp at which a forecast actually became
+# available.  EXP-060 rows are deliberately timestamped at start-1min for
+# retrospective scoring, so they must never be presented as live signals.
+LIVE_THESIS_FEATURES_VERSION = "thesis-exp039"
 
 HORIZON_BIN_DEFS = [
     ("0-2h", 0, 2),
@@ -1136,7 +1140,7 @@ def model_clv_by_horizon(
         {
             "thesis_model": THESIS_MODEL_NAME,
             "hybrid_model": THESIS_HYBRID_MODEL_NAME,
-            "features_version": ANALYSIS_FEATURES_VERSION,
+            "features_version": LIVE_THESIS_FEATURES_VERSION,
             "hybrid_version": f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}",
             "cutoff": cutoff,
         },
@@ -1314,7 +1318,7 @@ def model_clv_by_horizon(
             "closing_definition": "latest valid non-live same-bookmaker pre-match odds",
             "clv_odds_pct_definition": "taken_odds / closing_odds - 1; positive means entry beat closing",
             "aggregation_definition": "all EV entries for the same model, canonical match and horizon are collapsed into one match-level observation before averaging",
-            "evaluation_scope": "Production CLV monitor: EXP-060 thesis backfill plus current configured hybrid only; legacy model versions are excluded.",
+            "evaluation_scope": "Production CLV monitor: only actual scheduled thesis forecasts and the current configured hybrid; retrospective EXP-060 backfill and legacy hybrid versions are excluded.",
         },
         "total_predictions_scanned": len(predictions),
         "total_entries": len(entries),
