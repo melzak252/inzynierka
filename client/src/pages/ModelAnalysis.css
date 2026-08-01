@@ -84,6 +84,21 @@
   gap: 16px;
 }
 
+.ma-methodology-note {
+  display: grid;
+  gap: 0.3rem;
+  margin: 1rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--warning) 8%, var(--surface));
+  color: var(--text);
+}
+
+.ma-methodology-note strong { font-size: 0.86rem; }
+.ma-methodology-note span,
+.ma-methodology-note small { color: var(--text-muted); font-size: 0.78rem; }
+
 .ma-model-toggle {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

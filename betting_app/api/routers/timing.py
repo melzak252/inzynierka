@@ -32,6 +32,11 @@ router = APIRouter(prefix="/timing", tags=["timing"])
 THESIS_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
 THESIS_MODEL_VERSION = "exp-039"
 THESIS_HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
+# The Horizon page is a retrospective EXP-060 evaluation.  Do not silently
+# mix its reproducible, point-in-time backfill with opportunistic scheduler
+# predictions left over from earlier deployments (some were written after the
+# match had already begun).
+ANALYSIS_FEATURES_VERSION = "exp060-db-backfill-v1"
 
 HORIZON_BIN_DEFS = [
     ("0-2h", 0, 2),
@@ -652,6 +657,8 @@ def _compute_model_vs_bookmaker_tests(db, cutoff: str) -> list[dict]:
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :mname
               AND cp.model_version = :mver
+              AND cp.features_version = :features_version
+              AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
               AND cm.start_time_normalized > :cutoff
@@ -661,7 +668,12 @@ def _compute_model_vs_bookmaker_tests(db, cutoff: str) -> list[dict]:
         FROM ranked
         WHERE rn = 1
         """,
-        {"mname": THESIS_MODEL_NAME, "mver": THESIS_MODEL_VERSION, "cutoff": cutoff},
+        {
+            "mname": THESIS_MODEL_NAME,
+            "mver": THESIS_MODEL_VERSION,
+            "features_version": ANALYSIS_FEATURES_VERSION,
+            "cutoff": cutoff,
+        },
     )
     if not preds:
         return []
@@ -1033,6 +1045,12 @@ def horizon_accuracy(
     market_close_comparison = _compute_market_close_comparison(db, cutoff, min_matches_per_bin)
 
     result = {
+        "evaluation_scope": {
+            "kind": "retrospective_backtest",
+            "prediction_source": ANALYSIS_FEATURES_VERSION,
+            "prediction_rule": "latest valid prediction at or before match start",
+            "warning": "Accuracy compares the reproducible EXP-060 historical backfill. It is not a live-forecast performance monitor.",
+        },
         "total_matches_with_odds": len(matches_with_odds),
         "total_finished_matches": len(matches),
         "total_odds_processed": odds_processed,
@@ -1104,6 +1122,10 @@ def model_clv_by_horizon(
         FROM canonical_predictions cp
         JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
         WHERE cp.model_name IN (:thesis_model, :hybrid_model)
+          AND (
+              (cp.model_name = :thesis_model AND cp.features_version = :features_version)
+              OR (cp.model_name = :hybrid_model AND cp.model_version = :hybrid_version)
+          )
           AND cp.predicted_at IS NOT NULL
           AND cp.prob_a IS NOT NULL
           AND cp.prob_b IS NOT NULL
@@ -1114,6 +1136,8 @@ def model_clv_by_horizon(
         {
             "thesis_model": THESIS_MODEL_NAME,
             "hybrid_model": THESIS_HYBRID_MODEL_NAME,
+            "features_version": ANALYSIS_FEATURES_VERSION,
+            "hybrid_version": f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}",
             "cutoff": cutoff,
         },
     )
@@ -1290,6 +1314,7 @@ def model_clv_by_horizon(
             "closing_definition": "latest valid non-live same-bookmaker pre-match odds",
             "clv_odds_pct_definition": "taken_odds / closing_odds - 1; positive means entry beat closing",
             "aggregation_definition": "all EV entries for the same model, canonical match and horizon are collapsed into one match-level observation before averaging",
+            "evaluation_scope": "Production CLV monitor: EXP-060 thesis backfill plus current configured hybrid only; legacy model versions are excluded.",
         },
         "total_predictions_scanned": len(predictions),
         "total_entries": len(entries),
@@ -1513,24 +1538,44 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
         ("48h+",    48, 9999),
     ]
 
-    model_defs = query_df(
+    base_model_exists = query_df(
         db,
         """
-        SELECT DISTINCT cp.model_name, cp.model_version
+        SELECT 1
         FROM canonical_predictions cp
         JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
         WHERE cp.model_name IN (:thesis_model, :hybrid_model)
+          AND (
+              (cp.model_name = :thesis_model AND cp.features_version = :features_version)
+              OR (cp.model_name = :hybrid_model AND cp.model_version = :hybrid_version)
+          )
           AND cm.status IN ('finished', 'completed')
           AND cm.winner_side IS NOT NULL
           AND cm.start_time_normalized > :cutoff
-        ORDER BY cp.model_name
+        LIMIT 1
         """,
         {
             "cutoff": cutoff,
             "thesis_model": THESIS_MODEL_NAME,
             "hybrid_model": THESIS_HYBRID_MODEL_NAME,
+            "features_version": ANALYSIS_FEATURES_VERSION,
+            "hybrid_version": f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}",
         },
     )
+
+    if not base_model_exists:
+        return refs, hybrid_bins
+
+    # The hybrid is evaluated from the exact same thesis backfill and the odds
+    # in each horizon. Stored historical hybrid rows were generated by several
+    # old alpha values, so their presence must not decide what the page shows.
+    model_defs = [
+        {"model_name": THESIS_MODEL_NAME, "model_version": THESIS_MODEL_VERSION},
+        {
+            "model_name": THESIS_HYBRID_MODEL_NAME,
+            "model_version": f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}",
+        },
+    ]
 
     for md in model_defs:
         model_name = md["model_name"]
@@ -1571,6 +1616,8 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
                     JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
                     WHERE cp.model_name = :mname
                       AND cp.model_version = :mver
+                      AND cp.features_version = :features_version
+                      AND cp.predicted_at <= cm.start_time_normalized::timestamptz
                       AND cm.status IN ('finished', 'completed')
                       AND cm.winner_side IS NOT NULL
                       AND cm.start_time_normalized > :cutoff
@@ -1579,7 +1626,12 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
                 FROM ranked
                 WHERE rn = 1
                 """,
-                {"mname": model_name, "mver": model_version, "cutoff": cutoff},
+                {
+                    "mname": model_name,
+                    "mver": model_version,
+                    "features_version": ANALYSIS_FEATURES_VERSION,
+                    "cutoff": cutoff,
+                },
             )
             if not preds:
                 continue
@@ -1650,6 +1702,8 @@ def _compute_pure_model_bins_dynamic(
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :mname
               AND cp.model_version = :mver
+              AND cp.features_version = :features_version
+              AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
               AND cm.start_time_normalized > :cutoff
@@ -1659,7 +1713,12 @@ def _compute_pure_model_bins_dynamic(
         FROM ranked
         WHERE rn = 1
         """,
-        {"mname": model_name, "mver": model_version, "cutoff": cutoff},
+        {
+            "mname": model_name,
+            "mver": model_version,
+            "features_version": ANALYSIS_FEATURES_VERSION,
+            "cutoff": cutoff,
+        },
     )
     if not preds:
         return []
@@ -1818,6 +1877,8 @@ def _compute_hybrid_bins_dynamic(
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :base_model
               AND cp.model_version = :base_version
+              AND cp.features_version = :features_version
+              AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
               AND cm.start_time_normalized > :cutoff
@@ -1829,6 +1890,7 @@ def _compute_hybrid_bins_dynamic(
         {
             "base_model": THESIS_MODEL_NAME,
             "base_version": THESIS_MODEL_VERSION,
+            "features_version": ANALYSIS_FEATURES_VERSION,
             "cutoff": cutoff,
         },
     )
@@ -2029,6 +2091,8 @@ def _compute_market_close_comparison(db, cutoff: str, min_matches: int) -> dict:
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :mname
               AND cp.model_version = :mver
+              AND cp.features_version = :features_version
+              AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
               AND cm.start_time_normalized IS NOT NULL
@@ -2039,7 +2103,12 @@ def _compute_market_close_comparison(db, cutoff: str, min_matches: int) -> dict:
         FROM ranked
         WHERE rn = 1
         """,
-        {"mname": THESIS_MODEL_NAME, "mver": THESIS_MODEL_VERSION, "cutoff": cutoff},
+        {
+            "mname": THESIS_MODEL_NAME,
+            "mver": THESIS_MODEL_VERSION,
+            "features_version": ANALYSIS_FEATURES_VERSION,
+            "cutoff": cutoff,
+        },
     )
     pred_map = {
         p["canonical_match_id"]: p

@@ -47,13 +47,21 @@ MODELS: list[dict] = [
         "name": "Sym-Cal LR-ElasticNet-W20-Binomial",
         "version": "exp-039",
         "label": "Thesis",
+        "kind": "thesis",
     },
     {
         "name": "Hybrid-Thesis-Market",
-        "version": "a0.50-t0.80",
+        "version": "a0.35-t0.80",
         "label": "Hybrid",
+        "kind": "hybrid",
     },
 ]
+
+THESIS_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
+THESIS_MODEL_VERSION = "exp-039"
+ANALYSIS_FEATURES_VERSION = "exp060-db-backfill-v1"
+HYBRID_ALPHA = 0.35
+HYBRID_TEMPERATURE = 0.80
 
 N_BOOTSTRAPS = 10_000
 RANDOM_SEED = 42
@@ -117,11 +125,26 @@ def _assign_bin(hours_before: float) -> str | None:
     return None
 
 
+def _temperature_probability(prob: float, temperature: float) -> float:
+    """Temperature-scale a probability, matching production hybrid logic."""
+    eps = 1e-15
+    clipped = max(eps, min(1.0 - eps, float(prob)))
+    logit = np.log(clipped / (1.0 - clipped))
+    return float(1.0 / (1.0 + np.exp(-(logit / temperature))))
+
+
 # ── Data loading ───────────────────────────────────────────────────────────
 
-def load_model_data(model_name: str) -> pd.DataFrame:
-    """Load finished matches and aggregate odds to one row per match/horizon."""
+def load_model_data(model_cfg: dict) -> pd.DataFrame:
+    """Load the one reproducible EXP-060 source and derive the selected model.
+
+    Historical stored hybrid rows are deliberately not used: older deployments
+    wrote a0.05/a0.50 variants, so mixing them makes the bootstrap claim a
+    comparison for no single model.  The current a0.35 hybrid is reconstructed
+    from each snapshot's market probability and the EXP-060 thesis prediction.
+    """
     records: list[dict] = []
+    model_kind = str(model_cfg["kind"])
 
     with get_session() as sess:
         matches = sess.execute(text("""
@@ -136,15 +159,22 @@ def load_model_data(model_name: str) -> pd.DataFrame:
             FROM canonical_predictions cp
             JOIN canonical_matches cm ON cp.canonical_match_id = cm.id
             WHERE cp.model_name = :model_name
+              AND cp.model_version = :model_version
+              AND cp.features_version = :features_version
+              AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
               AND cm.start_time_normalized IS NOT NULL
             ORDER BY cp.canonical_match_id, cp.predicted_at DESC
-        """), {"model_name": model_name}).fetchall()
+        """), {
+            "model_name": THESIS_MODEL_NAME,
+            "model_version": THESIS_MODEL_VERSION,
+            "features_version": ANALYSIS_FEATURES_VERSION,
+        }).fetchall()
 
         match_ids = [m.match_id for m in matches]
         if not match_ids:
-            print(f"  ⚠ No finished matches for {model_name}")
+            print(f"  ⚠ No finished matches for {model_cfg['label']}")
             return pd.DataFrame()
 
         snap_params = {}
@@ -225,7 +255,13 @@ def load_model_data(model_name: str) -> pd.DataFrame:
         else:
             continue
 
-        model_prob = float(m.prob_a) if m.prob_a is not None else None
+        thesis_prob = float(m.prob_a) if m.prob_a is not None else None
+        model_prob = thesis_prob
+        if model_kind == "hybrid" and thesis_prob is not None:
+            model_prob = (
+                HYBRID_ALPHA * _temperature_probability(thesis_prob, HYBRID_TEMPERATURE)
+                + (1.0 - HYBRID_ALPHA) * p_a
+            )
         if model_prob is None:
             continue
 
@@ -425,7 +461,7 @@ def main() -> None:
         print(f"Model: {mdl_label} ({mdl_name})")
         print(f"{'='*60}")
 
-        df = load_model_data(mdl_name)
+        df = load_model_data(model_cfg)
         if df.empty:
             print("  ⚠ Skipping — no data.")
             continue

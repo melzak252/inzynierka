@@ -336,6 +336,12 @@ export interface ModelVsBookmakerTest {
 }
 
 export interface HorizonAccuracyResponse {
+  evaluation_scope?: {
+    kind: string;
+    prediction_source: string;
+    prediction_rule: string;
+    warning: string;
+  };
   total_matches_with_odds: number;
   total_finished_matches: number;
   total_odds_processed: number;

@@ -390,6 +390,14 @@ function ModelAnalysis() {
         </div>
       </section>
 
+      {accuracy?.evaluation_scope && (
+        <section className="ma-methodology-note">
+          <strong>Zakres accuracy: backtest historyczny EXP-060</strong>
+          <span>{accuracy.evaluation_scope.warning}</span>
+          <small>Źródło: {accuracy.evaluation_scope.prediction_source} · reguła: {accuracy.evaluation_scope.prediction_rule}.</small>
+        </section>
+      )}
+
       <section className="ma-summary">
         <StatCard label="Selected model" value={modelInfo.short} hint={modelInfo.description} />
         <StatCard label="Best CLV horizon" value={bestClv?.label ?? '—'} hint={bestClv ? `${signed(bestClv.avg_clv_odds_pct, 2, '%')} avg CLV, ${bestClv.match_count} matches` : 'No CLV entries'} tone={(bestClv?.avg_clv_odds_pct ?? 0) > 0 ? 'good' : 'neutral'} />
