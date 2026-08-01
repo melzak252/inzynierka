@@ -83,6 +83,7 @@ def _bucket(key: str, label: str, rows: list[dict[str, Any]]) -> FinancialBucket
         key=key,
         label=label,
         bets=len(rows),
+        matches=len({int(row["canonical_match_id"]) for row in rows}),
         staked=staked,
         profit=profit,
         roi=profit / staked if staked else None,
@@ -157,6 +158,7 @@ def financial_analysis(
             odds_mode=odds_mode, model_name=model_name, model_version=model_version,
             staking_mode=staking_mode, min_ev=min_ev, initial_bankroll=initial_bankroll,
             final_bankroll=initial_bankroll, total_bets=0, total_staked=0, total_profit=0,
+            total_matches=0,
         )
 
     ids = [int(row["canonical_match_id"]) for row in matches]
@@ -272,6 +274,7 @@ def financial_analysis(
         days_back=days_back, odds_mode=odds_mode, model_name=model_name, model_version=model_version,
         staking_mode=staking_mode, min_ev=min_ev, initial_bankroll=initial_bankroll, final_bankroll=bankroll,
         total_bets=len(candidates), total_staked=total_staked, total_profit=total_profit,
+        total_matches=len({int(row["canonical_match_id"]) for row in candidates}),
         roi=total_profit / total_staked if total_staked else None,
         hit_rate=sum(bool(row["won"]) for row in candidates) / len(candidates) if candidates else None,
         max_drawdown_pct=max_drawdown, avg_clv_odds_pct=sum(clv) / len(clv) if clv else None,

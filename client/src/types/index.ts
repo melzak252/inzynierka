@@ -496,6 +496,7 @@ export interface FinancialBucket {
   key: string;
   label: string;
   bets: number;
+  matches: number;
   staked: number;
   profit: number;
   roi: number | null;
@@ -541,6 +542,7 @@ export interface FinancialAnalysisResponse {
   initial_bankroll: number;
   final_bankroll: number;
   total_bets: number;
+  total_matches: number;
   total_staked: number;
   total_profit: number;
   roi: number | null;

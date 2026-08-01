@@ -258,6 +258,7 @@ class FinancialBucket(BaseModel):
     key: str
     label: str
     bets: int
+    matches: int
     staked: float
     profit: float
     roi: float | None = None
@@ -279,6 +280,7 @@ class FinancialAnalysisResponse(BaseModel):
     initial_bankroll: float
     final_bankroll: float
     total_bets: int
+    total_matches: int
     total_staked: float
     total_profit: float
     roi: float | None = None
