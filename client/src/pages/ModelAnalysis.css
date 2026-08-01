@@ -631,3 +631,41 @@
 @media (max-width: 1100px) {
   .ma-grid.accuracy { grid-template-columns: 1fr; }
 }
+
+/* Shared application shell alignment */
+.model-analysis-page {
+  max-width: 1280px;
+  padding: 1.25rem 0 3rem;
+}
+
+.ma-hero,
+.ma-chart-card,
+.ma-stat-card,
+.ma-table-wrap,
+.ma-diagnostics,
+.ma-state,
+.ma-model-toggle button,
+.ma-filter-row {
+  border-color: var(--border);
+}
+
+.ma-hero {
+  border-radius: 24px;
+}
+
+.ma-filter-row,
+.ma-model-toggle button {
+  box-shadow: var(--shadow-soft);
+}
+
+.ma-chart-card,
+.ma-stat-card,
+.ma-table-wrap,
+.ma-diagnostics {
+  box-shadow: var(--shadow-soft);
+}
+
+@media (max-width: 760px) {
+  .model-analysis-page { padding: 0.5rem 0 2rem; }
+  .ma-hero { border-radius: 16px; padding: 1.1rem; }
+}

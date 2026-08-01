@@ -353,3 +353,154 @@
     justify-content: flex-start;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Visual refresh: align embedding diagnostics with app shell
+   ───────────────────────────────────────────────────────────── */
+.ce-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  gap: 1.2rem;
+  padding: 1.25rem 0 3rem;
+}
+
+.ce-header {
+  position: relative;
+  overflow: hidden;
+  padding: 1.55rem;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(168, 85, 247, 0.18), transparent 25rem),
+    radial-gradient(circle at 82% 0%, rgba(56, 189, 248, 0.14), transparent 22rem),
+    linear-gradient(135deg, rgba(20, 31, 50, 0.96), rgba(11, 16, 32, 0.98));
+  box-shadow: var(--shadow-card);
+}
+
+.ce-header h1 {
+  color: var(--text);
+  font-size: clamp(1.7rem, 3vw, 2.7rem);
+  letter-spacing: -0.055em;
+  line-height: 1.02;
+}
+
+.ce-header p { color: var(--text-muted); font-weight: 600; }
+
+.ce-kicker {
+  color: #c4b5fd !important;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+}
+
+.ce-controls,
+.ce-stat,
+.ce-chart-card,
+.ce-side > div,
+.ce-state {
+  border-color: var(--border);
+  background: linear-gradient(180deg, rgba(20, 31, 50, 0.94), rgba(14, 22, 38, 0.94));
+  box-shadow: var(--shadow-soft);
+}
+
+.ce-controls {
+  border-radius: 18px;
+  padding: 1rem;
+}
+
+.ce-controls label {
+  color: var(--text-subtle);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ce-controls select,
+.ce-controls input {
+  color: var(--text);
+  border-color: var(--border);
+  border-radius: 10px;
+  background: rgba(8, 13, 24, 0.68);
+  font-size: 0.85rem;
+  font-weight: 750;
+}
+
+.ce-controls select:focus,
+.ce-controls input:focus {
+  outline: none;
+  border-color: rgba(56, 189, 248, 0.65);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1);
+}
+
+.ce-apply,
+.ce-download {
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 900;
+  transition: transform 0.16s, filter 0.16s;
+}
+
+.ce-apply { background: linear-gradient(135deg, #0ea5e9, #2563eb); }
+.ce-download { background: linear-gradient(135deg, #10b981, #22c55e); }
+.ce-apply:hover:not(:disabled),
+.ce-download:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.08); }
+
+.ce-checkbox {
+  border-color: var(--border);
+  background: rgba(8, 13, 24, 0.42);
+  border-radius: 12px;
+}
+
+.ce-stat { border-radius: 16px; }
+.ce-stat span,
+.ce-stat small { color: var(--text-muted); font-weight: 700; }
+.ce-stat strong { color: #e0f2fe; font-weight: 900; letter-spacing: -0.035em; }
+
+.ce-chart-card,
+.ce-side > div { border-radius: 18px; }
+
+.ce-chart-head h2,
+.ce-table-card h3,
+.ce-empty-detail h3,
+.ce-tooltip-title strong { color: var(--text); font-weight: 850; }
+
+.ce-chart-head p,
+.ce-empty-detail p,
+.ce-tooltip-card dt,
+.ce-tooltip-title small { color: var(--text-muted); }
+
+.ce-legend span {
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: rgba(148, 163, 184, 0.08);
+  font-weight: 750;
+}
+
+.ce-scatter rect { fill: #080e1b; stroke: var(--border); }
+.ce-scatter line { stroke: rgba(148, 163, 184, 0.14); }
+
+.ce-tooltip-card dd { color: #e0f2fe; }
+
+.ce-mini-table button {
+  color: var(--text);
+  border-color: var(--border);
+  background: rgba(8, 13, 24, 0.42);
+  font-weight: 750;
+}
+
+.ce-mini-table button:hover {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.ce-state {
+  color: var(--text-muted);
+  border-radius: 16px;
+  font-weight: 800;
+}
+
+@media (max-width: 980px) {
+  .ce-page { padding-top: 0.5rem; }
+  .ce-header { border-radius: 16px; padding: 1.1rem; }
+}
