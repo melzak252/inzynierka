@@ -135,7 +135,7 @@ def financial_analysis(
                cm.start_time_normalized, cm.winner_side, p.prob_a, p.prob_b, p.predicted_at
         FROM canonical_matches cm
         JOIN LATERAL (
-          SELECT p1.prob_a, p1.prob_b
+          SELECT p1.prob_a, p1.prob_b, p1.predicted_at
           FROM canonical_predictions p1
           WHERE p1.canonical_match_id = cm.id
             AND p1.model_name = :thesis_name AND p1.model_version = :thesis_version
