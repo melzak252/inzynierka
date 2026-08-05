@@ -1262,6 +1262,38 @@ def match_detail(
             else:
                 roster_b = ri
 
+    # A confirmed manual roster is valid even when feature generation is not
+    # available (for example when a duplicated canonical match was repaired
+    # after kickoff). Do not hide the user's confirmed lineup merely because
+    # there is no current upcoming_match_features row to enrich it with.
+    def manual_roster_info(side: str, fallback_team_name: Any) -> RosterInfo | None:
+        raw_roster = manual_rosters.get(side)
+        if not isinstance(raw_roster, dict):
+            return None
+        raw_players = raw_roster.get("players")
+        if not isinstance(raw_players, list):
+            raw_players = []
+        return RosterInfo(
+            team_name=raw_roster.get("team_name") or fallback_team_name,
+            source_match_id=str(raw_roster.get("source_match_id")) if raw_roster.get("source_match_id") else None,
+            source_date=str(raw_roster.get("source_match_date")) if raw_roster.get("source_match_date") else None,
+            source_tournament=str(raw_roster.get("source_tournament")) if raw_roster.get("source_tournament") else None,
+            roster_source="manual_override",
+            players=[
+                RosterPlayer(
+                    player_id=str(player.get("player_id")) if player.get("player_id") else None,
+                    player_name=player.get("player_name"),
+                    role=player.get("role"),
+                )
+                for player in raw_players if isinstance(player, dict)
+            ],
+        )
+
+    if roster_a is None and roster_a_is_manual:
+        roster_a = manual_roster_info("a", m.get("team_a_name"))
+    if roster_b is None and roster_b_is_manual:
+        roster_b = manual_roster_info("b", m.get("team_b_name"))
+
     return MatchDetailResponse(
         canonical_match_id=match_id,
         team_a_name=m.get("team_a_name"),
