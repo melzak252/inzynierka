@@ -150,8 +150,11 @@ def upsert_upcoming_match(
         )
 
     # Resolve GOL.GG team IDs using suggest_mapping()
-    team_a_id = _resolve_golgg_team_id(norm_a, league)
-    team_b_id = _resolve_golgg_team_id(norm_b, league)
+    # Preserve the original spelling for GOL.GG resolution. Passing the
+    # already-normalized value loses meaningful squad qualifiers such as
+    # "GIANTX iTero" and can resolve it to the parent/other academy team.
+    team_a_id = _resolve_golgg_team_id(raw_team_a, league)
+    team_b_id = _resolve_golgg_team_id(raw_team_b, league)
 
     with transaction() as connection:
         connection.execute(

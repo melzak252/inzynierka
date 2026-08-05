@@ -109,8 +109,11 @@ ALIASES: dict[str, str] = {
     "kabum idl": "kabum idl",
     "solary eclipse": "solary",
     "solary": "solary",
-    "giantx academy": "giantx",
-    "giantx itero": "giantx",
+    # These are separate Spanish ERL squads in GOL.GG. Collapsing them to the
+    # parent org made GIANTX iTero/Pride fixtures share canonical matches and
+    # could attach the wrong roster to an upcoming prediction.
+    "giantx academy": "giantx itero",
+    "giantx itero": "giantx itero",
     # Keep the main LEC roster distinct from the Spanish academy/Fenix roster.
     # Older mappings collapsed these to "movistar koi", which allowed upcoming
     # main-team matches to inherit academy mappings/ratings and vice versa.

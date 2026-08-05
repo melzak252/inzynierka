@@ -26,8 +26,8 @@ def test_normalize_solary_eclipse_alias() -> None:
 
 
 def test_normalize_les_academy_aliases() -> None:
-    assert normalize_team_name("GIANTX Academy") == "giantx"
-    assert normalize_team_name("GIANTX iTero") == "giantx"
+    assert normalize_team_name("GIANTX Academy") == "giantx itero"
+    assert normalize_team_name("GIANTX iTero") == "giantx itero"
     assert normalize_team_name("MKOI") == "movistar koi"
     assert normalize_team_name("Movistar KOI") == "movistar koi"
     assert normalize_team_name("KOI Academy") == "movistar koi fenix"
@@ -38,6 +38,12 @@ def test_normalize_les_academy_aliases() -> None:
     assert similarity("KOI Academy", "Movistar KOI Fenix") == 1.0
     assert similarity("Movistar KOI", "Movistar KOI Fenix") < 0.72
     assert similarity("MKOI", "MKF") < 0.72
+
+
+def test_giantx_itero_and_pride_are_not_the_same_squad() -> None:
+    assert normalize_team_name("GIANTX iTero") == "giantx itero"
+    assert normalize_team_name("GIANTX Pride") == "giantx pride"
+    assert similarity("GIANTX iTero", "GIANTX Pride") < 0.68
 
 
 def test_canonical_koi_context_keeps_main_and_fenix_distinct() -> None:
@@ -86,3 +92,22 @@ def test_canonical_team_key_applies_static_aliases_after_scoped_alias(monkeypatc
         ),
     )
     assert canonical_match_service.canonical_team_key("TT") == "thundertalk"
+
+
+def test_canonical_score_rejects_unrelated_challenger_teams_at_same_time() -> None:
+    from betting_app.services.canonical_match_service import canonical_match_score
+
+    score = canonical_match_score(
+        "dn soopers challengers",
+        "t1 challengers",
+        "2026-08-06T05:00:00+00:00",
+        "lck challengers",
+        {
+            "normalized_team_a": "geng challengers",
+            "normalized_team_b": "brion challengers",
+            "start_time_normalized": "2026-08-06T05:00:00+00:00",
+            "league": "lck challengers",
+            "status": "upcoming",
+        },
+    )
+    assert score < 0.78

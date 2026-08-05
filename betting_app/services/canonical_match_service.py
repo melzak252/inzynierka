@@ -297,8 +297,22 @@ def canonical_match_score(
     else:
         swapped_marker_ok = True
 
-    direct = (similarity(team_a_key, cand_a) + similarity(team_b_key, cand_b)) / 2
-    swapped = (similarity(team_a_key, cand_b) + similarity(team_b_key, cand_a)) / 2 if swapped_marker_ok else 0.0
+    direct_a = _team_identity_similarity(team_a_key, cand_a)
+    direct_b = _team_identity_similarity(team_b_key, cand_b)
+    direct = (direct_a + direct_b) / 2
+    swapped_a = _team_identity_similarity(team_a_key, cand_b) if swapped_marker_ok else 0.0
+    swapped_b = _team_identity_similarity(team_b_key, cand_a) if swapped_marker_ok else 0.0
+    swapped = (swapped_a + swapped_b) / 2 if swapped_marker_ok else 0.0
+
+    # An average alone is unsafe for academy leagues: unrelated names such as
+    # "Gen.G Challengers" and "DN SOOPers Challengers" share a long suffix,
+    # so two unrelated teams can clear the aggregate threshold when kickoff
+    # times coincide. A canonical merge requires both team identities to meet
+    # the minimum similarity in at least one orientation.
+    if min(direct_a, direct_b) < 0.68:
+        direct = 0.0
+    if swapped_marker_ok and min(swapped_a, swapped_b) < 0.68:
+        swapped = 0.0
     team_score = max(direct, swapped)
     if team_score < 0.68:
         return team_score * 0.7
@@ -316,6 +330,25 @@ def canonical_match_score(
         score = max(score, 0.85)
 
     return score
+
+
+def _team_identity_similarity(left: str, right: str) -> float:
+    """Compare organization identities without generic squad suffix inflation."""
+
+    def organization_key(value: str) -> str:
+        normalized = normalize_team_name(value)
+        tokens = [
+            token
+            for token in normalized.split()
+            if token not in {"academy", "challengers", "fenix", "pride", "bee", "cl", "eclipse", "youth", "junior"}
+        ]
+        return " ".join(tokens)
+
+    left_org = organization_key(left)
+    right_org = organization_key(right)
+    if left_org and right_org:
+        return similarity(left_org, right_org)
+    return similarity(left, right)
 
 
 def _squad_marker_mismatch(left: str, right: str) -> bool:
