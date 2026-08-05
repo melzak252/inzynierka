@@ -155,10 +155,12 @@ def canonical_team_key(
         name,
         context=AliasContext(source_system=source_system, league=league, match_date=match_date),
     )
-    if scoped.target_name and not scoped.blocked:
-        return scoped.normalized_target or normalize_team_name(scoped.target_name)
-
-    normalized = normalize_team_name(name)
+    # A scoped alias target still needs the deterministic built-in alias pass.
+    # For example an old DB alias can target ``ThunderTalk Gaming`` while the
+    # canonical key is ``thundertalk``. Returning ``normalized_target`` here
+    # used two different identities for equivalent source spellings and could
+    # make a valid bookmaker offer look unrelated to its canonical match.
+    normalized = normalize_team_name(scoped.target_name) if scoped.target_name and not scoped.blocked else normalize_team_name(name)
     league_norm = normalize_team_name(league or "")
 
     # Context-sensitive KOI handling: in LEC/EWC "Movistar KOI" is the main

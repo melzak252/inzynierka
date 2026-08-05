@@ -68,3 +68,21 @@ def test_normalize_big_alias_after_esports_suffix_cleanup() -> None:
     assert normalize_team_name("Berlin International Gaming") == "big"
     assert normalize_team_name("Berlin International") == "big"
     assert similarity("BIG", "Berlin International Gaming") == 1.0
+
+
+def test_canonical_team_key_applies_static_aliases_after_scoped_alias(monkeypatch) -> None:
+    from betting_app.services import canonical_match_service
+    from betting_app.services.team_alias_service import AliasResolution
+
+    monkeypatch.setattr(
+        canonical_match_service,
+        "resolve_scoped_alias",
+        lambda *_args, **_kwargs: AliasResolution(
+            target_name="ThunderTalk Gaming",
+            normalized_target="thundertalk gaming",
+            source="test",
+            alias_id=1,
+            confidence=1.0,
+        ),
+    )
+    assert canonical_match_service.canonical_team_key("TT") == "thundertalk"
