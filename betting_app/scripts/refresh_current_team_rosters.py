@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+import json
 
 from sqlalchemy import text
 
@@ -15,7 +16,7 @@ from betting_app.core.db import get_session
 from betting_app.services.current_roster_service import upsert_current_roster
 
 
-def refresh_current_team_rosters() -> dict[str, int]:
+def refresh_current_team_rosters(*, include_manual_overrides: bool = False) -> dict[str, int]:
     session = get_session()
     try:
         rows = session.execute(text("""
@@ -66,16 +67,44 @@ def refresh_current_team_rosters() -> dict[str, int]:
             )
             updated += int(changed)
             skipped += int(not changed)
+        manual_updated = 0
+        if include_manual_overrides:
+            # One-time migration aid for overrides saved before this durable
+            # roster table existed. Do not run this in the scheduled refresh:
+            # a later real GOL.GG game must be allowed to supersede a manual
+            # lineup after it has actually been played.
+            overrides = session.execute(text("""
+                SELECT mo.roster_json, mo.updated_at,
+                       CASE mo.team_side WHEN 'a' THEN umf.team_a_golgg_name ELSE umf.team_b_golgg_name END AS golgg_team,
+                       CASE mo.team_side WHEN 'a' THEN cm.team_a_name ELSE cm.team_b_name END AS canonical_team
+                FROM match_roster_overrides mo
+                JOIN canonical_matches cm ON cm.id = mo.canonical_match_id
+                LEFT JOIN upcoming_match_features umf ON umf.canonical_match_id = mo.canonical_match_id
+            """)).mappings().all()
+            for override in overrides:
+                try:
+                    roster = json.loads(override["roster_json"])
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(roster, dict) or not isinstance(roster.get("players"), list):
+                    continue
+                manual_updated += int(upsert_current_roster(
+                    session,
+                    team_name=str(override["golgg_team"] or override["canonical_team"]),
+                    players=roster["players"], source="manual",
+                    source_match_date=str(override["updated_at"] or ""),
+                ))
         session.commit()
-        return {"teams_seen": len(grouped), "updated": updated, "skipped": skipped}
+        return {"teams_seen": len(grouped), "updated": updated, "skipped": skipped, "manual_updated": manual_updated}
     finally:
         session.close()
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Refresh materialized current team rosters from GOL.GG games")
-    parser.parse_args()
-    print(refresh_current_team_rosters())
+    parser.add_argument("--include-manual-overrides", action="store_true", help="One-time seed from existing match overrides")
+    args = parser.parse_args()
+    print(refresh_current_team_rosters(include_manual_overrides=args.include_manual_overrides))
     return 0
 
 
