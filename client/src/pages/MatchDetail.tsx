@@ -742,7 +742,7 @@ export default function MatchDetail() {
                     setRosterMessage(err.message || 'Nie udało się przywrócić składu.');
                   }
                 }}
-              >Przywróć auto</button>
+              >Usuń override meczu</button>
             )}
           </div>
         </div>

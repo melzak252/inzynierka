@@ -1761,7 +1761,11 @@ def update_match_roster(match_id: int, body: MatchRosterOverrideRequest, db=Depe
 
 @router.delete("/{match_id}/roster/{team_side}")
 def delete_match_roster_override(match_id: int, team_side: str, db=Depends(get_db)):
-    """Return the selected side to the automatic last-GOL.GG-match roster."""
+    """Remove only the match-specific override.
+
+    The selected side then uses the durable current team roster, which may be
+    an automatic GOL.GG roster or a newer manual team confirmation.
+    """
     if team_side not in {"a", "b"}:
         raise HTTPException(status_code=422, detail="team_side must be 'a' or 'b'")
     result = db.execute(
@@ -1771,7 +1775,7 @@ def delete_match_roster_override(match_id: int, team_side: str, db=Depends(get_d
     db.commit()
     if not result.rowcount:
         raise HTTPException(status_code=404, detail="Brak ręcznego składu do przywrócenia")
-    return {"ok": True, "message": "Przywrócono automatyczny skład z ostatniego meczu GOL.GG."}
+    return {"ok": True, "message": "Usunięto override tego meczu; używany jest aktualny skład drużyny."}
 
 
 # ── POST /matches/{id}/predict — run prediction for single match ────────────
