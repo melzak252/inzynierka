@@ -115,6 +115,27 @@ class UpcomingMatchFeature(Base):
     __table_args__ = (UniqueConstraint("canonical_match_id", "feature_version", "ratings_version"),)
 
 
+class MatchRosterOverride(Base):
+    """Manually confirmed roster used for an upcoming canonical match.
+
+    The automatic pipeline normally uses the latest observed GOL.GG roster.
+    This separate table keeps an operator correction auditable and prevents a
+    scraper/feature refresh from silently overwriting it.
+    """
+
+    __tablename__ = "match_roster_overrides"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    canonical_match_id: Mapped[int] = mapped_column(
+        ForeignKey("canonical_matches.id"), nullable=False, index=True
+    )
+    team_side: Mapped[str] = mapped_column(String(1), nullable=False)
+    roster_json: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str | None] = mapped_column(String(50))
+
+    __table_args__ = (UniqueConstraint("canonical_match_id", "team_side"),)
+
+
 class CanonicalPrediction(Base):
     __tablename__ = "canonical_predictions"
 

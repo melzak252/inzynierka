@@ -1,6 +1,7 @@
 import type {
   MatchBoardResponse,
   MatchDetailResponse,
+  MatchRosterOverrideResponse,
   MatchResultsResponse,
   SystemStatusResponse,
   BookmakerStatus,
@@ -53,6 +54,26 @@ export async function updateMatchBestOf(matchId: number, bestOf: number): Promis
     body: JSON.stringify({ best_of: bestOf }),
   });
   if (!response.ok) throw new Error(`Failed to update best_of: ${response.statusText}`);
+  return response.json();
+}
+
+export async function updateMatchRoster(
+  matchId: number,
+  teamSide: 'a' | 'b',
+  players: Array<{ player_id?: string | null; player_name: string; role?: string | null }>,
+): Promise<MatchRosterOverrideResponse> {
+  const response = await fetch(`${API_BASE}/matches/${matchId}/roster`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ team_side: teamSide, players }),
+  });
+  if (!response.ok) throw new Error(`Failed to update roster: ${await response.text()}`);
+  return response.json();
+}
+
+export async function resetMatchRoster(matchId: number, teamSide: 'a' | 'b'): Promise<{ ok: boolean; message: string }> {
+  const response = await fetch(`${API_BASE}/matches/${matchId}/roster/${teamSide}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(`Failed to reset roster: ${await response.text()}`);
   return response.json();
 }
 

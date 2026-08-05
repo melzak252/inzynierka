@@ -18,6 +18,7 @@ from betting_app.models.prediction import (
     EntityRating,
     TeamRollingFeature,
     UpcomingMatchFeature,
+    MatchRosterOverride,
     CanonicalPrediction,
     ModelEvSignal,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "EntityRating",
     "TeamRollingFeature",
     "UpcomingMatchFeature",
+    "MatchRosterOverride",
     "CanonicalPrediction",
     "ModelEvSignal",
     "AutomationRun",

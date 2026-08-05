@@ -92,6 +92,19 @@ export interface RosterInfo {
   players: RosterPlayer[];
 }
 
+export interface RosterOverridePlayerInput {
+  player_id?: string | null;
+  player_name: string;
+  role?: string | null;
+}
+
+export interface MatchRosterOverrideResponse {
+  canonical_match_id: number;
+  team_side: 'a' | 'b';
+  roster: RosterInfo;
+  message: string;
+}
+
 export interface TeamRecentStats {
   team_name: string | null;
   matches_count: number | null;
@@ -143,6 +156,8 @@ export interface MatchDetailResponse {
   predictions: PredictionRow[];
   roster_a: RosterInfo | null;
   roster_b: RosterInfo | null;
+  roster_a_is_manual: boolean;
+  roster_b_is_manual: boolean;
   recent_stats_a: TeamRecentStats | null;
   recent_stats_b: TeamRecentStats | null;
   team_comparison: TeamComparisonInfo | null;

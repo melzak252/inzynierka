@@ -219,6 +219,37 @@ def _series_probability(map_prob: np.ndarray, best_of: int) -> np.ndarray:
     return np.clip(series_prob, EPSILON, 1.0 - EPSILON)
 
 
+def _load_roster_overrides(canonical_match_id: int) -> dict[str, dict[str, Any]]:
+    """Load operator-confirmed rosters, without failing prediction on old DBs."""
+    try:
+        rows = query_df(
+            """
+            SELECT team_side, roster_json
+            FROM match_roster_overrides
+            WHERE canonical_match_id = ?
+            """,
+            (canonical_match_id,),
+        )
+    except Exception:
+        # Allows local/dev databases that have not yet run the migration to
+        # retain normal automatic prediction behaviour.
+        return {}
+
+    overrides: dict[str, dict[str, Any]] = {}
+    for row in rows.to_dict("records"):
+        side = str(row.get("team_side") or "")
+        raw = row.get("roster_json")
+        try:
+            roster = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if side in {"a", "b"} and isinstance(roster, dict):
+            players = roster.get("players")
+            if isinstance(players, list) and len(players) == 5:
+                overrides[side] = roster
+    return overrides
+
+
 def build_thesis_features_for_match(
     team_a_name: str,
     team_b_name: str,
@@ -230,6 +261,8 @@ def build_thesis_features_for_match(
     ratings_version: str = "latest-full",
     w20_version: str = "w20-latest",
     best_of: int = 1,
+    team_a_roster_override: dict[str, Any] | None = None,
+    team_b_roster_override: dict[str, Any] | None = None,
 ) -> tuple[np.ndarray | None, dict[str, Any]]:
     """Build the 46-feature vector for one upcoming match.
 
@@ -328,9 +361,15 @@ def build_thesis_features_for_match(
         diagnostics["skip_reason"] = "unmapped_team"
         return None, diagnostics
 
-    # Load rosters
-    roster_a = load_last_roster(team_a_golgg)
-    roster_b = load_last_roster(team_b_golgg)
+    # A manually confirmed roster is intentionally preferred over the normal
+    # last-observed GOL.GG fallback.  The latter is useful automatically, but
+    # is often stale around substitutions and academy/main-team collisions.
+    roster_a = team_a_roster_override or load_last_roster(team_a_golgg)
+    roster_b = team_b_roster_override or load_last_roster(team_b_golgg)
+    diagnostics["manual_roster_override"] = {
+        "team_a": team_a_roster_override is not None,
+        "team_b": team_b_roster_override is not None,
+    }
 
     if not roster_a or len(roster_a.get("players", [])) < 5:
         diagnostics["missing"].append("team_a_roster")
@@ -612,6 +651,7 @@ def predict_upcoming_with_thesis_model(
             golgg_b = int(match["team_b_golgg_id"]) if match.get("team_b_golgg_id") is not None else None
 
             # Build features using GOL.GG IDs (bypasses suggest_mapping)
+            roster_overrides = _load_roster_overrides(match_id)
             feature_vec, diagnostics = build_thesis_features_for_match(
                 team_a, team_b,
                 team_a_golgg_id=golgg_a,
@@ -621,6 +661,8 @@ def predict_upcoming_with_thesis_model(
                 ratings_version=ratings_version,
                 w20_version=w20_version,
                 best_of=best_of,
+                team_a_roster_override=roster_overrides.get("a"),
+                team_b_roster_override=roster_overrides.get("b"),
             )
 
             if feature_vec is None:

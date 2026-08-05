@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, predictMatch, createTeamAlias, deleteTeamAlias, unblockTeamAlias, searchGolggTeams } from '../api/client';
-import type { MatchDetailResponse, PredictionHistoryPoint } from '../types';
+import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, updateMatchRoster, resetMatchRoster, predictMatch, createTeamAlias, deleteTeamAlias, unblockTeamAlias, searchGolggTeams } from '../api/client';
+import type { MatchDetailResponse, PredictionHistoryPoint, RosterOverridePlayerInput } from '../types';
 import './MatchDetail.css';
 
 // ─── Prediction History Chart Component ──────────────────────
@@ -532,6 +532,10 @@ export default function MatchDetail() {
   const [aliasSearchQuery, setAliasSearchQuery] = useState('');
   const [aliasSearchResults, setAliasSearchResults] = useState<string[]>([]);
   const [aliasSaving, setAliasSaving] = useState(false);
+  const [editingRosterSide, setEditingRosterSide] = useState<'a' | 'b' | null>(null);
+  const [rosterDraft, setRosterDraft] = useState<RosterOverridePlayerInput[]>([]);
+  const [savingRoster, setSavingRoster] = useState(false);
+  const [rosterMessage, setRosterMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -642,12 +646,103 @@ export default function MatchDetail() {
 
   const renderRoster = (roster: MatchDetailResponse['roster_a'], side: 'a' | 'b') => {
     const teamName = side === 'a' ? match.team_a_name : match.team_b_name;
+    const isManual = side === 'a' ? match.roster_a_is_manual : match.roster_b_is_manual;
+    const isEditing = editingRosterSide === side;
+    const beginEdit = () => {
+      const players = roster?.players || [];
+      setRosterDraft(Array.from({ length: 5 }, (_, index) => {
+        const player = players[index];
+        return {
+          player_id: player?.player_id || null,
+          player_name: player?.player_name || '',
+          role: player?.role || ['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'][index],
+        };
+      }));
+      setRosterMessage(null);
+      setEditingRosterSide(side);
+    };
+    const updateDraft = (index: number, field: keyof RosterOverridePlayerInput, value: string) => {
+      setRosterDraft(current => current.map((player, idx) => idx === index
+        ? { ...player, [field]: value, ...(field === 'player_name' ? { player_id: null } : {}) }
+        : player));
+    };
+    const saveRoster = async () => {
+      if (rosterDraft.some(player => !player.player_name.trim())) {
+        setRosterMessage('Uzupełnij nazwę każdego z 5 zawodników.');
+        return;
+      }
+      setSavingRoster(true);
+      setRosterMessage(null);
+      try {
+        const result = await updateMatchRoster(match.canonical_match_id, side, rosterDraft);
+        // A manual roster should affect the displayed probability immediately,
+        // not merely wait for the next scheduled prediction cycle.
+        await predictMatch(match.canonical_match_id);
+        const [matchData, historyData] = await Promise.all([
+          fetchMatchDetail(match.canonical_match_id),
+          fetchPredictionHistory(match.canonical_match_id),
+        ]);
+        setMatch(matchData);
+        setPredHistory(historyData);
+        setEditingRosterSide(null);
+        setRosterMessage(`${result.message} Predykcja została przeliczona.`);
+      } catch (err: any) {
+        setRosterMessage(err.message || 'Nie udało się zapisać składu.');
+      } finally {
+        setSavingRoster(false);
+      }
+    };
     return (
       <article className="roster-card">
         <div className="roster-card-head">
-          <h3>{teamName || roster?.team_name || '—'}</h3>
-          <span>avg Elo {fmtNum(roster?.avg_elo, 0)} · avg Glicko {fmtNum(roster?.avg_glicko, 0)}</span>
+          <div>
+            <h3>{teamName || roster?.team_name || '—'}</h3>
+            {isManual && <span className="manual-roster-badge">Ręcznie potwierdzony</span>}
+          </div>
+          <div className="roster-actions">
+            <span>avg Elo {fmtNum(roster?.avg_elo, 0)} · avg Glicko {fmtNum(roster?.avg_glicko, 0)}</span>
+            {!isEditing && <button className="roster-edit-btn" onClick={beginEdit}>Edytuj skład</button>}
+            {!isEditing && isManual && (
+              <button
+                className="roster-reset-btn"
+                onClick={async () => {
+                  try {
+                    await resetMatchRoster(match.canonical_match_id, side);
+                    const refreshed = await fetchMatchDetail(match.canonical_match_id);
+                    setMatch(refreshed);
+                    setRosterMessage('Przywrócono automatyczny skład z GOL.GG.');
+                  } catch (err: any) {
+                    setRosterMessage(err.message || 'Nie udało się przywrócić składu.');
+                  }
+                }}
+              >Przywróć auto</button>
+            )}
+          </div>
         </div>
+        {isEditing && (
+          <div className="roster-editor">
+            <p>Wpisz dokładną nazwę z GOL.GG. Po zapisie system sprawdzi zawodników, zapamięta skład i od razu przeliczy predykcję.</p>
+            {rosterDraft.map((player, index) => (
+              <div className="roster-editor-row" key={`${side}-${index}`}>
+                <select value={player.role || ''} onChange={event => updateDraft(index, 'role', event.target.value)}>
+                  {['TOP', 'JUNGLE', 'MID', 'ADC', 'SUPPORT'].map(role => <option key={role} value={role}>{role}</option>)}
+                </select>
+                <input
+                  value={player.player_name}
+                  placeholder="Nazwa zawodnika z GOL.GG"
+                  onChange={event => updateDraft(index, 'player_name', event.target.value)}
+                />
+                <small>{player.player_id ? `ID ${player.player_id}` : 'Nowy zawodnik — ID zostanie znalezione'}</small>
+              </div>
+            ))}
+            <div className="roster-editor-actions">
+              <button className="roster-cancel-btn" onClick={() => setEditingRosterSide(null)} disabled={savingRoster}>Anuluj</button>
+              <button className="roster-save-btn" onClick={saveRoster} disabled={savingRoster}>
+                {savingRoster ? 'Zapisywanie i liczenie…' : 'Zapisz i przelicz predykcję'}
+              </button>
+            </div>
+          </div>
+        )}
         {!roster || roster.players.length === 0 ? (
           <p className="no-data small">Brak przewidywanego rosteru w features_json.</p>
         ) : (
@@ -881,18 +976,17 @@ export default function MatchDetail() {
         </section>
       )}
 
-      {(match.roster_a || match.roster_b) && (
-        <section className="rosters-section">
-          <h2>Przewidywane składy i ratingi zawodników</h2>
-          <p className="section-hint">
-            Składy pochodzą z ostatniego znanego meczu / feature cache przed spotkaniem. Ratingi są punktowe z aktualnej wersji ratingów używanej przez pipeline.
-          </p>
-          <div className="rosters-grid">
-            {renderRoster(match.roster_a, 'a')}
-            {renderRoster(match.roster_b, 'b')}
-          </div>
-        </section>
-      )}
+      <section className="rosters-section">
+        <h2>Przewidywane składy i ratingi zawodników</h2>
+        <p className="section-hint">
+          Składy domyślnie pochodzą z ostatniego znanego meczu GOL.GG. Możesz je ręcznie potwierdzić lub poprawić — zapis automatycznie przelicza predykcję na ratingach wybranych zawodników.
+        </p>
+        {rosterMessage && <p className="roster-message">{rosterMessage}</p>}
+        <div className="rosters-grid">
+          {renderRoster(match.roster_a, 'a')}
+          {renderRoster(match.roster_b, 'b')}
+        </div>
+      </section>
 
       {match.team_comparison && (
         <section className="comparison-section">

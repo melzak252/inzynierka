@@ -7,6 +7,7 @@ Compatible with SQLite and PostgreSQL.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import json
 import math
 import re
 from typing import Any
@@ -43,6 +44,8 @@ from betting_app.api.schemas import (
     GolggMatchCandidatesResponse,
     MatchMappingRequest,
     MappingCheckResponse,
+    MatchRosterOverrideRequest,
+    MatchRosterOverrideResponse,
 )
 from betting_app.services.canonical_match_service import align_snapshot_odds
 from betting_app.core.ev import fair_market_probabilities
@@ -63,6 +66,7 @@ from betting_app.services.thesis_inference_service import (
     _symmetrize,
     _logit,
     _register_thesis_model,
+    _load_roster_overrides,
     THESIS_MODEL_NAME,
     THESIS_MODEL_VERSION,
     THESIS_HYBRID_MODEL_NAME,
@@ -1030,6 +1034,8 @@ def match_detail(
     # Rosters from features_json
     roster_a: RosterInfo | None = None
     roster_b: RosterInfo | None = None
+    roster_a_is_manual = False
+    roster_b_is_manual = False
     recent_stats_a: TeamRecentStats | None = None
     recent_stats_b: TeamRecentStats | None = None
     team_comparison: TeamComparisonInfo | None = None
@@ -1042,6 +1048,9 @@ def match_detail(
         """,
         {"mid": match_id},
     )
+    manual_rosters = _load_roster_overrides(match_id)
+    roster_a_is_manual = "a" in manual_rosters
+    roster_b_is_manual = "b" in manual_rosters
     if feat:
         f = feat[0].get("features_json")
         if isinstance(f, str):
@@ -1206,7 +1215,8 @@ def match_detail(
             ("team_b_roster", m.get("team_b_name", "Team B"), "b"),
         ]:
             players: list[RosterPlayer] = []
-            raw_roster = safe_json_get(player_ratings, [side_key]) if isinstance(player_ratings, dict) else None
+            manual_roster = manual_rosters.get(out)
+            raw_roster = manual_roster or (safe_json_get(player_ratings, [side_key]) if isinstance(player_ratings, dict) else None)
             rating_side_key = "team_a" if side_key.startswith("team_a") else "team_b"
             gl_by_id = players_by_id(rating_side_key, "gl")
             elo_by_id = players_by_id(rating_side_key, "elo")
@@ -1240,7 +1250,7 @@ def match_detail(
                 source_match_id=str(raw_roster.get("source_match_id")) if isinstance(raw_roster, dict) and raw_roster.get("source_match_id") else None,
                 source_date=str(raw_roster.get("source_match_date")) if isinstance(raw_roster, dict) and raw_roster.get("source_match_date") else None,
                 source_tournament=str(raw_roster.get("source_tournament")) if isinstance(raw_roster, dict) and raw_roster.get("source_tournament") else None,
-                roster_source=str(roster_source) if roster_source else None,
+                roster_source="manual_override" if manual_roster else (str(roster_source) if roster_source else None),
                 avg_elo=_finite_float(safe_json_get(elo_summary, ["avg_rating_value"])),
                 avg_glicko=_finite_float(safe_json_get(gl_summary, ["avg_rating_value"])),
                 avg_glicko_rd=_finite_float(safe_json_get(gl_summary, ["avg_rd"])),
@@ -1264,6 +1274,8 @@ def match_detail(
         predictions=pred_rows,
         roster_a=roster_a,
         roster_b=roster_b,
+        roster_a_is_manual=roster_a_is_manual,
+        roster_b_is_manual=roster_b_is_manual,
         recent_stats_a=recent_stats_a,
         recent_stats_b=recent_stats_b,
         team_comparison=team_comparison,
@@ -1506,6 +1518,144 @@ def update_match_best_of(match_id: int, body: MatchBestOfUpdate, db=Depends(get_
     return body
 
 
+# ── PUT /matches/{id}/roster — manually confirm an upcoming roster ─────────
+
+
+def _resolve_roster_player(db, player_id: str | None, player_name: str) -> dict[str, str]:
+    """Resolve a UI player entry to a stable GOL.GG player id.
+
+    Keeping the id is essential: the rating pipeline is keyed by
+    ``normalized_entity_name``/player id, while names can change in feeds.
+    """
+    if player_id:
+        row = query_one(
+            db,
+            """
+            SELECT player_id, player_name
+            FROM golgg_game_players
+            WHERE CAST(player_id AS TEXT)=:player_id
+            ORDER BY match_id DESC, game_id DESC
+            LIMIT 1
+            """,
+            {"player_id": str(player_id)},
+        )
+        if row:
+            return {"player_id": str(row["player_id"]), "player_name": str(row.get("player_name") or player_name)}
+
+    row = query_one(
+        db,
+        """
+        SELECT player_id, player_name
+        FROM golgg_game_players
+        WHERE LOWER(player_name)=LOWER(:player_name)
+        ORDER BY match_id DESC, game_id DESC
+        LIMIT 1
+        """,
+        {"player_name": player_name.strip()},
+    )
+    if not row:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Nie znaleziono zawodnika GOL.GG: {player_name}. Wybierz istniejącą nazwę lub popraw ID.",
+        )
+    return {"player_id": str(row["player_id"]), "player_name": str(row.get("player_name") or player_name)}
+
+
+@router.put("/{match_id}/roster", response_model=MatchRosterOverrideResponse)
+def update_match_roster(match_id: int, body: MatchRosterOverrideRequest, db=Depends(get_db)):
+    """Store a confirmed five-player roster for manual prediction.
+
+    The override survives normal feature refreshes and is consumed by both the
+    single-match Predict button and the scheduled thesis prediction pipeline.
+    It does not fabricate player ratings: each input is resolved to an actual
+    GOL.GG player id and uses that player's existing historical rating.
+    """
+    meta = query_one(
+        db,
+        "SELECT id, team_a_name, team_b_name, status FROM canonical_matches WHERE id=:id",
+        {"id": match_id},
+    )
+    if not meta:
+        raise HTTPException(status_code=404, detail="Match not found")
+    if str(meta.get("status") or "") in {"finished", "completed"}:
+        raise HTTPException(status_code=409, detail="Nie można zmienić składu zakończonego meczu")
+
+    roles = [str(p.role or "").upper() for p in body.players]
+    if any(role and role not in {"TOP", "JUNGLE", "MID", "ADC", "SUPPORT"} for role in roles):
+        raise HTTPException(status_code=422, detail="Dozwolone role: TOP, JUNGLE, MID, ADC, SUPPORT")
+    nonempty_roles = [role for role in roles if role]
+    if len(nonempty_roles) != len(set(nonempty_roles)):
+        raise HTTPException(status_code=422, detail="Każda rola może wystąpić tylko raz")
+
+    resolved_players: list[dict[str, str | None]] = []
+    seen_ids: set[str] = set()
+    for player in body.players:
+        resolved = _resolve_roster_player(db, player.player_id, player.player_name)
+        if resolved["player_id"] in seen_ids:
+            raise HTTPException(status_code=422, detail="Zawodnik nie może wystąpić dwa razy w tym samym składzie")
+        seen_ids.add(resolved["player_id"])
+        resolved_players.append({
+            "player_id": resolved["player_id"],
+            "player_name": resolved["player_name"],
+            "role": str(player.role or "").upper() or None,
+        })
+
+    team_name = meta.get("team_a_name") if body.team_side == "a" else meta.get("team_b_name")
+    now_iso = datetime.now(UTC).isoformat()
+    roster = {
+        "team_name": team_name,
+        "source_match_id": None,
+        "source_match_date": now_iso,
+        "source_tournament": "manual confirmation",
+        "players": resolved_players,
+    }
+    db.execute(
+        text(
+            """
+            INSERT INTO match_roster_overrides(canonical_match_id, team_side, roster_json, updated_at)
+            VALUES (:match_id, :team_side, :roster_json, :updated_at)
+            ON CONFLICT (canonical_match_id, team_side)
+            DO UPDATE SET roster_json=EXCLUDED.roster_json, updated_at=EXCLUDED.updated_at
+            """
+        ),
+        {
+            "match_id": match_id,
+            "team_side": body.team_side,
+            "roster_json": json.dumps(roster),
+            "updated_at": now_iso,
+        },
+    )
+    db.commit()
+
+    return MatchRosterOverrideResponse(
+        canonical_match_id=match_id,
+        team_side=body.team_side,
+        roster=RosterInfo(
+            team_name=str(team_name) if team_name else None,
+            source_date=now_iso,
+            source_tournament="manual confirmation",
+            roster_source="manual_override",
+            players=[RosterPlayer(**player) for player in resolved_players],
+        ),
+        message="Skład zapisany jako ręcznie potwierdzony.",
+    )
+
+
+@router.delete("/{match_id}/roster/{team_side}")
+def delete_match_roster_override(match_id: int, team_side: str, db=Depends(get_db)):
+    """Return the selected side to the automatic last-GOL.GG-match roster."""
+    if team_side not in {"a", "b"}:
+        raise HTTPException(status_code=422, detail="team_side must be 'a' or 'b'")
+    result = db.execute(
+        text("DELETE FROM match_roster_overrides WHERE canonical_match_id=:match_id AND team_side=:team_side"),
+        {"match_id": match_id, "team_side": team_side},
+    )
+    db.commit()
+    if not result.rowcount:
+        raise HTTPException(status_code=404, detail="Brak ręcznego składu do przywrócenia")
+    return {"ok": True, "message": "Przywrócono automatyczny skład z ostatniego meczu GOL.GG."}
+
+
 # ── POST /matches/{id}/predict — run prediction for single match ────────────
 
 
@@ -1534,10 +1684,13 @@ def predict_match(match_id: int, db=Depends(get_db)):
         )
 
     best_of = m.get("best_of") or 1
+    roster_overrides = _load_roster_overrides(match_id)
 
     # 2. Build features
     feature_vector, diagnostics = build_thesis_features_for_match(
         team_a, team_b, best_of=best_of,
+        team_a_roster_override=roster_overrides.get("a"),
+        team_b_roster_override=roster_overrides.get("b"),
     )
     if feature_vector is None:
         return PredictResponse(

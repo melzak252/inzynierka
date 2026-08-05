@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -128,6 +128,28 @@ class RosterInfo(BaseModel):
     avg_glicko_rd: float | None = None
     players_with_rating: int | None = None
     players: list[RosterPlayer] = []
+
+
+class RosterOverridePlayerInput(BaseModel):
+    """One manually confirmed player for an upcoming match roster."""
+
+    player_id: str | None = Field(default=None, max_length=100)
+    player_name: str = Field(min_length=1, max_length=200)
+    role: str | None = Field(default=None, max_length=30)
+
+
+class MatchRosterOverrideRequest(BaseModel):
+    """Confirmed five-player roster for one side of an upcoming match."""
+
+    team_side: Literal["a", "b"]
+    players: list[RosterOverridePlayerInput] = Field(min_length=5, max_length=5)
+
+
+class MatchRosterOverrideResponse(BaseModel):
+    canonical_match_id: int
+    team_side: Literal["a", "b"]
+    roster: RosterInfo
+    message: str
 
 
 class TeamRecentStats(BaseModel):
@@ -312,6 +334,8 @@ class MatchDetailResponse(BaseModel):
     predictions: list[PredictionRow] = []
     roster_a: RosterInfo | None = None
     roster_b: RosterInfo | None = None
+    roster_a_is_manual: bool = False
+    roster_b_is_manual: bool = False
     recent_stats_a: TeamRecentStats | None = None
     recent_stats_b: TeamRecentStats | None = None
     team_comparison: TeamComparisonInfo | None = None
