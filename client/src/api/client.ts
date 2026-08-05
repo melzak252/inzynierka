@@ -2,6 +2,7 @@ import type {
   MatchBoardResponse,
   MatchDetailResponse,
   MatchRosterOverrideResponse,
+  RosterPlayerCandidate,
   MatchResultsResponse,
   SystemStatusResponse,
   BookmakerStatus,
@@ -75,6 +76,20 @@ export async function resetMatchRoster(matchId: number, teamSide: 'a' | 'b'): Pr
   const response = await fetch(`${API_BASE}/matches/${matchId}/roster/${teamSide}`, { method: 'DELETE' });
   if (!response.ok) throw new Error(`Failed to reset roster: ${await response.text()}`);
   return response.json();
+}
+
+export async function searchRosterPlayers(
+  matchId: number,
+  teamSide: 'a' | 'b',
+  query: string,
+  role?: string | null,
+): Promise<RosterPlayerCandidate[]> {
+  const params = new URLSearchParams({ query, team_side: teamSide });
+  if (role) params.set('role', role);
+  const response = await fetch(`${API_BASE}/matches/${matchId}/roster/players?${params}`);
+  if (!response.ok) throw new Error(`Failed to search GOL.GG players: ${await response.text()}`);
+  const data = await response.json();
+  return data.players || [];
 }
 
 export async function fetchMatchResults(

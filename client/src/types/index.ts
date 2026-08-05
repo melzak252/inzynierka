@@ -98,6 +98,14 @@ export interface RosterOverridePlayerInput {
   role?: string | null;
 }
 
+export interface RosterPlayerCandidate {
+  player_id: string;
+  player_name: string;
+  role: string | null;
+  team_name: string | null;
+  is_expected_team: boolean;
+}
+
 export interface MatchRosterOverrideResponse {
   canonical_match_id: number;
   team_side: 'a' | 'b';

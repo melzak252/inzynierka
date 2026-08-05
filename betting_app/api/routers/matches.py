@@ -1521,7 +1521,13 @@ def update_match_best_of(match_id: int, body: MatchBestOfUpdate, db=Depends(get_
 # ── PUT /matches/{id}/roster — manually confirm an upcoming roster ─────────
 
 
-def _resolve_roster_player(db, player_id: str | None, player_name: str) -> dict[str, str]:
+def _resolve_roster_player(
+    db,
+    player_id: str | None,
+    player_name: str,
+    role: str | None = None,
+    expected_team: str | None = None,
+) -> dict[str, str]:
     """Resolve a UI player entry to a stable GOL.GG player id.
 
     Keeping the id is essential: the rating pipeline is keyed by
@@ -1542,23 +1548,80 @@ def _resolve_roster_player(db, player_id: str | None, player_name: str) -> dict[
         if row:
             return {"player_id": str(row["player_id"]), "player_name": str(row.get("player_name") or player_name)}
 
-    row = query_one(
+    candidates = query_df(
         db,
         """
-        SELECT player_id, player_name
+        SELECT DISTINCT ON (player_id) player_id, player_name, role, team_name
         FROM golgg_game_players
         WHERE LOWER(player_name)=LOWER(:player_name)
-        ORDER BY match_id DESC, game_id DESC
-        LIMIT 1
+          AND (:role IS NULL OR UPPER(COALESCE(role, ''))=UPPER(:role))
+        ORDER BY player_id,
+            CASE WHEN LOWER(COALESCE(team_name, ''))=LOWER(COALESCE(:expected_team, '')) THEN 0 ELSE 1 END,
+            match_id DESC, game_id DESC
         """,
-        {"player_name": player_name.strip()},
+        {"player_name": player_name.strip(), "role": str(role or "").strip() or None, "expected_team": expected_team},
     )
-    if not row:
+    if not candidates:
         raise HTTPException(
             status_code=422,
             detail=f"Nie znaleziono zawodnika GOL.GG: {player_name}. Wybierz istniejącą nazwę lub popraw ID.",
         )
+    if len(candidates) > 1:
+        options = "; ".join(
+            f"{row.get('player_name')} (ID {row.get('player_id')}, {row.get('team_name') or 'brak drużyny'})"
+            for row in candidates[:5]
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=f"Niejednoznaczny zawodnik GOL.GG: {player_name}. Wybierz go z wyszukiwarki. Kandydaci: {options}",
+        )
+    row = candidates[0]
     return {"player_id": str(row["player_id"]), "player_name": str(row.get("player_name") or player_name)}
+
+
+@router.get("/{match_id}/roster/players")
+def search_roster_players(
+    match_id: int,
+    query: str,
+    team_side: str,
+    role: str | None = None,
+    db=Depends(get_db),
+):
+    """Search and explicitly select a stable GOL.GG player ID for a manual roster."""
+    if team_side not in {"a", "b"}:
+        raise HTTPException(status_code=422, detail="team_side must be 'a' or 'b'")
+    query = query.strip()
+    if len(query) < 2:
+        return {"players": []}
+    feature = query_one(
+        db,
+        "SELECT team_a_golgg_name, team_b_golgg_name FROM upcoming_match_features WHERE canonical_match_id=:match_id",
+        {"match_id": match_id},
+    ) or {}
+    expected_team = feature.get("team_a_golgg_name") if team_side == "a" else feature.get("team_b_golgg_name")
+    rows = query_df(
+        db,
+        """
+        SELECT DISTINCT ON (player_id) player_id, player_name, role, team_name
+        FROM golgg_game_players
+        WHERE player_id IS NOT NULL AND player_name IS NOT NULL
+          AND LOWER(player_name) LIKE LOWER(:pattern)
+          AND (:role IS NULL OR UPPER(COALESCE(role, ''))=UPPER(:role))
+        ORDER BY player_id,
+            CASE WHEN LOWER(COALESCE(team_name, ''))=LOWER(COALESCE(:expected_team, '')) THEN 0 ELSE 1 END,
+            match_id DESC, game_id DESC
+        LIMIT 12
+        """,
+        {"pattern": f"%{query}%", "role": str(role or "").strip() or None, "expected_team": expected_team},
+    )
+    return {"players": [
+        {
+            "player_id": str(row["player_id"]), "player_name": str(row.get("player_name") or ""),
+            "role": row.get("role"), "team_name": row.get("team_name"),
+            "is_expected_team": bool(expected_team and str(row.get("team_name") or "").lower() == str(expected_team).lower()),
+        }
+        for row in rows
+    ]}
 
 
 @router.put("/{match_id}/roster", response_model=MatchRosterOverrideResponse)
@@ -1587,10 +1650,22 @@ def update_match_roster(match_id: int, body: MatchRosterOverrideRequest, db=Depe
     if len(nonempty_roles) != len(set(nonempty_roles)):
         raise HTTPException(status_code=422, detail="Każda rola może wystąpić tylko raz")
 
+    feature = query_one(
+        db,
+        "SELECT team_a_golgg_name, team_b_golgg_name FROM upcoming_match_features WHERE canonical_match_id=:match_id",
+        {"match_id": match_id},
+    ) or {}
+    expected_golgg_team = feature.get("team_a_golgg_name") if body.team_side == "a" else feature.get("team_b_golgg_name")
     resolved_players: list[dict[str, str | None]] = []
     seen_ids: set[str] = set()
     for player in body.players:
-        resolved = _resolve_roster_player(db, player.player_id, player.player_name)
+        resolved = _resolve_roster_player(
+            db,
+            player.player_id,
+            player.player_name,
+            player.role,
+            expected_golgg_team,
+        )
         if resolved["player_id"] in seen_ids:
             raise HTTPException(status_code=422, detail="Zawodnik nie może wystąpić dwa razy w tym samym składzie")
         seen_ids.add(resolved["player_id"])

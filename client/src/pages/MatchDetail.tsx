@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, updateMatchRoster, resetMatchRoster, predictMatch, createTeamAlias, deleteTeamAlias, unblockTeamAlias, searchGolggTeams } from '../api/client';
-import type { MatchDetailResponse, PredictionHistoryPoint, RosterOverridePlayerInput } from '../types';
+import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, updateMatchRoster, resetMatchRoster, predictMatch, createTeamAlias, deleteTeamAlias, unblockTeamAlias, searchGolggTeams, searchRosterPlayers } from '../api/client';
+import type { MatchDetailResponse, PredictionHistoryPoint, RosterOverridePlayerInput, RosterPlayerCandidate } from '../types';
 import './MatchDetail.css';
 
 // ─── Prediction History Chart Component ──────────────────────
@@ -534,6 +534,8 @@ export default function MatchDetail() {
   const [aliasSaving, setAliasSaving] = useState(false);
   const [editingRosterSide, setEditingRosterSide] = useState<'a' | 'b' | null>(null);
   const [rosterDraft, setRosterDraft] = useState<RosterOverridePlayerInput[]>([]);
+  const [rosterCandidates, setRosterCandidates] = useState<Record<number, RosterPlayerCandidate[]>>({});
+  const [searchingRosterPlayer, setSearchingRosterPlayer] = useState<number | null>(null);
   const [savingRoster, setSavingRoster] = useState(false);
   const [rosterMessage, setRosterMessage] = useState<string | null>(null);
 
@@ -659,12 +661,37 @@ export default function MatchDetail() {
         };
       }));
       setRosterMessage(null);
+      setRosterCandidates({});
       setEditingRosterSide(side);
     };
     const updateDraft = (index: number, field: keyof RosterOverridePlayerInput, value: string) => {
       setRosterDraft(current => current.map((player, idx) => idx === index
         ? { ...player, [field]: value, ...(field === 'player_name' ? { player_id: null } : {}) }
         : player));
+      if (field === 'player_name') setRosterCandidates(current => ({ ...current, [index]: [] }));
+    };
+    const findRosterPlayers = async (index: number) => {
+      const player = rosterDraft[index];
+      if (!player?.player_name.trim() || player.player_name.trim().length < 2) {
+        setRosterMessage('Wpisz co najmniej 2 znaki nazwy zawodnika.');
+        return;
+      }
+      setSearchingRosterPlayer(index);
+      try {
+        const candidates = await searchRosterPlayers(match.canonical_match_id, side, player.player_name, player.role);
+        setRosterCandidates(current => ({ ...current, [index]: candidates }));
+        if (!candidates.length) setRosterMessage(`Brak kandydatów GOL.GG dla „${player.player_name}”.`);
+      } catch (err: any) {
+        setRosterMessage(err.message || 'Nie udało się wyszukać zawodnika GOL.GG.');
+      } finally {
+        setSearchingRosterPlayer(null);
+      }
+    };
+    const selectRosterPlayer = (index: number, candidate: RosterPlayerCandidate) => {
+      setRosterDraft(current => current.map((player, idx) => idx === index
+        ? { ...player, player_id: candidate.player_id, player_name: candidate.player_name }
+        : player));
+      setRosterCandidates(current => ({ ...current, [index]: [] }));
     };
     const saveRoster = async () => {
       if (rosterDraft.some(player => !player.player_name.trim())) {
@@ -721,7 +748,7 @@ export default function MatchDetail() {
         </div>
         {isEditing && (
           <div className="roster-editor">
-            <p>Wpisz dokładną nazwę z GOL.GG. Po zapisie system sprawdzi zawodników, zapamięta skład i od razu przeliczy predykcję.</p>
+            <p>Wyszukaj i wybierz zawodnika z GOL.GG — zapisywane jest stabilne ID, nie sama nazwa. Dzięki temu homonimy nie zostaną pomylone.</p>
             {rosterDraft.map((player, index) => (
               <div className="roster-editor-row" key={`${side}-${index}`}>
                 <select value={player.role || ''} onChange={event => updateDraft(index, 'role', event.target.value)}>
@@ -732,7 +759,21 @@ export default function MatchDetail() {
                   placeholder="Nazwa zawodnika z GOL.GG"
                   onChange={event => updateDraft(index, 'player_name', event.target.value)}
                 />
-                <small>{player.player_id ? `ID ${player.player_id}` : 'Nowy zawodnik — ID zostanie znalezione'}</small>
+                <button type="button" className="roster-search-btn" onClick={() => findRosterPlayers(index)} disabled={searchingRosterPlayer === index}>
+                  {searchingRosterPlayer === index ? 'Szukam…' : 'Szukaj GOL.GG'}
+                </button>
+                <small>{player.player_id ? `Wybrano ID ${player.player_id}` : 'Wybierz wynik, aby zapisać ID'}</small>
+                {(rosterCandidates[index] || []).length > 0 && (
+                  <div className="roster-candidates">
+                    {rosterCandidates[index].map(candidate => (
+                      <button type="button" key={candidate.player_id} onClick={() => selectRosterPlayer(index, candidate)}>
+                        <strong>{candidate.player_name}</strong> · {candidate.role || '—'} · {candidate.team_name || 'brak drużyny'}
+                        {candidate.is_expected_team && <em> aktualna drużyna</em>}
+                        <small>ID {candidate.player_id}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             <div className="roster-editor-actions">
