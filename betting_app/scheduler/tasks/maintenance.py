@@ -23,9 +23,10 @@ def refresh_golgg() -> dict:
     )
     duration = (datetime.utcnow() - start).total_seconds()
     
-    logger.info(f"GolGG direct refresh: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+    roster_success = _run_module("betting_app.scripts.refresh_current_team_rosters", timeout=300) if success else False
+    logger.info(f"GolGG direct refresh: {'OK' if success else 'FAIL'} ({duration:.1f}s), current rosters: {'OK' if roster_success else 'FAIL'}")
     
-    return {"success": success, "duration_s": duration}
+    return {"success": success and roster_success, "duration_s": duration, "current_rosters": roster_success}
 
 
 def rebuild_ratings() -> dict:

@@ -3,7 +3,8 @@
 This module intentionally separates the production-ish upcoming workflow from the
 thesis final model artefacts.  The final EXP-039 model needs confirmed upcoming
 rosters and the exact historical feature matrix.  For live upcoming matches we
-approximate rosters by the last observed GOL.GG roster for each team, then use
+use a durable current roster (automatically refreshed from GOL.GG, with a
+manual confirmation fallback) for each team, then use
 player ratings, team ratings and W20 context.  Diagnostics are stored in SQLite
 so this can be audited and replaced by a confirmed-roster pipeline later.
 """
@@ -286,13 +287,13 @@ def build_features_for_match(
             "team_a": player_ratings_a,
             "team_b": player_ratings_b,
             "probabilities": player_probs,
-            "roster_source": "last_golgg_match",
+            "roster_source": "current_team_roster",
         },
         "w20": {"team_a": w20_a, "team_b": w20_b, "probability": w20_prob},
         "diagnostics": {
             "missing": missing,
             "missing_player_roster": not roster_a or not roster_b,
-            "note": "Upcoming rosters are approximated with the last observed GOL.GG roster for each team.",
+            "note": "Upcoming rosters use the durable current team roster; it is refreshed from the latest GOL.GG game or manually confirmed.",
         },
     }
     status = "ready_player" if not missing else "partial"
@@ -402,14 +403,47 @@ def load_w20(team_name: str | None, feature_version: str, window_size: int = 20)
 
 
 def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
-    """Return the last observed GOL.GG roster for a team from its latest match.
+    """Return the best known current roster, then GOL.GG last-match fallback.
 
-    The roster is taken from the first game in that latest match, matching the
-    historical rating pipeline convention.
+    A durable roster is populated after completed GOL.GG games and may be
+    manually confirmed before an announced lineup first appears in GOL.GG.
+    Older deployments/databases gracefully retain the historical fallback.
     """
 
     if not team_name:
         return None
+    try:
+        current = query_df(
+            """
+            SELECT player_id, player_name, role, team_name, source,
+                   source_match_id, source_match_date, source_game_id
+            FROM team_current_roster_players
+            WHERE normalized_team_name = ?
+            ORDER BY CASE role
+                WHEN 'TOP' THEN 1 WHEN 'JUNGLE' THEN 2 WHEN 'MID' THEN 3
+                WHEN 'ADC' THEN 4 WHEN 'SUPPORT' THEN 5 ELSE 9 END
+            """,
+            (normalize_team_name(team_name),),
+        )
+        if len(current) == 5 and len(set(current["role"].astype(str).str.upper())) == 5:
+            rows = current.to_dict("records")
+            first = rows[0]
+            return {
+                "team_name": first.get("team_name") or team_name,
+                "source_match_id": first.get("source_match_id"),
+                "source_match_date": first.get("source_match_date"),
+                "source_tournament": "manual confirmation" if first.get("source") == "manual" else "GOL.GG current roster",
+                "source_game_id": first.get("source_game_id"),
+                "source": str(first.get("source") or "auto"),
+                "players": [
+                    {"player_id": str(row.get("player_id") or ""), "player_name": row.get("player_name"), "role": row.get("role")}
+                    for row in rows
+                ],
+            }
+    except Exception:
+        # Migration may not yet exist in a developer database.
+        pass
+
     matches = query_df(
         """
         SELECT gm.match_id, gm.date, gm.tournament_name
@@ -638,7 +672,7 @@ def register_operational_model() -> int:
     feature_schema = {
         "ratings": list(RATING_SYSTEMS),
         "player_ratings": list(RATING_SYSTEMS),
-        "roster_source": "last observed GOL.GG match roster per team",
+        "roster_source": "current team roster, refreshed from GOL.GG or manual confirmation",
         "w20_fields": list(W20_FIELDS),
         "formula": "0.70 * player_rating_consensus + 0.20 * team_rating_consensus + 0.10 * w20_probability; no market input",
         "limitations": ["last-match roster fallback", "not confirmed upcoming rosters", "not the final EXP-039 Sym-Cal model"],

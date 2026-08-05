@@ -136,6 +136,34 @@ class MatchRosterOverride(Base):
     __table_args__ = (UniqueConstraint("canonical_match_id", "team_side"),)
 
 
+class TeamCurrentRosterPlayer(Base):
+    """Current, role-specific roster membership for a GOL.GG team.
+
+    This is deliberately separate from ``match_roster_overrides``: an override
+    protects one prediction, while this table is the reusable best-known squad
+    for every future match of a team.  GOL.GG refreshes update it from the most
+    recent completed game; an operator may replace it before an announced
+    roster has appeared on GOL.GG.
+    """
+
+    __tablename__ = "team_current_roster_players"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    team_id: Mapped[str | None] = mapped_column(String(50), index=True)
+    team_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    normalized_team_name: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    player_id: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    player_name: Mapped[str | None] = mapped_column(String(200))
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, server_default="auto")
+    source_match_id: Mapped[str | None] = mapped_column(String(50))
+    source_game_id: Mapped[str | None] = mapped_column(String(50))
+    source_match_date: Mapped[str | None] = mapped_column(String(50))
+    updated_at: Mapped[str | None] = mapped_column(String(50))
+
+    __table_args__ = (UniqueConstraint("normalized_team_name", "role"),)
+
+
 class CanonicalPrediction(Base):
     __tablename__ = "canonical_predictions"
 

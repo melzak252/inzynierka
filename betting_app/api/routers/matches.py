@@ -57,6 +57,7 @@ from betting_app.services.market_service import (
     safe_json_get,
 )
 from betting_app.services.mapping_service import suggest_mapping
+from betting_app.services.current_roster_service import upsert_current_roster
 from betting_app.core.db import is_sqlite
 from betting_app.services.thesis_inference_service import (
     build_thesis_features_for_match,
@@ -1731,6 +1732,16 @@ def update_match_roster(match_id: int, body: MatchRosterOverrideRequest, db=Depe
             "roster_json": json.dumps(roster),
             "updated_at": now_iso,
         },
+    )
+    # Promote a confirmed lineup to the team's durable current roster as well.
+    # The per-match override remains the hard guarantee for this exact match;
+    # the team roster is the automatic fallback for subsequent fixtures.
+    upsert_current_roster(
+        db,
+        team_name=str(expected_golgg_team or team_name),
+        players=resolved_players,
+        source="manual",
+        source_match_date=now_iso,
     )
     db.commit()
 

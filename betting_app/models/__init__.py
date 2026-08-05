@@ -19,6 +19,7 @@ from betting_app.models.prediction import (
     TeamRollingFeature,
     UpcomingMatchFeature,
     MatchRosterOverride,
+    TeamCurrentRosterPlayer,
     CanonicalPrediction,
     ModelEvSignal,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "TeamRollingFeature",
     "UpcomingMatchFeature",
     "MatchRosterOverride",
+    "TeamCurrentRosterPlayer",
     "CanonicalPrediction",
     "ModelEvSignal",
     "AutomationRun",
