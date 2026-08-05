@@ -33,6 +33,7 @@ from betting_app.services.mapping_service import golgg_name_from_id
 from betting_app.services.upcoming_inference_service import (
     RATING_SYSTEMS,
     apply_temperature_probability,
+    load_canonical_matches,
     load_last_roster,
     load_player_ratings,
     load_team_ratings,
@@ -590,36 +591,9 @@ def predict_upcoming_with_thesis_model(
     """
     pipeline, calibrator = _load_model()
 
-    # Load upcoming matches with GOL.GG team IDs
-    where = "WHERE cm.status = 'upcoming'"
-    params: list[Any] = []
-    if not include_past:
-        where += " AND (cm.start_time_normalized IS NULL OR cm.start_time_normalized >= ?)"
-        params.append(datetime.now(UTC).replace(microsecond=0).isoformat())
-
-    # Join with upcoming_matches to get team_a_golgg_id / team_b_golgg_id.
-    # SQLite doesn't support LATERAL. We use a subquery to get the latest IDs.
-    sql = f"""
-        SELECT cm.id, cm.team_a_name, cm.team_b_name, cm.start_time_normalized,
-               cm.league, cm.best_of,
-               (SELECT team_a_golgg_id FROM upcoming_matches 
-                WHERE canonical_match_id = cm.id 
-                ORDER BY last_seen_at DESC LIMIT 1) as team_a_golgg_id,
-               (SELECT team_b_golgg_id FROM upcoming_matches 
-                WHERE canonical_match_id = cm.id 
-                ORDER BY last_seen_at DESC LIMIT 1) as team_b_golgg_id
-        FROM canonical_matches cm
-        JOIN odds_snapshots os ON os.canonical_match_id = cm.id
-        {where}
-        GROUP BY cm.id
-        ORDER BY cm.start_time_normalized ASC
-    """
-    if limit:
-        sql += " LIMIT ?"
-        params.append(int(limit))
-
-    with transaction() as conn:
-        matches = conn.execute(sql, tuple(params)).fetchall()
+    # Shared loader aligns raw bookmaker offer order to canonical A/B before
+    # returning GOL.GG IDs. Bookmakers routinely reverse team ordering.
+    matches = load_canonical_matches(include_past=include_past, limit=limit)
 
     if not matches:
         return []

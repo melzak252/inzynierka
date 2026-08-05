@@ -19,7 +19,11 @@ from betting_app.core.db import query_df, transaction
 from betting_app.core.ev import expected_value, fair_market_probabilities
 from betting_app.core.matching import normalize_team_name
 from betting_app.core.staking import fractional_kelly_stake
-from betting_app.services.canonical_match_service import align_snapshot_odds, parse_iso
+from betting_app.services.canonical_match_service import (
+    align_snapshot_odds,
+    canonical_team_key,
+    parse_iso,
+)
 from betting_app.services.mapping_service import suggest_mapping
 from betting_app.services.mapping_service import golgg_name_from_id
 
@@ -94,8 +98,46 @@ def build_all_upcoming_features(
     return results
 
 
+def _select_aligned_golgg_ids(
+    canonical_match: dict[str, Any],
+    offers: list[dict[str, Any]],
+) -> tuple[int | None, int | None]:
+    """Return GOL.GG IDs in canonical A/B order from the newest valid offer.
+
+    ``upcoming_matches`` keeps the bookmaker's raw team order. Selecting the
+    newest row directly therefore swaps rosters whenever a bookmaker lists
+    the same event B-vs-A. Only use offers whose teams match the canonical
+    identity, and swap their IDs when their raw order is reversed.
+    """
+
+    league = str(canonical_match.get("league") or "")
+    match_date = canonical_match.get("start_time_normalized")
+    canonical_a = canonical_team_key(
+        str(canonical_match.get("team_a_name") or ""), league=league, match_date=match_date
+    )
+    canonical_b = canonical_team_key(
+        str(canonical_match.get("team_b_name") or ""), league=league, match_date=match_date
+    )
+    for offer in offers:
+        offer_league = str(offer.get("league") or league)
+        raw_a = canonical_team_key(
+            str(offer.get("raw_team_a") or ""), league=offer_league, match_date=match_date
+        )
+        raw_b = canonical_team_key(
+            str(offer.get("raw_team_b") or ""), league=offer_league, match_date=match_date
+        )
+        golgg_a, golgg_b = offer.get("team_a_golgg_id"), offer.get("team_b_golgg_id")
+        if golgg_a is None or golgg_b is None:
+            continue
+        if raw_a == canonical_a and raw_b == canonical_b:
+            return int(golgg_a), int(golgg_b)
+        if raw_a == canonical_b and raw_b == canonical_a:
+            return int(golgg_b), int(golgg_a)
+    return None, None
+
+
 def load_canonical_matches(*, include_past: bool = False, limit: int | None = None):
-    """Load canonical matches with GOL.GG team IDs from upcoming_matches."""
+    """Load canonical matches with GOL.GG IDs aligned to canonical A/B sides."""
 
     where = "WHERE cm.status = 'upcoming'"
     params: list[Any] = []
@@ -105,27 +147,44 @@ def load_canonical_matches(*, include_past: bool = False, limit: int | None = No
     sql = f"""
         SELECT cm.*,
                COUNT(DISTINCT os.bookmaker_id) AS bookmaker_count,
-               MAX(os.scraped_at) AS last_scraped_at,
-               um.team_a_golgg_id,
-               um.team_b_golgg_id
+               MAX(os.scraped_at) AS last_scraped_at
         FROM canonical_matches cm
         JOIN odds_snapshots os ON os.canonical_match_id = cm.id
-        LEFT JOIN LATERAL (
-            SELECT team_a_golgg_id, team_b_golgg_id
-            FROM upcoming_matches
-            WHERE canonical_match_id = cm.id
-            ORDER BY last_seen_at DESC
-            LIMIT 1
-        ) um ON TRUE
         {where}
-        GROUP BY cm.id, um.team_a_golgg_id, um.team_b_golgg_id
+        GROUP BY cm.id
         ORDER BY cm.start_time_normalized ASC, cm.id ASC
     """
     if limit:
         sql += " LIMIT ?"
         params.append(int(limit))
     with transaction() as connection:
-        return connection.execute(sql, tuple(params)).fetchall()
+        matches = [dict(row) for row in connection.execute(sql, tuple(params)).fetchall()]
+        if not matches:
+            return []
+        match_ids = [int(match["id"]) for match in matches]
+        placeholders = ", ".join("?" for _ in match_ids)
+        rows = connection.execute(
+            f"""
+            SELECT canonical_match_id, raw_team_a, raw_team_b, league,
+                   team_a_golgg_id, team_b_golgg_id, last_seen_at
+            FROM upcoming_matches
+            WHERE canonical_match_id IN ({placeholders})
+            ORDER BY canonical_match_id ASC, last_seen_at DESC, id DESC
+            """,
+            tuple(match_ids),
+        ).fetchall()
+
+    offers_by_match: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        offer = dict(row)
+        offers_by_match.setdefault(int(offer["canonical_match_id"]), []).append(offer)
+    for match in matches:
+        team_a_id, team_b_id = _select_aligned_golgg_ids(
+            match, offers_by_match.get(int(match["id"]), [])
+        )
+        match["team_a_golgg_id"] = team_a_id
+        match["team_b_golgg_id"] = team_b_id
+    return matches
 
 
 def build_features_for_match(
