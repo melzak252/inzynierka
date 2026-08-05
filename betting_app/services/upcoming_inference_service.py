@@ -514,6 +514,12 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
         """,
         (ratings_version, *player_ids),
     )
+    # ``query_df`` returns a column-less empty DataFrame when none of a
+    # manually selected/new roster's IDs has a rating snapshot yet. That is a
+    # valid partial-data state, not a reason to abort predictions for every
+    # upcoming match in the batch.
+    if frame.empty or "rating_system" not in frame.columns:
+        return {}
     result: dict[str, dict[str, Any]] = {}
     for system, group in frame.groupby("rating_system"):
         ratings = [none_or_float(value) for value in group["rating_value"].tolist()]
