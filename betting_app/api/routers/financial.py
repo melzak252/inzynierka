@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 from collections import defaultdict
+from heapq import heappop, heappush
 from datetime import UTC, datetime, timedelta
 from statistics import median
 from typing import Any
@@ -16,15 +17,28 @@ from betting_app.api.schemas import FinancialAnalysisResponse, FinancialBucket, 
 from betting_app.core.ev import expected_value, fair_market_probabilities
 from betting_app.services.canonical_match_service import align_snapshot_odds
 from betting_app.services.market_service import kelly_fraction, none_or_float
+from betting_app.services.thesis_inference_service import (
+    THESIS_BASE_ARTIFACT_VERSION,
+    THESIS_FEATURES_VERSION,
+    THESIS_HYBRID_ALPHA,
+    THESIS_HYBRID_MODEL_NAME,
+    THESIS_HYBRID_TEMPERATURE,
+    THESIS_HYBRID_VERSION_SUFFIX,
+    THESIS_MODEL_NAME,
+    THESIS_MODEL_VERSION,
+)
 
 
 router = APIRouter(prefix="/financial", tags=["financial"])
 
 TAX_RATE = 0.12
 BACKTEST_FEATURES_VERSION = "exp060-db-backfill-v1"
-THESIS_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
-THESIS_MODEL_VERSION = "exp-039"
-HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
+LEGACY_FEATURES_VERSION = "thesis-exp039"
+HYBRID_MODEL_NAME = THESIS_HYBRID_MODEL_NAME
+DEFAULT_HYBRID_VERSION = (
+    f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}-"
+    f"{THESIS_HYBRID_VERSION_SUFFIX}"
+)
 HORIZONS: list[tuple[str, str, float, float | None]] = [
     ("0-2", "0–2 h", 0, 2),
     ("2-6", "2–6 h", 2, 6),
@@ -36,9 +50,12 @@ HORIZONS: list[tuple[str, str, float, float | None]] = [
 
 
 def _parse_hybrid_version(version: str) -> tuple[float, float]:
-    match = re.fullmatch(r"a([0-9.]+)-t([0-9.]+)", version or "")
+    match = re.fullmatch(
+        r"a([0-9.]+)-t([0-9.]+)(?:-[a-z0-9-]+)?",
+        version or "",
+    )
     if not match:
-        return 0.35, 0.80
+        return THESIS_HYBRID_ALPHA, THESIS_HYBRID_TEMPERATURE
     return float(match.group(1)), float(match.group(2))
 
 
@@ -99,7 +116,7 @@ def financial_analysis(
     days_back: int = 90,
     odds_mode: str = "close",
     model_name: str = HYBRID_MODEL_NAME,
-    model_version: str = "a0.35-t0.80",
+    model_version: str = DEFAULT_HYBRID_VERSION,
     min_ev: float = 0.0,
     staking_mode: str = "kelly",
     initial_bankroll: float = 1000.0,
@@ -109,12 +126,13 @@ def financial_analysis(
     data_scope: str = "live",
     db=Depends(get_db),
 ):
-    """Simulate one highest-EV positive side per bookmaker/match.
+    """Simulate one globally highest-EV side per match.
 
-    ``live`` uses only actual scheduled predictions and quotes observed after the
-    prediction timestamp. ``historical`` uses actual predictions with the selected
-    pre-match price snapshot, but does not claim that price was available at the
-    exact prediction timestamp. ``retrospective`` is an EXP-060 research view.
+    ``live`` requires a timestamped prediction data cutoff, a quote observed
+    after prediction and before start, and a result recorded after start.
+    ``historical`` uses actual predictions with the selected pre-match price
+    snapshot but does not claim that price was available at prediction time.
+    ``retrospective`` is an EXP-060 research view.
     """
     odds_mode = odds_mode.lower().strip()
     if odds_mode not in {"open", "mid", "close"}:
@@ -122,44 +140,129 @@ def financial_analysis(
     if staking_mode not in {"fixed", "kelly"}:
         raise HTTPException(400, "staking_mode must be fixed or kelly")
     if data_scope not in {"live", "historical", "retrospective"}:
-        raise HTTPException(400, "data_scope must be live, historical or retrospective")
-    if not (0 <= min_ev < 2 and initial_bankroll > 0 and fixed_stake > 0):
+        raise HTTPException(
+            400,
+            "data_scope must be live, historical or retrospective",
+        )
+    if not (
+        0 <= min_ev < 2
+        and initial_bankroll > 0
+        and fixed_stake > 0
+        and 0 < kelly_fraction_multiplier <= 1
+        and 0 < max_stake_pct <= 1
+    ):
         raise HTTPException(400, "Invalid financial simulation parameters")
 
     use_hybrid = model_name == HYBRID_MODEL_NAME
-    if not use_hybrid and (model_name != THESIS_MODEL_NAME or model_version != THESIS_MODEL_VERSION):
-        raise HTTPException(400, "Supported models are Hybrid-Thesis-Market/a*.t* and EXP-039")
+    supported_direct_versions = {THESIS_BASE_ARTIFACT_VERSION, THESIS_MODEL_VERSION}
+    if not use_hybrid and (
+        model_name != THESIS_MODEL_NAME or model_version not in supported_direct_versions
+    ):
+        raise HTTPException(
+            400,
+            "Unsupported model/version; use the frozen EXP-039 or current parity contract",
+        )
     alpha, temperature = _parse_hybrid_version(model_version)
-    min_dt = (datetime.now(UTC) - timedelta(days=min(days_back, 730))).isoformat(timespec="seconds")
+    min_start_at = datetime.now(UTC) - timedelta(days=min(days_back, 730))
 
-    features_version = "thesis-exp039" if data_scope in {"live", "historical"} else BACKTEST_FEATURES_VERSION
-    matches = query_df(db, """
+    if data_scope == "retrospective":
+        query_model_version = THESIS_BASE_ARTIFACT_VERSION
+        features_version = BACKTEST_FEATURES_VERSION
+        effective_model_version = (
+            f"a{alpha:.2f}-t{temperature:.2f}"
+            if use_hybrid
+            else THESIS_BASE_ARTIFACT_VERSION
+        )
+    elif use_hybrid and model_version.endswith(f"-{THESIS_HYBRID_VERSION_SUFFIX}"):
+        query_model_version = THESIS_MODEL_VERSION
+        features_version = THESIS_FEATURES_VERSION
+    elif use_hybrid:
+        query_model_version = THESIS_BASE_ARTIFACT_VERSION
+        features_version = LEGACY_FEATURES_VERSION
+    else:
+        query_model_version = model_version
+        features_version = (
+            THESIS_FEATURES_VERSION
+            if model_version == THESIS_MODEL_VERSION
+            else LEGACY_FEATURES_VERSION
+        )
+    if data_scope != "retrospective":
+        effective_model_version = model_version
+
+    prediction_rows = query_df(db, """
         SELECT cm.id AS canonical_match_id, cm.team_a_name, cm.team_b_name, cm.league,
-               cm.start_time_normalized, cm.winner_side, p.prob_a, p.prob_b, p.predicted_at
+               cm.start_time_normalized, cm.result_recorded_at, cm.winner_side,
+               p.prob_a, p.prob_b, p.predicted_at, p.data_cutoff_at, p.id AS prediction_id
         FROM canonical_matches cm
-        JOIN LATERAL (
-          SELECT p1.prob_a, p1.prob_b, p1.predicted_at
-          FROM canonical_predictions p1
-          WHERE p1.canonical_match_id = cm.id
-            AND p1.model_name = :thesis_name AND p1.model_version = :thesis_version
-            AND p1.features_version = :features_version
-            AND CAST(p1.predicted_at AS TEXT) <= REPLACE(cm.start_time_normalized, 'T', ' ')
-          ORDER BY p1.predicted_at DESC NULLS LAST, p1.id DESC LIMIT 1
-        ) p ON true
+        JOIN canonical_predictions p ON p.canonical_match_id = cm.id
         WHERE cm.status = 'finished'
-          AND REPLACE(cm.start_time_normalized, 'T', ' ') >= REPLACE(:min_dt, 'T', ' ')
           AND cm.winner_side IN ('team_a', 'team_b')
-        ORDER BY cm.start_time_normalized, cm.id
+          AND p.model_name = :thesis_name AND p.model_version = :thesis_version
+          AND p.features_version = :features_version
+        ORDER BY cm.start_time_normalized, cm.id, p.predicted_at, p.id
     """, {
-        "thesis_name": THESIS_MODEL_NAME, "thesis_version": THESIS_MODEL_VERSION,
-        "features_version": features_version, "min_dt": min_dt,
+        "thesis_name": THESIS_MODEL_NAME,
+        "thesis_version": query_model_version,
+        "features_version": features_version,
     })
+    latest_predictions: dict[int, dict[str, Any]] = {}
+    for row in prediction_rows:
+        predicted_at = _parse_time(row.get("predicted_at"))
+        start_at = _parse_time(row.get("start_time_normalized"))
+        if (
+            predicted_at is None
+            or start_at is None
+            or start_at < min_start_at
+            or predicted_at >= start_at
+        ):
+            continue
+        match_id = int(row["canonical_match_id"])
+        previous = latest_predictions.get(match_id)
+        if previous is None or predicted_at > _parse_time(previous["predicted_at"]):
+            latest_predictions[match_id] = row
+    matches = sorted(
+        latest_predictions.values(),
+        key=lambda row: (str(row["start_time_normalized"]), int(row["canonical_match_id"])),
+    )
+    temporal_exclusions: dict[str, int] = {
+        "prediction_rows_not_eligible": len(prediction_rows) - len(matches),
+        "missing_result_available_at": 0,
+        "result_not_after_start": 0,
+        "missing_data_cutoff_at": 0,
+        "data_cutoff_after_prediction": 0,
+        "no_quote_after_prediction": 0,
+        "no_quote_before_start": 0,
+        "no_positive_ev": 0,
+        "insufficient_available_balance": 0,
+    }
+    temporally_eligible_matches: list[dict[str, Any]] = []
+    for match in matches:
+        start_at = _parse_time(match.get("start_time_normalized"))
+        result_available_at = _parse_time(match.get("result_recorded_at"))
+        if result_available_at is None:
+            temporal_exclusions["missing_result_available_at"] += 1
+            continue
+        if start_at is None or result_available_at <= start_at:
+            temporal_exclusions["result_not_after_start"] += 1
+            continue
+        if data_scope == "live":
+            data_cutoff_at = _parse_time(match.get("data_cutoff_at"))
+            predicted_at = _parse_time(match.get("predicted_at"))
+            if data_cutoff_at is None:
+                temporal_exclusions["missing_data_cutoff_at"] += 1
+                continue
+            if predicted_at is None or data_cutoff_at > predicted_at:
+                temporal_exclusions["data_cutoff_after_prediction"] += 1
+                continue
+        temporally_eligible_matches.append(match)
+    matches = temporally_eligible_matches
     if not matches:
         return FinancialAnalysisResponse(
             methodology="Brak meczów dla wybranego zakresu predykcji.", data_scope=data_scope, days_back=days_back,
-            odds_mode=odds_mode, model_name=model_name, model_version=model_version,
+            odds_mode=odds_mode, model_name=model_name, model_version=effective_model_version,
             staking_mode=staking_mode, min_ev=min_ev, initial_bankroll=initial_bankroll,
             final_bankroll=initial_bankroll, total_bets=0, total_staked=0, total_profit=0,
+            temporal_exclusions=temporal_exclusions,
             total_matches=0,
         )
 
@@ -177,8 +280,7 @@ def financial_analysis(
             WHERE os.canonical_match_id IN ({placeholders})
               AND os.market_type = 'match_winner' AND COALESCE(os.is_live, 0) = 0
               AND os.odds_a IS NOT NULL AND os.odds_b IS NOT NULL AND os.scraped_at IS NOT NULL
-              AND REPLACE(CAST(os.scraped_at AS TEXT), 'T', ' ') <= REPLACE(CAST(cm.start_time_normalized AS TEXT), 'T', ' ')
-            ORDER BY os.canonical_match_id, os.bookmaker_id, os.scraped_at
+              AND REPLACE(CAST(os.scraped_at AS TEXT), 'T', ' ') < REPLACE(CAST(cm.start_time_normalized AS TEXT), 'T', ' ')
         """, params))
 
     odds_by_key: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
@@ -186,15 +288,49 @@ def financial_analysis(
         odds_by_key[(int(row["canonical_match_id"]), int(row["bookmaker_id"]))].append(row)
     match_by_id = {int(row["canonical_match_id"]): row for row in matches}
     candidates: list[dict[str, Any]] = []
+    quote_eligible_match_ids: set[int] = set()
     for (match_id, _bookmaker_id), snapshots in odds_by_key.items():
         match = match_by_id[match_id]
-        # A live backtest may only enter after this exact model prediction was
-        # available. EXP-060 rows are intentionally left as research-only: they
-        # were generated one minute before kick-off after the historical run.
+        # Live evaluation requires the prediction's recorded input cutoff and
+        # a quote observed after that prediction; other scopes remain marked
+        # as non-executable research views.
         available = snapshots
+        predicted_at = _parse_time(match.get("predicted_at"))
+        data_cutoff_at = _parse_time(match.get("data_cutoff_at"))
+        start_at = _parse_time(match.get("start_time_normalized"))
+        result_available_at = _parse_time(match.get("result_recorded_at"))
+        if (
+            start_at is None
+            or result_available_at is None
+            or result_available_at <= start_at
+        ):
+            continue
         if data_scope == "live":
-            predicted_at = _parse_time(match.get("predicted_at"))
-            available = [row for row in snapshots if predicted_at is not None and (_parse_time(row.get("scraped_at")) or predicted_at) >= predicted_at]
+            if (
+                predicted_at is None
+                or data_cutoff_at is None
+                or data_cutoff_at > predicted_at
+            ):
+                continue
+            available = [
+                row
+                for row in snapshots
+                if (
+                    (quote_at := _parse_time(row.get("scraped_at"))) is not None
+                    and predicted_at <= quote_at < start_at
+                )
+            ]
+        else:
+            available = [
+                row
+                for row in snapshots
+                if (
+                    (quote_at := _parse_time(row.get("scraped_at"))) is not None
+                    and quote_at < start_at
+                )
+            ]
+        if available:
+            quote_eligible_match_ids.add(match_id)
         entry = _pick_snapshot(available, odds_mode)
         close = _pick_snapshot(available, "close")
         if not entry:
@@ -220,11 +356,12 @@ def financial_analysis(
         close_odds = None
         if close_aligned:
             close_odds = none_or_float(close_aligned[0] if side == "a" else close_aligned[1])
-        start_at, entry_at = _parse_time(match["start_time_normalized"]), _parse_time(entry["scraped_at"])
-        hours_before = (start_at - entry_at).total_seconds() / 3600 if start_at and entry_at else None
+        entry_at = _parse_time(entry["scraped_at"])
+        hours_before = (start_at - entry_at).total_seconds() / 3600 if entry_at else None
         key, label = _horizon(hours_before) if hours_before is not None else ("unknown", "Brak czasu")
         candidates.append({
-            "canonical_match_id": match_id, "start_time": match["start_time_normalized"], "league": match.get("league") or "Nieznana liga",
+            "canonical_match_id": match_id, "start_time": match["start_time_normalized"],
+            "result_available_at": result_available_at, "league": match.get("league") or "Nieznana liga",
             "team_a_name": match.get("team_a_name"), "team_b_name": match.get("team_b_name"), "bookmaker": entry["bookmaker"],
             "side": side, "entry_odds": entry_odds, "close_odds": close_odds, "hours_before": hours_before,
             "horizon": key, "horizon_label": label, "model_prob": model_prob, "market_prob": market_prob, "ev": ev,
@@ -232,24 +369,117 @@ def financial_analysis(
             "close_scraped_at": close.get("scraped_at") if close else None,
             "clv_odds_pct": (entry_odds / close_odds - 1) if close_odds and close_odds > 0 else None,
         })
+    eligible_match_ids = {int(match["canonical_match_id"]) for match in matches}
+    no_quote_key = (
+        "no_quote_after_prediction"
+        if data_scope == "live"
+        else "no_quote_before_start"
+    )
+    temporal_exclusions[no_quote_key] = len(
+        eligible_match_ids - quote_eligible_match_ids
+    )
+    candidate_match_ids = {
+        int(candidate["canonical_match_id"]) for candidate in candidates
+    }
+    temporal_exclusions["no_positive_ev"] = len(
+        quote_eligible_match_ids - candidate_match_ids
+    )
 
-    candidates.sort(key=lambda row: (str(row["start_time"]), int(row["canonical_match_id"]), str(row["bookmaker"])))
+    # Select one globally highest-EV bookmaker/side per match, then process
+    # quote placement and result availability as separate ledger events.
+    candidates_by_match: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for candidate in candidates:
+        candidates_by_match[int(candidate["canonical_match_id"])].append(candidate)
+    candidates = [
+        max(
+            rows,
+            key=lambda row: (
+                float(row["ev"]),
+                str(row["entry_scraped_at"]),
+                str(row["bookmaker"]),
+                str(row["side"]),
+            ),
+        )
+        for rows in candidates_by_match.values()
+    ]
+    candidates.sort(
+        key=lambda row: (
+            str(row["entry_scraped_at"]),
+            int(row["canonical_match_id"]),
+        )
+    )
     bankroll = initial_bankroll
+    reserved = 0.0
     peak = bankroll
     max_drawdown = 0.0
-    curve: list[dict[str, float | str | int | None]] = [{"index": 0, "bankroll": bankroll, "profit": 0.0, "start_time": None}]
-    for index, row in enumerate(candidates, start=1):
-        if staking_mode == "fixed":
-            stake = min(fixed_stake, bankroll)
-        else:
-            full_kelly = kelly_fraction(float(row["model_prob"]), float(row["entry_odds"]), TAX_RATE)
-            stake = min(bankroll * max_stake_pct, bankroll * full_kelly * kelly_fraction_multiplier)
-        profit = stake * (float(row["entry_odds"]) * (1 - TAX_RATE) - 1) if row["won"] else -stake
+    max_open_stake = 0.0
+    max_open_bets = 0
+    curve: list[dict[str, float | str | int | None]] = [
+        {"index": 0, "bankroll": bankroll, "profit": 0.0, "start_time": None}
+    ]
+    open_bets: list[tuple[datetime, int, dict[str, Any]]] = []
+    event_index = 0
+
+    def settle_next() -> None:
+        nonlocal bankroll, reserved, peak, max_drawdown
+        _settled_at, _sequence, row = heappop(open_bets)
+        stake = float(row["stake"])
+        reserved -= stake
+        profit = (
+            stake * (float(row["entry_odds"]) * (1 - TAX_RATE) - 1)
+            if row["won"]
+            else -stake
+        )
         bankroll += profit
         peak = max(peak, bankroll)
-        max_drawdown = max(max_drawdown, (peak - bankroll) / peak if peak else 0.0)
-        row.update({"stake": stake, "profit": profit, "bankroll_after": bankroll})
-        curve.append({"index": index, "bankroll": bankroll, "profit": profit, "start_time": row["start_time"], "canonical_match_id": row["canonical_match_id"]})
+        max_drawdown = max(
+            max_drawdown,
+            (peak - bankroll) / peak if peak else 0.0,
+        )
+        row.update({"profit": profit, "bankroll_after": bankroll})
+        curve.append(
+            {
+                "index": len(curve),
+                "bankroll": bankroll,
+                "profit": profit,
+                "start_time": row["start_time"],
+                "canonical_match_id": row["canonical_match_id"],
+            }
+        )
+
+    settled_candidates: list[dict[str, Any]] = []
+    for row in candidates:
+        placed_at = _parse_time(row["entry_scraped_at"])
+        if placed_at is None:
+            continue
+        while open_bets and open_bets[0][0] <= placed_at:
+            settle_next()
+        available = max(0.0, bankroll - reserved)
+        if staking_mode == "fixed":
+            stake = min(fixed_stake, available)
+        else:
+            full_kelly = kelly_fraction(
+                float(row["model_prob"]),
+                float(row["entry_odds"]),
+                TAX_RATE,
+            )
+            stake = min(
+                available * max_stake_pct,
+                available * full_kelly * kelly_fraction_multiplier,
+            )
+        if stake <= 0:
+            temporal_exclusions["insufficient_available_balance"] += 1
+            continue
+        reserved += stake
+        row["stake"] = stake
+        event_index += 1
+        heappush(open_bets, (row["result_available_at"], event_index, row))
+        settled_candidates.append(row)
+        max_open_stake = max(max_open_stake, reserved)
+        max_open_bets = max(max_open_bets, len(open_bets))
+    while open_bets:
+        settle_next()
+    candidates = settled_candidates
 
     groups: dict[str, dict[str, list[dict[str, Any]]]] = {"horizon": defaultdict(list), "bookmaker": defaultdict(list), "league": defaultdict(list)}
     labels: dict[str, str] = {}
@@ -267,22 +497,36 @@ def financial_analysis(
     total_profit = bankroll - initial_bankroll
     return FinancialAnalysisResponse(
         methodology=(
-            "Zweryfikowany live ledger: wyłącznie predykcje thesis-exp039 zapisane przed meczem, a kurs wejścia musi być zebrany po czasie predykcji. "
-            "CLV porównuje kurs wejścia z ostatnim kursem tego samego bukmachera przed startem."
-            if data_scope == "live" else
-            "PRZYBLIŻONA HISTORIA: używa rzeczywistych predykcji thesis-exp039 i wybranego snapshotu kursu przed startem. Kurs może być starszy od predykcji, więc ROI nie jest wykonalnym wynikiem live; używaj do porównania open/mid/close i pokrycia danych."
-            if data_scope == "historical" else
-            "ANALIZA BADAWCZA EXP-060: finalny model został przeliczony na historii. Nie jest to wykonalny backtest live i nie wolno interpretować ROI jako oczekiwanego zysku."
+            "LIVE: timestamped prediction data cutoff, quote, reserved "
+            "capital, and post-start result availability are enforced."
+            if data_scope == "live"
+            else "Research-only historical simulation; it must not be treated "
+            "as executable live ROI."
         ),
         data_scope=data_scope,
-        days_back=days_back, odds_mode=odds_mode, model_name=model_name, model_version=model_version,
-        staking_mode=staking_mode, min_ev=min_ev, initial_bankroll=initial_bankroll, final_bankroll=bankroll,
-        total_bets=len(candidates), total_staked=total_staked, total_profit=total_profit,
+        days_back=days_back,
+        odds_mode=odds_mode,
+        model_name=model_name,
+        model_version=effective_model_version,
+        staking_mode=staking_mode,
+        min_ev=min_ev,
+        initial_bankroll=initial_bankroll,
+        final_bankroll=bankroll,
+        total_bets=len(candidates),
+        total_staked=total_staked,
+        total_profit=total_profit,
         total_matches=len({int(row["canonical_match_id"]) for row in candidates}),
         roi=total_profit / total_staked if total_staked else None,
         hit_rate=sum(bool(row["won"]) for row in candidates) / len(candidates) if candidates else None,
-        max_drawdown_pct=max_drawdown, avg_clv_odds_pct=sum(clv) / len(clv) if clv else None,
+        max_drawdown_pct=max_drawdown,
+        avg_clv_odds_pct=sum(clv) / len(clv) if clv else None,
         positive_clv_rate=sum(value > 0 for value in clv) / len(clv) if clv else None,
-        horizon_buckets=horizon_buckets, bookmaker_buckets=bookmaker_buckets, league_buckets=league_buckets,
-        bankroll_curve=curve, ledger=ledger,
+        max_open_stake=max_open_stake,
+        temporal_exclusions=temporal_exclusions,
+        max_open_bets=max_open_bets,
+        horizon_buckets=horizon_buckets,
+        bookmaker_buckets=bookmaker_buckets,
+        league_buckets=league_buckets,
+        bankroll_curve=curve,
+        ledger=ledger,
     )

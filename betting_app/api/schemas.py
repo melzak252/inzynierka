@@ -310,6 +310,9 @@ class FinancialAnalysisResponse(BaseModel):
     max_drawdown_pct: float | None = None
     avg_clv_odds_pct: float | None = None
     positive_clv_rate: float | None = None
+    max_open_stake: float = 0.0
+    max_open_bets: int = 0
+    temporal_exclusions: dict[str, int] = {}
     horizon_buckets: list[FinancialBucket] = []
     bookmaker_buckets: list[FinancialBucket] = []
     league_buckets: list[FinancialBucket] = []
@@ -433,7 +436,7 @@ class BetCreate(BaseModel):
     odds: float = Field(gt=1)
     model_prob: float | None = Field(default=None, ge=0, le=1)
     ev: float | None = None
-    tax_rate: float = 0.12
+    tax_rate: float = Field(default=0.12, ge=0, lt=1)
     note: str | None = None
 
 
@@ -455,7 +458,7 @@ class BetResponse(BaseModel):
 
 class BetSettle(BaseModel):
     result: str = Field(pattern="^(won|lost|void|cancelled)$")
-    settlement_odds: float | None = None
+    settlement_odds: float | None = Field(default=None, gt=1)
 
 
 # ── Bookmakers ──────────────────────────────────────────────────────────────

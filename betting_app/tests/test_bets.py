@@ -76,6 +76,38 @@ class TestBets:
         wallets = resp.json()
         assert wallets[0]["current_balance"] == 1076.0
 
+    def test_settlement_is_idempotent(self, client: TestClient):
+        wid = _seed_wallet()
+        placed = client.post(
+            "/bets",
+            json={
+                "bookmaker_account_id": wid,
+                "side": "a",
+                "stake": 100,
+                "odds": 2.0,
+            },
+        ).json()
+        assert client.post(
+            f"/bets/{placed['id']}/settle",
+            json={"result": "won"},
+        ).status_code == 200
+        assert client.post(
+            f"/bets/{placed['id']}/settle",
+            json={"result": "won"},
+        ).status_code == 400
+        assert client.get("/wallets").json()[0]["current_balance"] == 1076.0
+        session = get_session()
+        try:
+            assert session.execute(
+                text(
+                    "SELECT COUNT(*) FROM bookmaker_wallet_transactions "
+                    "WHERE bet_id = :bet_id"
+                ),
+                {"bet_id": placed["id"]},
+            ).scalar_one() == 2
+        finally:
+            session.close()
+
     def test_place_and_settle_loss(self, client: TestClient):
         wid = _seed_wallet()
         resp = client.post(
@@ -97,6 +129,18 @@ class TestBets:
             json={"bookmaker_account_id": wid, "side": "a", "stake": 9999, "odds": 2.0},
         )
         assert resp.status_code == 400
+        session = get_session()
+        try:
+            assert session.execute(text("SELECT COUNT(*) FROM bets")).scalar_one() == 0
+            assert session.execute(
+                text("SELECT COUNT(*) FROM bookmaker_wallet_transactions")
+            ).scalar_one() == 0
+            assert session.execute(
+                text("SELECT current_balance FROM bookmaker_accounts WHERE id = :id"),
+                {"id": wid},
+            ).scalar_one() == 1000.0
+        finally:
+            session.close()
 
     def test_wallet_not_found(self, client: TestClient):
         resp = client.post(

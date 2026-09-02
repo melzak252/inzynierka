@@ -8,6 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import BetCreate, BetResponse, BetSettle, WalletResponse
+from betting_app.services.wallet_service import (
+    BetAlreadySettledError,
+    BetNotFoundError,
+    InsufficientWalletBalanceError,
+    WalletNotFoundError,
+    place_wallet_bet,
+    settle_wallet_bet_atomic,
+)
 
 router = APIRouter(tags=["wallets"])
 
@@ -122,111 +130,62 @@ def list_bets(status: str | None = None, limit: int = 50, db=Depends(get_db)):
         for r in rows
     ]
 
-
 @router.post("/bets", response_model=BetResponse, status_code=201)
 def place_bet(body: BetCreate, db=Depends(get_db)):
-    wallet = query_one(db, "SELECT * FROM bookmaker_accounts WHERE id=:id", {"id": body.bookmaker_account_id})
-    if not wallet:
+    try:
+        bet_id = place_wallet_bet(
+            db,
+            bookmaker_account_id=body.bookmaker_account_id,
+            canonical_match_id=body.canonical_match_id,
+            team_a=body.team_a,
+            team_b=body.team_b,
+            league=body.league,
+            match_start_time=body.match_start_time,
+            side=body.side,
+            stake=body.stake,
+            odds=body.odds,
+            model_prob=body.model_prob,
+            ev=body.ev,
+            tax_rate=body.tax_rate,
+            note=body.note,
+        )
+        db.commit()
+    except WalletNotFoundError:
+        db.rollback()
         raise HTTPException(status_code=404, detail="Wallet not found")
-    if float(wallet["current_balance"]) < body.stake:
+    except InsufficientWalletBalanceError:
+        db.rollback()
         raise HTTPException(status_code=400, detail="Insufficient balance")
-
-    now = datetime.now(UTC).isoformat(timespec="seconds")
-    import json as _json
-    result = db.execute(
-        text("""
-        INSERT INTO bets (bookmaker_account_id, canonical_match_id, team_a, team_b, league,
-                          match_start_time, side, stake, taken_odds, model_prob, ev, tax_rate, note,
-                          status, placed_at, profit)
-        VALUES (:baid, :cmid, :ta, :tb, :lg, :mst, :sd, :st, :od, :mp, :evv, :tx, :nt, 'open', :now, 0)
-        """),
-        {
-            "baid": body.bookmaker_account_id,
-            "cmid": body.canonical_match_id,
-            "ta": body.team_a,
-            "tb": body.team_b,
-            "lg": body.league,
-            "mst": body.match_start_time,
-            "sd": body.side,
-            "st": body.stake,
-            "od": body.odds,
-            "mp": body.model_prob,
-            "evv": body.ev,
-            "tx": body.tax_rate,
-            "nt": body.note,
-            "now": now,
-        },
+    except Exception:
+        db.rollback()
+        raise
+    return _bet_from_row(
+        query_one(db, "SELECT * FROM bets WHERE id=:id", {"id": bet_id})
     )
-    db.commit()
-    bet_id = result.lastrowid
-
-    # Deduct from wallet
-    new_balance = float(wallet["current_balance"]) - body.stake
-    db.execute(
-        text("UPDATE bookmaker_accounts SET current_balance=:bal WHERE id=:id"),
-        {"bal": new_balance, "id": body.bookmaker_account_id},
-    )
-    db.execute(
-        text("""
-        INSERT INTO bookmaker_wallet_transactions
-            (bookmaker_account_id, bet_id, transaction_time, transaction_type, amount, balance_after, note)
-        VALUES (:baid, :bid, :now, 'bet_placed', :amt, :bal, :nt)
-        """),
-        {"baid": body.bookmaker_account_id, "bid": bet_id, "now": now,
-         "amt": -body.stake, "bal": new_balance, "nt": body.note},
-    )
-    db.commit()
-
-    return _bet_from_row(query_one(db, "SELECT * FROM bets WHERE id=:id", {"id": bet_id}))
 
 
 @router.post("/bets/{bet_id}/settle", response_model=BetResponse)
 def settle_bet(bet_id: int, body: BetSettle, db=Depends(get_db)):
-    bet = query_one(db, "SELECT * FROM bets WHERE id=:id", {"id": bet_id})
-    if not bet:
+    try:
+        settle_wallet_bet_atomic(
+            db,
+            bet_id=bet_id,
+            result=body.result,
+            settlement_odds=body.settlement_odds,
+        )
+        db.commit()
+    except BetNotFoundError:
+        db.rollback()
         raise HTTPException(status_code=404, detail="Bet not found")
-    if bet["status"] != "open":
+    except BetAlreadySettledError:
+        db.rollback()
         raise HTTPException(status_code=400, detail="Bet already settled")
-
-    now = datetime.now(UTC).isoformat(timespec="seconds")
-    stake = float(bet["stake"])
-    odds = float(body.settlement_odds or bet["taken_odds"])
-    tax_rate = float(bet.get("tax_rate", 0.12))
-    wallet_id = bet["bookmaker_account_id"]
-
-    if body.result == "won":
-        profit = stake * odds * (1.0 - tax_rate) - stake
-        payout = stake + profit
-    elif body.result == "lost":
-        profit = -stake
-        payout = 0.0
-    else:
-        profit = 0.0
-        payout = stake
-
-    db.execute(
-        text("UPDATE bets SET status=:st, profit=:pr, settled_at=:now WHERE id=:id"),
-        {"st": body.result, "pr": round(profit, 2), "now": now, "id": bet_id},
+    except Exception:
+        db.rollback()
+        raise
+    return _bet_from_row(
+        query_one(db, "SELECT * FROM bets WHERE id=:id", {"id": bet_id})
     )
-
-    wallet = query_one(db, "SELECT * FROM bookmaker_accounts WHERE id=:id", {"id": wallet_id})
-    new_balance = float(wallet["current_balance"]) + payout
-    db.execute(
-        text("UPDATE bookmaker_accounts SET current_balance=:bal WHERE id=:id"),
-        {"bal": new_balance, "id": wallet_id},
-    )
-    db.execute(
-        text("""
-        INSERT INTO bookmaker_wallet_transactions
-            (bookmaker_account_id, bet_id, transaction_time, transaction_type, amount, balance_after, note)
-        VALUES (:baid, :bid, :now, :tt, :amt, :bal, NULL)
-        """),
-        {"baid": wallet_id, "bid": bet_id, "now": now,
-         "tt": f"settled_{body.result}", "amt": round(payout, 2), "bal": new_balance},
-    )
-    db.commit()
-
-    return _bet_from_row(query_one(db, "SELECT * FROM bets WHERE id=:id", {"id": bet_id}))
 
 
 def _bet_from_row(r: dict) -> BetResponse:

@@ -6,8 +6,26 @@ from datetime import UTC, datetime
 
 import pandas as pd
 
-from betting_app.core.db import query_df, transaction
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
+from betting_app.core.db import query_df
+
+
+class WalletNotFoundError(ValueError):
+    """The requested wallet does not exist."""
+
+
+class InsufficientWalletBalanceError(ValueError):
+    """The wallet cannot cover the requested stake."""
+
+
+class BetNotFoundError(ValueError):
+    """The requested bet does not exist."""
+
+
+class BetAlreadySettledError(ValueError):
+    """A settlement was already committed for this bet."""
 
 def utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
@@ -30,68 +48,6 @@ def accounts(active_only: bool = True) -> pd.DataFrame:
     )
 
 
-def create_account(bookmaker_id: int, account_name: str, opening_balance: float = 0.0, currency: str = "PLN") -> int:
-    clean_name = account_name.strip()
-    with transaction() as connection:
-        existing = connection.execute(
-            "SELECT id FROM bookmaker_accounts WHERE bookmaker_id = ? AND account_name = ?",
-            (int(bookmaker_id), clean_name),
-        ).fetchone()
-        cursor = connection.execute(
-            """
-            INSERT INTO bookmaker_accounts(bookmaker_id, account_name, currency, opening_balance, current_balance)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(bookmaker_id, account_name) DO UPDATE SET
-                currency = excluded.currency,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            (int(bookmaker_id), clean_name, currency, float(opening_balance), float(opening_balance)),
-        )
-        account_id = int(existing["id"] if existing else cursor.lastrowid)
-        if opening_balance and existing is None:
-            add_wallet_transaction(account_id, "initial", float(opening_balance), note="Initial wallet balance", connection=connection)
-        return account_id
-
-
-def add_wallet_transaction(
-    account_id: int,
-    transaction_type: str,
-    amount: float,
-    *,
-    bet_id: int | None = None,
-    note: str | None = None,
-    connection=None,
-) -> float:
-    """Add wallet transaction and return new account balance."""
-
-    if connection is None:
-        with transaction() as owned_connection:
-            return add_wallet_transaction(
-                account_id,
-                transaction_type,
-                amount,
-                bet_id=bet_id,
-                note=note,
-                connection=owned_connection,
-            )
-    else:
-        row = connection.execute("SELECT current_balance FROM bookmaker_accounts WHERE id = ?", (int(account_id),)).fetchone()
-        if not row:
-            raise ValueError(f"Bookmaker account {account_id} does not exist")
-        balance_after = float(row["current_balance"]) + float(amount)
-        connection.execute(
-            """
-            INSERT INTO bookmaker_wallet_transactions(
-                bookmaker_account_id, bet_id, transaction_time, transaction_type, amount, balance_after, note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (int(account_id), bet_id, utc_now_iso(), transaction_type, float(amount), balance_after, note),
-        )
-        connection.execute(
-            "UPDATE bookmaker_accounts SET current_balance = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (balance_after, int(account_id)),
-        )
-        return balance_after
 
 
 def wallet_transactions(account_id: int | None = None, limit: int = 200) -> pd.DataFrame:
@@ -149,106 +105,6 @@ def latest_model_ev_signals(limit: int = 200, min_ev: float | None = None) -> pd
     )
 
 
-def record_manual_bet(
-    *,
-    bookmaker_account_id: int,
-    side: str,
-    stake: float,
-    taken_odds: float,
-    bookmaker_id: int | None = None,
-    canonical_match_id: int | None = None,
-    model_ev_signal_id: int | None = None,
-    team_a: str | None = None,
-    team_b: str | None = None,
-    league: str | None = None,
-    match_start_time: str | None = None,
-    model_prob: float | None = None,
-    ev: float | None = None,
-    tax_rate: float = 0.12,
-    note: str | None = None,
-) -> int:
-    if side not in {"a", "b"}:
-        raise ValueError("side must be 'a' or 'b'")
-    account_row = query_df("SELECT bookmaker_id FROM bookmaker_accounts WHERE id = ?", (int(bookmaker_account_id),))
-    if account_row.empty:
-        raise ValueError(f"Bookmaker account {bookmaker_account_id} does not exist")
-    bookmaker_id = int(bookmaker_id or account_row.iloc[0]["bookmaker_id"])
-
-    with transaction() as connection:
-        cursor = connection.execute(
-            """
-            INSERT INTO bets(
-                model_ev_signal_id, bookmaker_account_id, canonical_match_id,
-                bookmaker_id, side, stake, taken_odds, team_a, team_b, league,
-                match_start_time, model_prob, ev, tax_rate, source, note
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
-            """,
-            (
-                model_ev_signal_id,
-                int(bookmaker_account_id),
-                canonical_match_id,
-                bookmaker_id,
-                side,
-                float(stake),
-                float(taken_odds),
-                team_a,
-                team_b,
-                league,
-                match_start_time,
-                model_prob,
-                ev,
-                float(tax_rate),
-                note,
-            ),
-        )
-        bet_id = int(cursor.lastrowid)
-        add_wallet_transaction(
-            int(bookmaker_account_id),
-            "bet_placed",
-            -float(stake),
-            bet_id=bet_id,
-            note=f"Bet placed #{bet_id}",
-            connection=connection,
-        )
-        if model_ev_signal_id:
-            connection.execute("UPDATE model_ev_signals SET status = 'placed' WHERE id = ?", (int(model_ev_signal_id),))
-        return bet_id
-
-
-def settle_wallet_bet(bet_id: int, result: str, tax_rate: float | None = None) -> float:
-    if result not in {"won", "lost", "void", "cancelled"}:
-        raise ValueError("result must be won/lost/void/cancelled")
-    bet_df = query_df("SELECT * FROM bets WHERE id = ?", (int(bet_id),))
-    if bet_df.empty:
-        raise ValueError(f"Bet {bet_id} does not exist")
-    bet = bet_df.iloc[0]
-    stake = float(bet["stake"])
-    tax_rate = float(bet["tax_rate"] if tax_rate is None and bet["tax_rate"] is not None else (tax_rate or 0.12))
-    if result == "won":
-        payout = stake * float(bet["taken_odds"]) * (1.0 - tax_rate)
-        profit = payout - stake
-    elif result == "lost":
-        payout = 0.0
-        profit = -stake
-    else:
-        payout = stake
-        profit = 0.0
-    with transaction() as connection:
-        connection.execute(
-            "UPDATE bets SET status = ?, result = ?, profit = ?, settled_at = ? WHERE id = ?",
-            (result, result, profit, utc_now_iso(), int(bet_id)),
-        )
-        account_id = bet.get("bookmaker_account_id")
-        if account_id and payout:
-            add_wallet_transaction(
-                int(account_id),
-                f"bet_{result}",
-                payout,
-                bet_id=int(bet_id),
-                note=f"Bet settlement #{bet_id}",
-                connection=connection,
-            )
-    return profit
 
 
 def tracked_bets() -> pd.DataFrame:
@@ -263,4 +119,195 @@ def tracked_bets() -> pd.DataFrame:
         LEFT JOIN canonical_matches cm ON cm.id = bets.canonical_match_id
         ORDER BY bets.placed_at DESC, bets.id DESC
         """
+    )
+
+
+
+def place_wallet_bet(
+    db: Session,
+    *,
+    bookmaker_account_id: int,
+    canonical_match_id: int | None,
+    team_a: str | None,
+    team_b: str | None,
+    league: str | None,
+    match_start_time: str | None,
+    side: str,
+    stake: float,
+    odds: float,
+    model_prob: float | None,
+    ev: float | None,
+    tax_rate: float,
+    note: str | None,
+) -> int:
+    """Atomically reserve a stake, persist its bet, and audit the debit.
+
+    The conditional update is the concurrency boundary.  A concurrent placement
+    observes the post-debit balance and cannot overdraw the same wallet.
+    """
+    now = utc_now_iso()
+    balance_after = db.execute(
+        text(
+            """
+            UPDATE bookmaker_accounts
+            SET current_balance = current_balance - :stake,
+                updated_at = :now
+            WHERE id = :wallet_id
+              AND is_active = 1
+              AND current_balance >= :stake
+            RETURNING current_balance
+            """
+        ),
+        {
+            "wallet_id": bookmaker_account_id,
+            "stake": stake,
+            "now": now,
+        },
+    ).scalar_one_or_none()
+    if balance_after is None:
+        wallet_exists = db.execute(
+            text("SELECT 1 FROM bookmaker_accounts WHERE id = :wallet_id"),
+            {"wallet_id": bookmaker_account_id},
+        ).scalar_one_or_none()
+        if wallet_exists is None:
+            raise WalletNotFoundError(bookmaker_account_id)
+        raise InsufficientWalletBalanceError(bookmaker_account_id)
+    bet_id = db.execute(
+        text(
+            """
+            INSERT INTO bets (
+                bookmaker_account_id, canonical_match_id, team_a, team_b,
+                league, match_start_time, side, stake, taken_odds,
+                model_prob, ev, tax_rate, note, status, placed_at, profit
+            ) VALUES (
+                :bookmaker_account_id, :canonical_match_id, :team_a, :team_b,
+                :league, :match_start_time, :side, :stake, :odds,
+                :model_prob, :ev, :tax_rate, :note, 'open', :now, 0
+            )
+            RETURNING id
+            """
+        ),
+        {
+            "bookmaker_account_id": bookmaker_account_id,
+            "canonical_match_id": canonical_match_id,
+            "team_a": team_a,
+            "team_b": team_b,
+            "league": league,
+            "match_start_time": match_start_time,
+            "side": side,
+            "stake": stake,
+            "odds": odds,
+            "model_prob": model_prob,
+            "ev": ev,
+            "tax_rate": tax_rate,
+            "note": note,
+            "now": now,
+        },
+    ).scalar_one()
+    db.execute(
+        text(
+            """
+            INSERT INTO bookmaker_wallet_transactions (
+                bookmaker_account_id, bet_id, transaction_time,
+                transaction_type, amount, balance_after, note
+            ) VALUES (
+                :wallet_id, :bet_id, :now, 'bet_placed',
+                :amount, :balance_after, :note
+            )
+            """
+        ),
+        {
+            "wallet_id": bookmaker_account_id,
+            "bet_id": bet_id,
+            "now": now,
+            "amount": -stake,
+            "balance_after": balance_after,
+            "note": note,
+        },
+    )
+    return int(bet_id)
+
+
+def settle_wallet_bet_atomic(
+    db: Session,
+    *,
+    bet_id: int,
+    result: str,
+    settlement_odds: float | None,
+) -> None:
+    """Atomically settle one still-open bet and record its wallet credit."""
+    bet = db.execute(
+        text("SELECT * FROM bets WHERE id = :id"),
+        {"id": bet_id},
+    ).mappings().one_or_none()
+    if bet is None:
+        raise BetNotFoundError(bet_id)
+    if bet["status"] != "open":
+        raise BetAlreadySettledError(bet_id)
+    stake = float(bet["stake"])
+    odds = float(settlement_odds or bet["taken_odds"])
+    tax_rate = float(bet["tax_rate"])
+    payout = (
+        stake * odds * (1.0 - tax_rate)
+        if result == "won"
+        else stake if result in {"void", "cancelled"} else 0.0
+    )
+    profit = payout - stake
+    now = utc_now_iso()
+    updated = db.execute(
+        text(
+            """
+            UPDATE bets
+            SET status = :result, result = :result, profit = :profit,
+                settled_at = :now
+            WHERE id = :id AND status = 'open'
+            """
+        ),
+        {
+            "result": result,
+            "profit": round(profit, 2),
+            "now": now,
+            "id": bet_id,
+        },
+    )
+    if updated.rowcount != 1:
+        raise BetAlreadySettledError(bet_id)
+    if not payout:
+        return
+    balance_after = db.execute(
+        text(
+            """
+            UPDATE bookmaker_accounts
+            SET current_balance = current_balance + :payout,
+                updated_at = :now
+            WHERE id = :wallet_id
+            RETURNING current_balance
+            """
+        ),
+        {
+            "payout": payout,
+            "now": now,
+            "wallet_id": bet["bookmaker_account_id"],
+        },
+    ).scalar_one()
+    db.execute(
+        text(
+            """
+            INSERT INTO bookmaker_wallet_transactions (
+                bookmaker_account_id, bet_id, transaction_time,
+                transaction_type, amount, balance_after, note
+            ) VALUES (
+                :wallet_id, :bet_id, :now, :kind,
+                :payout, :balance_after, NULL
+            )
+            """
+        ),
+        {
+            "wallet_id": bet["bookmaker_account_id"],
+            "bet_id": bet_id,
+            "now": now,
+            "kind": f"settled_{result}",
+            "payout": round(payout, 2),
+            "balance_after": balance_after,
+        },
     )

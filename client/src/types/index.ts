@@ -573,6 +573,9 @@ export interface FinancialAnalysisResponse {
   max_drawdown_pct: number | null;
   avg_clv_odds_pct: number | null;
   positive_clv_rate: number | null;
+  max_open_stake: number;
+  max_open_bets: number;
+  temporal_exclusions: Record<string, number>;
   horizon_buckets: FinancialBucket[];
   bookmaker_buckets: FinancialBucket[];
   league_buckets: FinancialBucket[];
