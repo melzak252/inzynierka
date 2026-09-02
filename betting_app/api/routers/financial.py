@@ -17,16 +17,7 @@ from betting_app.api.schemas import FinancialAnalysisResponse, FinancialBucket, 
 from betting_app.core.ev import expected_value, fair_market_probabilities
 from betting_app.services.canonical_match_service import align_snapshot_odds
 from betting_app.services.market_service import kelly_fraction, none_or_float
-from betting_app.services.thesis_inference_service import (
-    THESIS_BASE_ARTIFACT_VERSION,
-    THESIS_FEATURES_VERSION,
-    THESIS_HYBRID_ALPHA,
-    THESIS_HYBRID_MODEL_NAME,
-    THESIS_HYBRID_TEMPERATURE,
-    THESIS_HYBRID_VERSION_SUFFIX,
-    THESIS_MODEL_NAME,
-    THESIS_MODEL_VERSION,
-)
+from betting_app.services import thesis_inference_service as thesis_inference
 
 
 router = APIRouter(prefix="/financial", tags=["financial"])
@@ -34,10 +25,28 @@ router = APIRouter(prefix="/financial", tags=["financial"])
 TAX_RATE = 0.12
 BACKTEST_FEATURES_VERSION = "exp060-db-backfill-v1"
 LEGACY_FEATURES_VERSION = "thesis-exp039"
+THESIS_MODEL_NAME = thesis_inference.THESIS_MODEL_NAME
+THESIS_MODEL_VERSION = thesis_inference.THESIS_MODEL_VERSION
+THESIS_BASE_ARTIFACT_VERSION = getattr(
+    thesis_inference, "THESIS_BASE_ARTIFACT_VERSION", THESIS_MODEL_VERSION
+)
+THESIS_FEATURES_VERSION = getattr(
+    thesis_inference, "THESIS_FEATURES_VERSION", LEGACY_FEATURES_VERSION
+)
+THESIS_HYBRID_MODEL_NAME = thesis_inference.THESIS_HYBRID_MODEL_NAME
+THESIS_HYBRID_ALPHA = thesis_inference.THESIS_HYBRID_ALPHA
+THESIS_HYBRID_TEMPERATURE = thesis_inference.THESIS_HYBRID_TEMPERATURE
+THESIS_HYBRID_VERSION_SUFFIX = getattr(
+    thesis_inference, "THESIS_HYBRID_VERSION_SUFFIX", ""
+)
 HYBRID_MODEL_NAME = THESIS_HYBRID_MODEL_NAME
 DEFAULT_HYBRID_VERSION = (
-    f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}-"
-    f"{THESIS_HYBRID_VERSION_SUFFIX}"
+    f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}"
+    + (
+        f"-{THESIS_HYBRID_VERSION_SUFFIX}"
+        if THESIS_HYBRID_VERSION_SUFFIX
+        else ""
+    )
 )
 HORIZONS: list[tuple[str, str, float, float | None]] = [
     ("0-2", "0–2 h", 0, 2),
