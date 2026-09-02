@@ -45,8 +45,8 @@ function BucketTable({ title, subtitle, rows, limit }: { title: string; subtitle
 
 export default function FinancialAnalysis() {
   const [daysBack, setDaysBack] = useState(90)
-  const [oddsMode, setOddsMode] = useState('open')
-  const [dataScope, setDataScope] = useState('live')
+  const [oddsMode, setOddsMode] = useState('mid')
+  const [dataScope, setDataScope] = useState('historical')
   const [stakingMode, setStakingMode] = useState('kelly')
   const [minEv, setMinEv] = useState(0.03)
   const [bankroll, setBankroll] = useState(1000)

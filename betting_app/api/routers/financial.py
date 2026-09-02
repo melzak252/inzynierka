@@ -118,12 +118,10 @@ def _bucket(key: str, label: str, rows: list[dict[str, Any]]) -> FinancialBucket
         avg_clv_odds_pct=sum(clv) / len(clv) if clv else None,
         median_clv_odds_pct=median(clv) if clv else None,
     )
-
-
 @router.get("/analysis", response_model=FinancialAnalysisResponse)
 def financial_analysis(
     days_back: int = 90,
-    odds_mode: str = "close",
+    odds_mode: str = "mid",
     model_name: str = HYBRID_MODEL_NAME,
     model_version: str = DEFAULT_HYBRID_VERSION,
     min_ev: float = 0.0,
@@ -132,7 +130,7 @@ def financial_analysis(
     fixed_stake: float = 10.0,
     kelly_fraction_multiplier: float = 0.25,
     max_stake_pct: float = 0.05,
-    data_scope: str = "live",
+    data_scope: str = "historical",
     db=Depends(get_db),
 ):
     """Simulate one globally highest-EV side per match.

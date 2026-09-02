@@ -120,4 +120,7 @@ def test_financial_api_empty_sqlite_cohort_is_valid(client: TestClient):
     response = client.get("/financial/analysis")
 
     assert response.status_code == 200, response.text
-    assert response.json()["total_bets"] == 0
+    payload = response.json()
+    assert payload["data_scope"] == "historical"
+    assert payload["odds_mode"] == "mid"
+    assert payload["total_bets"] == 0
