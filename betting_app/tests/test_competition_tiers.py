@@ -116,6 +116,7 @@ def test_minor_top_level_leagues(name: str, family: str) -> None:
         ("LVP Summer Playoffs 2021", "SuperLiga", "regional.superliga_historical_lvp"),
         ("LVP UKLC Spring 2019", "NLC", "regional.nlc_historical_uklc"),
         ("MCR LoL 2019", "Hitpoint Masters", "regional.hitpoint_historical_mcr"),
+        ("LES 2026 Final Four", "LES", "regional.les"),
         ("REL Season 2", "REL", "regional.romanian_esports_league"),
         (
             "Trinity Force Puchar Polski",

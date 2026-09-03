@@ -597,7 +597,7 @@ _RULES: tuple[_Rule, ...] = (
         matched_rule="regional.rift_legends",
     ),
     _rule(
-        r"^les (?:20\d{2} )?(?:kick off|spring|summer|winter)\b",
+        r"^les (?:20\d{2} )?(?:kick off|spring|summer|winter|final four|finals?)\b",
         "LES",
         CompetitionTier.REGIONAL,
         matched_rule="regional.les",
