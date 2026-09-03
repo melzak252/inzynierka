@@ -513,6 +513,36 @@ python -m betting_app.scripts.run_upcoming_prediction_pipeline --hybrid --min-ev
 python -m betting_app.scripts.list_upcoming_model_predictions --positive-only
 ```
 
+### Kandydat ratingów `player-glicko2-family-v1`
+
+Skorygowany Glicko-2 z dziennymi okresami oraz niepewnymi offsetami rodzin
+rozgrywek jest utrzymywany obok `latest-full`:
+
+```bash
+python -m betting_app.scripts.rebuild_calibrated_ratings \
+  --mode full \
+  --ratings-version player-glicko2-family-v1 \
+  --source exp075-successor
+```
+
+Kolejne, pełnodniowe porcje można dopisać przez `--mode incremental`.
+Wersja zapisuje system `gl2f` w `entity_ratings` i kompletny stan silnika w
+`rating_runs.systems_json`. Nie jest podłączona do schedulera, EXP-039,
+`upcoming_match_features`, predykcji, EV ani zakładów. Przeliczenie tej wersji
+nie zastępuje operacyjnego `latest-full`.
+
+Ewaluacja porównawcza:
+
+```bash
+python scripts/05_ratingi_baseline/05j_evaluate_calibrated_glicko2.py \
+  --matches data/golgg_matches.json \
+  --baseline data/golgg_y_predicts.csv \
+  --output-dir reports/experiments/exp075_rating_successor_evaluation
+```
+
+Okres 2024+ jest wyłącznie ponownie użytym zbiorem diagnostycznym. Nie może
+samodzielnie promować `gl2f` na domyślny system operacyjny.
+
 Skrócony runner:
 
 ```bash
