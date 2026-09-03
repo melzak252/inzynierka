@@ -21,6 +21,9 @@ import type {
   ModelClvByHorizonResponse,
   ChampionEmbeddingProjectionResponse,
   FinancialAnalysisResponse,
+  RankingEntityType,
+  RankingsResponse,
+  RatingSystem,
 } from '../types';
 
 const API_BASE = '/api';
@@ -133,6 +136,28 @@ export async function fetchFinancialAnalysis(options: {
   });
   const response = await fetch(`${API_BASE}/financial/analysis?${params}`);
   if (!response.ok) throw new Error(`Failed to fetch financial analysis: ${response.statusText}`);
+  return response.json();
+}
+
+// ─── Team and player rankings ───────────────────────────────
+
+export async function fetchRankings(options: {
+  entityType: RankingEntityType;
+  ratingSystem: RatingSystem;
+  search?: string;
+  minGames?: number;
+  limit?: number;
+  signal?: AbortSignal;
+}): Promise<RankingsResponse> {
+  const params = new URLSearchParams({
+    entity_type: options.entityType,
+    rating_system: options.ratingSystem,
+    min_games: String(options.minGames ?? 1),
+    limit: String(options.limit ?? 100),
+  });
+  if (options.search?.trim()) params.set('search', options.search.trim());
+  const response = await fetch(`${API_BASE}/rankings?${params}`, { signal: options.signal });
+  if (!response.ok) throw new Error(`Failed to fetch rankings: ${response.statusText}`);
   return response.json();
 }
 

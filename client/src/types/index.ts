@@ -583,6 +583,37 @@ export interface FinancialAnalysisResponse {
   ledger: FinancialLedgerEntry[];
 }
 
+// Team and player rankings
+export type RankingEntityType = 'team' | 'player';
+export type RatingSystem = 'unified' | 'elo' | 'gl' | 'ts' | 'os' | 'pl' | 'tm';
+
+export interface RankingEntry {
+  rank: number;
+  entity_type: RankingEntityType;
+  entity_name: string;
+  normalized_entity_name: string;
+  team_name: string | null;
+  role: string | null;
+  rating_system: string;
+  rating_value: number;
+  rd: number | null;
+  sigma: number | null;
+  system_count: number;
+  games_played: number;
+  last_match_at: string | null;
+}
+
+export interface RankingsResponse {
+  entity_type: RankingEntityType;
+  rating_system: string;
+  ratings_version: string | null;
+  data_cutoff_at: string | null;
+  snapshot_at: string | null;
+  total: number;
+  available_rating_systems: string[];
+  rankings: RankingEntry[];
+}
+
 // Alias mapping types
 export interface AliasCreateRequest {
   raw_name: string;

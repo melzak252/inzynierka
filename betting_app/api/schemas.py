@@ -398,6 +398,36 @@ class EVSignalResponse(BaseModel):
     signals: list[EVSignal]
 
 
+# ── Team and player rankings ────────────────────────────────────────────────
+
+
+class RankingEntry(BaseModel):
+    rank: int
+    entity_type: Literal["team", "player"]
+    entity_name: str
+    normalized_entity_name: str
+    team_name: str | None = None
+    role: str | None = None
+    rating_system: str
+    rating_value: float
+    rd: float | None = None
+    sigma: float | None = None
+    system_count: int = 1
+    games_played: int
+    last_match_at: str | None = None
+
+
+class RankingsResponse(BaseModel):
+    entity_type: Literal["team", "player"]
+    rating_system: str
+    ratings_version: str | None = None
+    data_cutoff_at: str | None = None
+    snapshot_at: str | None = None
+    total: int
+    available_rating_systems: list[str] = []
+    rankings: list[RankingEntry] = []
+
+
 # ── System status ───────────────────────────────────────────────────────────
 
 

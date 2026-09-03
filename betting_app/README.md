@@ -8,7 +8,7 @@ MVP v0.2:
 
 - SQLite schema i lokalna baza `data/betting_app.sqlite3`,
 - **FastAPI backend** (`betting_app/api/`) — REST API dla frontendu React,
-- **React frontend** (`client/`) — dashboard z listą meczów, szczegółami, statusem systemu, schedulerem i analizą timingową,
+- **React frontend** (`client/`) — dashboard z listą meczów, rankingami drużyn i zawodników, szczegółami, statusem systemu, schedulerem i analizą timingową,
 - nadchodzące mecze, max/średnie kursy A/B, arbitraż, model, hybryda i karta szczegółów meczu,
 - generowanie sygnałów EV+ jako diagnostyka,
 - manualny bet tracker,
