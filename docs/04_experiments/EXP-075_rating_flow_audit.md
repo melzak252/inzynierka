@@ -336,6 +336,31 @@ A successor is ready for consideration only when:
 7. the predeclared cohort and uncertainty gates pass on prospective data;
 8. a new artifact/version is produced and EXP-039 remains byte-for-byte unchanged.
 
+## Successor implementation status
+
+The side-by-side candidate `player-glicko2-family-v1` implements the owned
+corrected equations, complete calendar-date batches, competition-family
+location state, strict prior-date affiliations, explicit unknown handling, and
+full/incremental persistence under rating-system key `gl2f`. It does not replace
+legacy `gl`, `latest-full`, EXP-039, upcoming features, predictions, EV, or
+betting behavior.
+
+The fixed 2024+ diagnostic replay aligned 9,822 rows after excluding 526 rows
+where the legacy control could depend on an earlier same-day participant result:
+
+- overall LogLoss: `0.582048` candidate versus `0.579696` legacy, delta
+  `+0.002353`, one-sided 95% upper bound `+0.004278`; the `+0.002`
+  non-inferiority gate did **not** pass;
+- known cross-league LogLoss: `0.529776` candidate versus `0.595202` legacy,
+  delta `-0.065426`, two-sided 95% interval
+  `[-0.087006, -0.044583]`;
+- development-involved LogLoss worsened by `+0.003023`, with 95% interval
+  `[-0.000176, +0.006192]`.
+
+These results support retaining a server-side research snapshot for ranking
+inspection, but not changing any operational default. The cohort was already
+used diagnostically, so prospective promotion evidence remains unavailable.
+
 ## Sources
 
 - Mark Glickman, [Example of the Glicko-2 system](https://www.glicko.net/glicko/glicko2.pdf).
