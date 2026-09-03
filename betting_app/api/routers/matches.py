@@ -797,7 +797,7 @@ def decide_mapping_review(
         raise HTTPException(status_code=503, detail="Identity review mutations are disabled")
     if review_token is None or not secrets.compare_digest(review_token, expected_token):
         raise HTTPException(status_code=401, detail="Invalid identity review token")
-    lock_suffix = "" if is_sqlite() else " FOR UPDATE"
+    lock_suffix = "" if is_sqlite() else " FOR UPDATE OF cm"
     current = db.execute(
         text(
             """
