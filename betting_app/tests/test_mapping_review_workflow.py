@@ -1,4 +1,11 @@
 from __future__ import annotations
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def identity_review_token(monkeypatch):
+    monkeypatch.setenv("IDENTITY_REVIEW_TOKEN", "test-review-token")
+
 
 from betting_app.core.db import transaction
 
@@ -69,6 +76,22 @@ def test_review_queue_exposes_evidence_and_dependency_counts(client) -> None:
     assert item["bet_count"] == 0
 
 
+def test_review_mutation_requires_operator_token(client) -> None:
+    _seed_review_mapping()
+
+    response = client.post(
+        "/matches/mapping-review/decision",
+        json={
+            "canonical_match_id": 101,
+            "decision": "retain",
+            "reason": "Verified exact fixture identity",
+            "operator": "test-operator",
+        },
+    )
+
+    assert response.status_code == 401
+
+
 def test_review_replacement_is_atomic_and_audited(client) -> None:
     _seed_review_mapping()
 
@@ -81,6 +104,7 @@ def test_review_replacement_is_atomic_and_audited(client) -> None:
             "reason": "Exact date, teams, and LPL competition verified",
             "operator": "test-operator",
         },
+        headers={"X-Identity-Review-Token": "test-review-token"},
     )
 
     assert response.status_code == 200, response.text
@@ -121,6 +145,7 @@ def test_review_conflict_rolls_back_mapping_and_audit(client) -> None:
             "reason": "Attempt conflicting replacement for regression test",
             "operator": "test-operator",
         },
+        headers={"X-Identity-Review-Token": "test-review-token"},
     )
 
     assert response.status_code == 409

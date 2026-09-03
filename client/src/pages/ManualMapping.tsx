@@ -106,6 +106,7 @@ export default function ManualMapping() {
   const [selectedReview, setSelectedReview] = useState<MappingReviewItem | null>(null);
   const [reviewReason, setReviewReason] = useState('');
   const [reviewOperator, setReviewOperator] = useState('');
+  const [reviewToken, setReviewToken] = useState('');
   const [replacementId, setReplacementId] = useState('');
   const [reviewSaving, setReviewSaving] = useState(false);
 
@@ -176,7 +177,10 @@ export default function ManualMapping() {
     try {
       await fetchJson(`${API_BASE}/matches/mapping-review/decision`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Identity-Review-Token': reviewToken,
+        },
         body: JSON.stringify({
           canonical_match_id: selectedReview.canonical_match_id,
           decision,
@@ -396,12 +400,13 @@ export default function ManualMapping() {
                 <p>{selectedReview.golgg_team_a} vs {selectedReview.golgg_team_b} · {selectedReview.golgg_date} · {selectedReview.golgg_competition}</p>
                 <p>Predykcje: {selectedReview.prediction_count} · cechy: {selectedReview.feature_count} · sygnały: {selectedReview.signal_count} · zakłady: {selectedReview.bet_count}</p>
                 <label className="field-label">Operator<input value={reviewOperator} onChange={(event) => setReviewOperator(event.target.value)} /></label>
+                <label className="field-label">Token kontroli<input type="password" autoComplete="off" value={reviewToken} onChange={(event) => setReviewToken(event.target.value)} /></label>
                 <label className="field-label">Powód decyzji<textarea value={reviewReason} onChange={(event) => setReviewReason(event.target.value)} /></label>
                 <label className="field-label">Nowe GOL.GG ID — tylko dla zamiany<input value={replacementId} onChange={(event) => setReplacementId(event.target.value)} /></label>
                 <div className="action-row">
-                  <button className="primary-btn" disabled={reviewSaving || reviewReason.trim().length < 8 || reviewOperator.trim().length < 2} onClick={() => handleReviewDecision('retain')} type="button">Zatwierdź obecne</button>
-                  <button className="secondary-btn" disabled={reviewSaving || !replacementId.trim() || reviewReason.trim().length < 8 || reviewOperator.trim().length < 2 || selectedReview.bet_count > 0} onClick={() => handleReviewDecision('replace')} type="button">Zamień link</button>
-                  <button className="danger-btn" disabled={reviewSaving || reviewReason.trim().length < 8 || reviewOperator.trim().length < 2 || selectedReview.bet_count > 0} onClick={() => handleReviewDecision('invalidate')} type="button">Unieważnij</button>
+                  <button className="primary-btn" disabled={reviewSaving || !reviewToken.trim() || reviewReason.trim().length < 8 || reviewOperator.trim().length < 2} onClick={() => handleReviewDecision('retain')} type="button">Zatwierdź obecne</button>
+                  <button className="secondary-btn" disabled={reviewSaving || !reviewToken.trim() || !replacementId.trim() || reviewReason.trim().length < 8 || reviewOperator.trim().length < 2 || selectedReview.bet_count > 0} onClick={() => handleReviewDecision('replace')} type="button">Zamień link</button>
+                  <button className="danger-btn" disabled={reviewSaving || !reviewToken.trim() || reviewReason.trim().length < 8 || reviewOperator.trim().length < 2 || selectedReview.bet_count > 0} onClick={() => handleReviewDecision('invalidate')} type="button">Unieważnij</button>
                 </div>
               </div>
             )}
