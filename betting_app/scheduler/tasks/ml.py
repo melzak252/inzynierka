@@ -1,7 +1,7 @@
 """ML/retraining scheduler tasks."""
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import text
 
@@ -21,7 +21,7 @@ def run_weekly_retraining() -> dict:
     candidate for inspection/promotion.
     """
     logger.info("Starting weekly ML retraining")
-    start = datetime.utcnow()
+    start = datetime.now(UTC)
 
     success = _run_module(
         "betting_app.ml.pipelines.exp039_weekly_retrain",
@@ -33,7 +33,7 @@ def run_weekly_retraining() -> dict:
         timeout=3600,
     )
 
-    duration = (datetime.utcnow() - start).total_seconds()
+    duration = (datetime.now(UTC) - start).total_seconds()
     logger.info(f"Weekly ML retraining: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
 
     return {
@@ -51,7 +51,7 @@ def run_shadow_inference() -> dict:
     `status='shadow'`, so they become visible in match detail/history views.
     """
     logger.info("Starting shadow ML inference")
-    start = datetime.utcnow()
+    start = datetime.now(UTC)
 
     success = _run_module(
         "betting_app.ml.inference.cli",
@@ -59,7 +59,7 @@ def run_shadow_inference() -> dict:
         timeout=600,
     )
 
-    duration = (datetime.utcnow() - start).total_seconds()
+    duration = (datetime.now(UTC) - start).total_seconds()
     logger.info(f"Shadow ML inference: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
 
     return {
@@ -78,7 +78,7 @@ def run_thesis_model_healthcheck() -> dict:
     the production model without affecting inference state.
     """
     logger.info("Starting thesis model healthcheck")
-    start = datetime.utcnow()
+    start = datetime.now(UTC)
 
     success = _run_module(
         "betting_app.ml.pipelines.evaluate_existing_model",
@@ -95,7 +95,7 @@ def run_thesis_model_healthcheck() -> dict:
         timeout=900,
     )
 
-    duration = (datetime.utcnow() - start).total_seconds()
+    duration = (datetime.now(UTC) - start).total_seconds()
     logger.info(f"Thesis model healthcheck: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
 
     return {
@@ -114,7 +114,7 @@ def refresh_champion_role_embeddings() -> dict:
     each snapshot is computed using only games before its reference date.
     """
     logger.info("Starting champion-role embedding refresh")
-    start = datetime.utcnow()
+    start = datetime.now(UTC)
 
     success = _run_module(
         "betting_app.scripts.build_champion_role_embeddings",
@@ -132,7 +132,7 @@ def refresh_champion_role_embeddings() -> dict:
         timeout=1800,
     )
 
-    duration = (datetime.utcnow() - start).total_seconds()
+    duration = (datetime.now(UTC) - start).total_seconds()
     logger.info(f"Champion-role embedding refresh: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
 
     return {
@@ -151,7 +151,7 @@ def refresh_team_context_embeddings() -> dict:
     after champion-role embeddings.
     """
     logger.info("Starting team-context embedding refresh")
-    start = datetime.utcnow()
+    start = datetime.now(UTC)
 
     success = _run_module(
         "betting_app.scripts.build_team_context_embeddings",
@@ -169,13 +169,35 @@ def refresh_team_context_embeddings() -> dict:
         timeout=1800,
     )
 
-    duration = (datetime.utcnow() - start).total_seconds()
+    duration = (datetime.now(UTC) - start).total_seconds()
     logger.info(f"Team-context embedding refresh: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
 
     return {
         "success": success,
         "duration_s": duration,
         "timestamp": start.isoformat(),
+    }
+
+
+def run_embedding_refresh_cycle() -> dict:
+    """Refresh both embedding families sequentially to avoid GPU contention."""
+    logger.info("Starting embedding refresh cycle")
+    start = datetime.now(UTC)
+
+    champion_result = refresh_champion_role_embeddings()
+    team_result = refresh_team_context_embeddings()
+    results = {
+        "champion_role": champion_result,
+        "team_context": team_result,
+    }
+    duration = (datetime.now(UTC) - start).total_seconds()
+    all_ok = all(result.get("success", False) for result in results.values())
+
+    logger.info(f"Embedding refresh cycle: {'OK' if all_ok else 'PARTIAL'} ({duration:.1f}s)")
+    return {
+        "success": all_ok,
+        "results": results,
+        "duration_s": duration,
     }
 
 
@@ -188,7 +210,7 @@ def run_scheduler_healthcheck() -> dict:
     becomes visible in logs and the system status dashboard.
     """
     logger.info("Starting scheduler healthcheck")
-    start = datetime.utcnow()
+    start = datetime.now(UTC)
     failures: list[str] = []
 
     with get_session() as session:
@@ -199,7 +221,31 @@ def run_scheduler_healthcheck() -> dict:
                 FROM automation_runs f
                 WHERE f.started_at >= NOW() - INTERVAL '6 hours'
                   AND f.status = 'failed'
-                  AND f.run_type IN ('scrape_sts', 'prediction_pipeline', 'shadow_ml_inference', 'thesis_model_healthcheck')
+                  AND f.run_type IN (
+                      'scrape_sts',
+                      'scrape_betclic',
+                      'scrape_superbet',
+                      'scrape_efortuna',
+                      'scrape_betfan',
+                      'scrape_totalbet',
+                      'scrape_lebull',
+                      'prediction_pipeline',
+                      'shadow_ml_inference',
+                      'refresh_golgg',
+                      'rebuild_ratings',
+                      'rebuild_features',
+                      'heavy_maintenance_cycle',
+                      'embedding_refresh_cycle',
+                      'refresh_champion_role_embeddings',
+                      'refresh_team_context_embeddings',
+                      'weekly_ml_retraining',
+                      'thesis_model_healthcheck',
+                      'model_analysis_cache',
+                      'horizon_bootstrap',
+                      'backfill_expired_matches',
+                      'expire_matches',
+                      'expire_stale_matches',
+                  )
                   AND NOT EXISTS (
                       SELECT 1
                       FROM automation_runs s
@@ -235,7 +281,7 @@ def run_scheduler_healthcheck() -> dict:
         for row in stale_scrapes:
             failures.append(f"stale bookmaker snapshots: {row['name']} last_scraped_at={row['last_scraped_at']}")
 
-    duration = (datetime.utcnow() - start).total_seconds()
+    duration = (datetime.now(UTC) - start).total_seconds()
     success = not failures
     if success:
         logger.info(f"Scheduler healthcheck: OK ({duration:.1f}s)")

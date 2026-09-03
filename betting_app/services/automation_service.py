@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+
 import os
 import socket
 from datetime import UTC, datetime
@@ -9,6 +13,28 @@ from datetime import UTC, datetime
 import pandas as pd
 
 from betting_app.core.db import connect, query_df
+
+_CURRENT_AUTOMATION_RUN_ID: ContextVar[int | None] = ContextVar(
+    "current_automation_run_id",
+    default=None,
+)
+
+
+@contextmanager
+def automation_run_context(run_id: int | None) -> Iterator[None]:
+    """Expose the active automation run to nested task subprocess helpers."""
+
+    token = _CURRENT_AUTOMATION_RUN_ID.set(run_id)
+    try:
+        yield
+    finally:
+        _CURRENT_AUTOMATION_RUN_ID.reset(token)
+
+
+def current_automation_run_id() -> int | None:
+    """Return the automation run bound to the current execution context."""
+
+    return _CURRENT_AUTOMATION_RUN_ID.get()
 
 
 def utc_now_iso() -> str:
@@ -86,11 +112,19 @@ def start_command(run_id: int | None, command: list[str]) -> int | None:
         return int(row["id"])
 
 
-def finish_command(command_id: int | None, *, returncode: int) -> None:
-    """Mark a scheduler command as completed/failed."""
+def finish_command(
+    command_id: int | None,
+    *,
+    returncode: int,
+    output: str | None = None,
+    error: str | None = None,
+) -> None:
+    """Mark a scheduler command as completed/failed with bounded diagnostics."""
 
     if command_id is None:
         return
+    output = output[-8000:] if output else None
+    error = error[-8000:] if error else None
     status = "completed" if returncode == 0 else "failed"
     with connect() as connection:
         row = connection.execute(
@@ -101,10 +135,10 @@ def finish_command(command_id: int | None, *, returncode: int) -> None:
         connection.execute(
             """
             UPDATE automation_commands
-            SET status = ?, exit_code = ?, finished_at = ?
+            SET status = ?, exit_code = ?, finished_at = ?, output = ?, error = ?
             WHERE id = ?
             """,
-            (status, returncode, finished_at, command_id),
+            (status, returncode, finished_at, output, error, command_id),
         )
         if row and returncode != 0:
             connection.execute(
@@ -147,7 +181,7 @@ def cleanup_stale_runs(max_age_hours: int = 2) -> int:
                 WHERE status = 'running'
                   AND started_at < ?
                 """,
-                (cutoff_iso, cutoff_iso),
+                (utc_now_iso(), cutoff_iso),
             )
             connection.commit()
         return count
@@ -172,28 +206,24 @@ def latest_runs(limit: int = 20) -> pd.DataFrame:
 def latest_commands(limit: int = 50, run_id: int | None = None) -> pd.DataFrame:
     """Return recent automation commands, optionally for one run."""
 
-    if run_id is not None:
-        return query_df(
-            """
-            SELECT id, run_id, command, status, returncode, started_at,
-                   finished_at, duration_seconds
-            FROM automation_commands
-            WHERE run_id = ?
-            ORDER BY started_at DESC, id DESC
-            LIMIT ?
-            """,
-            (run_id, limit),
-        )
-    return query_df(
-        """
-        SELECT id, run_id, command, status, returncode, started_at,
-               finished_at, duration_seconds
+    where = "WHERE run_id = ?" if run_id is not None else ""
+    params = (run_id, limit) if run_id is not None else (limit,)
+    frame = query_df(
+        f"""
+        SELECT id, run_id, command, status, exit_code AS returncode,
+               started_at, finished_at, output, error
         FROM automation_commands
+        {where}
         ORDER BY started_at DESC, id DESC
         LIMIT ?
         """,
-        (limit,),
+        params,
     )
+    if not frame.empty:
+        started = pd.to_datetime(frame["started_at"], utc=True, errors="coerce")
+        finished = pd.to_datetime(frame["finished_at"], utc=True, errors="coerce")
+        frame["duration_seconds"] = (finished - started).dt.total_seconds()
+    return frame
 
 
 def latest_scrape_status() -> pd.DataFrame:

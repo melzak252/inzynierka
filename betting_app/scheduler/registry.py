@@ -19,6 +19,7 @@ class TaskDefinition:
     interval_minutes: Optional[int] = None  # Interval in minutes
     description: str = ""
     enabled: bool = True
+    lock_key: Optional[str] = None  # Cross-process mutual-exclusion group
 
 
 class TaskRegistry:
@@ -63,7 +64,7 @@ def register_all_tasks():
             name=f"Scrape {bookmaker.title()}",
             func=scrape.scrape_bookmaker,
             args=(bookmaker,),
-            cron_trigger="55 */2 * * *",  # At minute 55, every 2nd hour
+            cron_trigger="55 1-23/2 * * *",  # At :55 in odd UTC hours
             description=f"Scrape odds from {bookmaker}",
             enabled=True
         ))
@@ -88,32 +89,43 @@ def register_all_tasks():
         enabled=True
     ))
     
-    # Maintenance tasks (heavy cycle) - every 6 hours
+    # Heavy maintenance components remain available for manual execution, while
+    # the scheduled cycle enforces refresh -> ratings -> features ordering.
     registry.register(TaskDefinition(
         id="refresh_golgg",
         name="Refresh GolGG Data",
         func=maintenance.refresh_golgg,
-        interval_minutes=360,  # Every 6 hours
         description="Refresh GolGG match data",
-        enabled=True
+        enabled=True,
+        lock_key="heavy_maintenance",
     ))
-    
+
     registry.register(TaskDefinition(
         id="rebuild_ratings",
         name="Rebuild Team Ratings",
         func=maintenance.rebuild_ratings,
-        interval_minutes=360,  # Every 6 hours
         description="Rebuild team Elo ratings",
-        enabled=True
+        enabled=True,
+        lock_key="heavy_maintenance",
     ))
-    
+
     registry.register(TaskDefinition(
         id="rebuild_features",
         name="Rebuild Rolling Features",
         func=maintenance.rebuild_rolling_features,
-        interval_minutes=360,  # Every 6 hours
         description="Rebuild W20 rolling features",
-        enabled=True
+        enabled=True,
+        lock_key="heavy_maintenance",
+    ))
+
+    registry.register(TaskDefinition(
+        id="heavy_maintenance_cycle",
+        name="Heavy Maintenance Cycle",
+        func=maintenance.run_heavy_cycle,
+        cron_trigger="40 0,6,12,18 * * *",
+        description="Refresh GolGG, then rebuild ratings and rolling features",
+        enabled=True,
+        lock_key="heavy_maintenance",
     ))
 
     # Weekly ML retraining - Sunday early morning UTC
@@ -136,26 +148,34 @@ def register_all_tasks():
         enabled=True
     ))
 
-    # Champion embedding refresh - daily after GOL.GG/rating maintenance.
-    # Writes current artifact plus monthly walk-forward snapshots for the
-    # embedding diagnostics page.
+    # Embedding components remain manually triggerable. The scheduled cycle
+    # serializes both GPU-heavy refreshes and prevents accidental overlap.
     registry.register(TaskDefinition(
         id="refresh_champion_role_embeddings",
         name="Refresh Champion Role Embeddings",
         func=ml.refresh_champion_role_embeddings,
-        cron_trigger="20 5 * * *",  # Daily 05:20 UTC
         description="Rebuild champion-role embeddings and walk-forward snapshots",
-        enabled=True
+        enabled=True,
+        lock_key="embedding_refresh",
     ))
 
-    # Team/opponent embedding refresh - daily after champion embeddings.
     registry.register(TaskDefinition(
         id="refresh_team_context_embeddings",
         name="Refresh Team Context Embeddings",
         func=ml.refresh_team_context_embeddings,
-        cron_trigger="35 5 * * *",  # Daily 05:35 UTC
         description="Rebuild team/opponent context embeddings and walk-forward snapshots",
-        enabled=True
+        enabled=True,
+        lock_key="embedding_refresh",
+    ))
+
+    registry.register(TaskDefinition(
+        id="embedding_refresh_cycle",
+        name="Embedding Refresh Cycle",
+        func=ml.run_embedding_refresh_cycle,
+        cron_trigger="50 4 * * *",
+        description="Refresh champion-role and then team-context embeddings",
+        enabled=True,
+        lock_key="embedding_refresh",
     ))
 
     # Scheduler healthcheck - frequent lightweight alerting via automation_runs
@@ -178,14 +198,15 @@ def register_all_tasks():
         enabled=True
     ))
     
-    # Backfill expired matches to GOL.GG - once per day
+    # Backfill after the midnight heavy cycle has refreshed GOL.GG.
     registry.register(TaskDefinition(
         id="backfill_expired_matches",
         name="Backfill Expired Matches to GOL.GG",
         func=maintenance.backfill_expired_matches,
-        interval_minutes=1440,  # Every 24 hours
+        cron_trigger="40 2 * * *",
         description="Map expired canonical matches to existing GOL.GG results",
-        enabled=True
+        enabled=True,
+        lock_key="heavy_maintenance",
     ))
     
     # Expire old matches - every 2 hours, 5 min after scraping
