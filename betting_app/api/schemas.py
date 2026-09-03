@@ -422,6 +422,8 @@ class RankingsResponse(BaseModel):
     rating_system: str
     ratings_version: str | None = None
     data_cutoff_at: str | None = None
+    active_since: str | None = None
+    squad_scope: Literal["main", "development", "all"] = "main"
     snapshot_at: str | None = None
     total: int
     available_rating_systems: list[str] = []

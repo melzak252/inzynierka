@@ -23,6 +23,7 @@ import type {
   FinancialAnalysisResponse,
   RankingEntityType,
   RankingsResponse,
+  RankingSquadScope,
   RatingSystem,
 } from '../types';
 
@@ -146,6 +147,8 @@ export async function fetchRankings(options: {
   ratingSystem: RatingSystem;
   search?: string;
   minGames?: number;
+  activeWithinMonths?: number;
+  squadScope?: RankingSquadScope;
   limit?: number;
   signal?: AbortSignal;
 }): Promise<RankingsResponse> {
@@ -153,6 +156,8 @@ export async function fetchRankings(options: {
     entity_type: options.entityType,
     rating_system: options.ratingSystem,
     min_games: String(options.minGames ?? 1),
+    active_within_months: String(options.activeWithinMonths ?? 6),
+    squad_scope: options.squadScope ?? 'main',
     limit: String(options.limit ?? 100),
   });
   if (options.search?.trim()) params.set('search', options.search.trim());

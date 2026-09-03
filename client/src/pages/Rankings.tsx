@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { fetchRankings } from '../api/client'
-import type { RankingEntityType, RankingsResponse, RatingSystem } from '../types'
+import type { RankingEntityType, RankingsResponse, RankingSquadScope, RatingSystem } from '../types'
 import './Rankings.css'
 
 const RATING_SYSTEMS: Array<{ id: RatingSystem; label: string; detail: string }> = [
@@ -43,6 +43,8 @@ export default function Rankings() {
   const [entityType, setEntityType] = useState<RankingEntityType>('team')
   const [ratingSystem, setRatingSystem] = useState<RatingSystem>('unified')
   const [minGames, setMinGames] = useState(10)
+  const [activeMonths, setActiveMonths] = useState(6)
+  const [squadScope, setSquadScope] = useState<RankingSquadScope>('main')
   const [query, setQuery] = useState('')
   const [appliedQuery, setAppliedQuery] = useState('')
   const [data, setData] = useState<RankingsResponse | null>(null)
@@ -54,6 +56,7 @@ export default function Rankings() {
     const controller = new AbortController()
     let cancelled = false
 
+    setData(null)
     setLoading(true)
     setError(null)
     fetchRankings({
@@ -61,6 +64,8 @@ export default function Rankings() {
       ratingSystem,
       search: appliedQuery,
       minGames,
+      activeWithinMonths: activeMonths,
+      squadScope,
       limit: 100,
       signal: controller.signal,
     })
@@ -79,7 +84,7 @@ export default function Rankings() {
       cancelled = true
       controller.abort()
     }
-  }, [entityType, ratingSystem, minGames, appliedQuery, reloadToken])
+  }, [entityType, ratingSystem, minGames, activeMonths, squadScope, appliedQuery, reloadToken])
 
   const system = RATING_SYSTEMS.find(item => item.id === ratingSystem) ?? RATING_SYSTEMS[0]
   const leader = data?.rankings[0]
@@ -147,6 +152,23 @@ export default function Rankings() {
               {[1, 5, 10, 20, 50, 100].map(value => <option value={value} key={value}>{value}</option>)}
             </select>
           </label>
+          <label>
+            <span>Aktywność</span>
+            <select value={activeMonths} onChange={event => setActiveMonths(Number(event.target.value))}>
+              <option value={3}>3 miesiące</option>
+              <option value={6}>6 miesięcy</option>
+              <option value={12}>12 miesięcy</option>
+              <option value={0}>Cała historia</option>
+            </select>
+          </label>
+          <label>
+            <span>Typ składu</span>
+            <select value={squadScope} onChange={event => setSquadScope(event.target.value as RankingSquadScope)}>
+              <option value="main">Główne składy</option>
+              <option value="development">Academy / Challengers</option>
+              <option value="all">Wszystkie</option>
+            </select>
+          </label>
           <button type="submit" className="rankings-search">Zastosuj</button>
         </form>
       </section>
@@ -171,7 +193,7 @@ export default function Rankings() {
             <article>
               <span>Zakwalifikowani</span>
               <strong>{data.total.toLocaleString('pl-PL')}</strong>
-              <small>minimum {minGames} gier</small>
+              <small>min. {minGames} gier · {activeMonths ? `${activeMonths} mies.` : 'cała historia'} · {squadScope === 'main' ? 'główne' : squadScope === 'development' ? 'rozwojowe' : 'wszystkie'}</small>
             </article>
             <article>
               <span>System</span>
@@ -191,9 +213,8 @@ export default function Rankings() {
                 <span>{entityType === 'team' ? 'TEAM LEADERBOARD' : 'PLAYER LEADERBOARD'}</span>
                 <h2>{entityType === 'team' ? 'Najsilniejsze drużyny' : 'Najwyżej oceniani zawodnicy'}</h2>
               </div>
-              <p>{ratingSystem === 'unified' ? `Pokazano ${data.rankings.length} z ${data.total}. Wynik 0–100 to średnia pozycji percentylowych; wymagane są wszystkie dostępne systemy.` : `Pokazano ${data.rankings.length} z ${data.total}. Ranking według surowej wartości ${system.label}; niepewność jest raportowana osobno.`}</p>
+              <p>{ratingSystem === 'unified' ? `Pokazano ${data.rankings.length} z ${data.total}. Wynik 0–100 to średnia pozycji percentylowych w aktywnej kohorcie.` : `Pokazano ${data.rankings.length} z ${data.total}. Ranking według surowej wartości ${system.label}; niepewność jest raportowana osobno.`}</p>
             </div>
-
             {loading && <div className="rankings-progress" aria-label="Odświeżanie rankingu"><span /></div>}
 
             <div className="rankings-table-wrap">
@@ -202,7 +223,7 @@ export default function Rankings() {
                   <tr>
                     <th>Pozycja</th>
                     <th>{entityType === 'team' ? 'Drużyna' : 'Zawodnik'}</th>
-                    {entityType === 'player' && <th>Drużyna / rola</th>}
+                    {entityType === 'player' && <th>Ostatni zespół / rola</th>}
                     <th>Rating</th>
                     <th>Niepewność</th>
                     <th>Gry</th>
@@ -225,7 +246,7 @@ export default function Rankings() {
                     <tr>
                       <td colSpan={entityType === 'player' ? 7 : 6} className="rankings-empty">
                         <strong>{data.ratings_version ? 'Brak pozycji dla tych filtrów.' : 'Brak zakończonego przebiegu ratingów.'}</strong>
-                        <span>{data.ratings_version ? `Dostępne systemy: ${availableLabels || 'brak'}. Zmniejsz minimum gier lub wyczyść wyszukiwanie.` : 'Uruchom zakończony rebuild ratingów, aby utworzyć ranking.'}</span>
+                        <span>{data.ratings_version ? `Dostępne systemy: ${availableLabels || 'brak'}. Zmień aktywność, typ składu, minimum gier lub wyszukiwanie.` : 'Uruchom zakończony rebuild ratingów, aby utworzyć ranking.'}</span>
                       </td>
                     </tr>
                   )}
@@ -234,7 +255,7 @@ export default function Rankings() {
             </div>
           </section>
 
-          <p className="rankings-footnote">Unified nie uśrednia surowych ratingów: najpierw zamienia pozycję w każdym systemie na percentyl 0–100, a potem liczy średnią wyłącznie dla encji z kompletem systemów. Ranking jest bieżącym snapshotem do predykcji nadchodzących meczów, nie historycznym ratingiem na dowolną datę.</p>
+          <p className="rankings-footnote">Domyślnie widoczne są główne składy aktywne w ciągu sześciu miesięcy od cutoffu snapshotu. Jawnie oznaczone Academy, Challengers, Youth, Junior i Development mają osobną kohortę; nie są sztucznie obniżane ani łączone z głównym składem. Unified zamienia pozycję w każdym systemie na percentyl 0–100 i uśrednia tylko kompletne wpisy.</p>
         </>
       )}
     </div>

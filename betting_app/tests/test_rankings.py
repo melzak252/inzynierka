@@ -56,6 +56,14 @@ def _seed_completed_rankings() -> None:
                      'Bilibili Gaming', 'bilibili gaming', NULL, NULL, 'ts', 27.0, NULL, 4.4, 40, '2026-08-29'),
                     (2, 'ratings-current', '2026-09-01T00:05:00+00:00', 'team',
                      'Rookie Team', 'rookie team', NULL, NULL, 'ts', 31.0, NULL, 5.2, 2, '2026-08-29'),
+                    (2, 'ratings-current', '2026-09-01T00:05:00+00:00', 'team',
+                     'SK Telecom T1', 'sk telecom t1', NULL, NULL, 'elo', 1900.0, NULL, NULL, 90, '2019-11-03'),
+                    (2, 'ratings-current', '2026-09-01T00:05:00+00:00', 'team',
+                     'SK Telecom T1', 'sk telecom t1', NULL, NULL, 'ts', 32.0, NULL, 3.0, 90, '2019-11-03'),
+                    (2, 'ratings-current', '2026-09-01T00:05:00+00:00', 'team',
+                     'T1 Esports Academy', 't1 academy', NULL, NULL, 'elo', 1850.0, NULL, NULL, 70, '2026-08-20'),
+                    (2, 'ratings-current', '2026-09-01T00:05:00+00:00', 'team',
+                     'T1 Esports Academy', 't1 academy', NULL, NULL, 'ts', 31.0, NULL, 3.5, 70, '2026-08-20'),
                     (2, 'ratings-current', '2026-09-01T00:05:00+00:00', 'player',
                      'Faker', 'faker-id', 'T1', 'MID', 'elo', 1640.0, NULL, NULL, 110, '2026-08-30'),
                     (2, 'ratings-current', '2026-09-01T00:05:00+00:00', 'player',
@@ -74,6 +82,8 @@ def test_rankings_empty_without_completed_run(client: TestClient) -> None:
         "entity_type": "team",
         "rating_system": "unified",
         "ratings_version": None,
+        "active_since": None,
+        "squad_scope": "main",
         "data_cutoff_at": None,
         "snapshot_at": None,
         "total": 0,
@@ -133,3 +143,43 @@ def test_unified_rankings_average_system_percentiles_and_preserve_global_rank(cl
     assert data["rankings"][0]["rank"] == 2
     assert data["rankings"][0]["rating_value"] == 75.0
     assert data["rankings"][0]["system_count"] == 2
+
+
+def test_default_cohort_excludes_stale_and_explicit_development_squads(client: TestClient) -> None:
+    _seed_completed_rankings()
+
+    default_response = client.get(
+        "/rankings",
+        params={"entity_type": "team", "rating_system": "unified", "search": "T1", "min_games": 10},
+    )
+    development_response = client.get(
+        "/rankings",
+        params={
+            "entity_type": "team",
+            "rating_system": "unified",
+            "search": "T1",
+            "min_games": 10,
+            "squad_scope": "development",
+        },
+    )
+    historical_response = client.get(
+        "/rankings",
+        params={
+            "entity_type": "team",
+            "rating_system": "unified",
+            "search": "T1",
+            "min_games": 10,
+            "squad_scope": "all",
+            "active_within_months": 0,
+        },
+    )
+
+    assert default_response.status_code == 200
+    assert default_response.json()["active_since"] == "2026-03-01"
+    assert [row["entity_name"] for row in default_response.json()["rankings"]] == ["T1"]
+    assert [row["entity_name"] for row in development_response.json()["rankings"]] == ["T1 Esports Academy"]
+    assert {row["entity_name"] for row in historical_response.json()["rankings"]} == {
+        "T1",
+        "SK Telecom T1",
+        "T1 Esports Academy",
+    }

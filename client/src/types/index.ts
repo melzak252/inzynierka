@@ -586,6 +586,7 @@ export interface FinancialAnalysisResponse {
 // Team and player rankings
 export type RankingEntityType = 'team' | 'player';
 export type RatingSystem = 'unified' | 'elo' | 'gl' | 'ts' | 'os' | 'pl' | 'tm';
+export type RankingSquadScope = 'main' | 'development' | 'all';
 
 export interface RankingEntry {
   rank: number;
@@ -609,6 +610,8 @@ export interface RankingsResponse {
   ratings_version: string | null;
   data_cutoff_at: string | null;
   snapshot_at: string | null;
+  active_since: string | null;
+  squad_scope: RankingSquadScope;
   total: number;
   available_rating_systems: string[];
   rankings: RankingEntry[];

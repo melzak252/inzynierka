@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import calendar
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -13,6 +15,15 @@ router = APIRouter(tags=["rankings"])
 
 RatingSystem = Literal["unified", "elo", "gl", "ts", "os", "pl", "tm"]
 EntityType = Literal["team", "player"]
+SquadScope = Literal["main", "development", "all"]
+
+
+def _subtract_months(value: date, months: int) -> date:
+    target_index = value.year * 12 + value.month - 1 - months
+    year, zero_based_month = divmod(target_index, 12)
+    month = zero_based_month + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
 
 
 @router.get("/rankings", response_model=RankingsResponse)
@@ -21,6 +32,8 @@ def get_rankings(
     rating_system: RatingSystem = "unified",
     search: str | None = Query(default=None, max_length=100),
     min_games: int = Query(default=1, ge=0, le=10_000),
+    active_within_months: int = Query(default=6, ge=0, le=120),
+    squad_scope: SquadScope = "main",
     limit: int = Query(default=100, ge=1, le=500),
     db=Depends(get_db),
 ) -> RankingsResponse:
@@ -41,6 +54,9 @@ def get_rankings(
             rating_system=rating_system,
             total=0,
         )
+
+    cutoff_date = date.fromisoformat(str(run["data_cutoff_at"])[:10])
+    active_since = _subtract_months(cutoff_date, active_within_months) if active_within_months else None
 
     ratings_version = str(run["ratings_version"])
     available_rows = query_df(
@@ -63,6 +79,44 @@ def get_rankings(
         "min_games": min_games,
         "limit": limit,
     }
+    cohort_filter = ""
+    if active_since is not None:
+        cohort_filter += " AND last_match_at IS NOT NULL AND SUBSTR(last_match_at, 1, 10) >= :active_since"
+        params["active_since"] = active_since.isoformat()
+    if squad_scope != "all":
+        development_label = """
+            LOWER(
+                CASE
+                    WHEN entity_type = 'team' THEN entity_name
+                    ELSE COALESCE(team_name, '')
+                END
+            ) LIKE '%academy%'
+            OR LOWER(
+                CASE
+                    WHEN entity_type = 'team' THEN entity_name
+                    ELSE COALESCE(team_name, '')
+                END
+            ) LIKE '%challenger%'
+            OR LOWER(
+                CASE
+                    WHEN entity_type = 'team' THEN entity_name
+                    ELSE COALESCE(team_name, '')
+                END
+            ) LIKE '%youth%'
+            OR LOWER(
+                CASE
+                    WHEN entity_type = 'team' THEN entity_name
+                    ELSE COALESCE(team_name, '')
+                END
+            ) LIKE '%junior%'
+            OR LOWER(
+                CASE
+                    WHEN entity_type = 'team' THEN entity_name
+                    ELSE COALESCE(team_name, '')
+                END
+            ) LIKE '%development%'
+        """
+        cohort_filter += f" AND {'(' if squad_scope == 'development' else 'NOT ('}{development_label})"
     normalized_search = (search or "").strip().lower()
     search_filter = ""
     if normalized_search:
@@ -71,7 +125,7 @@ def get_rankings(
 
     if rating_system == "unified":
         params["system_count"] = len(available_rating_systems)
-        leaderboard_cte = """
+        leaderboard_cte = f"""
             WITH system_positions AS (
                 SELECT
                     entity_type,
@@ -93,6 +147,7 @@ def get_rankings(
                   AND entity_type = :entity_type
                   AND rating_value IS NOT NULL
                   AND games_played >= :min_games
+                  {cohort_filter}
             ),
             consensus AS (
                 SELECT
@@ -128,7 +183,7 @@ def get_rankings(
             )
         """
     else:
-        leaderboard_cte = """
+        leaderboard_cte = f"""
             WITH ranked AS (
                 SELECT
                     ROW_NUMBER() OVER (
@@ -153,6 +208,7 @@ def get_rankings(
                   AND rating_system = :rating_system
                   AND rating_value IS NOT NULL
                   AND games_played >= :min_games
+                  {cohort_filter}
             )
         """
 
@@ -180,6 +236,8 @@ def get_rankings(
         rating_system=rating_system,
         ratings_version=ratings_version,
         data_cutoff_at=run.get("data_cutoff_at"),
+        active_since=active_since.isoformat() if active_since else None,
+        squad_scope=squad_scope,
         snapshot_at=snapshot_at,
         total=int(count["total"] if count else 0),
         available_rating_systems=available_rating_systems,

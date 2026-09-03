@@ -124,7 +124,7 @@
 
 .rankings-filter-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 150px auto;
+  grid-template-columns: minmax(220px, 1fr) 115px 135px 190px auto;
   align-items: end;
   gap: 0.75rem;
 }
@@ -145,6 +145,9 @@
 .rankings-filter-row input,
 .rankings-filter-row select {
   min-height: 40px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 0.55rem 0.7rem;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -441,7 +444,12 @@
   }
 
   .rankings-filter-row {
-    grid-template-columns: 1fr 105px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rankings-filter-row label:first-child,
+  .rankings-filter-row label:nth-of-type(4) {
+    grid-column: 1 / -1;
   }
 
   .rankings-search {
