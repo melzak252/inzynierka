@@ -634,3 +634,45 @@ class MappingCheckResponse(BaseModel):
     team_a: str | None = None
     team_b: str | None = None
     start_time: str | None = None
+
+
+class MappingReviewItem(BaseModel):
+    canonical_match_id: int
+    mapping_id: int
+    golgg_match_id: str
+    confidence: float
+    mapped_by: str | None = None
+    canonical_team_a: str
+    canonical_team_b: str
+    canonical_date: str | None = None
+    canonical_competition: str | None = None
+    golgg_team_a: str | None = None
+    golgg_team_b: str | None = None
+    golgg_date: str | None = None
+    golgg_competition: str | None = None
+    reasons: list[str]
+    prediction_count: int
+    feature_count: int
+    signal_count: int
+    bet_count: int
+
+
+class MappingReviewResponse(BaseModel):
+    total: int
+    items: list[MappingReviewItem]
+
+
+class MappingReviewDecisionRequest(BaseModel):
+    canonical_match_id: int
+    decision: str = Field(pattern="^(retain|replace|invalidate)$")
+    reason: str = Field(min_length=8, max_length=2000)
+    operator: str = Field(min_length=2, max_length=100)
+    new_golgg_match_id: str | None = Field(default=None, max_length=50)
+
+
+class MappingReviewDecisionResponse(BaseModel):
+    decision_id: int
+    canonical_match_id: int
+    decision: str
+    old_golgg_match_id: str | None
+    new_golgg_match_id: str | None

@@ -92,6 +92,21 @@ class GolggGamePlayer(Base):
     __table_args__ = (UniqueConstraint("game_id", "side", "role"),)
 
 
+class GolggMatchMapping(Base):
+    __tablename__ = "golgg_match_mappings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    canonical_match_id: Mapped[int] = mapped_column(
+        ForeignKey("canonical_matches.id"), nullable=False, unique=True
+    )
+    golgg_match_id: Mapped[str] = mapped_column(
+        ForeignKey("golgg_matches.match_id"), nullable=False, unique=True
+    )
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    mapped_by: Mapped[str] = mapped_column(String(50), nullable=False, default="auto")
+    mapped_at: Mapped[str | None] = mapped_column(String(50))
+
+
 class TeamAlias(Base):
     __tablename__ = "team_aliases"
 
