@@ -1,0 +1,1183 @@
+tournament,family,tier,scope,matched_rule,matches,date_min,date_max,unique_teams,unique_players,aligned_player_glicko_predictions,odds_mapped_matches
+2025 Mid-Season Invitational,MSI,international,cross_league,international.msi,19,2025-06-27,2025-07-12,10,50,19,19
+2026 First Stand,First Stand,international,cross_league,international.first_stand,13,2026-03-16,2026-03-22,8,40,13,13
+All-Star 2014,All-Star,international,cross_league,international.all_star,13,2014-05-08,2014-05-11,5,25,13,0
+Americas Challengers 2024,NACL,development,domestic,development.nacl,21,2024-09-14,2024-09-21,6,31,21,0
+Americas Cup 2026,Americas Cup,international,cross_league,international.americas_cup,6,2026-03-04,2026-03-08,4,20,6,4
+Arabian League 2025 Spring,Arabian League,regional,domestic,regional.arabian_league,40,2025-04-09,2025-05-09,8,49,40,0
+Arabian League 2025 Spring Playoffs,Arabian League,regional,domestic,regional.arabian_league,9,2025-05-14,2025-05-23,6,30,9,0
+Arabian League 2025 Summer,Arabian League,regional,domestic,regional.arabian_league,24,2025-07-14,2025-07-26,8,40,24,0
+Arabian League 2025 Summer Playoffs,Arabian League,regional,domestic,regional.arabian_league,4,2025-08-17,2025-08-19,4,20,4,0
+Arabian League 2025 Winter,Arabian League,regional,domestic,regional.arabian_league,28,2025-02-14,2025-02-21,8,40,28,0
+Arabian League 2025 Winter Playoffs,Arabian League,regional,domestic,regional.arabian_league,10,2025-02-25,2025-03-07,6,30,10,0
+Arabian League 2026 Spring,Arabian League,regional,domestic,regional.arabian_league,35,2026-04-10,2026-05-08,8,45,35,0
+Arabian League 2026 Winter,Arabian League,regional,domestic,regional.arabian_league,38,2026-01-13,2026-02-13,8,44,38,0
+Arabian League 2026 Winter Playoffs,Arabian League,regional,domestic,regional.arabian_league,10,2026-02-18,2026-02-26,6,31,10,0
+Arabian League Spring 2023,Arabian League,regional,domestic,regional.arabian_league,57,2023-02-01,2023-03-11,8,44,57,0
+Arabian League Spring 2024,Arabian League,regional,domestic,regional.arabian_league,56,2024-02-08,2024-03-21,8,44,56,0
+Arabian League Spring Playoffs 2023,Arabian League,regional,domestic,regional.arabian_league,4,2023-03-09,2023-03-30,4,20,4,0
+Arabian League Spring Playoffs 2024,Arabian League,regional,domestic,regional.arabian_league,4,2024-03-28,2024-04-05,4,20,4,0
+Arabian League Summer 2023,Arabian League,regional,domestic,regional.arabian_league,55,2023-06-13,2023-07-26,8,53,55,0
+Arabian League Summer 2024,Arabian League,regional,domestic,regional.arabian_league,56,2024-05-23,2024-06-27,8,50,56,0
+Arabian League Summer Playoffs 2023,Arabian League,regional,domestic,regional.arabian_league,4,2023-08-08,2023-08-11,4,20,4,0
+Arabian League Summer Playoffs 2024,Arabian League,regional,domestic,regional.arabian_league,4,2024-07-09,2024-07-12,4,20,4,0
+BRCC Split 1 2020,Circuito Desafiante,development,domestic,development.circuito_desafiante,45,2020-02-03,2020-05-06,6,36,45,0
+BRCC Split 1 Playoffs 2020,Circuito Desafiante,development,domestic,development.circuito_desafiante,3,2020-05-11,2020-05-16,4,20,3,0
+BRCC Split 2 2020,Circuito Desafiante,development,domestic,development.circuito_desafiante,45,2020-06-08,2020-07-28,6,37,45,0
+BRCC Split 2 Playoffs 2020,Circuito Desafiante,development,domestic,development.circuito_desafiante,3,2020-08-10,2020-08-15,4,20,3,0
+Baltic Masters Spring 2021,Baltic Masters,regional,domestic,regional.baltic_masters,31,2021-01-26,2021-02-25,6,39,31,0
+Baltic Masters Spring Playoffs 2021,Baltic Masters,regional,domestic,regional.baltic_masters,3,2021-03-02,2021-03-09,4,20,3,0
+Baltic Masters Summer 2021,Baltic Masters,regional,domestic,regional.baltic_masters,30,2021-06-15,2021-07-20,6,40,30,0
+Baltic Masters Summer Playoffs 2021,Baltic Masters,regional,domestic,regional.baltic_masters,3,2021-08-07,2021-08-11,4,20,3,0
+Battle of the Atlantic 2013,Battle of the Atlantic,international,cross_league,international.battle_of_the_atlantic,5,2013-12-14,2013-12-22,10,50,5,0
+Belgian League Spring 2021,Road of Legends,regional,domestic,regional.road_of_legends,30,2021-01-11,2021-03-01,6,33,30,0
+Belgian League Spring Playoffs 2021,Road of Legends,regional,domestic,regional.road_of_legends,4,2021-03-08,2021-03-22,4,21,4,0
+Belgian League Summer 2021,Road of Legends,regional,domestic,regional.road_of_legends,30,2021-05-31,2021-07-19,6,32,30,0
+Belgian League Summer Playoffs 2021,Road of Legends,regional,domestic,regional.road_of_legends,4,2021-07-26,2021-08-09,4,20,4,0
+CBLOL 2026 Split 1,CBLOL,minor_top_level,domestic,minor_top_level.cblol,28,2026-03-28,2026-05-03,8,45,28,0
+CBLOL 2026 Split 1 Playoffs,CBLOL,minor_top_level,domestic,minor_top_level.cblol,2,2026-05-09,2026-05-10,4,20,2,0
+CBLOL Academy Split 1 2021,CBLOL Academy,development,domestic,development.cblol_academy,90,2021-01-19,2021-03-17,10,78,90,1
+CBLOL Academy Split 1 2022,CBLOL Academy,development,domestic,development.cblol_academy,90,2022-01-25,2022-03-23,10,68,90,0
+CBLOL Academy Split 1 2023,CBLOL Academy,development,domestic,development.cblol_academy,90,2023-01-23,2023-03-21,10,63,90,0
+CBLOL Academy Split 1 2024,CBLOL Academy,development,domestic,development.cblol_academy,66,2024-02-05,2024-03-05,12,70,66,0
+CBLOL Academy Split 1 Playoffs 2021,CBLOL Academy,development,domestic,development.cblol_academy,5,2021-03-30,2021-04-17,6,30,5,0
+CBLOL Academy Split 1 Playoffs 2022,CBLOL Academy,development,domestic,development.cblol_academy,5,2022-04-05,2022-04-16,6,31,5,0
+CBLOL Academy Split 1 Playoffs 2023,CBLOL Academy,development,domestic,development.cblol_academy,8,2023-03-27,2023-04-22,6,30,8,0
+CBLOL Academy Split 1 Playoffs 2024,CBLOL Academy,development,domestic,development.cblol_academy,24,2024-03-11,2024-04-28,12,63,24,0
+CBLOL Academy Split 2 2021,CBLOL Academy,development,domestic,development.cblol_academy,90,2021-06-08,2021-08-04,10,72,90,0
+CBLOL Academy Split 2 2022,CBLOL Academy,development,domestic,development.cblol_academy,90,2022-06-13,2022-08-09,10,67,90,0
+CBLOL Academy Split 2 2023,CBLOL Academy,development,domestic,development.cblol_academy,90,2023-06-12,2023-08-08,10,68,90,0
+CBLOL Academy Split 2 2024,CBLOL Academy,development,domestic,development.cblol_academy,93,2024-06-03,2024-07-16,14,86,93,0
+CBLOL Academy Split 2 Playoffs 2021,CBLOL Academy,development,domestic,development.cblol_academy,5,2021-08-10,2021-08-28,6,30,5,0
+CBLOL Academy Split 2 Playoffs 2022,CBLOL Academy,development,domestic,development.cblol_academy,5,2022-08-15,2022-09-10,6,30,5,0
+CBLOL Academy Split 2 Playoffs 2023,CBLOL Academy,development,domestic,development.cblol_academy,8,2023-08-14,2023-09-02,6,30,8,0
+CBLOL Academy Split 2 Playoffs 2024,CBLOL Academy,development,domestic,development.cblol_academy,14,2024-07-22,2024-08-25,8,42,14,1
+CBLOL Cup 2026,CBLOL,minor_top_level,domestic,minor_top_level.cblol,41,2026-01-17,2026-03-01,8,43,41,41
+CBLOL Split 1 2020,CBLOL,minor_top_level,domestic,minor_top_level.cblol,84,2020-01-25,2020-04-26,8,55,84,84
+CBLOL Split 1 2021,CBLOL,minor_top_level,domestic,minor_top_level.cblol,90,2021-01-16,2021-03-14,10,65,90,90
+CBLOL Split 1 2022,CBLOL,minor_top_level,domestic,minor_top_level.cblol,90,2022-01-22,2022-03-20,10,61,90,90
+CBLOL Split 1 2023,CBLOL,minor_top_level,domestic,minor_top_level.cblol,90,2023-01-21,2023-03-19,10,58,90,90
+CBLOL Split 1 2024,CBLOL,minor_top_level,domestic,minor_top_level.cblol,90,2024-01-20,2024-03-17,10,55,90,90
+CBLOL Split 1 Playoffs 2020,CBLOL,minor_top_level,domestic,minor_top_level.cblol,3,2020-05-02,2020-05-09,4,20,3,3
+CBLOL Split 1 Playoffs 2021,CBLOL,minor_top_level,domestic,minor_top_level.cblol,5,2021-03-27,2021-04-18,6,30,5,5
+CBLOL Split 1 Playoffs 2022,CBLOL,minor_top_level,domestic,minor_top_level.cblol,8,2022-03-25,2022-04-23,6,30,8,6
+CBLOL Split 1 Playoffs 2023,CBLOL,minor_top_level,domestic,minor_top_level.cblol,8,2023-03-24,2023-04-15,6,30,8,8
+CBLOL Split 1 Playoffs 2024,CBLOL,minor_top_level,domestic,minor_top_level.cblol,10,2024-03-22,2024-04-20,6,30,10,10
+CBLOL Split 2 2020,CBLOL,minor_top_level,domestic,minor_top_level.cblol,84,2020-06-06,2020-08-09,8,55,84,83
+CBLOL Split 2 2021,CBLOL,minor_top_level,domestic,minor_top_level.cblol,90,2021-06-05,2021-08-01,10,60,90,90
+CBLOL Split 2 2022,CBLOL,minor_top_level,domestic,minor_top_level.cblol,90,2022-06-11,2022-08-07,10,63,90,90
+CBLOL Split 2 2023,CBLOL,minor_top_level,domestic,minor_top_level.cblol,90,2023-06-10,2023-08-06,10,60,90,90
+CBLOL Split 2 2024,CBLOL,minor_top_level,domestic,minor_top_level.cblol,92,2024-06-01,2024-07-29,10,54,92,90
+CBLOL Split 2 Playoffs 2020,CBLOL,minor_top_level,domestic,minor_top_level.cblol,3,2020-08-22,2020-09-05,4,20,3,3
+CBLOL Split 2 Playoffs 2021,CBLOL,minor_top_level,domestic,minor_top_level.cblol,5,2021-08-07,2021-09-04,6,30,5,5
+CBLOL Split 2 Playoffs 2022,CBLOL,minor_top_level,domestic,minor_top_level.cblol,8,2022-08-12,2022-09-03,6,30,8,8
+CBLOL Split 2 Playoffs 2023,CBLOL,minor_top_level,domestic,minor_top_level.cblol,8,2023-08-11,2023-09-09,6,30,8,8
+CBLOL Split 2 Playoffs 2024,CBLOL,minor_top_level,domestic,minor_top_level.cblol,10,2024-08-03,2024-09-07,6,30,10,10
+CBLOL Split 2 Promotion 2020,CBLOL,minor_top_level,domestic,minor_top_level.cblol,1,2020-05-19,2020-05-19,2,10,1,0
+CBLOL Summer 2017,CBLOL,minor_top_level,domestic,minor_top_level.cblol,20,2017-01-21,2017-03-12,8,41,20,0
+CBLOL Summer 2018,CBLOL,minor_top_level,domestic,minor_top_level.cblol,28,2018-01-20,2018-03-11,8,44,28,0
+CBLOL Summer 2019,CBLOL,minor_top_level,domestic,minor_top_level.cblol,84,2019-01-12,2019-03-24,8,51,84,83
+CBLOL Summer Playoffs 2017,CBLOL,minor_top_level,domestic,minor_top_level.cblol,3,2017-03-25,2017-04-08,4,20,3,0
+CBLOL Summer Playoffs 2018,CBLOL,minor_top_level,domestic,minor_top_level.cblol,4,2018-03-17,2018-04-07,5,25,4,0
+CBLOL Summer Playoffs 2019,CBLOL,minor_top_level,domestic,minor_top_level.cblol,3,2019-04-06,2019-04-13,4,20,3,3
+CBLOL Winter 2017,CBLOL,minor_top_level,domestic,minor_top_level.cblol,20,2017-06-03,2017-07-23,8,50,20,0
+CBLOL Winter 2018,CBLOL,minor_top_level,domestic,minor_top_level.cblol,28,2018-06-09,2018-08-05,8,49,28,0
+CBLOL Winter 2019,CBLOL,minor_top_level,domestic,minor_top_level.cblol,84,2019-06-01,2019-08-10,8,56,84,80
+CBLOL Winter Playoffs 2017,CBLOL,minor_top_level,domestic,minor_top_level.cblol,3,2017-08-19,2017-09-02,4,20,3,0
+CBLOL Winter Playoffs 2018,CBLOL,minor_top_level,domestic,minor_top_level.cblol,4,2018-08-11,2018-09-08,5,25,4,0
+CBLOL Winter Playoffs 2019,CBLOL,minor_top_level,domestic,minor_top_level.cblol,3,2019-08-24,2019-09-07,4,20,3,3
+CBLOL-LLN-CLS Rift Rivals 2017,Rift Rivals,international,cross_league,international.rift_rivals,22,2017-07-05,2017-07-08,6,31,22,0
+CD 2025 Split 1 Playoffs,Circuito Desafiante,development,domestic,development.circuito_desafiante,10,2025-05-19,2025-06-09,6,30,10,0
+CD 2025 Split 2,Circuito Desafiante,development,domestic,development.circuito_desafiante,45,2025-07-21,2025-08-12,10,54,45,0
+CD 2025 Split 2 Playoffs,Circuito Desafiante,development,domestic,development.circuito_desafiante,14,2025-08-18,2025-09-12,8,40,14,0
+CD 2026 Split 1,Circuito Desafiante,development,domestic,development.circuito_desafiante,48,2026-03-30,2026-04-28,10,56,48,0
+CD 2026 Split 1 Playoffs,Circuito Desafiante,development,domestic,development.circuito_desafiante,4,2026-05-04,2026-05-05,6,30,4,0
+CK Spring 2020,LCK CL,development,domestic,development.lck_cl_historical_ck,59,2020-02-06,2020-04-23,8,51,59,0
+CK Summer 2020,LCK CL,development,domestic,development.lck_cl_historical_ck,56,2020-06-18,2020-08-20,8,52,56,0
+CK Summer Playoffs 2020,LCK CL,development,domestic,development.lck_cl_historical_ck,3,2020-08-24,2020-08-31,4,20,3,0
+CLS Closing 2018,LLA,minor_top_level,domestic,minor_top_level.lla_historical_alias,84,2018-06-16,2018-08-26,8,46,84,0
+CLS Closing Playoffs 2018,LLA,minor_top_level,domestic,minor_top_level.lla_historical_alias,5,2018-08-30,2018-09-09,6,30,5,0
+CLS Opening 2018,LLA,minor_top_level,domestic,minor_top_level.lla_historical_alias,84,2018-01-20,2018-03-25,8,45,84,0
+CLS Opening Playoffs 2018,LLA,minor_top_level,domestic,minor_top_level.lla_historical_alias,5,2018-03-29,2018-04-14,6,30,5,0
+Challenge France 2017,LFL Div2,development,domestic,development.lfl_div2,33,2017-11-10,2017-11-29,6,31,33,0
+Champions Spring 2015,LCK,major,domestic,major.lck_domestic_cup,56,2015-01-07,2015-04-11,8,53,56,0
+Circuito Desafiante 2025 Split 1,Circuito Desafiante,development,domestic,development.circuito_desafiante,45,2025-03-17,2025-05-14,10,63,45,0
+Demacia Cup 2019,LPL,major,domestic,major.lpl_domestic_cup,48,2019-12-21,2019-12-29,20,113,48,0
+Demacia Cup 2020,LPL,major,domestic,major.lpl_domestic_cup,47,2020-12-21,2020-12-27,24,129,47,0
+Demacia Cup 2021,LPL,major,domestic,major.lpl_domestic_cup,47,2021-12-17,2021-12-26,24,129,47,0
+Demacia Cup 2023,LPL,major,domestic,major.lpl_domestic_cup,37,2023-12-25,2024-01-06,22,116,37,0
+Dutch League Spring 2021,Road of Legends,regional,domestic,regional.road_of_legends,30,2021-01-12,2021-03-02,6,33,30,0
+Dutch League Spring Playoffs 2021,Road of Legends,regional,domestic,regional.road_of_legends,4,2021-03-09,2021-03-23,4,20,4,0
+Dutch League Summer 2021,Road of Legends,regional,domestic,regional.road_of_legends,30,2021-06-01,2021-07-20,6,32,30,0
+Dutch League Summer Playoffs 2021,Road of Legends,regional,domestic,regional.road_of_legends,4,2021-07-27,2021-08-10,4,20,4,0
+EBL 2025 Season Finals,EBL,regional,domestic,regional.ebl,4,2025-09-02,2025-09-05,4,20,4,0
+EBL 2025 Spring,EBL,regional,domestic,regional.ebl,15,2025-04-09,2025-04-25,6,33,15,0
+EBL 2025 Spring Playoffs,EBL,regional,domestic,regional.ebl,14,2025-05-07,2025-05-29,8,42,14,0
+EBL 2025 Summer,EBL,regional,domestic,regional.ebl,13,2025-07-23,2025-08-07,6,32,13,0
+EBL 2025 Summer Playoffs,EBL,regional,domestic,regional.ebl,14,2025-08-11,2025-08-24,8,40,14,0
+EBL 2025 Winter,EBL,regional,domestic,regional.ebl,15,2025-02-05,2025-02-13,6,34,15,0
+EBL 2025 Winter Playoffs,EBL,regional,domestic,regional.ebl,14,2025-02-19,2025-03-09,8,41,14,0
+EBL 2026 Spring,EBL,regional,domestic,regional.ebl,14,2026-04-15,2026-04-30,6,32,14,0
+EBL 2026 Spring Playoffs,EBL,regional,domestic,regional.ebl,4,2026-05-06,2026-05-07,8,40,4,0
+EBL 2026 Winter,EBL,regional,domestic,regional.ebl,14,2026-01-28,2026-02-13,6,33,14,0
+EBL 2026 Winter Playoffs,EBL,regional,domestic,regional.ebl,14,2026-02-18,2026-03-06,8,44,14,0
+EBL Season 8,EBL,regional,domestic,regional.ebl,59,2021-01-25,2021-03-14,8,48,59,0
+EBL Season 8 Playoffs,EBL,regional,domestic,regional.ebl,3,2021-03-20,2021-03-27,4,20,3,0
+EBL Season 9,EBL,regional,domestic,regional.ebl,57,2021-06-14,2021-07-30,8,52,57,0
+EBL Spring 2022,EBL,regional,domestic,regional.ebl,56,2022-01-17,2022-03-03,8,49,56,0
+EBL Spring 2023,EBL,regional,domestic,regional.ebl,56,2023-01-25,2023-03-10,8,47,56,0
+EBL Spring 2024,EBL,regional,domestic,regional.ebl,55,2024-01-31,2024-03-08,8,45,55,0
+EBL Spring Playoffs 2022,EBL,regional,domestic,regional.ebl,4,2022-03-07,2022-03-19,4,20,4,0
+EBL Spring Playoffs 2023,EBL,regional,domestic,regional.ebl,4,2023-03-16,2023-04-01,4,20,4,0
+EBL Spring Playoffs 2024,EBL,regional,domestic,regional.ebl,4,2024-03-13,2024-04-05,4,20,4,0
+EBL Summer 2022,EBL,regional,domestic,regional.ebl,56,2022-06-06,2022-07-21,8,50,56,0
+EBL Summer 2023,EBL,regional,domestic,regional.ebl,56,2023-06-07,2023-07-21,8,51,56,0
+EBL Summer 2024,EBL,regional,domestic,regional.ebl,55,2024-05-23,2024-07-02,8,54,55,0
+EBL Summer Playoffs 2022,EBL,regional,domestic,regional.ebl,4,2022-07-25,2022-08-13,4,20,4,0
+EBL Summer Playoffs 2023,EBL,regional,domestic,regional.ebl,4,2023-07-26,2023-08-12,4,20,4,0
+EBL Summer Playoffs 2024,EBL,regional,domestic,regional.ebl,4,2024-07-09,2024-07-17,4,20,4,0
+EMEA Masters 2025 Spring,EMEA Masters,regional,cross_league,cross_league.emea_masters,55,2025-06-03,2025-06-21,32,161,55,55
+EMEA Masters 2025 Summer LCQ,EMEA Masters,regional,cross_league,cross_league.emea_masters,12,2025-09-23,2025-09-25,16,80,12,12
+EMEA Masters 2025 Summer Main Event,EMEA Masters,regional,cross_league,cross_league.emea_masters,108,2025-09-29,2025-11-02,32,163,108,108
+EMEA Masters 2025 Winter,EMEA Masters,regional,cross_league,cross_league.emea_masters,27,2025-03-17,2025-03-23,16,80,27,27
+EMEA Masters 2026 Winter,EMEA Masters,regional,cross_league,cross_league.emea_masters,74,2026-03-09,2026-04-21,36,183,74,45
+EMEA Masters Play-In Summer 2023,EMEA Masters,regional,cross_league,cross_league.emea_masters,55,2023-08-14,2023-08-17,16,81,55,0
+EMEA Masters Spring 2023,EMEA Masters,regional,cross_league,cross_league.emea_masters,56,2023-04-11,2023-04-29,16,80,56,55
+EMEA Masters Spring 2024,EMEA Masters,regional,cross_league,cross_league.emea_masters,57,2024-04-19,2024-04-28,16,81,57,29
+EMEA Masters Spring Play-In 2023,EMEA Masters,regional,cross_league,cross_league.emea_masters,53,2023-04-04,2023-04-07,16,81,53,0
+EMEA Masters Spring Play-In 2024,EMEA Masters,regional,cross_league,cross_league.emea_masters,53,2024-04-15,2024-04-17,16,81,53,0
+EMEA Masters Summer 2023,EMEA Masters,regional,cross_league,cross_league.emea_masters,57,2023-08-21,2023-09-08,16,80,57,55
+EMEA Masters Summer 2024,EMEA Masters,regional,cross_league,cross_league.emea_masters,108,2024-08-05,2024-08-30,32,161,108,91
+EMEA Masters Summer LCQ 2024,EMEA Masters,regional,cross_league,cross_league.emea_masters,28,2024-07-31,2024-08-02,32,160,28,0
+EU CS Spring 2017,EU Challenger Series,development,domestic,development.eu_challenger_series,14,2017-02-05,2017-03-26,6,35,14,0
+EU CS Summer 2017,EU Challenger Series,development,domestic,development.eu_challenger_series,14,2017-06-18,2017-08-06,6,37,14,0
+EU LCS 2017 Spring Promo,LEC,major,domestic,major.lec_historical_alias,4,2016-08-04,2016-08-07,5,26,4,0
+EU LCS Regional Qualifiers 2017,LEC,major,domestic,major.lec_historical_alias,3,2017-09-08,2017-09-10,4,20,3,0
+EU LCS Regional Qualifiers 2018,LEC,major,domestic,major.lec_historical_alias,3,2018-09-14,2018-09-16,4,20,3,3
+EU LCS Spring 2014,LEC,major,domestic,major.lec_historical_alias,112,2014-01-14,2014-04-03,8,46,112,0
+EU LCS Spring 2015,LEC,major,domestic,major.lec_historical_alias,91,2015-01-23,2015-03-28,10,57,91,0
+EU LCS Spring 2016,LEC,major,domestic,major.lec_historical_alias,90,2016-01-14,2016-03-18,10,63,90,0
+EU LCS Spring 2017,LEC,major,domestic,major.lec_historical_alias,65,2017-01-19,2017-04-02,10,55,65,0
+EU LCS Spring 2018,LEC,major,domestic,major.lec_historical_alias,91,2018-01-19,2018-03-17,10,54,91,89
+EU LCS Spring Playoffs 2014,LEC,major,domestic,major.lec_historical_alias,7,2014-04-15,2014-04-17,6,30,7,0
+EU LCS Spring Playoffs 2015,LEC,major,domestic,major.lec_historical_alias,6,2015-04-04,2015-04-19,6,30,6,0
+EU LCS Spring Playoffs 2016,LEC,major,domestic,major.lec_historical_alias,6,2016-04-02,2016-04-17,6,30,6,0
+EU LCS Spring Playoffs 2017,LEC,major,domestic,major.lec_historical_alias,6,2017-04-08,2017-04-23,6,30,6,4
+EU LCS Spring Playoffs 2018,LEC,major,domestic,major.lec_historical_alias,6,2018-03-23,2018-04-08,6,30,6,5
+EU LCS Spring Promotion 2015,LEC,major,domestic,major.lec_historical_alias,2,2015-09-05,2015-09-05,4,20,2,0
+EU LCS Spring Promotion 2017,LEC,major,domestic,major.lec_historical_alias,5,2017-08-17,2017-08-25,4,20,5,0
+EU LCS Summer 2014,LEC,major,domestic,major.lec_historical_alias,111,2014-05-20,2014-07-31,8,50,111,0
+EU LCS Summer 2015,LEC,major,domestic,major.lec_historical_alias,91,2015-05-28,2015-07-24,10,57,91,0
+EU LCS Summer 2016,LEC,major,domestic,major.lec_historical_alias,59,2016-06-02,2016-07-31,10,57,59,0
+EU LCS Summer 2017,LEC,major,domestic,major.lec_historical_alias,65,2017-06-01,2017-08-13,10,55,65,63
+EU LCS Summer 2018,LEC,major,domestic,major.lec_historical_alias,93,2018-06-15,2018-08-19,10,56,93,90
+EU LCS Summer Playoffs 2014,LEC,major,domestic,major.lec_historical_alias,7,2014-08-07,2014-08-17,6,30,7,0
+EU LCS Summer Playoffs 2015,LEC,major,domestic,major.lec_historical_alias,6,2015-08-08,2015-08-23,6,30,6,0
+EU LCS Summer Playoffs 2016,LEC,major,domestic,major.lec_historical_alias,6,2016-08-13,2016-08-28,6,30,6,0
+EU LCS Summer Playoffs 2017,LEC,major,domestic,major.lec_historical_alias,6,2017-08-19,2017-09-03,6,30,6,5
+EU LCS Summer Playoffs 2018,LEC,major,domestic,major.lec_historical_alias,6,2018-08-24,2018-09-09,6,30,6,6
+EU LCS Summer Promo 2016,LEC,major,domestic,major.lec_historical_alias,4,2016-03-24,2016-03-27,5,25,4,0
+EU LCS Summer Promotion 2017,LEC,major,domestic,major.lec_historical_alias,5,2017-04-06,2017-04-14,4,20,5,0
+EU Master 2019 Spring Play-In,EMEA Masters,regional,cross_league,cross_league.emea_masters,23,2019-04-08,2019-04-11,7,37,23,0
+EU Master Spring 2019,EMEA Masters,regional,cross_league,cross_league.emea_masters,34,2019-04-15,2019-04-28,16,85,34,0
+EU Master Summer 2019,EMEA Masters,regional,cross_league,cross_league.emea_masters,31,2019-09-16,2019-09-29,16,80,31,19
+EU Master Summer Play-In 2019,EMEA Masters,regional,cross_league,cross_league.emea_masters,23,2019-09-09,2019-09-12,7,36,23,0
+EU Masters 2018 Summer Play-In,EMEA Masters,regional,cross_league,cross_league.emea_masters,23,2018-09-10,2018-09-13,7,36,23,0
+EU Masters Spring 2018,EMEA Masters,regional,cross_league,cross_league.emea_masters,41,2018-04-14,2018-04-29,16,82,41,0
+EU Masters Spring 2020,EMEA Masters,regional,cross_league,cross_league.emea_masters,60,2020-04-22,2020-05-10,16,82,60,53
+EU Masters Spring 2021,EMEA Masters,regional,cross_league,cross_league.emea_masters,57,2021-04-14,2021-05-02,16,81,57,55
+EU Masters Spring 2022,EMEA Masters,regional,cross_league,cross_league.emea_masters,56,2022-04-14,2022-05-07,16,81,56,55
+EU Masters Spring Play-In 2020,EMEA Masters,regional,cross_league,cross_league.emea_masters,52,2020-04-06,2020-04-09,16,81,52,30
+EU Masters Spring Play-In 2021,EMEA Masters,regional,cross_league,cross_league.emea_masters,54,2021-03-29,2021-04-01,16,81,54,0
+EU Masters Spring Play-In 2022,EMEA Masters,regional,cross_league,cross_league.emea_masters,54,2022-04-04,2022-04-07,16,81,54,0
+EU Masters Summer 2018,EMEA Masters,regional,cross_league,cross_league.emea_masters,31,2018-09-17,2018-09-30,16,84,31,0
+EU Masters Summer 2020,EMEA Masters,regional,cross_league,cross_league.emea_masters,57,2020-08-24,2020-09-20,16,81,57,55
+EU Masters Summer 2021,EMEA Masters,regional,cross_league,cross_league.emea_masters,56,2021-08-30,2021-09-19,16,80,56,55
+EU Masters Summer 2022,EMEA Masters,regional,cross_league,cross_league.emea_masters,56,2022-08-29,2022-09-25,16,81,56,54
+EU Masters Summer Play-In 2020,EMEA Masters,regional,cross_league,cross_league.emea_masters,55,2020-08-17,2020-08-20,16,83,55,47
+EU Masters Summer Play-In 2021,EMEA Masters,regional,cross_league,cross_league.emea_masters,57,2021-08-16,2021-08-19,16,83,57,0
+EU Masters Summer Play-In 2022,EMEA Masters,regional,cross_league,cross_league.emea_masters,53,2022-08-24,2022-08-27,16,80,53,0
+EU Regional Qualifiers 2015,LEC,major,domestic,major.lec_historical_qualifier,3,2015-08-29,2015-08-31,4,20,3,0
+EU Regional Qualifiers 2016,LEC,major,domestic,major.lec_historical_qualifier,3,2016-09-03,2016-09-05,4,20,3,0
+EU-NA Rift Rivals 2017,Rift Rivals,international,cross_league,international.rift_rivals,19,2017-07-05,2017-07-08,6,31,19,18
+Elite Series Spring 2022,Road of Legends,regional,domestic,regional.road_of_legends,56,2022-01-17,2022-03-02,8,45,56,0
+Elite Series Spring 2023,Road of Legends,regional,domestic,regional.road_of_legends,56,2023-01-24,2023-03-09,8,53,56,0
+Elite Series Spring 2024,Road of Legends,regional,domestic,regional.road_of_legends,54,2024-01-23,2024-03-07,8,45,54,0
+Elite Series Spring Playoffs 2022,Road of Legends,regional,domestic,regional.road_of_legends,4,2022-03-11,2022-03-19,4,20,4,0
+Elite Series Spring Playoffs 2023,Road of Legends,regional,domestic,regional.road_of_legends,4,2023-03-21,2023-03-30,4,20,4,0
+Elite Series Spring Playoffs 2024,Road of Legends,regional,domestic,regional.road_of_legends,4,2024-03-12,2024-03-30,4,20,4,0
+Elite Series Summer 2022,Road of Legends,regional,domestic,regional.road_of_legends,57,2022-06-06,2022-07-20,8,51,57,0
+Elite Series Summer 2023,Road of Legends,regional,domestic,regional.road_of_legends,56,2023-06-06,2023-07-20,8,46,56,0
+Elite Series Summer 2024,Road of Legends,regional,domestic,regional.road_of_legends,55,2024-06-04,2024-07-13,8,47,55,0
+Elite Series Summer Playoffs 2022,Road of Legends,regional,domestic,regional.road_of_legends,4,2022-07-31,2022-08-07,4,20,4,0
+Elite Series Summer Playoffs 2023,Road of Legends,regional,domestic,regional.road_of_legends,4,2023-08-01,2023-08-12,4,20,4,0
+Elite Series Summer Playoffs 2024,Road of Legends,regional,domestic,regional.road_of_legends,4,2024-07-16,2024-07-27,4,20,4,0
+Esports World Cup 2024,Esports World Cup,international,cross_league,international.esports_world_cup,7,2024-07-04,2024-07-07,8,40,7,7
+Esports World Cup 2025,Esports World Cup,international,cross_league,international.esports_world_cup,18,2025-07-16,2025-07-20,12,62,18,18
+First Stand 2025,First Stand,international,cross_league,international.first_stand,13,2025-03-10,2025-03-16,5,25,13,13
+GLL 2021 Spring,HLL,regional,domestic,regional.hll,57,2021-01-18,2021-02-23,8,54,57,0
+GLL 2021 Spring Playoffs,HLL,regional,domestic,regional.hll,6,2021-03-01,2021-03-23,6,30,6,0
+GLL Spring 2022,HLL,regional,domestic,regional.hll,56,2022-01-17,2022-03-01,8,54,56,0
+GLL Spring 2023,HLL,regional,domestic,regional.hll,56,2023-01-24,2023-03-08,8,51,56,0
+GLL Spring 2024,HLL,regional,domestic,regional.hll,56,2024-01-23,2024-03-13,8,49,56,0
+GLL Spring Playoffs 2022,HLL,regional,domestic,regional.hll,4,2022-03-07,2022-03-20,4,20,4,0
+GLL Spring Playoffs 2023,HLL,regional,domestic,regional.hll,4,2023-03-14,2023-04-01,4,20,4,0
+GLL Spring Playoffs 2024,HLL,regional,domestic,regional.hll,4,2024-03-19,2024-04-12,4,20,4,0
+GLL Summer 2021,HLL,regional,domestic,regional.hll,55,2021-05-31,2021-07-06,8,62,55,0
+GLL Summer 2022,HLL,regional,domestic,regional.hll,56,2022-05-30,2022-07-12,8,47,56,0
+GLL Summer 2023,HLL,regional,domestic,regional.hll,56,2023-06-05,2023-07-12,8,53,56,0
+GLL Summer 2024,HLL,regional,domestic,regional.hll,56,2024-05-21,2024-07-03,8,57,56,0
+GLL Summer Playoffs 2021,HLL,regional,domestic,regional.hll,6,2021-07-12,2021-07-27,6,30,6,0
+GLL Summer Playoffs 2022,HLL,regional,domestic,regional.hll,4,2022-07-18,2022-07-31,4,20,4,0
+GLL Summer Playoffs 2023,HLL,regional,domestic,regional.hll,4,2023-07-18,2023-08-05,4,20,4,0
+GLL Summer Playoffs 2024,HLL,regional,domestic,regional.hll,4,2024-07-09,2024-07-20,4,20,4,0
+GLL Winter 2021,HLL,regional,domestic,regional.hll,55,2021-10-11,2021-11-16,8,51,55,0
+GLL Winter Playoffs 2021,HLL,regional,domestic,regional.hll,6,2021-11-22,2021-12-07,6,30,6,0
+GPL-OPL-LJL Rift Rivals 2017,Rift Rivals,international,cross_league,international.rift_rivals,18,2017-07-03,2017-07-06,9,45,18,1
+HLL 2025 Season Finals,HLL,regional,domestic,regional.hll,6,2025-08-28,2025-09-14,6,30,6,0
+HLL 2025 Spring Playoffs,HLL,regional,domestic,regional.hll,8,2025-05-14,2025-06-01,6,32,8,0
+HLL 2025 Spring Split,HLL,regional,domestic,regional.hll,56,2025-04-01,2025-05-07,8,51,56,0
+HLL 2025 Summer Super Cup,HLL,regional,domestic,regional.hll,8,2025-07-15,2025-07-27,8,40,8,0
+HLL 2025 Winter,HLL,regional,domestic,regional.hll,56,2025-01-21,2025-02-14,8,55,56,0
+HLL 2025 Winter Playoffs,HLL,regional,domestic,regional.hll,5,2025-02-19,2025-03-02,6,30,5,0
+HLL 2026 Spring Split,HLL,regional,domestic,regional.hll,21,2026-03-31,2026-05-07,8,49,21,0
+HLL 2026 Winter,HLL,regional,domestic,regional.hll,24,2026-01-14,2026-02-19,8,45,24,0
+HLL 2026 Winter Playoffs,HLL,regional,domestic,regional.hll,3,2026-02-25,2026-02-28,4,20,3,0
+Hitpoint Challengers 2021 Spring,Hitpoint Challengers,development,domestic,development.hitpoint_challengers,57,2021-02-03,2021-03-06,8,48,57,0
+Hitpoint Challengers 2021 Spring Playoffs,Hitpoint Challengers,development,domestic,development.hitpoint_challengers,8,2021-03-10,2021-03-24,6,31,8,0
+Hitpoint Challengers 2021 Summer,Hitpoint Challengers,development,domestic,development.hitpoint_challengers,14,2021-06-23,2021-07-03,8,46,14,0
+Hitpoint LEGENDS 1,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,3,2018-04-01,2018-04-02,4,21,3,0
+Hitpoint LEGENDS 2,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,3,2018-08-26,2018-08-27,4,20,3,0
+Hitpoint LEGENDS 3,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,3,2019-03-23,2019-03-24,4,20,3,0
+Hitpoint LEGENDS 4,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,4,2019-08-24,2019-08-25,4,21,4,0
+Hitpoint Masters 2020 Winter Playoffs,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,6,2020-11-28,2020-12-06,6,30,6,0
+Hitpoint Masters 2021 Spring,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,57,2021-01-27,2021-02-28,8,53,57,0
+Hitpoint Masters 2021 Spring Playoffs,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,8,2021-03-04,2021-03-21,6,30,8,0
+Hitpoint Masters 2021 Summer,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,56,2021-06-17,2021-07-18,8,50,56,0
+Hitpoint Masters 2025 Spring,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,28,2025-04-08,2025-05-09,8,42,28,0
+Hitpoint Masters 2025 Spring Playoffs,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,8,2025-05-13,2025-05-30,6,30,8,0
+Hitpoint Masters 2025 Summer,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,28,2025-07-19,2025-08-12,8,48,28,0
+Hitpoint Masters 2025 Summer Playoffs,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,8,2025-08-16,2025-08-30,6,30,8,0
+Hitpoint Masters 2026 Spring,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,20,2026-04-16,2026-05-06,8,53,20,0
+Hitpoint Masters Season 10,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,14,2018-07-26,2018-08-09,6,37,14,0
+Hitpoint Masters Season 11,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,14,2019-02-17,2019-03-17,6,41,14,0
+Hitpoint Masters Season 12,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,15,2019-07-21,2019-08-18,6,39,15,0
+Hitpoint Masters Season 13,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,56,2020-01-26,2020-03-08,8,48,56,0
+Hitpoint Masters Season 13 Playoffs - Legends,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,6,2020-03-15,2020-03-29,6,30,6,0
+Hitpoint Masters Season 14,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,55,2020-06-21,2020-07-26,8,50,55,0
+Hitpoint Masters Season 9,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,12,2018-03-06,2018-03-21,6,39,12,0
+Hitpoint Masters Spring 2022,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,56,2022-01-17,2022-03-03,8,40,56,48
+Hitpoint Masters Spring 2023,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,57,2023-01-27,2023-03-17,8,46,57,56
+Hitpoint Masters Spring 2024,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,56,2024-01-23,2024-03-08,8,50,56,56
+Hitpoint Masters Spring Playoffs 2022,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,4,2022-03-10,2022-03-20,4,20,4,4
+Hitpoint Masters Spring Playoffs 2023,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,4,2023-03-21,2023-03-31,4,20,4,4
+Hitpoint Masters Spring Playoffs 2024,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,4,2024-03-12,2024-03-30,4,20,4,4
+Hitpoint Masters Summer 2022,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,56,2022-06-06,2022-07-28,8,57,56,56
+Hitpoint Masters Summer 2023,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,56,2023-06-06,2023-07-21,8,43,56,55
+Hitpoint Masters Summer 2024,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,57,2024-06-03,2024-07-16,8,46,57,56
+Hitpoint Masters Summer Playoffs 2021,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,8,2021-07-22,2021-08-08,6,31,8,0
+Hitpoint Masters Summer Playoffs 2022,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,4,2022-08-07,2022-08-21,4,20,4,4
+Hitpoint Masters Summer Playoffs 2023,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,4,2023-07-25,2023-08-05,4,20,4,4
+Hitpoint Masters Summer Playoffs 2024,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,4,2024-07-19,2024-08-04,4,20,4,4
+Hitpoint Masters Winter League 2020,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,57,2020-10-18,2020-11-15,8,46,57,0
+Hitpoint Winter 2025 Main Event,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,41,2025-02-08,2025-03-09,16,85,41,0
+Hitpoint Winter 2026 Main Event,Hitpoint Masters,regional,domestic,regional.hitpoint_masters,47,2026-01-22,2026-03-07,16,92,47,0
+IEM Cologne 2014,Intel Extreme Masters,international,cross_league,international.iem,5,2014-12-19,2014-12-21,6,30,5,0
+IEM Cologne 2015,Intel Extreme Masters,international,cross_league,international.iem,5,2015-12-18,2015-12-20,6,30,5,0
+IEM Gyeonggi 2016,Intel Extreme Masters,international,cross_league,international.iem,13,2016-12-14,2016-12-18,8,41,13,0
+IEM Katowice 2015,Intel Extreme Masters,international,cross_league,international.iem,13,2015-03-13,2015-03-15,8,40,13,0
+IEM Katowice 2016,Intel Extreme Masters,international,cross_league,international.iem,13,2016-03-04,2016-03-06,8,40,13,0
+IEM Katowice 2017,Intel Extreme Masters,international,cross_league,international.iem,13,2017-02-22,2017-02-26,8,40,13,0
+IEM Oakland 2016,Intel Extreme Masters,international,cross_league,international.iem,5,2016-11-19,2016-11-21,6,30,5,0
+IEM San Jose 2014,Intel Extreme Masters,international,cross_league,international.iem,5,2014-12-06,2014-12-07,6,30,5,0
+IEM San Jose 2015,Intel Extreme Masters,international,cross_league,international.iem,5,2015-11-21,2015-11-23,6,30,5,0
+IWC Desafio 2015,International Wildcard,international,cross_league,international.wildcard,7,2015-08-29,2015-09-05,3,15,7,0
+IWC Qualifier 2016,International Wildcard,international,cross_league,international.wildcard,30,2016-08-24,2016-09-04,8,42,30,0
+IWC Turkey 2015,International Wildcard,international,cross_league,international.wildcard,13,2015-08-26,2015-08-29,4,20,13,0
+IWCI Playoffs 2016,International Wildcard,international,cross_league,international.wildcard,3,2016-04-20,2016-04-23,4,20,3,0
+Iberian Cup 2020,Iberian Cup,regional,cross_league,cross_league.iberian_cup,31,2020-10-20,2020-11-15,20,101,31,0
+International Wildcard 2015,International Wildcard,international,cross_league,international.wildcard,2,2015-04-24,2015-04-25,3,15,2,0
+KeSPA Cup 2020,LCK,major,domestic,major.lck_domestic_cup,23,2020-12-21,2021-01-02,10,62,23,0
+Kespa Cup 2017,LCK,major,domestic,major.lck_domestic_cup,18,2017-11-20,2017-12-02,19,95,18,0
+Kespa Cup 2019,LCK,major,domestic,major.lck_domestic_cup,19,2019-12-23,2020-01-05,20,106,19,19
+Kespa Cup 2021,LCK,major,domestic,major.lck_domestic_cup,15,2021-12-10,2021-12-12,16,82,15,0
+Kespa Cup 2024,LCK,major,domestic,major.lck_domestic_cup,43,2024-11-30,2024-12-08,12,66,43,0
+Kespa Cup 2025,LCK,major,domestic,major.lck_domestic_cup,35,2025-12-06,2025-12-14,14,75,35,32
+Kespa Cup Playoffs 2018,LCK,major,domestic,major.lck_domestic_cup,7,2018-12-26,2018-12-31,8,42,7,0
+LCK 2025 Road to MSI,LCK,major,domestic,major.lck,5,2025-06-07,2025-06-15,6,30,5,0
+LCK 2025 Rounds 1-2,LCK,major,domestic,major.lck,91,2025-04-02,2025-06-04,10,65,91,0
+LCK 2025 Rounds 3-5,LCK,major,domestic,major.lck,60,2025-07-23,2025-08-31,10,53,60,35
+LCK 2025 Season Play-In,LCK,major,domestic,major.lck,5,2025-09-03,2025-09-07,4,20,5,5
+LCK 2025 Season Playoffs,LCK,major,domestic,major.lck,10,2025-09-10,2025-09-28,6,30,10,10
+LCK 2026 Rounds 1-2,LCK,major,domestic,major.lck,60,2026-04-01,2026-05-10,10,57,60,0
+LCK CL 2023 Spring,LCK CL,development,domestic,development.lck_cl,90,2023-01-16,2023-03-17,10,63,90,2
+LCK CL 2025 Kickoff,LCK CL,development,domestic,development.lck_cl,38,2025-01-13,2025-02-27,10,53,38,0
+LCK CL 2025 Rounds 1-2,LCK CL,development,domestic,development.lck_cl,89,2025-03-31,2025-05-30,10,69,89,0
+LCK CL 2025 Rounds 3-5,LCK CL,development,domestic,development.lck_cl,60,2025-07-21,2025-08-29,10,59,60,0
+LCK CL 2025 Season Play-In,LCK CL,development,domestic,development.lck_cl,5,2025-09-01,2025-09-08,4,21,5,0
+LCK CL 2025 Season Playoffs,LCK CL,development,domestic,development.lck_cl,10,2025-09-15,2025-09-30,6,30,10,0
+LCK CL 2026 Kickoff,LCK CL,development,domestic,development.lck_cl,40,2026-01-12,2026-03-03,10,50,40,0
+LCK CL 2026 Rounds 1-2,LCK CL,development,domestic,development.lck_cl,61,2026-03-30,2026-05-11,10,57,61,0
+LCK CL Spring 2021,LCK CL,development,domestic,development.lck_cl,93,2021-01-18,2021-03-23,11,63,93,0
+LCK CL Spring 2022,LCK CL,development,domestic,development.lck_cl,167,2022-01-10,2022-03-19,10,62,167,0
+LCK CL Spring 2024,LCK CL,development,domestic,development.lck_cl,90,2024-01-15,2024-03-22,10,67,90,1
+LCK CL Spring Playoffs 2021,LCK CL,development,domestic,development.lck_cl,5,2021-03-29,2021-04-09,6,30,5,0
+LCK CL Spring Playoffs 2022,LCK CL,development,domestic,development.lck_cl,5,2022-03-21,2022-04-01,6,30,5,0
+LCK CL Spring Playoffs 2023,LCK CL,development,domestic,development.lck_cl,8,2023-03-20,2023-04-07,6,31,8,0
+LCK CL Spring Playoffs 2024,LCK CL,development,domestic,development.lck_cl,8,2024-03-25,2024-04-12,6,30,8,0
+LCK CL Summer 2021,LCK CL,development,domestic,development.lck_cl,92,2021-06-07,2021-08-10,10,67,92,0
+LCK CL Summer 2022,LCK CL,development,domestic,development.lck_cl,180,2022-06-13,2022-08-12,10,70,180,0
+LCK CL Summer 2023,LCK CL,development,domestic,development.lck_cl,90,2023-06-05,2023-08-04,10,70,90,1
+LCK CL Summer 2024,LCK CL,development,domestic,development.lck_cl,90,2024-06-10,2024-08-16,10,68,90,0
+LCK CL Summer Playoffs 2021,LCK CL,development,domestic,development.lck_cl,5,2021-08-16,2021-08-27,6,30,5,0
+LCK CL Summer Playoffs 2022,LCK CL,development,domestic,development.lck_cl,5,2022-08-15,2022-08-26,6,30,5,0
+LCK CL Summer Playoffs 2023,LCK CL,development,domestic,development.lck_cl,8,2023-08-07,2023-08-22,6,30,8,0
+LCK CL Summer Playoffs 2024,LCK CL,development,domestic,development.lck_cl,8,2024-08-19,2024-09-06,6,30,8,0
+LCK Cup 2025,LCK,major,domestic,major.lck,38,2025-01-15,2025-02-23,10,54,38,0
+LCK Cup 2026,LCK,major,domestic,major.lck,40,2026-01-14,2026-03-01,10,52,40,40
+LCK Regional Finals 2019,LCK,major,domestic,major.lck,3,2019-09-03,2019-09-07,4,20,3,3
+LCK Regional Finals 2020,LCK,major,domestic,major.lck,3,2020-09-07,2020-09-09,4,21,3,3
+LCK Regional Finals 2021,LCK,major,domestic,major.lck,3,2021-08-31,2021-09-02,4,20,3,3
+LCK Regional Finals 2023,LCK,major,domestic,major.lck,3,2023-08-24,2023-08-26,4,20,3,3
+LCK Regional Finals 2024,LCK,major,domestic,major.lck,3,2024-09-12,2024-09-14,4,20,3,3
+LCK Regional Qualifier 2015,LCK,major,domestic,major.lck,3,2015-09-02,2015-09-05,4,20,3,0
+LCK Regional Qualifiers 2016,LCK,major,domestic,major.lck,3,2016-08-29,2016-09-03,4,23,3,0
+LCK Regional Qualifiers 2017,LCK,major,domestic,major.lck,3,2017-08-28,2017-09-02,4,21,3,0
+LCK Regional Qualifiers 2018,LCK,major,domestic,major.lck,3,2018-09-12,2018-09-16,4,22,3,3
+LCK Regionals Finals 2022,LCK,major,domestic,major.lck,3,2022-09-01,2022-09-03,4,21,3,3
+LCK Spring 2016,LCK,major,domestic,major.lck,90,2016-01-13,2016-04-09,10,61,90,0
+LCK Spring 2017,LCK,major,domestic,major.lck,91,2017-01-17,2017-04-02,10,61,91,0
+LCK Spring 2018,LCK,major,domestic,major.lck,90,2018-01-16,2018-03-25,10,65,90,90
+LCK Spring 2019,LCK,major,domestic,major.lck,90,2019-01-16,2019-03-31,10,71,90,90
+LCK Spring 2020,LCK,major,domestic,major.lck,90,2020-02-05,2020-04-16,10,73,90,90
+LCK Spring 2021,LCK,major,domestic,major.lck,90,2021-01-13,2021-03-28,10,69,90,90
+LCK Spring 2022,LCK,major,domestic,major.lck,90,2022-01-12,2022-03-20,10,85,90,90
+LCK Spring 2023,LCK,major,domestic,major.lck,90,2023-01-18,2023-03-19,10,54,90,89
+LCK Spring 2024,LCK,major,domestic,major.lck,90,2024-01-17,2024-03-24,10,60,90,0
+LCK Spring Playoffs 2015,LCK,major,domestic,major.lck,3,2015-04-17,2015-05-02,4,20,3,0
+LCK Spring Playoffs 2016,LCK,major,domestic,major.lck,4,2016-04-13,2016-04-23,5,25,4,0
+LCK Spring Playoffs 2017,LCK,major,domestic,major.lck,4,2017-04-07,2017-04-22,5,25,4,1
+LCK Spring Playoffs 2018,LCK,major,domestic,major.lck,4,2018-03-31,2018-04-14,5,26,4,4
+LCK Spring Playoffs 2019,LCK,major,domestic,major.lck,4,2019-04-03,2019-04-13,5,25,4,4
+LCK Spring Playoffs 2020,LCK,major,domestic,major.lck,4,2020-04-18,2020-04-25,5,25,4,4
+LCK Spring Playoffs 2021,LCK,major,domestic,major.lck,5,2021-03-31,2021-04-10,6,30,5,5
+LCK Spring Playoffs 2022,LCK,major,domestic,major.lck,5,2022-03-23,2022-04-02,6,30,5,5
+LCK Spring Playoffs 2023,LCK,major,domestic,major.lck,8,2023-03-22,2023-04-09,6,30,8,8
+LCK Spring Playoffs 2024,LCK,major,domestic,major.lck,8,2024-03-30,2024-04-14,6,30,8,0
+LCK Spring Promo 2017,LCK,major,domestic,major.lck,5,2016-08-22,2016-08-27,4,24,5,0
+LCK Spring Promotion 2015,LCK,major,domestic,major.lck,2,2015-09-11,2015-09-12,4,20,2,0
+LCK Spring Promotion 2018,LCK,major,domestic,major.lck,5,2017-09-12,2017-09-16,4,21,5,0
+LCK Spring Promotion 2019,LCK,major,domestic,major.lck,5,2018-09-18,2018-09-22,4,21,5,0
+LCK Spring Promotion 2020,LCK,major,domestic,major.lck,5,2019-09-09,2019-09-11,4,20,5,0
+LCK Summer 2015,LCK,major,domestic,major.lck,90,2015-05-20,2015-08-13,10,72,90,0
+LCK Summer 2016,LCK,major,domestic,major.lck,90,2016-05-25,2016-08-06,10,67,90,0
+LCK Summer 2017,LCK,major,domestic,major.lck,90,2017-05-30,2017-08-06,10,60,90,87
+LCK Summer 2018,LCK,major,domestic,major.lck,90,2018-06-12,2018-08-09,10,68,90,89
+LCK Summer 2019,LCK,major,domestic,major.lck,90,2019-06-05,2019-08-18,10,67,90,89
+LCK Summer 2020,LCK,major,domestic,major.lck,90,2020-06-17,2020-08-23,10,68,90,90
+LCK Summer 2021,LCK,major,domestic,major.lck,90,2021-06-09,2021-08-15,10,67,90,90
+LCK Summer 2022,LCK,major,domestic,major.lck,90,2022-06-15,2022-08-14,10,62,90,90
+LCK Summer 2023,LCK,major,domestic,major.lck,90,2023-06-07,2023-08-06,10,61,90,90
+LCK Summer 2024,LCK,major,domestic,major.lck,90,2024-06-12,2024-08-18,10,64,90,39
+LCK Summer Playoffs 2015,LCK,major,domestic,major.lck,4,2015-08-16,2015-08-29,5,25,4,0
+LCK Summer Playoffs 2016,LCK,major,domestic,major.lck,4,2016-08-08,2016-08-20,5,25,4,0
+LCK Summer Playoffs 2017,LCK,major,domestic,major.lck,4,2017-08-12,2017-08-26,5,25,4,4
+LCK Summer Playoffs 2018,LCK,major,domestic,major.lck,4,2018-08-12,2018-09-08,5,25,4,4
+LCK Summer Playoffs 2019,LCK,major,domestic,major.lck,4,2019-08-21,2019-08-31,5,25,4,4
+LCK Summer Playoffs 2020,LCK,major,domestic,major.lck,4,2020-08-26,2020-09-05,5,25,4,4
+LCK Summer Playoffs 2021,LCK,major,domestic,major.lck,5,2021-08-18,2021-08-28,6,30,5,5
+LCK Summer Playoffs 2022,LCK,major,domestic,major.lck,5,2022-08-17,2022-08-28,6,30,5,5
+LCK Summer Playoffs 2023,LCK,major,domestic,major.lck,8,2023-08-08,2023-08-20,6,30,8,8
+LCK Summer Playoffs 2024,LCK,major,domestic,major.lck,8,2024-08-23,2024-09-08,6,30,8,8
+LCK Summer Promo 2016,LCK,major,domestic,major.lck,2,2016-04-28,2016-04-29,4,20,2,0
+LCK Summer Promotion 2018,LCK,major,domestic,major.lck,5,2018-04-17,2018-04-22,4,21,5,0
+LCK Summer Promotion 2019,LCK,major,domestic,major.lck,5,2019-04-16,2019-04-21,4,21,5,0
+LCK Summer Promotion 2020,LCK,major,domestic,major.lck,5,2020-04-28,2020-04-30,4,20,5,0
+LCK-LPL-LMS Rift Rivals 2017,Rift Rivals,international,cross_league,international.rift_rivals,21,2017-07-06,2017-07-09,12,63,21,11
+LCK-LPL-LMS Rift-Rivals 2018,Rift Rivals,international,cross_league,international.rift_rivals,20,2018-07-05,2018-07-08,12,66,20,0
+LCK-LPL-LMS-VCS Rift Rivals 2019,Rift Rivals,international,cross_league,international.rift_rivals,19,2019-07-04,2019-07-07,12,66,19,13
+LCL Spring 2017,LCL,minor_top_level,domestic,minor_top_level.lcl,55,2017-01-28,2017-03-19,8,42,55,0
+LCL Spring 2018,LCL,minor_top_level,domestic,minor_top_level.lcl,58,2018-02-10,2018-03-11,8,42,58,0
+LCL Spring 2019,LCL,minor_top_level,domestic,minor_top_level.lcl,57,2019-02-16,2019-03-24,8,45,57,25
+LCL Spring 2020,LCL,minor_top_level,domestic,minor_top_level.lcl,58,2020-02-22,2020-04-12,8,47,58,48
+LCL Spring 2021,LCL,minor_top_level,domestic,minor_top_level.lcl,58,2021-02-13,2021-03-28,8,46,58,56
+LCL Spring 2022,LCL,minor_top_level,domestic,minor_top_level.lcl,16,2022-02-12,2022-02-20,8,40,16,8
+LCL Spring Playoffs 2017,LCL,minor_top_level,domestic,minor_top_level.lcl,3,2017-04-01,2017-04-09,4,20,3,0
+LCL Spring Playoffs 2018,LCL,minor_top_level,domestic,minor_top_level.lcl,3,2018-03-17,2018-04-01,4,20,3,0
+LCL Spring Playoffs 2019,LCL,minor_top_level,domestic,minor_top_level.lcl,3,2019-03-30,2019-04-14,4,20,3,2
+LCL Spring Playoffs 2020,LCL,minor_top_level,domestic,minor_top_level.lcl,3,2020-04-18,2020-04-26,4,20,3,3
+LCL Spring Playoffs 2021,LCL,minor_top_level,domestic,minor_top_level.lcl,3,2021-04-03,2021-04-17,4,20,3,3
+LCL Summer 2017,LCL,minor_top_level,domestic,minor_top_level.lcl,60,2017-06-24,2017-08-06,8,43,60,0
+LCL Summer 2018,LCL,minor_top_level,domestic,minor_top_level.lcl,58,2018-07-21,2018-08-19,8,44,58,1
+LCL Summer 2019,LCL,minor_top_level,domestic,minor_top_level.lcl,57,2019-07-20,2019-08-25,8,41,57,13
+LCL Summer 2020,LCL,minor_top_level,domestic,minor_top_level.lcl,57,2020-06-20,2020-08-09,8,44,57,56
+LCL Summer 2021,LCL,minor_top_level,domestic,minor_top_level.lcl,55,2021-06-26,2021-08-08,8,49,55,55
+LCL Summer Playoffs 2017,LCL,minor_top_level,domestic,minor_top_level.lcl,3,2017-08-19,2017-09-03,4,20,3,0
+LCL Summer Playoffs 2018,LCL,minor_top_level,domestic,minor_top_level.lcl,3,2018-08-25,2018-09-02,4,20,3,0
+LCL Summer Playoffs 2019,LCL,minor_top_level,domestic,minor_top_level.lcl,3,2019-08-31,2019-09-15,4,20,3,3
+LCL Summer Playoffs 2020,LCL,minor_top_level,domestic,minor_top_level.lcl,3,2020-08-15,2020-08-30,4,20,3,3
+LCL Summer Playoffs 2021,LCL,minor_top_level,domestic,minor_top_level.lcl,6,2021-08-13,2021-09-04,5,25,6,6
+LCL-TCL Rift Rivals 2017,Rift Rivals,international,cross_league,international.rift_rivals,17,2017-07-06,2017-07-09,8,41,17,0
+LCL-TCL-VCS Rift-Rivals 2018,Rift Rivals,international,cross_league,international.rift_rivals,19,2018-07-04,2018-07-07,9,47,19,0
+LCO Split 1 2021,LCO,minor_top_level,domestic,minor_top_level.lco,56,2021-02-23,2021-03-27,8,49,56,0
+LCO Split 1 2022,LCO,minor_top_level,domestic,minor_top_level.lco,84,2022-01-24,2022-03-22,8,49,84,76
+LCO Split 1 2023,LCO,minor_top_level,domestic,minor_top_level.lco,23,2023-01-23,2023-02-07,8,40,23,22
+LCO Split 1 2024,LCO,minor_top_level,domestic,minor_top_level.lco,22,2024-01-15,2024-02-21,8,45,22,22
+LCO Split 1 Playoffs 2021,LCO,minor_top_level,domestic,minor_top_level.lco,6,2021-03-30,2021-04-10,5,25,6,0
+LCO Split 1 Playoffs 2024,LCO,minor_top_level,domestic,minor_top_level.lco,7,2024-02-26,2024-04-28,6,30,7,7
+LCO Split 1 Stage 2 2023,LCO,minor_top_level,domestic,minor_top_level.lco,15,2023-02-27,2023-04-29,7,36,15,15
+LCO Split 2 2021,LCO,minor_top_level,domestic,minor_top_level.lco,84,2021-06-15,2021-08-11,8,52,84,16
+LCO Split 2 2022,LCO,minor_top_level,domestic,minor_top_level.lco,84,2022-06-06,2022-08-09,8,53,84,84
+LCO Split 2 2023,LCO,minor_top_level,domestic,minor_top_level.lco,19,2023-06-05,2023-07-12,8,46,19,19
+LCO Split 2 2024,LCO,minor_top_level,domestic,minor_top_level.lco,26,2024-05-27,2024-07-09,8,49,26,26
+LCO Split 2 Playoffs 2021,LCO,minor_top_level,domestic,minor_top_level.lco,6,2021-08-17,2021-08-31,5,26,6,6
+LCO Split 2 Playoffs 2022,LCO,minor_top_level,domestic,minor_top_level.lco,6,2022-08-15,2022-09-04,5,25,6,6
+LCO Split 2 Playoffs 2023,LCO,minor_top_level,domestic,minor_top_level.lco,8,2023-07-17,2023-07-30,6,31,8,8
+LCO Split 2 Playoffs 2024,LCO,minor_top_level,domestic,minor_top_level.lco,8,2024-07-15,2024-07-22,6,30,8,6
+LCO Sprit 1 Playoffs 2022,LCO,minor_top_level,domestic,minor_top_level.lco,6,2022-03-28,2022-04-11,5,25,6,6
+LCP 2025 Mid Season,LCP,minor_top_level,domestic,minor_top_level.lcp,28,2025-04-19,2025-05-25,8,44,28,28
+LCP 2025 Mid Season Qualifying Series,LCP,minor_top_level,domestic,minor_top_level.lcp,8,2025-05-30,2025-06-08,6,31,8,8
+LCP 2025 Season Finals,LCP,minor_top_level,domestic,minor_top_level.lcp,24,2025-07-26,2025-08-24,8,42,24,24
+LCP 2025 Season Finals Playoffs,LCP,minor_top_level,domestic,minor_top_level.lcp,10,2025-09-05,2025-09-21,6,31,10,9
+LCP 2025 Season Kickoff,LCP,minor_top_level,domestic,minor_top_level.lcp,28,2025-01-17,2025-02-16,8,43,28,0
+LCP 2025 Season Kickoff Qualifying Series,LCP,minor_top_level,domestic,minor_top_level.lcp,8,2025-02-18,2025-02-23,6,30,8,0
+LCP 2026 Split 1,LCP,minor_top_level,domestic,minor_top_level.lcp,28,2026-01-16,2026-02-08,8,43,28,25
+LCP 2026 Split 1 Playoffs,LCP,minor_top_level,domestic,minor_top_level.lcp,8,2026-02-12,2026-03-01,6,30,8,8
+LCP 2026 Split 2,LCP,minor_top_level,domestic,minor_top_level.lcp,24,2026-04-04,2026-05-10,8,43,24,0
+LCS 2026 Lock-In,LCS,major,domestic,major.lcs,21,2026-01-24,2026-03-01,8,43,21,21
+LCS 2026 Spring,LCS,major,domestic,major.lcs,24,2026-04-04,2026-05-10,8,41,24,0
+LCS Championship 2021,LCS,major,domestic,major.lcs,12,2021-08-07,2021-08-29,8,41,12,12
+LCS Championship 2022,LCS,major,domestic,major.lcs,12,2022-08-20,2022-09-11,8,42,12,12
+LCS Championship 2023,LCS,major,domestic,major.lcs,12,2023-07-27,2023-08-20,8,41,12,12
+LCS Championship 2024,LCS,major,domestic,major.lcs,10,2024-08-17,2024-09-07,6,30,10,10
+LCS Lock In 2021,LCS,major,domestic,major.lcs,27,2021-01-15,2021-01-31,10,54,27,0
+LCS Lock In 2022,LCS,major,domestic,major.lcs,27,2022-01-14,2022-01-30,10,55,27,26
+LCS Mid-Season Showdown 2021,LCS,major,domestic,major.lcs,8,2021-03-20,2021-04-11,6,31,8,8
+LCS Proving Grounds Spring 2021,LCS Proving Grounds,development,domestic,development.lcs_proving_grounds,30,2021-03-31,2021-04-25,16,80,30,0
+LCS Proving Grounds Spring 2022,LCS Proving Grounds,development,domestic,development.lcs_proving_grounds,34,2022-03-16,2022-04-15,20,101,34,0
+LCS Proving Grounds Summer 2021,LCS Proving Grounds,development,domestic,development.lcs_proving_grounds,30,2021-09-02,2021-09-26,16,82,30,0
+LCS Proving Grounds Summer 2022,LCS Proving Grounds,development,domestic,development.lcs_proving_grounds,34,2022-08-03,2022-08-31,20,102,34,0
+LCS Regional Finals 2019,LCS,major,domestic,major.lcs,3,2019-09-06,2019-09-08,4,20,3,3
+LCS Spring 2019,LCS,major,domestic,major.lcs,91,2019-01-26,2019-03-24,10,69,91,81
+LCS Spring 2020,LCS,major,domestic,major.lcs,94,2020-01-25,2020-03-30,10,58,94,79
+LCS Spring 2021,LCS,major,domestic,major.lcs,90,2021-02-05,2021-03-14,10,54,90,74
+LCS Spring 2022,LCS,major,domestic,major.lcs,92,2022-02-05,2022-03-27,10,61,92,89
+LCS Spring 2023,LCS,major,domestic,major.lcs,93,2023-01-26,2023-03-17,10,59,93,88
+LCS Spring 2024,LCS,major,domestic,major.lcs,57,2024-01-20,2024-03-10,8,41,57,56
+LCS Spring Playoffs 2019,LCS,major,domestic,major.lcs,5,2019-03-29,2019-04-13,6,30,5,4
+LCS Spring Playoffs 2020,LCS,major,domestic,major.lcs,8,2020-04-04,2020-04-19,6,31,8,8
+LCS Spring Playoffs 2022,LCS,major,domestic,major.lcs,8,2022-04-02,2022-04-24,6,31,8,8
+LCS Spring Playoffs 2023,LCS,major,domestic,major.lcs,8,2023-03-23,2023-04-09,6,31,8,8
+LCS Spring Playoffs 2024,LCS,major,domestic,major.lcs,8,2024-03-14,2024-03-31,6,30,8,8
+LCS Summer 2019,LCS,major,domestic,major.lcs,93,2019-06-01,2019-08-04,10,65,93,86
+LCS Summer 2020,LCS,major,domestic,major.lcs,91,2020-06-12,2020-08-09,10,67,91,71
+LCS Summer 2021,LCS,major,domestic,major.lcs,135,2021-06-04,2021-08-01,10,68,135,125
+LCS Summer 2022,LCS,major,domestic,major.lcs,91,2022-06-17,2022-08-14,10,61,91,89
+LCS Summer 2023,LCS,major,domestic,major.lcs,92,2023-06-14,2023-07-21,10,56,92,91
+LCS Summer 2024,LCS,major,domestic,major.lcs,28,2024-06-15,2024-08-11,8,42,28,28
+LCS Summer Playoffs 2019,LCS,major,domestic,major.lcs,6,2019-08-10,2019-08-25,6,30,6,6
+LCS Summer Playoffs 2020,LCS,major,domestic,major.lcs,12,2020-08-13,2020-09-06,8,41,12,11
+LEC 2025 Spring Playoffs,LEC,major,domestic,major.lec,8,2025-05-24,2025-06-08,6,30,8,8
+LEC 2025 Spring Season,LEC,major,domestic,major.lec,46,2025-03-29,2025-05-13,10,51,46,46
+LEC 2025 Summer Playoffs,LEC,major,domestic,major.lec,10,2025-09-05,2025-09-28,8,40,10,10
+LEC 2025 Summer Season,LEC,major,domestic,major.lec,20,2025-08-02,2025-08-26,10,50,20,20
+LEC 2025 Winter Playoffs,LEC,major,domestic,major.lec,14,2025-02-15,2025-03-02,8,40,14,14
+LEC 2026 Spring Season,LEC,major,domestic,major.lec,45,2026-03-28,2026-05-10,10,51,45,0
+LEC 2026 Versus Playoffs,LEC,major,domestic,major.lec,14,2026-02-16,2026-03-01,8,40,14,14
+LEC 2026 Versus Season,LEC,major,domestic,major.lec,66,2026-01-17,2026-02-08,12,60,66,66
+LEC Regional Finals 2019,LEC,major,domestic,major.lec,3,2019-09-13,2019-09-15,4,20,3,3
+LEC Season Finals 2023,LEC,major,domestic,major.lec,8,2023-08-19,2023-09-10,6,31,8,8
+LEC Season Finals 2024,LEC,major,domestic,major.lec,8,2024-08-10,2024-09-01,6,30,8,8
+LEC Spring 2019,LEC,major,domestic,major.lec,91,2019-01-18,2019-03-16,10,57,91,90
+LEC Spring 2020,LEC,major,domestic,major.lec,90,2020-01-24,2020-03-28,10,55,90,90
+LEC Spring 2021,LEC,major,domestic,major.lec,90,2021-01-22,2021-03-14,10,52,90,89
+LEC Spring 2022,LEC,major,domestic,major.lec,90,2022-01-14,2022-03-06,10,51,90,90
+LEC Spring Groups 2023,LEC,major,domestic,major.lec,10,2023-04-08,2023-04-16,8,40,10,10
+LEC Spring Playoffs 2019,LEC,major,domestic,major.lec,6,2019-03-29,2019-04-14,6,30,6,6
+LEC Spring Playoffs 2020,LEC,major,domestic,major.lec,8,2020-04-03,2020-04-19,6,30,8,8
+LEC Spring Playoffs 2021,LEC,major,domestic,major.lec,8,2021-03-26,2021-04-11,6,30,8,8
+LEC Spring Playoffs 2022,LEC,major,domestic,major.lec,8,2022-03-25,2022-04-10,6,30,8,8
+LEC Spring Playoffs 2023,LEC,major,domestic,major.lec,4,2023-04-17,2023-04-23,4,20,4,4
+LEC Spring Playoffs 2024,LEC,major,domestic,major.lec,14,2024-03-30,2024-04-14,8,40,14,14
+LEC Spring Season 2023,LEC,major,domestic,major.lec,46,2023-03-11,2023-03-27,10,51,46,46
+LEC Spring Season 2024,LEC,major,domestic,major.lec,46,2024-03-09,2024-03-25,10,50,46,45
+LEC Summer 2019,LEC,major,domestic,major.lec,91,2019-06-07,2019-08-17,10,63,91,90
+LEC Summer 2020,LEC,major,domestic,major.lec,90,2020-06-12,2020-08-09,10,57,90,90
+LEC Summer 2021,LEC,major,domestic,major.lec,90,2021-06-11,2021-08-01,10,55,90,90
+LEC Summer 2022,LEC,major,domestic,major.lec,92,2022-06-17,2022-08-14,10,53,92,90
+LEC Summer 2023,LEC,major,domestic,major.lec,45,2023-06-17,2023-07-03,10,52,45,45
+LEC Summer Groups 2023,LEC,major,domestic,major.lec,10,2023-07-15,2023-07-23,8,40,10,10
+LEC Summer Playoffs 2019,LEC,major,domestic,major.lec,6,2019-08-23,2019-09-08,6,30,6,6
+LEC Summer Playoffs 2020,LEC,major,domestic,major.lec,8,2020-08-21,2020-09-06,6,30,8,8
+LEC Summer Playoffs 2021,LEC,major,domestic,major.lec,8,2021-08-13,2021-08-29,6,30,8,8
+LEC Summer Playoffs 2022,LEC,major,domestic,major.lec,8,2022-08-26,2022-09-11,6,30,8,8
+LEC Summer Playoffs 2023,LEC,major,domestic,major.lec,4,2023-07-24,2023-07-30,4,20,4,4
+LEC Summer Playoffs 2024,LEC,major,domestic,major.lec,14,2024-07-12,2024-07-28,8,40,14,14
+LEC Summer Season 2024,LEC,major,domestic,major.lec,47,2024-06-08,2024-06-30,10,50,47,47
+LEC Winter 2023,LEC,major,domestic,major.lec,45,2023-01-21,2023-02-06,10,50,45,45
+LEC Winter 2025,LEC,major,domestic,major.lec,45,2025-01-18,2025-02-03,10,50,45,45
+LEC Winter Groups 2023,LEC,major,domestic,major.lec,10,2023-02-11,2023-02-19,8,40,10,10
+LEC Winter Playoffs 2023,LEC,major,domestic,major.lec,4,2023-02-20,2023-02-26,4,20,4,4
+LEC Winter Playoffs 2024,LEC,major,domestic,major.lec,14,2024-02-03,2024-02-18,8,41,14,14
+LEC Winter Season 2024,LEC,major,domestic,major.lec,45,2024-01-13,2024-01-29,10,50,45,45
+LES 2026 Kick-off Tournament,LES,regional,domestic,regional.les,13,2026-02-13,2026-02-15,8,40,13,0
+LES 2026 Spring,LES,regional,domestic,regional.les,20,2026-04-08,2026-05-07,8,40,20,0
+LFL 2025 Flash In Playoffs,LFL,regional,domestic,regional.lfl,4,2025-02-19,2025-02-27,4,20,4,4
+LFL 2025 Flash In Swiss,LFL,regional,domestic,regional.lfl,10,2025-02-05,2025-02-14,8,40,10,9
+LFL 2025 Kickoff Groups,LFL,regional,domestic,regional.lfl,23,2025-01-22,2025-01-31,10,50,23,20
+LFL 2025 Spring Playoffs,LFL,regional,domestic,regional.lfl,10,2025-05-14,2025-05-29,10,50,10,10
+LFL 2025 Spring Split,LFL,regional,domestic,regional.lfl,48,2025-04-09,2025-04-26,10,50,48,45
+LFL 2025 Spring Swiss,LFL,regional,domestic,regional.lfl,10,2025-04-30,2025-05-09,8,40,10,10
+LFL 2025 Summer Playoffs,LFL,regional,domestic,regional.lfl,6,2025-09-02,2025-09-12,6,30,6,6
+LFL 2025 Summer Split,LFL,regional,domestic,regional.lfl,45,2025-07-23,2025-08-29,10,50,45,45
+LFL 2026 Invitational,LFL,regional,domestic,regional.lfl,79,2026-01-21,2026-03-06,20,103,79,78
+LFL 2026 Spring Playoffs,LFL,regional,domestic,regional.lfl,4,2026-05-06,2026-05-07,8,40,4,0
+LFL 2026 Spring Split,LFL,regional,domestic,regional.lfl,45,2026-04-08,2026-05-01,10,52,45,0
+LFL Div2 2025 Spring Playoffs,LFL Div2,development,domestic,development.lfl_div2,4,2025-05-31,2025-06-08,4,20,4,0
+LFL Div2 2025 Spring Split,LFL Div2,development,domestic,development.lfl_div2,56,2025-04-12,2025-05-25,8,45,56,0
+LFL Div2 2025 Summer Playoffs,LFL Div2,development,domestic,development.lfl_div2,4,2025-09-06,2025-09-14,4,20,4,0
+LFL Div2 2025 Summer Split,LFL Div2,development,domestic,development.lfl_div2,55,2025-07-19,2025-08-31,8,42,55,0
+LFL Div2 2025 Winter,LFL Div2,development,domestic,development.lfl_div2,56,2025-01-11,2025-02-23,8,42,56,0
+LFL Div2 2025 Winter Playoffs,LFL Div2,development,domestic,development.lfl_div2,4,2025-03-01,2025-03-09,4,20,4,0
+LFL Div2 Spring 2022,LFL Div2,development,domestic,development.lfl_div2,90,2022-01-17,2022-03-15,10,57,90,0
+LFL Div2 Spring 2023,LFL Div2,development,domestic,development.lfl_div2,90,2023-01-10,2023-03-10,10,60,90,0
+LFL Div2 Spring 2024,LFL Div2,development,domestic,development.lfl_div2,90,2024-01-19,2024-03-15,10,57,90,0
+LFL Div2 Spring Playoffs 2022,LFL Div2,development,domestic,development.lfl_div2,6,2022-03-21,2022-04-05,6,30,6,0
+LFL Div2 Spring Playoffs 2023,LFL Div2,development,domestic,development.lfl_div2,6,2023-03-14,2023-04-02,6,30,6,0
+LFL Div2 Spring Playoffs 2024,LFL Div2,development,domestic,development.lfl_div2,6,2024-03-19,2024-04-09,6,30,6,0
+LFL Div2 Summer 2021,LFL Div2,development,domestic,development.lfl_div2,90,2021-06-14,2021-08-17,10,62,90,0
+LFL Div2 Summer 2022,LFL Div2,development,domestic,development.lfl_div2,90,2022-05-30,2022-07-26,10,62,90,0
+LFL Div2 Summer 2023,LFL Div2,development,domestic,development.lfl_div2,91,2023-05-23,2023-07-21,10,65,91,0
+LFL Div2 Summer 2024,LFL Div2,development,domestic,development.lfl_div2,90,2024-05-21,2024-07-05,10,57,90,0
+LFL Div2 Summer Playoffs 2021,LFL Div2,development,domestic,development.lfl_div2,4,2021-08-23,2021-08-26,5,25,4,0
+LFL Div2 Summer Playoffs 2022,LFL Div2,development,domestic,development.lfl_div2,6,2022-08-01,2022-08-16,6,30,6,0
+LFL Div2 Summer Playoffs 2023,LFL Div2,development,domestic,development.lfl_div2,6,2023-07-31,2023-08-13,6,30,6,0
+LFL Div2 Summer Playoffs 2024,LFL Div2,development,domestic,development.lfl_div2,6,2024-07-08,2024-08-04,6,30,6,0
+LFL EM Qualification 2020,LFL,regional,domestic,regional.lfl,4,2020-08-13,2020-08-16,5,25,4,0
+LFL Finals 2019,LFL,regional,domestic,regional.lfl,2,2019-10-30,2019-10-31,3,15,2,0
+LFL Finals 2020,LFL,regional,domestic,regional.lfl,2,2020-10-06,2020-10-26,3,16,2,0
+LFL Finals 2021,LFL,regional,domestic,regional.lfl,2,2021-08-27,2021-10-04,3,15,2,0
+LFL Promotion 2021,LFL,regional,domestic,regional.lfl,5,2021-09-20,2021-09-24,4,20,5,0
+LFL Promotion 2023,LFL,regional,domestic,regional.lfl,5,2022-09-12,2022-09-20,4,20,5,0
+LFL Promotion 2024,LFL,regional,domestic,regional.lfl,5,2023-09-18,2023-09-22,4,20,5,0
+LFL Promotion 2025,LFL,regional,domestic,regional.lfl,3,2024-09-04,2024-09-06,3,16,3,0
+LFL Spring 2019,LFL,regional,domestic,regional.lfl,61,2019-01-22,2019-04-03,8,43,61,0
+LFL Spring 2020,LFL,regional,domestic,regional.lfl,58,2020-01-21,2020-04-09,8,47,58,0
+LFL Spring 2021,LFL,regional,domestic,regional.lfl,91,2021-01-19,2021-03-11,10,53,91,0
+LFL Spring 2022,LFL,regional,domestic,regional.lfl,90,2022-01-12,2022-03-10,10,51,90,88
+LFL Spring 2023,LFL,regional,domestic,regional.lfl,90,2023-01-18,2023-03-16,10,51,90,90
+LFL Spring 2024,LFL,regional,domestic,regional.lfl,90,2024-01-17,2024-03-14,10,50,90,90
+LFL Spring Playoffs 2021,LFL,regional,domestic,regional.lfl,4,2021-03-17,2021-03-25,5,25,4,0
+LFL Spring Playoffs 2022,LFL,regional,domestic,regional.lfl,6,2022-03-16,2022-03-31,6,30,6,6
+LFL Spring Playoffs 2023,LFL,regional,domestic,regional.lfl,6,2023-03-22,2023-03-31,6,30,6,6
+LFL Spring Playoffs 2024,LFL,regional,domestic,regional.lfl,6,2024-03-20,2024-04-05,6,30,6,6
+LFL Summer 2019,LFL,regional,domestic,regional.lfl,60,2019-05-21,2019-07-31,8,49,60,0
+LFL Summer 2020,LFL,regional,domestic,regional.lfl,62,2020-07-28,2020-09-24,8,45,62,0
+LFL Summer 2021,LFL,regional,domestic,regional.lfl,85,2021-06-08,2021-07-28,10,53,85,0
+LFL Summer 2022,LFL,regional,domestic,regional.lfl,90,2022-06-01,2022-07-28,10,56,90,90
+LFL Summer 2023,LFL,regional,domestic,regional.lfl,91,2023-05-31,2023-07-27,10,52,91,90
+LFL Summer 2024,LFL,regional,domestic,regional.lfl,91,2024-05-22,2024-07-18,10,51,91,90
+LFL Summer Playoffs 2020,LFL,regional,domestic,regional.lfl,4,2020-09-28,2020-10-01,5,25,4,0
+LFL Summer Playoffs 2021,LFL,regional,domestic,regional.lfl,4,2021-08-04,2021-08-12,5,25,4,0
+LFL Summer Playoffs 2022,LFL,regional,domestic,regional.lfl,6,2022-08-03,2022-08-18,6,30,6,6
+LFL Summer Playoffs 2023,LFL,regional,domestic,regional.lfl,6,2023-08-02,2023-08-11,6,30,6,6
+LFL Summer Playoffs 2024,LFL,regional,domestic,regional.lfl,6,2024-07-20,2024-08-03,6,30,6,6
+LIT 2025 Spring Playoffs,LIT,regional,domestic,regional.lit,10,2025-04-16,2025-05-23,6,30,10,0
+LIT 2025 Spring Split,LIT,regional,domestic,regional.lit,15,2025-04-03,2025-04-11,6,33,15,0
+LIT 2025 Summer Playoffs,LIT,regional,domestic,regional.lit,10,2025-07-30,2025-09-14,6,34,10,0
+LIT 2025 Summer Split,LIT,regional,domestic,regional.lit,15,2025-07-14,2025-07-25,6,32,15,0
+LIT 2025 Winter,LIT,regional,domestic,regional.lit,17,2025-01-22,2025-03-09,6,35,17,0
+LIT 2026 Spring Playoffs,LIT,regional,domestic,regional.lit,7,2026-04-22,2026-05-08,8,40,7,0
+LIT 2026 Spring Split,LIT,regional,domestic,regional.lit,28,2026-04-01,2026-04-17,8,44,28,0
+LIT 2026 Winter Playoffs,LIT,regional,domestic,regional.lit,10,2026-01-28,2026-03-06,8,42,10,0
+LIT 2026 Winter Split,LIT,regional,domestic,regional.lit,28,2026-01-08,2026-01-23,8,45,28,0
+LIT Spring 2024,LIT,regional,domestic,regional.lit,57,2024-01-25,2024-03-08,8,43,57,0
+LIT Spring Playoffs 2024,LIT,regional,domestic,regional.lit,4,2024-03-14,2024-03-29,4,20,4,0
+LIT Summer 2024,LIT,regional,domestic,regional.lit,48,2024-05-23,2024-07-05,8,57,48,0
+LIT Summer Playoffs 2024,LIT,regional,domestic,regional.lit,4,2024-07-10,2024-07-25,4,20,4,0
+LJL 2025 Finals,LJL,minor_top_level,domestic,minor_top_level.ljl,8,2025-07-19,2025-09-15,6,31,8,0
+LJL 2025 Ignite,LJL,minor_top_level,domestic,minor_top_level.ljl,40,2025-05-21,2025-06-22,12,67,40,0
+LJL 2025 Storm,LJL,minor_top_level,domestic,minor_top_level.ljl,59,2025-04-04,2025-05-06,12,63,59,0
+LJL 2026 Spring Series,LJL,minor_top_level,domestic,minor_top_level.ljl,12,2026-04-29,2026-05-06,8,43,12,0
+LJL 2026 Winter Series,LJL,minor_top_level,domestic,minor_top_level.ljl,45,2026-02-21,2026-03-29,12,65,45,0
+LJL Academy 2021,LJL Academy,development,domestic,development.ljl_academy,30,2021-08-30,2021-09-07,8,40,30,0
+LJL Academy Playoffs 2021,LJL Academy,development,domestic,development.ljl_academy,7,2021-09-08,2021-09-09,8,40,7,0
+LJL Spring 2018,LJL,minor_top_level,domestic,minor_top_level.ljl,29,2018-02-09,2018-03-30,6,33,29,0
+LJL Spring 2019,LJL,minor_top_level,domestic,minor_top_level.ljl,84,2019-01-19,2019-03-22,8,48,84,0
+LJL Spring 2020,LJL,minor_top_level,domestic,minor_top_level.ljl,57,2020-02-08,2020-03-12,8,40,57,0
+LJL Spring 2021,LJL,minor_top_level,domestic,minor_top_level.ljl,57,2021-01-23,2021-03-11,8,43,57,0
+LJL Spring 2022,LJL,minor_top_level,domestic,minor_top_level.ljl,84,2022-02-11,2022-03-25,8,42,84,68
+LJL Spring 2023,LJL,minor_top_level,domestic,minor_top_level.ljl,56,2023-01-28,2023-03-26,8,44,56,56
+LJL Spring 2024,LJL,minor_top_level,domestic,minor_top_level.ljl,22,2024-01-20,2024-02-18,6,30,22,22
+LJL Spring Playoffs 2018,LJL,minor_top_level,domestic,minor_top_level.ljl,2,2018-04-07,2018-04-14,3,15,2,0
+LJL Spring Playoffs 2019,LJL,minor_top_level,domestic,minor_top_level.ljl,2,2019-04-06,2019-04-13,3,15,2,0
+LJL Spring Playoffs 2020,LJL,minor_top_level,domestic,minor_top_level.ljl,6,2020-03-21,2020-05-04,6,30,6,0
+LJL Spring Playoffs 2021,LJL,minor_top_level,domestic,minor_top_level.ljl,6,2021-03-14,2021-04-11,6,30,6,0
+LJL Spring Playoffs 2022,LJL,minor_top_level,domestic,minor_top_level.ljl,6,2022-03-30,2022-04-10,6,30,6,6
+LJL Spring Playoffs 2023,LJL,minor_top_level,domestic,minor_top_level.ljl,5,2023-04-01,2023-04-15,6,30,5,5
+LJL Spring Playoffs 2024,LJL,minor_top_level,domestic,minor_top_level.ljl,4,2024-02-24,2024-03-03,4,20,4,4
+LJL Summer 2018,LJL,minor_top_level,domestic,minor_top_level.ljl,30,2018-06-22,2018-08-11,6,31,30,0
+LJL Summer 2019,LJL,minor_top_level,domestic,minor_top_level.ljl,84,2019-06-15,2019-08-18,8,45,84,0
+LJL Summer 2020,LJL,minor_top_level,domestic,minor_top_level.ljl,57,2020-06-13,2020-08-05,8,41,57,0
+LJL Summer 2021,LJL,minor_top_level,domestic,minor_top_level.ljl,58,2021-06-19,2021-08-04,8,42,58,56
+LJL Summer 2022,LJL,minor_top_level,domestic,minor_top_level.ljl,84,2022-06-24,2022-08-17,8,46,84,64
+LJL Summer 2023,LJL,minor_top_level,domestic,minor_top_level.ljl,27,2023-06-10,2023-07-16,8,46,27,27
+LJL Summer 2024,LJL,minor_top_level,domestic,minor_top_level.ljl,20,2024-06-07,2024-07-14,6,33,20,20
+LJL Summer Playoffs 2018,LJL,minor_top_level,domestic,minor_top_level.ljl,2,2018-09-08,2018-09-15,3,15,2,0
+LJL Summer Playoffs 2019,LJL,minor_top_level,domestic,minor_top_level.ljl,2,2019-09-01,2019-09-16,3,15,2,0
+LJL Summer Playoffs 2020,LJL,minor_top_level,domestic,minor_top_level.ljl,6,2020-08-16,2020-09-06,6,30,6,0
+LJL Summer Playoffs 2021,LJL,minor_top_level,domestic,minor_top_level.ljl,6,2021-08-08,2021-09-05,6,30,6,6
+LJL Summer Playoffs 2022,LJL,minor_top_level,domestic,minor_top_level.ljl,6,2022-08-24,2022-09-04,6,30,6,6
+LJL Summer Playoffs 2023,LJL,minor_top_level,domestic,minor_top_level.ljl,10,2023-07-22,2023-08-20,8,40,10,10
+LJL Summer Playoffs 2024,LJL,minor_top_level,domestic,minor_top_level.ljl,6,2024-07-20,2024-07-28,5,25,6,6
+LLA Closing 2019,LLA,minor_top_level,domestic,minor_top_level.lla,84,2019-06-08,2019-08-04,8,51,84,2
+LLA Closing 2020,LLA,minor_top_level,domestic,minor_top_level.lla,66,2020-06-20,2020-08-09,8,44,66,0
+LLA Closing 2021,LLA,minor_top_level,domestic,minor_top_level.lla,66,2021-06-19,2021-08-08,8,56,66,11
+LLA Closing 2022,LLA,minor_top_level,domestic,minor_top_level.lla,57,2022-06-11,2022-07-31,8,47,57,56
+LLA Closing 2023,LLA,minor_top_level,domestic,minor_top_level.lla,28,2023-06-06,2023-07-19,8,44,28,28
+LLA Closing 2024,LLA,minor_top_level,domestic,minor_top_level.lla,18,2024-06-11,2024-07-24,6,33,18,17
+LLA Closing Playoffs 2019,LLA,minor_top_level,domestic,minor_top_level.lla,5,2019-08-10,2019-08-31,6,30,5,0
+LLA Closing Playoffs 2020,LLA,minor_top_level,domestic,minor_top_level.lla,3,2020-08-15,2020-08-29,4,20,3,0
+LLA Closing Playoffs 2021,LLA,minor_top_level,domestic,minor_top_level.lla,3,2021-08-14,2021-08-28,4,20,3,3
+LLA Closing Playoffs 2022,LLA,minor_top_level,domestic,minor_top_level.lla,8,2022-08-05,2022-08-27,6,31,8,8
+LLA Closing Playoffs 2023,LLA,minor_top_level,domestic,minor_top_level.lla,8,2023-07-25,2023-08-26,6,31,8,8
+LLA Closing Playoffs 2024,LLA,minor_top_level,domestic,minor_top_level.lla,6,2024-07-30,2024-08-24,4,21,6,6
+LLA Opening 2019,LLA,minor_top_level,domestic,minor_top_level.lla,84,2019-01-19,2019-03-24,8,44,84,1
+LLA Opening 2020,LLA,minor_top_level,domestic,minor_top_level.lla,66,2020-02-15,2020-04-19,8,47,66,0
+LLA Opening 2021,LLA,minor_top_level,domestic,minor_top_level.lla,67,2021-01-30,2021-03-22,8,46,67,0
+LLA Opening 2022,LLA,minor_top_level,domestic,minor_top_level.lla,58,2022-01-29,2022-03-13,8,50,58,56
+LLA Opening 2023,LLA,minor_top_level,domestic,minor_top_level.lla,28,2023-01-24,2023-03-08,8,43,28,28
+LLA Opening 2024,LLA,minor_top_level,domestic,minor_top_level.lla,42,2024-01-16,2024-02-29,7,41,42,42
+LLA Opening Playoffs 2019,LLA,minor_top_level,domestic,minor_top_level.lla,5,2019-03-30,2019-04-20,6,30,5,1
+LLA Opening Playoffs 2020,LLA,minor_top_level,domestic,minor_top_level.lla,3,2020-04-25,2020-05-02,4,20,3,0
+LLA Opening Playoffs 2021,LLA,minor_top_level,domestic,minor_top_level.lla,3,2021-03-28,2021-04-10,4,20,3,0
+LLA Opening Playoffs 2022,LLA,minor_top_level,domestic,minor_top_level.lla,8,2022-03-18,2022-04-16,6,31,8,8
+LLA Opening Playoffs 2023,LLA,minor_top_level,domestic,minor_top_level.lla,8,2023-03-14,2023-04-14,6,30,8,8
+LLA Opening Playoffs 2024,LLA,minor_top_level,domestic,minor_top_level.lla,8,2024-03-05,2024-04-06,6,30,8,8
+LLN Spring 2018,LLA,minor_top_level,domestic,minor_top_level.lla_historical_alias,43,2018-01-20,2018-03-24,7,40,43,0
+LLN Spring Playoffs 2018,LLA,minor_top_level,domestic,minor_top_level.lla_historical_alias,5,2018-03-31,2018-04-21,6,31,5,0
+LLN Summer 2018,LLA,minor_top_level,domestic,minor_top_level.lla_historical_alias,56,2018-06-17,2018-08-26,8,45,56,0
+LLN Summer Playoffs 2018,LLA,minor_top_level,domestic,minor_top_level.lla_historical_alias,5,2018-08-31,2018-09-08,6,30,5,0
+LLN-CLS-CBLOL Rift-Rivals 2018,Rift Rivals,international,cross_league,international.rift_rivals,21,2018-07-04,2018-07-08,6,30,21,0
+LMS Regional 2015,LMS,minor_top_level,domestic,minor_top_level.lms,3,2015-08-14,2015-08-16,4,22,3,0
+LMS Regional Finals 2019,LMS,minor_top_level,domestic,minor_top_level.lms,3,2019-09-06,2019-09-08,4,20,3,0
+LMS Regional Qualifiers 2016,LMS,minor_top_level,domestic,minor_top_level.lms,3,2016-09-02,2016-09-04,4,20,3,0
+LMS Regional Qualifiers 2017,LMS,minor_top_level,domestic,minor_top_level.lms,3,2017-08-26,2017-08-28,4,20,3,0
+LMS Regional Qualifiers 2018,LMS,minor_top_level,domestic,minor_top_level.lms,3,2018-09-20,2018-09-22,4,20,3,3
+LMS Spring 2017,LMS,minor_top_level,domestic,minor_top_level.lms,56,2017-01-21,2017-04-09,8,54,56,6
+LMS Spring 2018,LMS,minor_top_level,domestic,minor_top_level.lms,56,2018-01-20,2018-04-01,8,55,56,4
+LMS Spring 2019,LMS,minor_top_level,domestic,minor_top_level.lms,57,2019-01-17,2019-03-31,8,57,57,55
+LMS Spring Playoffs 2015,LMS,minor_top_level,domestic,minor_top_level.lms,3,2015-04-10,2015-04-12,4,20,3,0
+LMS Spring Playoffs 2016,LMS,minor_top_level,domestic,minor_top_level.lms,3,2016-04-15,2016-04-17,4,20,3,0
+LMS Spring Playoffs 2017,LMS,minor_top_level,domestic,minor_top_level.lms,3,2017-04-21,2017-04-23,4,20,3,3
+LMS Spring Playoffs 2018,LMS,minor_top_level,domestic,minor_top_level.lms,3,2018-04-14,2018-04-22,4,20,3,2
+LMS Spring Playoffs 2019,LMS,minor_top_level,domestic,minor_top_level.lms,3,2019-04-12,2019-04-20,4,20,3,0
+LMS Summer 2017,LMS,minor_top_level,domestic,minor_top_level.lms,57,2017-06-03,2017-08-06,8,53,57,56
+LMS Summer 2018,LMS,minor_top_level,domestic,minor_top_level.lms,57,2018-06-23,2018-08-18,8,60,57,37
+LMS Summer 2019,LMS,minor_top_level,domestic,minor_top_level.lms,42,2019-06-13,2019-08-04,7,45,42,1
+LMS Summer Playoffs 2015,LMS,minor_top_level,domestic,minor_top_level.lms,3,2015-07-24,2015-07-26,4,20,3,0
+LMS Summer Playoffs 2016,LMS,minor_top_level,domestic,minor_top_level.lms,3,2016-08-17,2016-08-21,4,20,3,0
+LMS Summer Playoffs 2017,LMS,minor_top_level,domestic,minor_top_level.lms,3,2017-08-18,2017-08-25,4,21,3,3
+LMS Summer Playoffs 2018,LMS,minor_top_level,domestic,minor_top_level.lms,3,2018-09-07,2018-09-15,4,20,3,2
+LMS Summer Playoffs 2019,LMS,minor_top_level,domestic,minor_top_level.lms,3,2019-08-23,2019-08-31,4,21,3,0
+LPL 2025 Grand Finals,LPL,major,domestic,major.lpl,18,2025-08-30,2025-09-21,12,61,18,18
+LPL 2025 Regional Finals,LPL,major,domestic,major.lpl,3,2025-09-25,2025-09-27,4,20,3,3
+LPL 2025 Split 1,LPL,major,domestic,major.lpl,24,2025-01-12,2025-02-16,16,83,24,24
+LPL 2025 Split 1 Playoffs,LPL,major,domestic,major.lpl,10,2025-02-22,2025-03-01,8,40,10,10
+LPL 2025 Split 2,LPL,major,domestic,major.lpl,105,2025-04-05,2025-05-22,16,87,105,105
+LPL 2025 Split 2 Placements,LPL,major,domestic,major.lpl,55,2025-03-22,2025-03-31,16,80,55,52
+LPL 2025 Split 2 Playoffs,LPL,major,domestic,major.lpl,18,2025-05-24,2025-06-14,12,60,18,18
+LPL 2025 Split 3,LPL,major,domestic,major.lpl,86,2025-07-19,2025-08-28,14,74,86,86
+LPL 2026 Split 1,LPL,major,domestic,major.lpl,55,2026-01-14,2026-02-07,14,71,55,54
+LPL 2026 Split 1 Playoffs,LPL,major,domestic,major.lpl,20,2026-02-09,2026-03-08,12,60,20,19
+LPL 2026 Split 2,LPL,major,domestic,major.lpl,59,2026-04-04,2026-05-10,14,75,59,0
+LPL Regional Finals 2019,LPL,major,domestic,major.lpl,2,2019-09-07,2019-09-08,3,15,2,2
+LPL Regional Finals 2020,LPL,major,domestic,major.lpl,3,2020-08-28,2020-08-30,4,20,3,3
+LPL Regional Finals 2021,LPL,major,domestic,major.lpl,3,2021-09-03,2021-09-05,4,20,3,3
+LPL Regional Finals 2022,LPL,major,domestic,major.lpl,3,2022-09-02,2022-09-04,4,20,3,3
+LPL Regional Finals 2023,LPL,major,domestic,major.lpl,3,2023-08-06,2023-08-08,4,20,3,3
+LPL Regional Finals 2024,LPL,major,domestic,major.lpl,3,2024-08-31,2024-09-02,4,20,3,2
+LPL Regional Qualifiers 2015,LPL,major,domestic,major.lpl,5,2015-09-04,2015-09-05,4,20,5,0
+LPL Regional Qualifiers 2016,LPL,major,domestic,major.lpl,3,2016-08-27,2016-08-28,4,20,3,0
+LPL Regional Qualifiers 2017,LPL,major,domestic,major.lpl,2,2017-09-02,2017-09-03,3,15,2,0
+LPL Regional Qualifiers 2018,LPL,major,domestic,major.lpl,2,2018-09-15,2018-09-16,3,15,2,0
+LPL Spring 2015,LPL,major,domestic,major.lpl,78,2015-01-16,2015-04-12,12,82,78,0
+LPL Spring 2016,LPL,major,domestic,major.lpl,96,2016-01-14,2016-04-10,12,85,96,0
+LPL Spring 2017,LPL,major,domestic,major.lpl,96,2017-01-19,2017-04-16,12,95,96,19
+LPL Spring 2018,LPL,major,domestic,major.lpl,133,2018-01-15,2018-04-08,14,102,133,131
+LPL Spring 2019,LPL,major,domestic,major.lpl,120,2019-01-14,2019-03-31,16,116,120,120
+LPL Spring 2020,LPL,major,domestic,major.lpl,136,2020-01-13,2020-04-20,17,115,136,136
+LPL Spring 2021,LPL,major,domestic,major.lpl,136,2021-01-09,2021-03-28,17,110,136,136
+LPL Spring 2022,LPL,major,domestic,major.lpl,136,2022-01-10,2022-03-25,17,113,136,136
+LPL Spring 2023,LPL,major,domestic,major.lpl,136,2023-01-14,2023-03-26,17,101,136,136
+LPL Spring 2024,LPL,major,domestic,major.lpl,136,2024-01-22,2024-03-27,17,103,136,136
+LPL Spring Playoffs 2015,LPL,major,domestic,major.lpl,8,2015-04-14,2015-04-26,8,41,8,0
+LPL Spring Playoffs 2016,LPL,major,domestic,major.lpl,7,2016-04-13,2016-04-23,8,41,7,0
+LPL Spring Playoffs 2017,LPL,major,domestic,major.lpl,8,2017-04-18,2017-04-29,8,42,8,8
+LPL Spring Playoffs 2018,LPL,major,domestic,major.lpl,8,2018-04-12,2018-04-28,8,42,8,3
+LPL Spring Playoffs 2019,LPL,major,domestic,major.lpl,8,2019-04-04,2019-04-21,8,41,8,8
+LPL Spring Playoffs 2020,LPL,major,domestic,major.lpl,8,2020-04-22,2020-05-02,8,43,8,8
+LPL Spring Playoffs 2021,LPL,major,domestic,major.lpl,12,2021-04-01,2021-04-18,10,50,12,12
+LPL Spring Playoffs 2022,LPL,major,domestic,major.lpl,12,2022-03-26,2022-04-23,10,50,12,12
+LPL Spring Playoffs 2023,LPL,major,domestic,major.lpl,12,2023-03-30,2023-04-15,10,50,12,12
+LPL Spring Playoffs 2024,LPL,major,domestic,major.lpl,12,2024-03-31,2024-04-20,10,50,12,12
+LPL Summer 2015,LPL,major,domestic,major.lpl,65,2015-05-22,2015-08-09,12,81,65,0
+LPL Summer 2016,LPL,major,domestic,major.lpl,96,2016-05-26,2016-08-07,12,82,96,0
+LPL Summer 2017,LPL,major,domestic,major.lpl,96,2017-06-08,2017-08-20,12,96,96,92
+LPL Summer 2018,LPL,major,domestic,major.lpl,133,2018-06-11,2018-09-02,14,107,133,129
+LPL Summer 2019,LPL,major,domestic,major.lpl,120,2019-06-01,2019-08-18,16,119,120,120
+LPL Summer 2020,LPL,major,domestic,major.lpl,136,2020-06-05,2020-08-09,17,116,136,136
+LPL Summer 2021,LPL,major,domestic,major.lpl,136,2021-06-07,2021-08-08,17,113,136,136
+LPL Summer 2022,LPL,major,domestic,major.lpl,136,2022-06-10,2022-08-14,17,115,136,136
+LPL Summer 2023,LPL,major,domestic,major.lpl,136,2023-05-29,2023-07-17,17,103,136,136
+LPL Summer Placements 2024,LPL,major,domestic,major.lpl,56,2024-06-01,2024-06-29,17,96,56,56
+LPL Summer Playoffs 2015,LPL,major,domestic,major.lpl,9,2015-08-11,2015-08-23,8,40,9,0
+LPL Summer Playoffs 2016,LPL,major,domestic,major.lpl,9,2016-08-10,2016-08-26,8,42,9,0
+LPL Summer Playoffs 2017,LPL,major,domestic,major.lpl,8,2017-08-22,2017-09-01,8,42,8,7
+LPL Summer Playoffs 2018,LPL,major,domestic,major.lpl,7,2018-09-06,2018-09-14,7,39,7,7
+LPL Summer Playoffs 2019,LPL,major,domestic,major.lpl,8,2019-08-22,2019-09-06,8,40,8,8
+LPL Summer Playoffs 2020,LPL,major,domestic,major.lpl,8,2020-08-13,2020-08-27,8,41,8,8
+LPL Summer Playoffs 2021,LPL,major,domestic,major.lpl,12,2021-08-12,2021-09-02,10,50,12,12
+LPL Summer Playoffs 2022,LPL,major,domestic,major.lpl,12,2022-08-16,2022-09-01,10,52,12,12
+LPL Summer Playoffs 2023,LPL,major,domestic,major.lpl,12,2023-07-20,2023-08-05,10,50,12,12
+LPL Summer Playoffs 2024,LPL,major,domestic,major.lpl,15,2024-08-03,2024-08-30,13,65,15,15
+LPL Summer Season 2024,LPL,major,domestic,major.lpl,64,2024-07-05,2024-07-31,17,91,64,64
+LPLOL 2025 Spring Playoffs,LPLOL,regional,domestic,regional.lpol,4,2025-05-15,2025-05-23,4,21,4,0
+LPLOL 2025 Spring Split,LPLOL,regional,domestic,regional.lpol,31,2025-04-17,2025-05-13,8,45,31,0
+LPLOL 2025 Summer Split,LPLOL,regional,domestic,regional.lpol,40,2025-08-06,2025-09-12,16,97,40,0
+LPLOL 2025 Winter Split,LPLOL,regional,domestic,regional.lpol,26,2025-02-11,2025-03-08,16,86,26,0
+LPLOL 2026 Spring Playoffs,LPLOL,regional,domestic,regional.lpol,1,2026-05-28,2026-05-28,2,10,1,0
+LPLOL 2026 Spring Split,LPLOL,regional,domestic,regional.lpol,12,2026-04-29,2026-05-07,8,42,12,0
+LPLOL 2026 Winter Split,LPLOL,regional,domestic,regional.lpol,26,2026-02-12,2026-03-06,16,83,26,0
+LPLOL Grand Final 2020,LPLOL,regional,domestic,regional.lpol,6,2020-11-16,2020-11-22,6,30,6,0
+LPLOL Grand Final 2021,LPLOL,regional,domestic,regional.lpol,6,2021-10-30,2021-11-13,6,31,6,0
+LPLOL Spring 2019,LPLOL,regional,domestic,regional.lpol,56,2019-01-28,2019-03-13,8,54,56,0
+LPLOL Spring 2020,LPLOL,regional,domestic,regional.lpol,62,2020-01-18,2020-03-22,8,47,62,0
+LPLOL Spring 2021,LPLOL,regional,domestic,regional.lpol,57,2021-01-25,2021-03-10,8,53,57,0
+LPLOL Spring 2022,LPLOL,regional,domestic,regional.lpol,55,2022-01-17,2022-03-02,8,43,55,0
+LPLOL Spring 2023,LPLOL,regional,domestic,regional.lpol,55,2023-01-26,2023-03-10,8,48,55,0
+LPLOL Spring 2024,LPLOL,regional,domestic,regional.lpol,54,2024-01-25,2024-03-08,8,53,54,0
+LPLOL Spring Playoffs 2021,LPLOL,regional,domestic,regional.lpol,3,2021-03-15,2021-03-21,4,20,3,0
+LPLOL Spring Playoffs 2022,LPLOL,regional,domestic,regional.lpol,4,2022-03-09,2022-03-19,4,20,4,0
+LPLOL Spring Playoffs 2023,LPLOL,regional,domestic,regional.lpol,4,2023-03-16,2023-04-01,4,20,4,0
+LPLOL Spring Playoffs 2024,LPLOL,regional,domestic,regional.lpol,4,2024-03-14,2024-04-05,4,20,4,0
+LPLOL Summer 2018,LPLOL,regional,domestic,regional.lpol,18,2018-05-21,2018-07-09,8,53,18,0
+LPLOL Summer 2019,LPLOL,regional,domestic,regional.lpol,82,2019-06-08,2019-08-06,8,51,82,0
+LPLOL Summer 2020,LPLOL,regional,domestic,regional.lpol,56,2020-06-08,2020-07-14,8,54,56,0
+LPLOL Summer 2021,LPLOL,regional,domestic,regional.lpol,57,2021-06-07,2021-07-21,8,58,57,0
+LPLOL Summer 2022,LPLOL,regional,domestic,regional.lpol,56,2022-06-06,2022-07-25,8,52,56,0
+LPLOL Summer 2023,LPLOL,regional,domestic,regional.lpol,56,2023-06-05,2023-07-14,8,54,56,0
+LPLOL Summer 2024,LPLOL,regional,domestic,regional.lpol,55,2024-05-23,2024-06-28,8,49,55,0
+LPLOL Summer Playoffs 2021,LPLOL,regional,domestic,regional.lpol,4,2021-07-26,2021-08-03,4,20,4,0
+LPLOL Summer Playoffs 2022,LPLOL,regional,domestic,regional.lpol,4,2022-07-27,2022-08-07,4,20,4,0
+LPLOL Summer Playoffs 2023,LPLOL,regional,domestic,regional.lpol,4,2023-07-20,2023-08-05,4,21,4,0
+LPLOL Summer Playoffs 2024,LPLOL,regional,domestic,regional.lpol,4,2024-07-04,2024-07-20,4,21,4,0
+LRN 2025 Split 1,LRN,development,domestic,development.lrn,28,2025-03-24,2025-05-04,8,68,28,0
+LRN 2025 Split 1 Playoffs,LRN,development,domestic,development.lrn,6,2025-05-12,2025-06-03,4,21,6,0
+LRN 2025 Split 2,LRN,development,domestic,development.lrn,20,2025-07-13,2025-08-04,7,39,20,0
+LRN 2025 Split 2 Playoffs,LRN,development,domestic,development.lrn,10,2025-08-10,2025-09-08,6,31,10,0
+LRN 2026 Split 1,LRN,development,domestic,development.lrn,26,2026-03-02,2026-04-13,8,61,26,0
+LRN 2026 Split 1 Playoffs,LRN,development,domestic,development.lrn,3,2026-04-20,2026-05-04,5,25,3,0
+LRS 2025 Split 1,LRS,development,domestic,development.lrs,19,2025-03-23,2025-05-05,7,44,19,0
+LRS 2025 Split 1 Playoffs,LRS,development,domestic,development.lrs,6,2025-05-13,2025-06-04,4,20,6,0
+LRS 2025 Split 2,LRS,development,domestic,development.lrs,23,2025-07-15,2025-08-03,8,54,23,0
+LRS 2025 Split 2 Playoffs,LRS,development,domestic,development.lrs,9,2025-08-12,2025-09-10,6,33,9,0
+LRS 2026 Split 1,LRS,development,domestic,development.lrs,27,2026-03-03,2026-04-14,8,63,27,0
+LRS 2026 Split 1 Playoffs,LRS,development,domestic,development.lrs,3,2026-04-21,2026-05-05,5,25,3,0
+LST Spring 2019,LST,minor_top_level,domestic,minor_top_level.lst,3,2019-04-20,2019-04-21,4,20,3,0
+LST Summer 2019,LST,minor_top_level,domestic,minor_top_level.lst,28,2019-07-20,2019-09-01,8,46,28,0
+LST Summer Playoffs 2019,LST,minor_top_level,domestic,minor_top_level.lst,5,2019-09-07,2019-09-15,6,30,5,0
+LTA 2025 Championship,LTA,major,domestic,major.lta,6,2025-09-13,2025-09-28,6,31,6,6
+LTA 2025 Split 1 Playoffs,LTA,major,domestic,major.lta,7,2025-02-15,2025-02-23,8,40,7,7
+LTA North 2025 Split 1,LTA,major,domestic,major.lta,12,2025-01-25,2025-02-09,8,41,12,12
+LTA North 2025 Split 2,LTA,major,domestic,major.lta,44,2025-04-05,2025-05-18,8,41,44,44
+LTA North 2025 Split 2 Playoffs,LTA,major,domestic,major.lta,8,2025-05-24,2025-06-15,6,30,8,8
+LTA North 2025 Split 3,LTA,major,domestic,major.lta,22,2025-07-26,2025-09-07,8,42,22,22
+LTA South 2025 Split 1,LTA,major,domestic,major.lta,12,2025-01-25,2025-02-09,8,40,12,12
+LTA South 2025 Split 2,LTA,major,domestic,major.lta,44,2025-04-05,2025-05-18,8,43,44,44
+LTA South 2025 Split 2 Playoffs,LTA,major,domestic,major.lta,8,2025-05-24,2025-06-15,6,30,8,8
+LTA South 2025 Split 3,LTA,major,domestic,major.lta,22,2025-07-26,2025-09-07,8,42,22,22
+LVP SL 2nd Div Spring 2024,SuperLiga Second Division,development,domestic,development.superliga_second_division,55,2024-01-19,2024-03-15,8,45,55,0
+LVP SL 2nd Div Spring Playoffs 2024,SuperLiga Second Division,development,domestic,development.superliga_second_division,4,2024-03-24,2024-04-12,4,20,4,0
+LVP SL 2nd Div Summer 2024,SuperLiga Second Division,development,domestic,development.superliga_second_division,55,2024-05-24,2024-07-09,8,50,55,0
+LVP SL 2nd Div Summer Playoffs 2024,SuperLiga Second Division,development,domestic,development.superliga_second_division,4,2024-07-15,2024-08-04,4,20,4,0
+LVP SL Promotion 2025,SuperLiga,regional,domestic,regional.superliga,3,2024-09-03,2024-09-10,3,15,3,0
+LVP SL Spring 2022,SuperLiga,regional,domestic,regional.superliga,90,2022-01-10,2022-03-10,10,52,90,85
+LVP SL Spring 2024,SuperLiga,regional,domestic,regional.superliga,90,2024-01-17,2024-03-14,10,58,90,89
+LVP SL Spring Playoffs 2021,SuperLiga,regional,domestic,regional.superliga,5,2021-03-15,2021-03-25,6,30,5,0
+LVP SL Spring Playoffs 2022,SuperLiga,regional,domestic,regional.superliga,6,2022-03-14,2022-03-30,6,30,6,6
+LVP SL Spring Playoffs 2024,SuperLiga,regional,domestic,regional.superliga,6,2024-03-19,2024-04-05,6,30,6,6
+LVP SL Summer 2021,SuperLiga,regional,domestic,regional.superliga,90,2021-05-31,2021-07-29,10,53,90,0
+LVP SL Summer 2022,SuperLiga,regional,domestic,regional.superliga,90,2022-05-30,2022-07-28,10,52,90,90
+LVP SL Summer 2024,SuperLiga,regional,domestic,regional.superliga,90,2024-05-22,2024-07-18,10,55,90,80
+LVP SL Summer Playoffs 2022,SuperLiga,regional,domestic,regional.superliga,6,2022-08-01,2022-08-20,6,30,6,6
+LVP SL Summer Playoffs 2024,SuperLiga,regional,domestic,regional.superliga,6,2024-07-20,2024-08-03,6,30,6,6
+LVP SLO Spring 2019,SuperLiga,regional,domestic,regional.superliga,96,2019-01-30,2019-03-31,10,56,96,0
+LVP SLO Spring 2020,SuperLiga,regional,domestic,regional.superliga,95,2020-01-23,2020-04-02,10,57,95,0
+LVP SLO Summer 2019,SuperLiga,regional,domestic,regional.superliga,96,2019-06-03,2019-09-01,10,64,96,0
+LVP SLO Summer 2020,SuperLiga,regional,domestic,regional.superliga,91,2020-06-15,2020-08-06,10,53,91,0
+LVP SLO Summer Playoffs 2020,SuperLiga,regional,domestic,regional.superliga,5,2020-08-10,2020-09-04,6,30,5,0
+LVP Spring 2018,SuperLiga,regional,domestic,regional.superliga_historical_lvp,38,2018-01-28,2018-03-25,8,46,38,0
+LVP Summer 2018,SuperLiga,regional,domestic,regional.superliga_historical_lvp,37,2018-05-26,2018-09-02,8,50,37,0
+LVP Summer Playoffs 2021,SuperLiga,regional,domestic,regional.superliga_historical_lvp,5,2021-08-02,2021-08-12,6,30,5,0
+LVP Superliga Spring 2021,SuperLiga,regional,domestic,regional.superliga,92,2021-01-18,2021-03-11,10,56,92,0
+LVP UKLC Spring 2019,NLC,regional,domestic,regional.nlc_historical_uklc,59,2019-02-14,2019-03-29,9,55,59,0
+LVP2 Summer 2022,SuperLiga Second Division,development,domestic,development.superliga_second_division,90,2022-05-31,2022-07-27,10,57,90,0
+LVP2 Summer Playoffs 2022,SuperLiga Second Division,development,domestic,development.superliga_second_division,6,2022-08-02,2022-08-16,6,30,6,0
+MCR LoL 2019,Hitpoint Masters,regional,domestic,regional.hitpoint_historical_mcr,8,2019-11-08,2019-11-10,4,22,8,0
+MSI 2021,MSI,international,cross_league,international.msi,70,2021-05-06,2021-05-23,11,56,70,68
+MSI 2022,MSI,international,cross_league,international.msi,69,2022-05-10,2022-05-29,11,56,69,68
+MSI 2023,MSI,international,cross_league,international.msi,25,2023-05-02,2023-05-21,13,65,25,25
+MSI 2024,MSI,international,cross_league,international.msi,24,2024-05-01,2024-05-19,12,60,24,24
+MSI Play-In 2017,MSI,international,cross_league,international.msi,27,2017-04-28,2017-05-06,10,51,27,0
+MSI Play-In 2018,MSI,international,cross_league,international.msi,26,2018-05-03,2018-05-09,10,50,26,0
+MSI Play-In 2019,MSI,international,cross_league,international.msi,28,2019-05-01,2019-05-07,10,51,28,0
+Mid-Season Cup 2020,Mid-Season Cup,international,cross_league,international.mid_season_cup,17,2020-05-28,2020-05-31,8,40,17,15
+Mid-Season Invitational 2015,MSI,international,cross_league,international.msi,18,2015-05-07,2015-05-10,6,31,18,0
+Mid-Season Invitational 2016,MSI,international,cross_league,international.msi,33,2016-05-04,2016-05-15,6,31,33,0
+Mid-Season Invitational 2017,MSI,international,cross_league,international.msi,34,2017-05-10,2017-05-21,6,31,34,30
+Mid-Season Invitational 2018,MSI,international,cross_league,international.msi,35,2018-05-11,2018-05-20,6,34,35,30
+Mid-Season Invitational 2019,MSI,international,cross_league,international.msi,33,2019-05-10,2019-05-19,6,31,33,32
+Mid-Season Showdown 2020,Mid-Season Showdown,international,cross_league,international.mid_season_showdown,14,2020-05-07,2020-05-30,4,24,14,0
+NA Academy Spring 2018,NA Academy,development,domestic,development.na_academy,91,2018-01-19,2018-03-16,10,58,91,21
+NA Academy Spring 2019,NA Academy,development,domestic,development.na_academy,90,2019-01-18,2019-03-16,10,60,90,6
+NA Academy Spring 2020,NA Academy,development,domestic,development.na_academy,90,2020-01-25,2020-03-27,10,59,90,1
+NA Academy Spring 2021,NA Academy,development,domestic,development.na_academy,45,2021-01-20,2021-02-17,10,56,45,0
+NA Academy Spring 2022,NA Academy,development,domestic,development.na_academy,45,2022-01-19,2022-03-11,10,62,45,0
+NA Academy Spring Playoffs 2018,NA Academy,development,domestic,development.na_academy,3,2018-03-22,2018-03-31,4,20,3,0
+NA Academy Spring Playoffs 2019,NA Academy,development,domestic,development.na_academy,5,2019-03-21,2019-04-06,6,30,5,0
+NA Academy Spring Playoffs 2020,NA Academy,development,domestic,development.na_academy,5,2020-04-02,2020-04-17,6,30,5,0
+NA Academy Summer 2018,NA Academy,development,domestic,development.na_academy,89,2018-06-15,2018-08-11,10,67,89,2
+NA Academy Summer 2019,NA Academy,development,domestic,development.na_academy,90,2019-05-31,2019-07-28,10,70,90,0
+NA Academy Summer 2020,NA Academy,development,domestic,development.na_academy,90,2020-06-11,2020-08-07,10,68,90,3
+NA Academy Summer 2021,NA Academy,development,domestic,development.na_academy,50,2021-06-02,2021-07-29,10,61,50,0
+NA Academy Summer 2022,NA Academy,development,domestic,development.na_academy,60,2022-06-08,2022-07-29,10,69,60,0
+NA Academy Summer Playoffs 2018,NA Academy,development,domestic,development.na_academy,5,2018-08-17,2018-09-01,6,30,5,0
+NA Academy Summer Playoffs 2019,NA Academy,development,domestic,development.na_academy,5,2019-08-02,2019-08-17,6,31,5,0
+NA Academy Summer Playoffs 2020,NA Academy,development,domestic,development.na_academy,5,2020-08-14,2020-08-28,6,30,5,1
+NA Academy Summer Playoffs 2021,NA Academy,development,domestic,development.na_academy,5,2021-08-05,2021-08-19,6,30,5,0
+NA CS Spring 2017,NA Challenger Series,development,domestic,development.na_challenger_series,13,2017-01-26,2017-03-16,6,30,13,0
+NA CS Summer 2017,NA Challenger Series,development,domestic,development.na_challenger_series,33,2017-06-08,2017-07-28,6,35,33,0
+NA LCS 2017 Spring Promo,LCS,major,domestic,major.lcs_historical_alias,4,2016-08-04,2016-08-07,5,25,4,0
+NA LCS Regional Qualifiers 2017,LCS,major,domestic,major.lcs_historical_alias,3,2017-09-08,2017-09-10,4,20,3,0
+NA LCS Regional Qualifiers 2018,LCS,major,domestic,major.lcs_historical_alias,3,2018-09-14,2018-09-16,4,20,3,3
+NA LCS Spring 2014,LCS,major,domestic,major.lcs_historical_alias,112,2014-01-17,2014-04-06,8,51,112,0
+NA LCS Spring 2015,LCS,major,domestic,major.lcs_historical_alias,92,2015-01-25,2015-03-30,10,62,92,0
+NA LCS Spring 2016,LCS,major,domestic,major.lcs_historical_alias,90,2016-01-16,2016-03-20,10,68,90,0
+NA LCS Spring 2017,LCS,major,domestic,major.lcs_historical_alias,90,2017-01-21,2017-03-26,10,58,90,0
+NA LCS Spring 2018,LCS,major,domestic,major.lcs_historical_alias,95,2018-01-20,2018-03-18,10,56,95,68
+NA LCS Spring Playoffs 2014,LCS,major,domestic,major.lcs_historical_alias,7,2014-04-18,2014-04-20,6,30,7,0
+NA LCS Spring Playoffs 2015,LCS,major,domestic,major.lcs_historical_alias,6,2015-04-04,2015-04-19,6,30,6,0
+NA LCS Spring Playoffs 2016,LCS,major,domestic,major.lcs_historical_alias,6,2016-04-02,2016-04-17,6,30,6,0
+NA LCS Spring Playoffs 2017,LCS,major,domestic,major.lcs_historical_alias,6,2017-04-08,2017-04-23,6,32,6,5
+NA LCS Spring Playoffs 2018,LCS,major,domestic,major.lcs_historical_alias,6,2018-03-24,2018-04-08,6,30,6,4
+NA LCS Spring Promotion 2015,LCS,major,domestic,major.lcs_historical_alias,2,2015-09-06,2015-09-07,4,20,2,0
+NA LCS Spring Promotion 2018,LCS,major,domestic,major.lcs_historical_alias,5,2017-08-11,2017-08-13,4,21,5,0
+NA LCS Summer 2014,LCS,major,domestic,major.lcs_historical_alias,112,2014-05-23,2014-08-03,8,50,112,0
+NA LCS Summer 2015,LCS,major,domestic,major.lcs_historical_alias,93,2015-05-30,2015-07-26,10,60,93,0
+NA LCS Summer 2016,LCS,major,domestic,major.lcs_historical_alias,90,2016-06-03,2016-07-31,10,58,90,0
+NA LCS Summer 2017,LCS,major,domestic,major.lcs_historical_alias,90,2017-06-03,2017-08-06,10,67,90,81
+NA LCS Summer 2018,LCS,major,domestic,major.lcs_historical_alias,94,2018-06-16,2018-08-21,10,67,94,87
+NA LCS Summer Playoffs 2014,LCS,major,domestic,major.lcs_historical_alias,7,2014-08-23,2014-09-01,6,30,7,0
+NA LCS Summer Playoffs 2015,LCS,major,domestic,major.lcs_historical_alias,6,2015-08-08,2015-08-23,6,30,6,0
+NA LCS Summer Playoffs 2016,LCS,major,domestic,major.lcs_historical_alias,6,2016-08-13,2016-08-28,6,30,6,0
+NA LCS Summer Playoffs 2017,LCS,major,domestic,major.lcs_historical_alias,6,2017-08-19,2017-09-03,6,30,6,4
+NA LCS Summer Playoffs 2018,LCS,major,domestic,major.lcs_historical_alias,6,2018-08-25,2018-09-09,6,31,6,6
+NA LCS Summer Promo 2016,LCS,major,domestic,major.lcs_historical_alias,4,2016-04-06,2016-04-08,5,27,4,0
+NA LCS Summer Promotion 2017,LCS,major,domestic,major.lcs_historical_alias,5,2017-04-01,2017-04-02,4,20,5,0
+NA LCS-EULCS Rift-Rivals 2018,Rift Rivals,international,cross_league,international.rift_rivals,13,2018-07-05,2018-07-07,6,31,13,0
+NA Regional Qualifiers 2015,LCS,major,domestic,major.lcs_historical_qualifier,3,2015-08-29,2015-08-31,4,20,3,0
+NA Regional Qualifiers 2016,LCS,major,domestic,major.lcs_historical_qualifier,3,2016-09-03,2016-09-05,4,20,3,0
+NA-EU Rift Rivals 2019,Rift Rivals,international,cross_league,international.rift_rivals,13,2019-06-27,2019-06-29,6,33,13,10
+NACL 2025 Split 1,NACL,development,domestic,development.nacl,45,2025-03-26,2025-05-09,10,58,45,0
+NACL 2025 Split 1 Playoffs,NACL,development,domestic,development.nacl,10,2025-05-15,2025-06-06,6,32,10,0
+NACL 2025 Split 2,NACL,development,domestic,development.nacl,44,2025-07-17,2025-08-08,10,56,44,0
+NACL 2025 Split 2 Playoffs,NACL,development,domestic,development.nacl,14,2025-08-14,2025-09-12,8,40,14,0
+NACL 2026 Spring,NACL,development,domestic,development.nacl,41,2026-03-26,2026-05-08,10,60,41,0
+NACL Spring 2023,NACL,development,domestic,development.nacl,78,2023-01-21,2023-03-07,16,92,78,0
+NACL Spring 2024,NACL,development,domestic,development.nacl,45,2024-01-20,2024-03-10,10,50,45,0
+NACL Spring Playoffs 2023,NACL,development,domestic,development.nacl,29,2023-03-11,2023-04-02,16,81,29,0
+NACL Spring Playoffs 2024,NACL,development,domestic,development.nacl,14,2024-03-14,2024-04-01,8,40,14,0
+NACL Summer 2023,NACL,development,domestic,development.nacl,57,2023-06-10,2023-07-17,10,54,57,0
+NACL Summer 2024,NACL,development,domestic,development.nacl,45,2024-06-15,2024-08-11,10,61,45,0
+NACL Summer Playoffs 2023,NACL,development,domestic,development.nacl,14,2023-07-22,2023-08-09,8,40,14,0
+NACL Summer Playoffs 2024,NACL,development,domestic,development.nacl,12,2024-08-17,2024-09-08,8,40,12,0
+NLC 2025 Spring Playoffs,NLC,regional,domestic,regional.nlc,16,2025-04-16,2025-06-01,10,51,16,16
+NLC 2025 Spring Seeding,NLC,regional,domestic,regional.nlc,23,2025-04-02,2025-04-11,10,52,23,23
+NLC 2025 Summer Playoffs,NLC,regional,domestic,regional.nlc,16,2025-07-30,2025-08-30,10,51,16,15
+NLC 2025 Summer Seeding,NLC,regional,domestic,regional.nlc,20,2025-07-15,2025-07-24,10,55,20,18
+NLC 2025 Winter,NLC,regional,domestic,regional.nlc,23,2025-01-15,2025-01-24,10,54,23,23
+NLC 2025 Winter Playoffs,NLC,regional,domestic,regional.nlc,16,2025-01-29,2025-03-02,10,52,16,15
+NLC 2026 Winter Playoffs,NLC,regional,domestic,regional.nlc,4,2026-03-04,2026-03-07,4,20,4,4
+NLC 2026 Winter Split,NLC,regional,domestic,regional.nlc,43,2026-01-15,2026-02-26,10,65,43,41
+NLC Spring 2021,NLC,regional,domestic,regional.nlc,64,2021-01-19,2021-02-25,12,65,64,0
+NLC Spring 2022,NLC,regional,domestic,regional.nlc,90,2022-01-10,2022-03-09,10,51,90,0
+NLC Spring 2023,NLC,regional,domestic,regional.nlc,57,2023-01-24,2023-03-10,8,46,57,55
+NLC Spring 2024,NLC,regional,domestic,regional.nlc,56,2024-01-24,2024-03-07,8,44,56,48
+NLC Spring Playoffs 2021,NLC,regional,domestic,regional.nlc,10,2021-03-02,2021-03-21,8,40,10,0
+NLC Spring Playoffs 2022,NLC,regional,domestic,regional.nlc,6,2022-03-14,2022-03-30,6,30,6,0
+NLC Spring Playoffs 2023,NLC,regional,domestic,regional.nlc,4,2023-03-14,2023-03-28,4,20,4,0
+NLC Spring Playoffs 2024,NLC,regional,domestic,regional.nlc,4,2024-03-13,2024-03-27,4,20,4,4
+NLC Summer 2021,NLC,regional,domestic,regional.nlc,96,2021-06-02,2021-07-20,12,68,96,0
+NLC Summer 2022,NLC,regional,domestic,regional.nlc,90,2022-05-30,2022-07-27,10,65,90,85
+NLC Summer 2023,NLC,regional,domestic,regional.nlc,56,2023-06-06,2023-07-19,8,49,56,56
+NLC Summer 2024,NLC,regional,domestic,regional.nlc,56,2024-06-04,2024-07-17,8,49,56,47
+NLC Summer Playoffs 2021,NLC,regional,domestic,regional.nlc,6,2021-07-27,2021-08-08,6,30,6,0
+NLC Summer Playoffs 2022,NLC,regional,domestic,regional.nlc,6,2022-08-01,2022-08-20,6,30,6,6
+NLC Summer Playoffs 2023,NLC,regional,domestic,regional.nlc,4,2023-07-25,2023-08-05,4,20,4,4
+NLC Summer Playoffs 2024,NLC,regional,domestic,regional.nlc,4,2024-07-24,2024-08-03,4,20,4,1
+OGN Champions Preseason 2015,LCK,major,domestic,major.lck_historical_alias,12,2014-12-03,2014-12-20,8,48,12,0
+OPL Split 1 2018,OPL,minor_top_level,domestic,minor_top_level.opl,40,2018-01-20,2018-03-18,8,47,40,0
+OPL Split 1 2019,OPL,minor_top_level,domestic,minor_top_level.opl,84,2019-01-18,2019-03-23,8,42,84,84
+OPL Split 1 2020,OPL,minor_top_level,domestic,minor_top_level.opl,84,2020-01-31,2020-04-04,8,51,84,84
+OPL Split 1 Playoffs 2018,OPL,minor_top_level,domestic,minor_top_level.opl,4,2018-03-23,2018-03-31,5,25,4,0
+OPL Split 1 Playoffs 2019,OPL,minor_top_level,domestic,minor_top_level.opl,4,2019-03-28,2019-04-06,5,25,4,3
+OPL Split 1 Playoffs 2020,OPL,minor_top_level,domestic,minor_top_level.opl,6,2020-04-10,2020-04-24,5,26,6,6
+OPL Split 2 2018,OPL,minor_top_level,domestic,minor_top_level.opl,39,2018-06-08,2018-08-18,8,44,39,0
+OPL Split 2 2019,OPL,minor_top_level,domestic,minor_top_level.opl,84,2019-06-07,2019-08-17,8,50,84,84
+OPL Split 2 2020,OPL,minor_top_level,domestic,minor_top_level.opl,84,2020-06-05,2020-08-08,8,46,84,84
+OPL Split 2 Playoffs 2018,OPL,minor_top_level,domestic,minor_top_level.opl,4,2018-08-24,2018-09-02,5,25,4,0
+OPL Split 2 Playoffs 2019,OPL,minor_top_level,domestic,minor_top_level.opl,4,2019-08-22,2019-08-31,5,25,4,4
+OPL Split 2 Playoffs 2020,OPL,minor_top_level,domestic,minor_top_level.opl,6,2020-08-14,2020-08-28,5,25,6,3
+PCS 2025 Split 1,PCS,minor_top_level,domestic,minor_top_level.pcs,27,2025-02-10,2025-03-03,8,45,27,0
+PCS 2025 Split 1 Playoffs,PCS,minor_top_level,domestic,minor_top_level.pcs,6,2025-03-10,2025-03-26,4,21,6,0
+PCS 2025 Split 2,PCS,minor_top_level,domestic,minor_top_level.pcs,54,2025-04-07,2025-06-04,8,50,54,0
+PCS 2025 Split 2 Playoffs,PCS,minor_top_level,domestic,minor_top_level.pcs,6,2025-06-09,2025-06-18,4,20,6,0
+PCS 2025 Split 3,PCS,minor_top_level,domestic,minor_top_level.pcs,10,2025-07-21,2025-08-20,8,41,10,0
+PCS 2025 Split 3 Playoffs,PCS,minor_top_level,domestic,minor_top_level.pcs,6,2025-08-25,2025-08-31,4,21,6,0
+PCS 2026 Spring Season,PCS,minor_top_level,domestic,minor_top_level.pcs,9,2026-04-27,2026-04-29,10,51,9,0
+PCS Spring 2020,PCS,minor_top_level,domestic,minor_top_level.pcs,92,2020-02-29,2020-04-05,10,59,92,8
+PCS Spring 2021,PCS,minor_top_level,domestic,minor_top_level.pcs,91,2021-02-19,2021-03-21,10,56,91,15
+PCS Spring 2022,PCS,minor_top_level,domestic,minor_top_level.pcs,91,2022-02-11,2022-03-20,10,57,91,0
+PCS Spring 2023,PCS,minor_top_level,domestic,minor_top_level.pcs,92,2023-02-03,2023-03-12,10,53,92,0
+PCS Spring 2024,PCS,minor_top_level,domestic,minor_top_level.pcs,40,2024-01-19,2024-03-03,8,47,40,0
+PCS Spring Playoffs 2020,PCS,minor_top_level,domestic,minor_top_level.pcs,12,2020-04-10,2020-05-03,8,41,12,0
+PCS Spring Playoffs 2021,PCS,minor_top_level,domestic,minor_top_level.pcs,12,2021-04-01,2021-04-18,8,41,12,0
+PCS Spring Playoffs 2022,PCS,minor_top_level,domestic,minor_top_level.pcs,12,2022-03-31,2022-04-17,8,40,12,0
+PCS Spring Playoffs 2023,PCS,minor_top_level,domestic,minor_top_level.pcs,11,2023-03-23,2023-04-09,8,40,11,0
+PCS Spring Playoffs 2024,PCS,minor_top_level,domestic,minor_top_level.pcs,21,2024-03-11,2024-04-07,11,56,21,0
+PCS Summer 2020,PCS,minor_top_level,domestic,minor_top_level.pcs,90,2020-06-20,2020-08-01,10,57,90,14
+PCS Summer 2021,PCS,minor_top_level,domestic,minor_top_level.pcs,93,2021-07-09,2021-08-08,10,59,93,8
+PCS Summer 2022,PCS,minor_top_level,domestic,minor_top_level.pcs,92,2022-07-01,2022-08-07,10,64,92,0
+PCS Summer 2023,PCS,minor_top_level,domestic,minor_top_level.pcs,91,2023-06-30,2023-08-07,10,53,91,0
+PCS Summer 2024,PCS,minor_top_level,domestic,minor_top_level.pcs,33,2024-06-08,2024-07-28,7,42,33,0
+PCS Summer Playoffs 2020,PCS,minor_top_level,domestic,minor_top_level.pcs,12,2020-08-13,2020-08-30,8,41,12,0
+PCS Summer Playoffs 2021,PCS,minor_top_level,domestic,minor_top_level.pcs,11,2021-08-12,2021-08-29,8,41,11,0
+PCS Summer Playoffs 2022,PCS,minor_top_level,domestic,minor_top_level.pcs,12,2022-08-18,2022-09-04,8,41,12,0
+PCS Summer Playoffs 2023,PCS,minor_top_level,domestic,minor_top_level.pcs,12,2023-08-11,2023-09-09,8,41,12,0
+PCS Summer Playoffs 2024,PCS,minor_top_level,domestic,minor_top_level.pcs,21,2024-08-05,2024-09-01,11,57,21,0
+PG Nationals Spring 2019,LIT,regional,domestic,regional.lit,61,2019-01-27,2019-04-07,8,51,61,0
+PG Nationals Spring 2020,LIT,regional,domestic,regional.lit,61,2020-01-22,2020-03-29,8,48,61,0
+PG Nationals Spring 2021,LIT,regional,domestic,regional.lit,55,2021-01-13,2021-02-25,8,41,55,0
+PG Nationals Spring 2022,LIT,regional,domestic,regional.lit,56,2022-01-18,2022-03-02,8,45,56,0
+PG Nationals Spring 2023,LIT,regional,domestic,regional.lit,56,2023-01-26,2023-03-10,8,47,56,0
+PG Nationals Spring Playoffs 2021,LIT,regional,domestic,regional.lit,8,2021-03-01,2021-03-21,6,30,8,0
+PG Nationals Spring Playoffs 2022,LIT,regional,domestic,regional.lit,4,2022-03-08,2022-03-20,4,20,4,0
+PG Nationals Spring Playoffs 2023,LIT,regional,domestic,regional.lit,4,2023-03-16,2023-03-31,4,20,4,0
+PG Nationals Summer 2019,LIT,regional,domestic,regional.lit,63,2019-06-02,2019-07-28,8,49,63,0
+PG Nationals Summer 2020,LIT,regional,domestic,regional.lit,65,2020-05-27,2020-08-02,8,47,65,0
+PG Nationals Summer 2021,LIT,regional,domestic,regional.lit,57,2021-06-01,2021-07-08,8,47,57,0
+PG Nationals Summer 2022,LIT,regional,domestic,regional.lit,55,2022-06-07,2022-07-20,8,46,55,0
+PG Nationals Summer 2023,LIT,regional,domestic,regional.lit,56,2023-06-08,2023-07-21,8,45,56,0
+PG Nationals Summer Playoffs 2021,LIT,regional,domestic,regional.lit,8,2021-07-20,2021-08-07,6,30,8,0
+PG Nationals Summer Playoffs 2022,LIT,regional,domestic,regional.lit,4,2022-07-26,2022-08-07,4,20,4,0
+PG Nationals Summer Playoffs 2023,LIT,regional,domestic,regional.lit,4,2023-07-26,2023-08-05,4,20,4,0
+Prime League 1st Div 2025 Season Finals,Prime League,regional,domestic,regional.prime_league,6,2025-08-12,2025-08-24,6,30,6,6
+Prime League 1st Div 2025 Spring Playoffs,Prime League,regional,domestic,regional.prime_league,6,2025-05-20,2025-05-30,6,30,6,6
+Prime League 1st Div 2025 Spring Split,Prime League,regional,domestic,regional.prime_league,45,2025-03-25,2025-05-14,10,52,45,45
+Prime League 1st Div 2025 Summer Split,Prime League,regional,domestic,regional.prime_league,23,2025-07-15,2025-08-06,10,52,23,23
+Prime League 1st Div 2025 Winter Playoffs,Prime League,regional,domestic,regional.prime_league,5,2025-02-25,2025-03-08,6,30,5,5
+Prime League 1st Div 2025 Winter Split,Prime League,regional,domestic,regional.prime_league,20,2025-01-21,2025-02-19,10,51,20,20
+Prime League 1st Div 2026 Spring Split,Prime League,regional,domestic,regional.prime_league,61,2026-04-01,2026-05-07,10,53,61,0
+Prime League 1st Div 2026 Winter Split,Prime League,regional,domestic,regional.prime_league,31,2026-02-11,2026-03-07,10,52,31,31
+Prime League 2nd Div Spring 2023,Prime League Second Division,development,domestic,development.prime_league_second_division,90,2023-01-09,2023-03-03,10,52,90,0
+Prime League 2nd Div Spring 2024,Prime League Second Division,development,domestic,development.prime_league_second_division,91,2024-01-16,2024-03-12,10,55,91,0
+Prime League 2nd Div Spring Playoffs 2023,Prime League Second Division,development,domestic,development.prime_league_second_division,6,2023-03-06,2023-03-30,6,30,6,0
+Prime League 2nd Div Spring Playoffs 2024,Prime League Second Division,development,domestic,development.prime_league_second_division,6,2024-03-15,2024-04-09,6,31,6,0
+Prime League 2nd Div Summer 2023,Prime League Second Division,development,domestic,development.prime_league_second_division,90,2023-05-29,2023-07-18,10,56,90,0
+Prime League 2nd Div Summer 2024,Prime League Second Division,development,domestic,development.prime_league_second_division,90,2024-05-20,2024-07-02,10,58,90,0
+Prime League 2nd Div Summer Playoffs 2023,Prime League Second Division,development,domestic,development.prime_league_second_division,6,2023-07-31,2023-08-09,6,30,6,0
+Prime League 2nd Div Summer Playoffs 2024,Prime League Second Division,development,domestic,development.prime_league_second_division,6,2024-07-08,2024-07-30,6,30,6,0
+Prime League Grand Final 2020,Prime League,regional,domestic,regional.prime_league,14,2020-10-01,2020-11-15,8,40,14,0
+Prime League Promotion 2024,Prime League,regional,domestic,regional.prime_league,5,2023-09-12,2023-09-21,4,20,5,0
+Prime League Promotion 2025,Prime League,regional,domestic,regional.prime_league,3,2024-09-03,2024-09-07,3,15,3,0
+Prime League Spring 2020,Prime League,regional,domestic,regional.prime_league,96,2020-01-21,2020-03-29,10,55,96,0
+Prime League Spring 2021,Prime League,regional,domestic,regional.prime_league,89,2021-01-19,2021-03-04,10,51,89,0
+Prime League Spring 2022,Prime League,regional,domestic,regional.prime_league,90,2022-01-11,2022-02-24,10,50,90,90
+Prime League Spring 2023,Prime League,regional,domestic,regional.prime_league,90,2023-01-19,2023-03-14,10,51,90,90
+Prime League Spring 2024,Prime League,regional,domestic,regional.prime_league,90,2024-01-17,2024-03-13,10,52,90,88
+Prime League Spring Playoffs 2021,Prime League,regional,domestic,regional.prime_league,6,2021-03-09,2021-03-21,6,30,6,0
+Prime League Spring Playoffs 2022,Prime League,regional,domestic,regional.prime_league,6,2022-03-01,2022-03-20,6,30,6,6
+Prime League Spring Playoffs 2023,Prime League,regional,domestic,regional.prime_league,6,2023-03-16,2023-04-01,6,30,6,6
+Prime League Spring Playoffs 2024,Prime League,regional,domestic,regional.prime_league,6,2024-03-20,2024-04-12,6,30,6,6
+Prime League Summer 2020,Prime League,regional,domestic,regional.prime_league,90,2020-06-09,2020-07-30,10,55,90,0
+Prime League Summer 2021,Prime League,regional,domestic,regional.prime_league,91,2021-06-01,2021-07-22,10,52,91,0
+Prime League Summer 2022,Prime League,regional,domestic,regional.prime_league,91,2022-05-31,2022-07-31,10,52,91,89
+Prime League Summer 2023,Prime League,regional,domestic,regional.prime_league,89,2023-06-01,2023-07-21,10,52,89,87
+Prime League Summer 2024,Prime League,regional,domestic,regional.prime_league,90,2024-05-22,2024-07-10,10,52,90,83
+Prime League Summer Playoffs 2020,Prime League,regional,domestic,regional.prime_league,6,2020-08-05,2020-08-16,6,30,6,0
+Prime League Summer Playoffs 2021,Prime League,regional,domestic,regional.prime_league,5,2021-07-27,2021-08-08,6,30,5,0
+Prime League Summer Playoffs 2022,Prime League,regional,domestic,regional.prime_league,6,2022-08-02,2022-08-20,6,30,6,5
+Prime League Summer Playoffs 2023,Prime League,regional,domestic,regional.prime_league,6,2023-07-26,2023-08-12,6,30,6,6
+Prime League Summer Playoffs 2024,Prime League,regional,domestic,regional.prime_league,6,2024-07-16,2024-08-03,6,30,6,6
+Prime League Winter Cup 2021,Prime League,regional,domestic,regional.prime_league,14,2021-10-03,2021-11-14,8,40,14,0
+REL Season 2,REL,regional,domestic,regional.romanian_esports_league,52,2020-04-12,2020-06-07,8,51,52,0
+Rift Legends 2025 Spring Playoffs,Rift Legends,regional,domestic,regional.rift_legends,4,2025-05-15,2025-05-18,4,20,4,0
+Rift Legends 2025 Spring Split,Rift Legends,regional,domestic,regional.rift_legends,27,2025-04-08,2025-05-08,8,43,27,0
+Rift Legends 2025 Summer Playoffs,Rift Legends,regional,domestic,regional.rift_legends,4,2025-09-05,2025-09-07,4,20,4,0
+Rift Legends 2025 Summer Split,Rift Legends,regional,domestic,regional.rift_legends,22,2025-07-22,2025-08-24,8,41,22,0
+Rift Legends 2025 Winter,Rift Legends,regional,domestic,regional.rift_legends,28,2025-01-28,2025-02-27,8,47,28,0
+Rift Legends 2025 Winter Playoffs,Rift Legends,regional,domestic,regional.rift_legends,4,2025-03-01,2025-03-09,4,20,4,0
+Rift Legends 2026 Spring Split,Rift Legends,regional,domestic,regional.rift_legends,22,2026-03-31,2026-05-07,8,44,22,0
+Rift Legends 2026 Winter Split,Rift Legends,regional,domestic,regional.rift_legends,22,2026-02-14,2026-03-07,8,40,22,0
+Road Of Legends 2025 Season Finals,Road of Legends,regional,domestic,regional.road_of_legends,4,2025-09-02,2025-09-13,5,25,4,0
+Road Of Legends 2025 Spring Playoffs,Road of Legends,regional,domestic,regional.road_of_legends,4,2025-05-13,2025-05-24,5,26,4,0
+Road Of Legends 2025 Spring Split,Road of Legends,regional,domestic,regional.road_of_legends,28,2025-03-25,2025-05-08,8,52,28,0
+Road Of Legends 2025 Summer Split,Road of Legends,regional,domestic,regional.road_of_legends,28,2025-07-15,2025-08-28,8,45,28,0
+Road Of Legends 2025 Winter Split,Road of Legends,regional,domestic,regional.road_of_legends,14,2025-02-11,2025-03-06,8,41,14,0
+Road Of Legends 2026 Spring Split,Road of Legends,regional,domestic,regional.road_of_legends,24,2026-03-31,2026-05-07,8,48,24,0
+Road Of Legends 2026 Winter Playoffs,Road of Legends,regional,domestic,regional.road_of_legends,4,2026-02-10,2026-02-19,5,25,4,0
+SEA Tour Summer 2018,LST,minor_top_level,domestic,minor_top_level.lst,28,2018-08-13,2018-08-19,8,44,28,2
+SEA-LJL-OPL Rift-Rivals 2018,Rift Rivals,international,cross_league,international.rift_rivals,19,2018-07-02,2018-07-05,9,45,19,0
+SL 2025 Spring Playoffs,SuperLiga,regional,domestic,regional.superliga,4,2025-05-15,2025-05-30,4,20,4,4
+SL 2025 Spring Swiss,SuperLiga,regional,domestic,regional.superliga,10,2025-04-30,2025-05-14,8,40,10,10
+Season 3 World Championship,Worlds,international,cross_league,international.worlds,48,2013-09-16,2013-10-04,14,71,48,0
+SuperLiga 2nd Div Spring 2023,SuperLiga Second Division,development,domestic,development.superliga_second_division,91,2023-01-18,2023-03-17,10,55,91,0
+SuperLiga 2nd Div Spring Playoffs 2023,SuperLiga Second Division,development,domestic,development.superliga_second_division,6,2023-03-22,2023-04-03,6,30,6,0
+SuperLiga 2nd Div Summer 2023,SuperLiga Second Division,development,domestic,development.superliga_second_division,90,2023-05-31,2023-07-21,10,58,90,0
+SuperLiga 2nd Div Summer Playoffs 2023,SuperLiga Second Division,development,domestic,development.superliga_second_division,6,2023-07-31,2023-08-11,6,30,6,0
+SuperLiga Promotion 2024,SuperLiga,regional,domestic,regional.superliga,5,2023-09-11,2023-09-22,4,20,5,0
+SuperLiga Spring 2023,SuperLiga,regional,domestic,regional.superliga,90,2023-01-16,2023-03-09,10,55,90,88
+SuperLiga Spring Playoffs 2023,SuperLiga,regional,domestic,regional.superliga,6,2023-03-14,2023-04-01,6,30,6,6
+SuperLiga Summer 2023,SuperLiga,regional,domestic,regional.superliga,90,2023-05-29,2023-07-20,10,55,90,89
+SuperLiga Summer Playoffs 2023,SuperLiga,regional,domestic,regional.superliga,6,2023-07-25,2023-08-12,6,30,6,5
+Superliga Domino 2025 Final Four,SuperLiga,regional,domestic,regional.superliga,3,2025-08-30,2025-08-31,4,20,3,3
+Superliga Domino 2025 Summer Playoffs,SuperLiga,regional,domestic,regional.superliga,4,2025-08-14,2025-08-23,4,20,4,4
+Superliga Domino 2025 Summer Split,SuperLiga,regional,domestic,regional.superliga,45,2025-07-15,2025-07-31,10,50,45,45
+Superliga Domino 2025 Summer Swiss,SuperLiga,regional,domestic,regional.superliga,10,2025-08-05,2025-08-12,8,40,10,10
+Superliga Dominos 2025 Spring Split,SuperLiga,regional,domestic,regional.superliga,48,2025-04-08,2025-04-24,10,51,48,45
+Superliga Dominos 2025 Winter Playoffs,SuperLiga,regional,domestic,regional.superliga,4,2025-02-20,2025-03-06,4,20,4,4
+Superliga Dominos 2025 Winter Split,SuperLiga,regional,domestic,regional.superliga,45,2025-01-14,2025-01-30,10,50,45,40
+Superliga Dominos 2025 Winter Swiss,SuperLiga,regional,domestic,regional.superliga,10,2025-02-06,2025-02-18,8,40,10,10
+TCL 2025 Spring Playoffs,TCL,regional,domestic,regional.tcl.from_2023,6,2025-05-14,2025-05-30,6,30,6,6
+TCL 2025 Spring Split,TCL,regional,domestic,regional.tcl.from_2023,56,2025-03-27,2025-05-09,8,46,56,56
+TCL 2025 Summer Playoffs,TCL,regional,domestic,regional.tcl.from_2023,6,2025-08-30,2025-09-12,6,30,6,6
+TCL 2025 Summer Split,TCL,regional,domestic,regional.tcl.from_2023,56,2025-07-17,2025-08-27,8,53,56,55
+TCL 2025 Winter,TCL,regional,domestic,regional.tcl.from_2023,56,2025-01-23,2025-02-27,8,44,56,56
+TCL 2025 Winter Playoffs,TCL,regional,domestic,regional.tcl.from_2023,6,2025-03-03,2025-03-09,6,30,6,6
+TCL 2026 Kickoff,TCL,regional,domestic,regional.tcl.from_2023,22,2026-01-20,2026-03-06,8,43,22,22
+TCL 2026 Spring,TCL,regional,domestic,regional.tcl.from_2023,22,2026-04-09,2026-05-07,8,44,22,0
+TCL Div2 Summer 2024,TCL Div2,development,domestic,development.tcl_div2,86,2024-05-21,2024-07-16,10,85,86,0
+TCL Div2 Summer Playoffs 2024,TCL Div2,development,domestic,development.tcl_div2,6,2024-07-21,2024-07-28,6,31,6,0
+TCL Div2 Winter 2024,TCL Div2,development,domestic,development.tcl_div2,89,2024-01-18,2024-03-13,10,84,89,0
+TCL Div2 Winter Playoffs 2024,TCL Div2,development,domestic,development.tcl_div2,6,2024-03-27,2024-04-03,6,30,6,0
+TCL Playoffs Spring 2024,TCL,regional,domestic,regional.tcl.from_2023,6,2024-03-19,2024-04-05,6,30,6,6
+TCL Spring 2018,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,112,2018-01-20,2018-03-26,8,51,112,0
+TCL Spring 2019,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,91,2019-01-19,2019-03-18,10,83,91,1
+TCL Spring 2020,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,73,2020-02-01,2020-04-14,9,59,73,0
+TCL Spring 2021,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,91,2021-01-23,2021-03-21,10,65,91,0
+TCL Spring 2023,TCL,regional,domestic,regional.tcl.from_2023,56,2023-01-26,2023-03-17,8,45,56,56
+TCL Spring 2024,TCL,regional,domestic,regional.tcl.from_2023,56,2024-01-25,2024-03-08,8,43,56,56
+TCL Spring Playoffs 2018,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,6,2018-04-07,2018-04-22,6,30,6,0
+TCL Spring Playoffs 2019,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,5,2019-03-29,2019-04-13,6,30,5,0
+TCL Spring Playoffs 2020,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,5,2020-04-27,2020-05-10,6,30,5,0
+TCL Spring Playoffs 2021,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,5,2021-04-03,2021-04-17,6,30,5,0
+TCL Spring Playoffs 2023,TCL,regional,domestic,regional.tcl.from_2023,6,2023-03-22,2023-04-01,6,30,6,6
+TCL Summer 2018,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,112,2018-06-16,2018-08-20,8,54,112,0
+TCL Summer 2019,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,91,2019-06-08,2019-08-04,10,73,91,0
+TCL Summer 2020,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,91,2020-06-06,2020-08-02,10,83,91,1
+TCL Summer 2021,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,92,2021-06-12,2021-08-08,10,63,92,16
+TCL Summer 2022,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,91,2022-06-11,2022-08-14,10,59,91,90
+TCL Summer 2023,TCL,regional,domestic,regional.tcl.from_2023,56,2023-06-14,2023-07-21,8,42,56,56
+TCL Summer 2024,TCL,regional,domestic,regional.tcl.from_2023,56,2024-05-30,2024-07-18,8,44,56,56
+TCL Summer Playoffs 2018,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,5,2018-08-25,2018-09-16,6,30,5,0
+TCL Summer Playoffs 2019,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,5,2019-08-17,2019-08-31,6,30,5,0
+TCL Summer Playoffs 2020,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,5,2020-08-15,2020-09-05,6,30,5,0
+TCL Summer Playoffs 2021,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,5,2021-08-14,2021-09-04,6,30,5,5
+TCL Summer Playoffs 2022,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,5,2022-08-20,2022-09-10,6,30,5,5
+TCL Summer Playoffs 2023,TCL,regional,domestic,regional.tcl.from_2023,6,2023-07-25,2023-08-12,6,30,6,6
+TCL Summer Playoffs 2024,TCL,regional,domestic,regional.tcl.from_2023,6,2024-07-20,2024-08-03,6,30,6,6
+TCL Winter 2022,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,91,2022-01-22,2022-03-20,10,60,91,90
+TCL Winter Playoffs 2022,TCL,minor_top_level,domestic,minor_top_level.tcl.pre_2023,5,2022-03-26,2022-04-09,6,30,5,5
+TransIP Road Of Legends 2026 Winter Split,Road of Legends,regional,domestic,regional.road_of_legends,40,2026-01-13,2026-02-05,8,44,40,0
+Trinity Force Puchar Polski,Ultraliga,regional,domestic,regional.ultraliga_historical_polish_cup,14,2020-11-01,2020-11-15,8,41,14,0
+Turkey Academy Summer 2022,Turkey Academy,development,domestic,development.turkey_academy,87,2022-06-09,2022-08-12,10,74,87,0
+Turkey Academy Summer Playoffs 2022,Turkey Academy,development,domestic,development.turkey_academy,3,2022-08-15,2022-08-17,4,20,3,0
+Turkey Academy Winter 2022,Turkey Academy,development,domestic,development.turkey_academy,93,2022-01-20,2022-03-18,10,68,93,0
+Turkey Academy Winter Playoffs 2022,Turkey Academy,development,domestic,development.turkey_academy,3,2022-03-21,2022-03-23,4,20,3,0
+Ultraliga Season 0,Ultraliga,regional,domestic,regional.ultraliga,88,2018-10-22,2018-12-23,8,46,88,0
+Ultraliga Season 1,Ultraliga,regional,domestic,regional.ultraliga,62,2019-01-22,2019-03-27,8,49,62,0
+Ultraliga Season 10 2023,Ultraliga,regional,domestic,regional.ultraliga,90,2023-05-29,2023-07-20,10,58,90,88
+Ultraliga Season 10 Playoffs 2023,Ultraliga,regional,domestic,regional.ultraliga,6,2023-07-25,2023-08-12,6,30,6,6
+Ultraliga Season 2,Ultraliga,regional,domestic,regional.ultraliga,64,2019-06-18,2019-08-28,8,54,64,0
+Ultraliga Season 3,Ultraliga,regional,domestic,regional.ultraliga,62,2020-01-28,2020-04-01,8,46,62,0
+Ultraliga Season 4,Ultraliga,regional,domestic,regional.ultraliga,63,2020-06-09,2020-08-12,8,46,63,0
+Ultraliga Season 5,Ultraliga,regional,domestic,regional.ultraliga,62,2021-01-19,2021-03-24,8,49,62,0
+Ultraliga Season 5 Promotion Tournament,Ultraliga,regional,domestic,regional.ultraliga,2,2020-08-16,2020-08-16,4,20,2,0
+Ultraliga Season 6,Ultraliga,regional,domestic,regional.ultraliga,57,2021-06-08,2021-07-21,8,44,57,0
+Ultraliga Season 6 Playoffs,Ultraliga,regional,domestic,regional.ultraliga,6,2021-07-27,2021-08-11,5,25,6,0
+Ultraliga Season 7,Ultraliga,regional,domestic,regional.ultraliga,90,2022-01-11,2022-03-09,10,54,90,0
+Ultraliga Season 7 Playoffs,Ultraliga,regional,domestic,regional.ultraliga,6,2022-03-15,2022-03-30,6,30,6,0
+Ultraliga Season 8,Ultraliga,regional,domestic,regional.ultraliga,90,2022-05-31,2022-07-27,10,54,90,89
+Ultraliga Season 8 Playoffs,Ultraliga,regional,domestic,regional.ultraliga,6,2022-08-02,2022-08-17,6,31,6,6
+Ultraliga Season 9 2023,Ultraliga,regional,domestic,regional.ultraliga,91,2023-01-16,2023-03-08,10,57,91,90
+Ultraliga Season 9 Playoffs 2023,Ultraliga,regional,domestic,regional.ultraliga,6,2023-03-14,2023-03-31,6,30,6,6
+Ultraliga Spring 2024,Ultraliga,regional,domestic,regional.ultraliga,55,2024-01-16,2024-02-28,8,45,55,43
+Ultraliga Spring Playoffs 2024,Ultraliga,regional,domestic,regional.ultraliga,4,2024-03-12,2024-03-23,4,20,4,4
+Ultraliga Summer 2024,Ultraliga,regional,domestic,regional.ultraliga,56,2024-06-04,2024-07-17,8,42,56,48
+Ultraliga Summer Playoffs 2024,Ultraliga,regional,domestic,regional.ultraliga,4,2024-07-24,2024-08-03,4,20,4,4
+VCS 2025 Finals,VCS,minor_top_level,domestic,minor_top_level.vcs,2,2025-07-19,2025-07-20,3,17,2,0
+VCS 2025 Spring,VCS,minor_top_level,domestic,minor_top_level.vcs,23,2025-02-28,2025-03-30,8,46,23,0
+VCS 2025 Summer,VCS,minor_top_level,domestic,minor_top_level.vcs,23,2025-05-27,2025-06-22,8,42,23,0
+VCS 2026 Spring,VCS,minor_top_level,domestic,minor_top_level.vcs,15,2026-02-28,2026-03-15,6,36,15,0
+VCS 2026 Spring Playoffs,VCS,minor_top_level,domestic,minor_top_level.vcs,6,2026-03-24,2026-03-29,4,26,6,0
+VCS Spring 2018,VCS,minor_top_level,domestic,minor_top_level.vcs,56,2018-01-18,2018-03-18,8,56,56,0
+VCS Spring 2019,VCS,minor_top_level,domestic,minor_top_level.vcs,56,2019-01-17,2019-03-24,8,58,56,0
+VCS Spring 2020,VCS,minor_top_level,domestic,minor_top_level.vcs,56,2020-01-31,2020-04-05,8,55,56,0
+VCS Spring 2021,VCS,minor_top_level,domestic,minor_top_level.vcs,56,2021-01-22,2021-04-04,8,53,56,0
+VCS Spring 2022,VCS,minor_top_level,domestic,minor_top_level.vcs,56,2022-02-11,2022-04-13,8,59,56,0
+VCS Spring 2023,VCS,minor_top_level,domestic,minor_top_level.vcs,57,2023-02-24,2023-04-10,8,55,57,0
+VCS Spring 2024,VCS,minor_top_level,domestic,minor_top_level.vcs,48,2024-01-20,2024-03-10,8,49,48,0
+VCS Spring Playoffs 2018,VCS,minor_top_level,domestic,minor_top_level.vcs,3,2018-03-30,2018-04-07,4,20,3,0
+VCS Spring Playoffs 2019,VCS,minor_top_level,domestic,minor_top_level.vcs,3,2019-03-30,2019-04-13,4,20,3,0
+VCS Spring Playoffs 2020,VCS,minor_top_level,domestic,minor_top_level.vcs,3,2020-04-10,2020-04-18,4,20,3,0
+VCS Spring Playoffs 2021,VCS,minor_top_level,domestic,minor_top_level.vcs,4,2021-04-10,2021-04-18,4,23,4,0
+VCS Spring Playoffs 2022,VCS,minor_top_level,domestic,minor_top_level.vcs,3,2022-04-16,2022-04-24,4,20,3,0
+VCS Spring Playoffs 2023,VCS,minor_top_level,domestic,minor_top_level.vcs,6,2023-04-14,2023-04-23,4,20,6,0
+VCS Spring Playoffs 2024,VCS,minor_top_level,domestic,minor_top_level.vcs,5,2024-04-03,2024-04-07,4,22,5,0
+VCS Summer 2018,VCS,minor_top_level,domestic,minor_top_level.vcs,55,2018-06-21,2018-08-19,8,61,55,2
+VCS Summer 2019,VCS,minor_top_level,domestic,minor_top_level.vcs,56,2019-06-20,2019-08-11,8,59,56,0
+VCS Summer 2020,VCS,minor_top_level,domestic,minor_top_level.vcs,56,2020-06-19,2020-08-16,8,58,56,0
+VCS Summer 2022,VCS,minor_top_level,domestic,minor_top_level.vcs,56,2022-07-07,2022-08-21,8,50,56,0
+VCS Summer 2023,VCS,minor_top_level,domestic,minor_top_level.vcs,43,2023-06-23,2023-08-06,8,48,43,0
+VCS Summer 2024,VCS,minor_top_level,domestic,minor_top_level.vcs,42,2024-06-21,2024-08-04,7,48,42,0
+VCS Summer Playoffs 2018,VCS,minor_top_level,domestic,minor_top_level.vcs,3,2018-09-07,2018-09-22,4,21,3,0
+VCS Summer Playoffs 2019,VCS,minor_top_level,domestic,minor_top_level.vcs,5,2019-08-24,2019-09-15,4,24,5,0
+VCS Summer Playoffs 2020,VCS,minor_top_level,domestic,minor_top_level.vcs,8,2020-08-19,2020-09-05,6,30,8,0
+VCS Summer Playoffs 2022,VCS,minor_top_level,domestic,minor_top_level.vcs,6,2022-08-24,2022-09-04,4,20,6,0
+VCS Summer Playoffs 2023,VCS,minor_top_level,domestic,minor_top_level.vcs,10,2023-08-12,2023-09-09,6,31,10,0
+VCS Summer Playoffs 2024,VCS,minor_top_level,domestic,minor_top_level.vcs,7,2024-08-07,2024-08-18,5,25,7,0
+VCS Winter 2021,VCS,minor_top_level,domestic,minor_top_level.vcs,56,2021-11-16,2021-12-17,8,55,56,0
+VCS Winter Playoffs 2021,VCS,minor_top_level,domestic,minor_top_level.vcs,4,2021-12-22,2021-12-26,4,21,4,0
+World Championship 2014,Worlds,international,cross_league,international.worlds,57,2014-09-18,2014-10-19,16,82,57,0
+World Championship 2015,Worlds,international,cross_league,international.worlds,56,2015-10-01,2015-10-31,16,85,56,0
+World Championship 2016,Worlds,international,cross_league,international.worlds,57,2016-09-29,2016-10-30,16,86,57,0
+World Championship 2017,Worlds,international,cross_league,international.worlds,58,2017-10-05,2017-11-04,16,85,58,55
+World Championship 2018,Worlds,international,cross_league,international.worlds,58,2018-10-10,2018-11-03,16,90,58,55
+World Championship 2019,Worlds,international,cross_league,international.worlds,57,2019-10-12,2019-11-10,16,85,57,55
+World Championship 2020,Worlds,international,cross_league,international.worlds,56,2020-10-03,2020-10-31,16,80,56,55
+World Championship 2021,Worlds,international,cross_league,international.worlds,61,2021-10-11,2021-11-06,16,81,61,58
+World Championship 2022,Worlds,international,cross_league,international.worlds,58,2022-10-07,2022-11-05,16,82,58,55
+World Championship Play-In 2017,Worlds,international,cross_league,international.worlds,30,2017-09-23,2017-09-29,12,63,30,16
+World Championship Play-In 2018,Worlds,international,cross_league,international.worlds,30,2018-10-01,2018-10-07,12,62,30,27
+World Championship Play-In 2019,Worlds,international,cross_league,international.worlds,31,2019-10-02,2019-10-08,12,61,31,28
+World Championship Play-In 2020,Worlds,international,cross_league,international.worlds,28,2020-09-25,2020-09-30,10,51,28,27
+World Championship Play-In 2021,Worlds,international,cross_league,international.worlds,26,2021-10-05,2021-10-09,10,51,26,25
+World Championship Play-In 2022,Worlds,international,cross_league,international.worlds,36,2022-09-29,2022-10-04,12,63,36,34
+Worlds 2025 Main Event,Worlds,international,cross_league,international.worlds,40,2025-10-15,2025-11-09,16,83,40,40
+Worlds 2025 Play-In,Worlds,international,cross_league,international.worlds,1,2025-10-14,2025-10-14,2,10,1,1
+Worlds Main Event 2023,Worlds,international,cross_league,international.worlds,40,2023-10-19,2023-11-19,16,80,40,40
+Worlds Main Event 2024,Worlds,international,cross_league,international.worlds,40,2024-10-03,2024-11-02,16,81,40,40
+Worlds Play-In 2023,Worlds,international,cross_league,international.worlds,12,2023-10-10,2023-10-15,8,40,12,12
+Worlds Play-In 2024,Worlds,international,cross_league,international.worlds,10,2024-09-25,2024-09-29,8,40,10,10
+Worlds Qualifying Series 2023,Worlds,international,cross_league,international.worlds,1,2023-10-09,2023-10-09,2,10,1,1
