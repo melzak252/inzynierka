@@ -13,6 +13,7 @@ import re
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from fastapi import APIRouter, Depends, HTTPException
 
 from betting_app.api.deps import get_db, query_df, query_one
@@ -44,10 +45,14 @@ from betting_app.api.schemas import (
     GolggMatchCandidatesResponse,
     MatchMappingRequest,
     MappingCheckResponse,
+    MappingReviewDecisionRequest,
+    MappingReviewDecisionResponse,
+    MappingReviewItem,
+    MappingReviewResponse,
     MatchRosterOverrideRequest,
     MatchRosterOverrideResponse,
 )
-from betting_app.services.canonical_match_service import align_snapshot_odds
+from betting_app.services.canonical_match_service import align_snapshot_odds, competition_family
 from betting_app.core.ev import fair_market_probabilities
 from betting_app.services.market_service import (
     enrich_arbitrage,
@@ -699,6 +704,233 @@ def list_unmapped_matches(
         ))
     
     return UnmappedMatchesResponse(total=len(items), matches=items)
+
+
+# ── GET/POST /matches/mapping-review ───────────────────────────────────────
+
+
+@router.get("/mapping-review", response_model=MappingReviewResponse)
+def list_mapping_review_items(limit: int = 100, db=Depends(get_db)):
+    """Return existing result links that fail the conservative identity gate."""
+    rows = query_df(
+        db,
+        """
+        SELECT gmm.id AS mapping_id, gmm.canonical_match_id, gmm.golgg_match_id,
+               gmm.confidence, gmm.mapped_by,
+               cm.team_a_name AS canonical_team_a,
+               cm.team_b_name AS canonical_team_b,
+               cm.start_time_normalized, cm.league,
+               gm.team1_name AS golgg_team_a, gm.team2_name AS golgg_team_b,
+               gm.date AS golgg_date, gm.tournament_name AS golgg_competition,
+               (SELECT COUNT(*) FROM canonical_predictions p
+                WHERE p.canonical_match_id = cm.id) AS prediction_count,
+               (SELECT COUNT(*) FROM upcoming_match_features f
+                WHERE f.canonical_match_id = cm.id) AS feature_count,
+               (SELECT COUNT(*) FROM model_ev_signals s
+                WHERE s.canonical_match_id = cm.id) AS signal_count,
+               (SELECT COUNT(*) FROM bets b
+                WHERE b.canonical_match_id = cm.id) AS bet_count
+        FROM golgg_match_mappings gmm
+        JOIN canonical_matches cm ON cm.id = gmm.canonical_match_id
+        JOIN golgg_matches gm ON gm.match_id = gmm.golgg_match_id
+        ORDER BY cm.start_time_normalized DESC, cm.id DESC
+        """,
+    )
+    items: list[MappingReviewItem] = []
+    for row in rows:
+        canonical_date = str(row.get("start_time_normalized") or "")[:10] or None
+        golgg_date = str(row.get("golgg_date") or "")[:10] or None
+        canonical_family = competition_family(row.get("league"))
+        golgg_family = competition_family(row.get("golgg_competition"))
+        confidence = float(row.get("confidence") or 0.0)
+        reasons: list[str] = []
+        if confidence < 0.95:
+            reasons.append("confidence_below_0_95")
+        if not canonical_date or not golgg_date:
+            reasons.append("missing_date")
+        elif canonical_date != golgg_date:
+            reasons.append("date_mismatch")
+        if canonical_family is None or golgg_family is None:
+            reasons.append("unknown_competition_family")
+        elif canonical_family != golgg_family:
+            reasons.append("competition_conflict")
+        if not reasons:
+            continue
+        items.append(
+            MappingReviewItem(
+                canonical_match_id=int(row["canonical_match_id"]),
+                mapping_id=int(row["mapping_id"]),
+                golgg_match_id=str(row["golgg_match_id"]),
+                confidence=confidence,
+                mapped_by=row.get("mapped_by"),
+                canonical_team_a=row["canonical_team_a"],
+                canonical_team_b=row["canonical_team_b"],
+                canonical_date=canonical_date,
+                canonical_competition=row.get("league"),
+                golgg_team_a=row.get("golgg_team_a"),
+                golgg_team_b=row.get("golgg_team_b"),
+                golgg_date=golgg_date,
+                golgg_competition=row.get("golgg_competition"),
+                reasons=reasons,
+                prediction_count=int(row.get("prediction_count") or 0),
+                feature_count=int(row.get("feature_count") or 0),
+                signal_count=int(row.get("signal_count") or 0),
+                bet_count=int(row.get("bet_count") or 0),
+            )
+        )
+        if len(items) >= limit:
+            break
+    return MappingReviewResponse(total=len(items), items=items)
+
+
+@router.post("/mapping-review/decision", response_model=MappingReviewDecisionResponse)
+def decide_mapping_review(body: MappingReviewDecisionRequest, db=Depends(get_db)):
+    """Apply one operator-reviewed result-link decision atomically."""
+    lock_suffix = "" if is_sqlite() else " FOR UPDATE"
+    current = db.execute(
+        text(
+            """
+            SELECT gmm.id AS mapping_id, gmm.golgg_match_id,
+                   cm.team_a_name, cm.team_b_name, cm.start_time_normalized,
+                   cm.league,
+                   (SELECT COUNT(*) FROM bets b
+                    WHERE b.canonical_match_id = cm.id) AS bet_count
+            FROM canonical_matches cm
+            LEFT JOIN golgg_match_mappings gmm ON gmm.canonical_match_id = cm.id
+            WHERE cm.id = :canonical_match_id
+            """
+            + lock_suffix
+        ),
+        {"canonical_match_id": body.canonical_match_id},
+    ).mappings().first()
+    if current is None:
+        raise HTTPException(status_code=404, detail="Canonical match not found")
+    old_id = str(current["golgg_match_id"]) if current["golgg_match_id"] is not None else None
+    new_id = body.new_golgg_match_id.strip() if body.new_golgg_match_id else None
+    if body.decision == "replace" and not new_id:
+        raise HTTPException(status_code=400, detail="replace requires new_golgg_match_id")
+    if body.decision != "replace" and new_id:
+        raise HTTPException(status_code=400, detail="new_golgg_match_id is only valid for replace")
+    if body.decision in {"replace", "invalidate"} and int(current["bet_count"] or 0) > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Mappings with recorded bets require a separate settlement review",
+        )
+    if body.decision == "replace":
+        exists = db.execute(
+            text("SELECT 1 FROM golgg_matches WHERE match_id = :match_id"),
+            {"match_id": new_id},
+        ).first()
+        if exists is None:
+            raise HTTPException(status_code=404, detail="Replacement GOL.GG match not found")
+
+    evidence = json.dumps(dict(current), default=str, sort_keys=True)
+    try:
+        if body.decision == "retain":
+            if old_id is None:
+                raise HTTPException(status_code=409, detail="No mapping exists to retain")
+            db.execute(
+                text(
+                    """
+                    UPDATE golgg_match_mappings
+                    SET confidence = 1.0, mapped_by = 'manual-reviewed-v1',
+                        mapped_at = CURRENT_TIMESTAMP
+                    WHERE canonical_match_id = :canonical_match_id
+                    """
+                ),
+                {"canonical_match_id": body.canonical_match_id},
+            )
+            new_id = old_id
+        elif body.decision == "replace":
+            if old_id is None:
+                db.execute(
+                    text(
+                        """
+                        INSERT INTO golgg_match_mappings (
+                            canonical_match_id, golgg_match_id, confidence,
+                            mapped_by, mapped_at
+                        ) VALUES (
+                            :canonical_match_id, :golgg_match_id, 1.0,
+                            'manual-reviewed-v1', CURRENT_TIMESTAMP
+                        )
+                        """
+                    ),
+                    {"canonical_match_id": body.canonical_match_id, "golgg_match_id": new_id},
+                )
+            else:
+                db.execute(
+                    text(
+                        """
+                        UPDATE golgg_match_mappings
+                        SET golgg_match_id = :golgg_match_id, confidence = 1.0,
+                            mapped_by = 'manual-reviewed-v1',
+                            mapped_at = CURRENT_TIMESTAMP
+                        WHERE canonical_match_id = :canonical_match_id
+                        """
+                    ),
+                    {"canonical_match_id": body.canonical_match_id, "golgg_match_id": new_id},
+                )
+        else:
+            db.execute(
+                text("DELETE FROM golgg_match_mappings WHERE canonical_match_id = :canonical_match_id"),
+                {"canonical_match_id": body.canonical_match_id},
+            )
+            new_id = None
+
+        if body.decision in {"replace", "invalidate"}:
+            db.execute(
+                text(
+                    """
+                    UPDATE canonical_matches
+                    SET status = 'expired', winner_name = NULL, loser_name = NULL,
+                        winner_normalized = NULL, winner_side = NULL,
+                        result_source = NULL, result_source_match_id = NULL,
+                        result_recorded_at = NULL
+                    WHERE id = :canonical_match_id
+                    """
+                ),
+                {"canonical_match_id": body.canonical_match_id},
+            )
+        decision_id = db.execute(
+            text(
+                """
+                INSERT INTO mapping_review_decisions (
+                    canonical_match_id, old_golgg_match_id, new_golgg_match_id,
+                    decision, reason, operator, evidence_json, decided_at
+                ) VALUES (
+                    :canonical_match_id, :old_golgg_match_id, :new_golgg_match_id,
+                    :decision, :reason, :operator, :evidence_json, CURRENT_TIMESTAMP
+                )
+                RETURNING id
+                """
+            ),
+            {
+                "canonical_match_id": body.canonical_match_id,
+                "old_golgg_match_id": old_id,
+                "new_golgg_match_id": new_id,
+                "decision": body.decision,
+                "reason": body.reason.strip(),
+                "operator": body.operator.strip(),
+                "evidence_json": evidence,
+            },
+        ).scalar_one()
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Replacement mapping conflicts with an existing reviewed link",
+        ) from exc
+    return MappingReviewDecisionResponse(
+        decision_id=int(decision_id),
+        canonical_match_id=body.canonical_match_id,
+        decision=body.decision,
+        old_golgg_match_id=old_id,
+        new_golgg_match_id=new_id,
+    )
 
 
 # ── GET /matches/{id}/mapping-candidates ────────────────────────────────────

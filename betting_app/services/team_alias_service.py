@@ -142,7 +142,67 @@ def clear_alias_schema_cache() -> None:
     """Clear cached schema metadata (used by tests after DB reset)."""
 
     _team_alias_columns.cache_clear()
+    _has_durable_identity_registry.cache_clear()
 
+
+
+@lru_cache(maxsize=1)
+def _has_durable_identity_registry() -> bool:
+    session = get_session()
+    try:
+        return inspect(session.bind).has_table("source_team_identities")
+    except Exception:
+        return False
+    finally:
+        session.close()
+
+
+def _resolve_durable_identity(
+    normalized: str,
+    context: AliasContext,
+) -> AliasResolution | None:
+    if not context.source_system or not _has_durable_identity_registry():
+        return None
+    rows = query_df(
+        """
+        SELECT sti.id, sti.canonical_team_id, sti.source_name, sti.confidence,
+               sti.competition_scope, sti.valid_from, sti.valid_to,
+               ct.canonical_name, ct.normalized_name
+        FROM source_team_identities sti
+        JOIN canonical_teams ct ON ct.id = sti.canonical_team_id
+        WHERE sti.source_system = ?
+          AND sti.normalized_source_name = ?
+          AND sti.review_status IN ('approved', 'backfilled-name-exact')
+        ORDER BY sti.confidence DESC, sti.id
+        """,
+        (context.source_system.lower(), normalized),
+    )
+    applicable = [
+        row
+        for row in rows.to_dict("records")
+        if _contains_pattern(
+            context.league or context.tournament,
+            str(row.get("competition_scope") or "") or None,
+        )
+        and _date_in_range(
+            context.match_date,
+            str(row.get("valid_from") or "") or None,
+            str(row.get("valid_to") or "") or None,
+        )
+    ]
+    targets = {str(row["normalized_name"]): row for row in applicable}
+    if not targets:
+        return None
+    if len(targets) > 1:
+        return AliasResolution(None, None, "durable-ambiguous", None, 0.0)
+    row = next(iter(targets.values()))
+    return AliasResolution(
+        target_name=str(row["canonical_name"]),
+        normalized_target=str(row["normalized_name"]),
+        source="durable-identity",
+        alias_id=None,
+        confidence=float(row.get("confidence") or 1.0),
+    )
 
 def resolve_scoped_alias(
     raw_name: str,
@@ -159,6 +219,9 @@ def resolve_scoped_alias(
 
     context = context or AliasContext()
     normalized = alias_lookup_key(raw_name)
+    durable = _resolve_durable_identity(normalized, context)
+    if durable is not None:
+        return durable
     compact = normalized.replace(" ", "")
     columns = _team_alias_columns()
     if not columns:

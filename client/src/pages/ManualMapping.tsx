@@ -8,6 +8,8 @@ import {
 import type {
   GolggMatchCandidate,
   MappingCheckResponse,
+  MappingReviewItem,
+  MappingReviewResponse,
   UnmappedMatchItem,
   UnmappedMatchesResponse,
 } from '../types';
@@ -100,6 +102,12 @@ export default function ManualMapping() {
   const [onlyUnrecognizedTeams, setOnlyUnrecognizedTeams] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [reviewItems, setReviewItems] = useState<MappingReviewItem[]>([]);
+  const [selectedReview, setSelectedReview] = useState<MappingReviewItem | null>(null);
+  const [reviewReason, setReviewReason] = useState('');
+  const [reviewOperator, setReviewOperator] = useState('');
+  const [replacementId, setReplacementId] = useState('');
+  const [reviewSaving, setReviewSaving] = useState(false);
 
   const [aliasSide, setAliasSide] = useState<AliasSide>('a');
   const [aliasQuery, setAliasQuery] = useState('');
@@ -148,8 +156,50 @@ export default function ManualMapping() {
     }
   };
 
+  const fetchReview = async () => {
+    try {
+      const data = await fetchJson<MappingReviewResponse>(`${API_BASE}/matches/mapping-review?limit=100`);
+      setReviewItems(data.items);
+      if (selectedReview && !data.items.some((item) => item.canonical_match_id === selectedReview.canonical_match_id)) {
+        setSelectedReview(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nie udało się pobrać kolejki kontroli');
+    }
+  };
+
+  const handleReviewDecision = async (decision: 'retain' | 'replace' | 'invalidate') => {
+    if (!selectedReview || reviewReason.trim().length < 8 || reviewOperator.trim().length < 2) return;
+    setReviewSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await fetchJson(`${API_BASE}/matches/mapping-review/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          canonical_match_id: selectedReview.canonical_match_id,
+          decision,
+          reason: reviewReason.trim(),
+          operator: reviewOperator.trim(),
+          new_golgg_match_id: decision === 'replace' ? replacementId.trim() : null,
+        }),
+      });
+      setSuccess(`Zapisano decyzję ${decision} dla #${selectedReview.canonical_match_id}`);
+      setReviewReason('');
+      setReplacementId('');
+      setSelectedReview(null);
+      await fetchReview();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Nie udało się zapisać decyzji');
+    } finally {
+      setReviewSaving(false);
+    }
+  };
+
   useEffect(() => {
     fetchUnmapped();
+    fetchReview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
@@ -313,6 +363,52 @@ export default function ManualMapping() {
           {error || success}
         </div>
       )}
+      <section className="mapping-card">
+        <div className="section-header">
+          <div>
+            <h2>Kontrola istniejących mapowań</h2>
+            <span>{reviewItems.length} linków poza bezpieczną bramką</span>
+          </div>
+          <button className="secondary-btn" onClick={fetchReview} type="button">Odśwież kontrolę</button>
+        </div>
+        <div className="mapping-container">
+          <div className="scroll-list">
+            {reviewItems.map((item) => (
+              <button
+                className={`match-item ${selectedReview?.canonical_match_id === item.canonical_match_id ? 'selected' : ''}`}
+                key={item.mapping_id}
+                onClick={() => setSelectedReview(item)}
+                type="button"
+              >
+                <div className="match-row-top"><span className="match-id">#{item.canonical_match_id}</span><span>{item.confidence.toFixed(3)}</span></div>
+                <div className="match-teams">{item.canonical_team_a} vs {item.canonical_team_b}</div>
+                <div className="match-sources">{item.canonical_date} · {item.canonical_competition}</div>
+                <div className="match-diagnosis">{item.reasons.join(', ')}</div>
+              </button>
+            ))}
+          </div>
+          <div className="mapping-workspace">
+            {!selectedReview ? <div className="empty-state">Wybierz link wymagający kontroli.</div> : (
+              <div className="mapping-card priority-card">
+                <h3>Canonical #{selectedReview.canonical_match_id}</h3>
+                <p>{selectedReview.canonical_team_a} vs {selectedReview.canonical_team_b} · {selectedReview.canonical_date} · {selectedReview.canonical_competition}</p>
+                <h3>GOL.GG #{selectedReview.golgg_match_id}</h3>
+                <p>{selectedReview.golgg_team_a} vs {selectedReview.golgg_team_b} · {selectedReview.golgg_date} · {selectedReview.golgg_competition}</p>
+                <p>Predykcje: {selectedReview.prediction_count} · cechy: {selectedReview.feature_count} · sygnały: {selectedReview.signal_count} · zakłady: {selectedReview.bet_count}</p>
+                <label className="field-label">Operator<input value={reviewOperator} onChange={(event) => setReviewOperator(event.target.value)} /></label>
+                <label className="field-label">Powód decyzji<textarea value={reviewReason} onChange={(event) => setReviewReason(event.target.value)} /></label>
+                <label className="field-label">Nowe GOL.GG ID — tylko dla zamiany<input value={replacementId} onChange={(event) => setReplacementId(event.target.value)} /></label>
+                <div className="action-row">
+                  <button className="primary-btn" disabled={reviewSaving || reviewReason.trim().length < 8 || reviewOperator.trim().length < 2} onClick={() => handleReviewDecision('retain')} type="button">Zatwierdź obecne</button>
+                  <button className="secondary-btn" disabled={reviewSaving || !replacementId.trim() || reviewReason.trim().length < 8 || reviewOperator.trim().length < 2 || selectedReview.bet_count > 0} onClick={() => handleReviewDecision('replace')} type="button">Zamień link</button>
+                  <button className="danger-btn" disabled={reviewSaving || reviewReason.trim().length < 8 || reviewOperator.trim().length < 2 || selectedReview.bet_count > 0} onClick={() => handleReviewDecision('invalidate')} type="button">Unieważnij</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
 
       <div className="mapping-toolbar">
         <div className="status-tabs" role="tablist" aria-label="Status meczów">

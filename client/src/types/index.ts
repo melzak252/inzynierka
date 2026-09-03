@@ -739,6 +739,32 @@ export interface MappingCheckResponse {
   start_time: string | null;
 }
 
+export interface MappingReviewItem {
+  canonical_match_id: number;
+  mapping_id: number;
+  golgg_match_id: string;
+  confidence: number;
+  mapped_by: string | null;
+  canonical_team_a: string;
+  canonical_team_b: string;
+  canonical_date: string | null;
+  canonical_competition: string | null;
+  golgg_team_a: string | null;
+  golgg_team_b: string | null;
+  golgg_date: string | null;
+  golgg_competition: string | null;
+  reasons: string[];
+  prediction_count: number;
+  feature_count: number;
+  signal_count: number;
+  bet_count: number;
+}
+
+export interface MappingReviewResponse {
+  total: number;
+  items: MappingReviewItem[];
+}
+
 // ─── Embedding Diagnostics ───────────────────────────────────────────
 
 export interface ChampionEmbeddingPoint {
