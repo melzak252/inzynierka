@@ -74,6 +74,7 @@ services:
     environment:
       BETTING_APP_TAX_RATE: "${BETTING_APP_TAX_RATE:-0.12}"
       BETTING_APP_MIN_EV: "${BETTING_APP_MIN_EV:-0.05}"
+      IDENTITY_REVIEW_TOKEN: "${IDENTITY_REVIEW_TOKEN:-}"
       PYTHONPATH: /app:/app/src
       DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER:-betting}:${POSTGRES_PASSWORD:-betting_local_password}@timescaledb:5432/${POSTGRES_DB:-betting}"
     shm_size: "512m"
