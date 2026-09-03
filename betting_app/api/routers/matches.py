@@ -9,12 +9,14 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 import json
 import math
+import os
 import re
+import secrets
 from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import (
@@ -784,8 +786,17 @@ def list_mapping_review_items(limit: int = 100, db=Depends(get_db)):
 
 
 @router.post("/mapping-review/decision", response_model=MappingReviewDecisionResponse)
-def decide_mapping_review(body: MappingReviewDecisionRequest, db=Depends(get_db)):
+def decide_mapping_review(
+    body: MappingReviewDecisionRequest,
+    review_token: str | None = Header(default=None, alias="X-Identity-Review-Token"),
+    db=Depends(get_db),
+):
     """Apply one operator-reviewed result-link decision atomically."""
+    expected_token = os.getenv("IDENTITY_REVIEW_TOKEN")
+    if not expected_token:
+        raise HTTPException(status_code=503, detail="Identity review mutations are disabled")
+    if review_token is None or not secrets.compare_digest(review_token, expected_token):
+        raise HTTPException(status_code=401, detail="Invalid identity review token")
     lock_suffix = "" if is_sqlite() else " FOR UPDATE"
     current = db.execute(
         text(
