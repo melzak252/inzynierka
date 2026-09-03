@@ -91,7 +91,11 @@ def _resolve_golgg_team_id(team_name: str, league: str | None = None) -> int | N
     if forced_golgg_name:
         golgg_name = forced_golgg_name
     else:
-        golgg_name, conf, source = suggest_mapping(team_name)
+        golgg_name, conf, source = suggest_mapping(
+            team_name,
+            source_system="bookmaker",
+            league=league,
+        )
         if not golgg_name or conf <= 0:
             return None
 
@@ -146,6 +150,7 @@ def upsert_upcoming_match(
             raw_team_b=canonical_team_b or raw_team_b,
             match_start_time=match_start_time,
             league=league,
+            source_system="bookmaker",
             best_of=best_of,
         )
 

@@ -205,7 +205,12 @@ export default function ManualMapping() {
     setError(null);
     setSuccess(null);
     try {
-      await createTeamAlias({ raw_name: rawAliasName, golgg_team_name: selectedGolggTeam });
+      await createTeamAlias({
+        raw_name: rawAliasName,
+        golgg_team_name: selectedGolggTeam,
+        source_system: 'bookmaker',
+        league_pattern: selectedMatch?.league || undefined,
+      });
       setSuccess(`Dodano alias: ${rawAliasName} → ${selectedGolggTeam}`);
       await fetchUnmapped();
     } catch (err) {

@@ -1138,6 +1138,8 @@ export default function MatchDetail() {
                                   await createTeamAlias({
                                     raw_name: match.team_comparison?.team_a?.canonical_name || match.team_a_name || '',
                                     golgg_team_name: team,
+                                    source_system: 'bookmaker',
+                                    league_pattern: match.league || undefined,
                                   });
                                   setAliasModalSide(null);
                                   // Refresh match detail
@@ -1248,6 +1250,8 @@ export default function MatchDetail() {
                                   await createTeamAlias({
                                     raw_name: match.team_comparison?.team_b?.canonical_name || match.team_b_name || '',
                                     golgg_team_name: team,
+                                    source_system: 'bookmaker',
+                                    league_pattern: match.league || undefined,
                                   });
                                   setAliasModalSide(null);
                                   // Refresh match detail

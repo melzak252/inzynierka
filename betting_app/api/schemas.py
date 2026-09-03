@@ -557,6 +557,18 @@ class PredictResponse(BaseModel):
 class AliasCreateRequest(BaseModel):
     raw_name: str = Field(min_length=1, description="Bookmaker/raw team name to map")
     golgg_team_name: str = Field(min_length=1, description="GolGG canonical team name to map to")
+    source_system: str | None = Field(
+        default=None,
+        max_length=50,
+        description="Source family for a scoped alias, for example bookmaker",
+    )
+    league_pattern: str | None = Field(
+        default=None,
+        max_length=200,
+        description="Competition scope required for collision-prone short aliases",
+    )
+    valid_from: str | None = Field(default=None, max_length=20)
+    valid_to: str | None = Field(default=None, max_length=20)
 
 
 class AliasCreateResponse(BaseModel):

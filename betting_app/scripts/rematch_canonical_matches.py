@@ -62,6 +62,7 @@ def rematch_odds_snapshots() -> int:
             raw_team_b=row["raw_team_b"],
             match_start_time=row["match_start_time"],
             league=row["league"],
+            source_system="bookmaker",
         )
         with transaction() as connection:
             connection.execute(
@@ -104,6 +105,7 @@ def rematch_odds_snapshots() -> int:
             raw_team_b=event["raw_team_b"],
             match_start_time=event["match_start_time"],
             league=event.get("league_name"),
+            source_system="bookmaker",
         )
         with transaction() as connection:
             connection.execute(

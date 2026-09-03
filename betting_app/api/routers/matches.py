@@ -809,20 +809,44 @@ def map_match_manually(body: MatchMappingRequest, db=Depends(get_db)):
 
 @router.post("/alias", response_model=AliasCreateResponse)
 def create_alias(body: AliasCreateRequest, db=Depends(get_db)):
-    """Create a manual team alias mapping (raw_name → golgg_team_name)."""
+    """Create a context-scoped manual team alias."""
     from betting_app.services.mapping_service import upsert_alias, normalize_team_name
+    from betting_app.services.team_alias_service import is_short_alias
 
     normalized = normalize_team_name(body.raw_name)
     if not normalized:
         raise HTTPException(status_code=400, detail="Normalized name is empty")
+    if is_short_alias(body.raw_name) and not (
+        body.league_pattern or body.valid_from or body.valid_to
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Short aliases require a league or validity scope",
+        )
 
-    alias_id = upsert_alias(body.raw_name, body.golgg_team_name, source="manual", confirmed=True)
+    scoped = bool(
+        body.source_system
+        or body.league_pattern
+        or body.valid_from
+        or body.valid_to
+    )
+    alias_id = upsert_alias(
+        body.raw_name,
+        body.golgg_team_name,
+        source="manual",
+        confirmed=True,
+        source_system=body.source_system,
+        league_pattern=body.league_pattern,
+        valid_from=body.valid_from,
+        valid_to=body.valid_to,
+        notes="Created through the operator mapping workflow",
+    )
 
     return AliasCreateResponse(
         id=alias_id,
         normalized_name=normalized,
         alias=body.golgg_team_name,
-        source="manual",
+        source="manual-scoped" if scoped else "manual",
     )
 
 

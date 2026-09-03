@@ -11,7 +11,11 @@ import pandas as pd
 
 from betting_app.core.db import query_df, transaction
 from betting_app.core.matching import normalize_team_name, similarity
-from betting_app.services.team_alias_service import AliasContext, resolve_scoped_alias
+from betting_app.services.team_alias_service import (
+    AliasContext,
+    alias_lookup_key,
+    resolve_scoped_alias,
+)
 
 
 TEAM_ALIASES = {
@@ -121,6 +125,66 @@ _BO1_OVERRIDE_PATTERNS: list[str] = [
 # the league name alone, so default regular-season Bo3 leagues to 3.
 # Everything else defaults to Bo1.
 
+COMPETITION_MARKERS: tuple[tuple[str, str], ...] = (
+    ("lck challengers", "lck_cl"),
+    ("lck cl", "lck_cl"),
+    ("lck challenge", "lck_cl"),
+    ("lck", "lck"),
+    ("lplol", "lpol"),
+    ("lpol", "lpol"),
+    ("lpl", "lpl"),
+    ("lec", "lec"),
+    ("na challengers", "nacl"),
+    ("nacl", "nacl"),
+    ("lcs", "lcs"),
+    ("lastlap", "les"),
+    ("superliga", "les"),
+    ("lvp", "les"),
+    ("les", "les"),
+    ("lfl", "lfl"),
+    ("prime league", "prime_league"),
+    ("emea masters", "emea_masters"),
+    ("circuito desafiante", "circuito_desafiante"),
+    ("cd", "circuito_desafiante"),
+    ("cblol", "cblol"),
+    ("lcp", "lcp"),
+    ("ljl", "ljl"),
+    ("lrs", "lrs"),
+    ("lrn", "lrn"),
+    ("tcl", "tcl"),
+    ("nlc", "nlc"),
+    ("rift legends", "rift_legends"),
+    ("liga regional sur", "lrs"),
+    ("japan league", "ljl"),
+    ("pg nationals", "pg_nationals"),
+    ("kespa cup", "kespa_cup"),
+    ("gll", "gll"),
+    ("lit", "lit"),
+    ("hellenic legends", "hll"),
+    ("hll", "hll"),
+    ("road of legends", "road_of_legends"),
+    ("hitpoint", "hitpoint"),
+    ("esports world cup", "ewc"),
+    ("world cup", "ewc"),
+    ("wolrd cup", "ewc"),
+    ("ewc", "ewc"),
+    ("msi", "msi"),
+)
+
+
+def competition_family(value: object) -> str | None:
+    """Return a conservative canonical family for a source competition label."""
+
+    if value is None:
+        return None
+    normalized = alias_lookup_key(str(value))
+    if not normalized:
+        return None
+    for marker, family in COMPETITION_MARKERS:
+        if re.search(rf"\b{re.escape(marker)}\b", normalized):
+            return family
+    return None
+
 
 def infer_best_of(league: str | None) -> int:
     """Return the best-of value for a given league name.
@@ -190,6 +254,7 @@ def resolve_canonical_match(
     raw_team_b: str,
     match_start_time: str | None = None,
     league: str | None = None,
+    source_system: str | None = None,
     min_confidence: float = 0.78,
     best_of: int | None = None,
 ) -> int:
@@ -197,8 +262,18 @@ def resolve_canonical_match(
 
     start_norm = normalize_start_time(match_start_time)
     league_norm = normalize_league(league)
-    team_a_key = canonical_team_key(raw_team_a, league=league, match_date=start_norm)
-    team_b_key = canonical_team_key(raw_team_b, league=league, match_date=start_norm)
+    team_a_key = canonical_team_key(
+        raw_team_a,
+        league=league,
+        source_system=source_system,
+        match_date=start_norm,
+    )
+    team_b_key = canonical_team_key(
+        raw_team_b,
+        league=league,
+        source_system=source_system,
+        match_date=start_norm,
+    )
 
     # Prefer scraper-provided best_of over heuristic; fall back to heuristic
     # when the scraper did not detect the format (e.g. no "liczba map" line).
@@ -290,16 +365,18 @@ def canonical_match_score(
     cand_a = str(candidate.get("normalized_team_a") or "")
     cand_b = str(candidate.get("normalized_team_b") or "")
 
-    if _squad_marker_mismatch(team_a_key, cand_a) or _squad_marker_mismatch(team_b_key, cand_b):
-        return 0.0
-    if _squad_marker_mismatch(team_a_key, cand_b) or _squad_marker_mismatch(team_b_key, cand_a):
-        swapped_marker_ok = False
-    else:
-        swapped_marker_ok = True
+    direct_marker_ok = not (
+        _squad_marker_mismatch(team_a_key, cand_a)
+        or _squad_marker_mismatch(team_b_key, cand_b)
+    )
+    swapped_marker_ok = not (
+        _squad_marker_mismatch(team_a_key, cand_b)
+        or _squad_marker_mismatch(team_b_key, cand_a)
+    )
 
-    direct_a = _team_identity_similarity(team_a_key, cand_a)
-    direct_b = _team_identity_similarity(team_b_key, cand_b)
-    direct = (direct_a + direct_b) / 2
+    direct_a = _team_identity_similarity(team_a_key, cand_a) if direct_marker_ok else 0.0
+    direct_b = _team_identity_similarity(team_b_key, cand_b) if direct_marker_ok else 0.0
+    direct = (direct_a + direct_b) / 2 if direct_marker_ok else 0.0
     swapped_a = _team_identity_similarity(team_a_key, cand_b) if swapped_marker_ok else 0.0
     swapped_b = _team_identity_similarity(team_b_key, cand_a) if swapped_marker_ok else 0.0
     swapped = (swapped_a + swapped_b) / 2 if swapped_marker_ok else 0.0
@@ -309,7 +386,7 @@ def canonical_match_score(
     # so two unrelated teams can clear the aggregate threshold when kickoff
     # times coincide. A canonical merge requires both team identities to meet
     # the minimum similarity in at least one orientation.
-    if min(direct_a, direct_b) < 0.68:
+    if direct_marker_ok and min(direct_a, direct_b) < 0.68:
         direct = 0.0
     if swapped_marker_ok and min(swapped_a, swapped_b) < 0.68:
         swapped = 0.0
@@ -317,6 +394,11 @@ def canonical_match_score(
     if team_score < 0.68:
         return team_score * 0.7
 
+
+    incoming_family = competition_family(league_norm)
+    candidate_family = competition_family(candidate.get("league"))
+    if incoming_family and candidate_family and incoming_family != candidate_family:
+        return 0.0
     time_score = time_match_score(start_norm, candidate.get("start_time_normalized"))
     league_score = league_match_score(league_norm, candidate.get("league"))
     score = 0.72 * team_score + 0.23 * time_score + 0.05 * league_score

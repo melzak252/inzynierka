@@ -47,5 +47,23 @@ def test_identical_upcoming_match_days_apart_is_not_boosted() -> None:
     assert score < 0.78
 
 
+def test_exact_team_names_do_not_merge_across_competition_families() -> None:
+    score = canonical_match_score(
+        "t1",
+        "gen g",
+        "2026-09-05T09:00:00+00:00",
+        "LCK",
+        {
+            "normalized_team_a": "t1",
+            "normalized_team_b": "gen g",
+            "start_time_normalized": "2026-09-05T09:00:00+00:00",
+            "league": "LCK Challengers",
+            "status": "upcoming",
+        },
+    )
+
+    assert score == 0.0
+
+
 def test_polish_month_label_without_year_is_normalized() -> None:
     assert normalize_start_time("Śr 15. Lip, 11:20") == "2026-07-15T11:20:00+00:00"

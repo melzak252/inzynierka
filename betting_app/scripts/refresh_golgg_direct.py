@@ -13,6 +13,7 @@ Intended to be run periodically (every 6-12 hours) via the scheduler.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
@@ -41,10 +42,38 @@ from betting_app.services.golgg_import_service import import_golgg_batch
 
 # Import mapping for auto-match
 from betting_app.services.mapping_service import suggest_mapping, load_golgg_team_candidates
+from betting_app.services.canonical_match_service import competition_family
 
 # -------------------------------------------------------------------- #
 #  Auto-mapping: link imported GOL.GG results to canonical_matches     #
 # -------------------------------------------------------------------- #
+
+AUTO_MAP_MIN_IDENTITY_CONFIDENCE = 0.95
+
+
+def result_mapping_review_reason(
+    *,
+    identity_confidence: float,
+    canonical_date: str | None,
+    golgg_date: str | None,
+    canonical_competition: str | None,
+    golgg_competition: str | None,
+) -> str | None:
+    """Return why a GOL.GG result link is ineligible for unattended mapping."""
+
+    if identity_confidence < AUTO_MAP_MIN_IDENTITY_CONFIDENCE:
+        return "identity_confidence"
+    if not canonical_date or not golgg_date:
+        return "missing_date"
+    if canonical_date[:10] != golgg_date[:10]:
+        return "date_mismatch"
+    canonical_family = competition_family(canonical_competition)
+    golgg_family = competition_family(golgg_competition)
+    if not canonical_family or not golgg_family:
+        return "unknown_competition"
+    if canonical_family != golgg_family:
+        return "competition_mismatch"
+    return None
 
 def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | None = None) -> dict:
     """Find canonical_matches that correspond to newly imported golgg matches.
@@ -76,11 +105,20 @@ def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | N
     """)
     
     if df.empty:
-        return {"checked": 0, "mapped": 0, "already_mapped": 0, "errors": 0}
+        return {
+            "checked": 0,
+            "mapped": 0,
+            "already_mapped": 0,
+            "review": 0,
+            "review_reasons": {},
+            "errors": 0,
+        }
     
     mapped = 0
     already_mapped = 0
     errors = 0
+    review = 0
+    review_reasons: Counter[str] = Counter()
     checked = len(df)
 
     for _, row in df.iterrows():
@@ -163,13 +201,11 @@ def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | N
             team2_keys = _team_keys(team2)
 
             try:
-                gd = datetime.strptime(start_date, "%Y-%m-%d")
-                window_start = (gd - timedelta(days=2)).strftime("%Y-%m-%d")
-                window_end = (gd + timedelta(days=2)).strftime("%Y-%m-%d")
+                datetime.strptime(start_date, "%Y-%m-%d")
             except ValueError:
-                gd = None
-                window_start = start_date
-                window_end = start_date
+                review += 1
+                review_reasons["missing_date"] += 1
+                continue
 
             candidates = query_df(f"""
                 SELECT cm.id, cm.normalized_team_a, cm.normalized_team_b,
@@ -189,93 +225,81 @@ def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | N
                     FROM bookmaker_events
                     GROUP BY canonical_match_id
                 ) be ON be.canonical_match_id = cm.id
-                WHERE SUBSTR(start_time_normalized, 1, 10) >= '{_sql_escape(window_start)}'
-                  AND SUBSTR(start_time_normalized, 1, 10) <= '{_sql_escape(window_end)}'
+                WHERE SUBSTR(start_time_normalized, 1, 10) = '{_sql_escape(start_date)}'
                   AND existing_gmm.canonical_match_id IS NULL
                   {status_filter}
             """)
 
             if candidates.empty:
-                errors += 1
+                review += 1
+                review_reasons["no_exact_date_candidate"] += 1
                 continue
 
-            # Score both team orientations and pick the best safe candidate.
-            best_id = None
-            best_score = 0.0
-            best_diff = 999999.0
-            best_evidence = 0
-            second_score = 0.0
-            second_evidence = 0
+            eligible: list[tuple[int, float]] = []
+            candidate_reasons: Counter[str] = Counter()
             for _, c in candidates.iterrows():
-                cid = c["id"]
                 ca = str(c.get("normalized_team_a") or "")
                 cb = str(c.get("normalized_team_b") or "")
-                evidence = int(c.get("odds_snapshots") or 0) + int(c.get("bookmaker_events") or 0)
-                cdate = str(c.get("start_time_normalized", ""))[:10]
-                diff = 999999.0
-                if start_date and cdate:
-                    try:
-                        cd = datetime.strptime(cdate, "%Y-%m-%d") if cdate else gd
-                        diff = abs((gd - cd).days)
-                    except (TypeError, ValueError):
-                        diff = 0.0
+                cdate = str(c.get("start_time_normalized") or "")[:10]
 
                 a1 = _team_score(team1, ca, team1_keys)
                 b1 = _team_score(team2, cb, team2_keys)
                 a2 = _team_score(team1, cb, team1_keys)
                 b2 = _team_score(team2, ca, team2_keys)
-
-                orient1_score = (a1 + b1) / 2.0
-                orient2_score = (a2 + b2) / 2.0
-                orient_score = max(orient1_score, orient2_score)
-                min_team_score = min((a1, b1) if orient1_score >= orient2_score else (a2, b2))
-
-                # Date is only a tie-breaker/light penalty; team names dominate.
-                score = orient_score - min(diff, 2.0) * 0.03
-                safe = orient_score >= 0.82 and min_team_score >= 0.68
-                if not safe:
+                direct_pair = (a1, b1)
+                swapped_pair = (a2, b2)
+                selected_pair = (
+                    direct_pair
+                    if sum(direct_pair) >= sum(swapped_pair)
+                    else swapped_pair
+                )
+                identity_confidence = min(selected_pair)
+                reason = result_mapping_review_reason(
+                    identity_confidence=identity_confidence,
+                    canonical_date=cdate,
+                    golgg_date=start_date,
+                    canonical_competition=str(c.get("league") or ""),
+                    golgg_competition=tournament,
+                )
+                if reason:
+                    candidate_reasons[reason] += 1
                     continue
+                eligible.append((int(c["id"]), identity_confidence))
 
-                if (
-                    evidence > best_evidence
-                    or (evidence == best_evidence and score > best_score)
-                    or (evidence == best_evidence and score == best_score and diff < best_diff)
-                ):
-                    second_score = best_score
-                    second_evidence = best_evidence
-                    best_score = score
-                    best_diff = diff
-                    best_evidence = evidence
-                    best_id = cid
-                elif score > second_score:
-                    second_score = score
-                    second_evidence = evidence
-
-            if best_id is None:
-                errors += 1
-                continue
-
-            # Avoid ambiguous auto-mapping when two candidates are similarly good.
-            if best_evidence == 0 and second_evidence == 0 and second_score and best_score - second_score < 0.04:
+            if len(eligible) != 1:
+                review += 1
+                reason = "ambiguous_candidates" if len(eligible) > 1 else (
+                    candidate_reasons.most_common(1)[0][0]
+                    if candidate_reasons
+                    else "no_identity_candidate"
+                )
+                review_reasons[reason] += 1
                 logger.warning(
-                    "Auto-map ambiguous for GOL.GG %s (%s vs %s): best=%.3f second=%.3f",
+                    "GOL.GG match %s routed to review: %s (%s vs %s)",
                     gmid,
+                    reason,
                     team1,
                     team2,
-                    best_score,
-                    second_score,
                 )
-                errors += 1
                 continue
 
-            # Create mapping record
+            best_id, best_score = eligible[0]
             with get_session() as session:
-                session.execute(_sql_text(f"""
-                    INSERT INTO golgg_match_mappings 
-                        (canonical_match_id, golgg_match_id, confidence, mapped_by)
-                    VALUES ({best_id}, '{gmid}', {max(0.0, min(1.0, best_score)):.4f}, 'auto-fuzzy')
-                    ON CONFLICT (golgg_match_id) DO NOTHING
-                """))
+                session.execute(
+                    _sql_text(
+                        """
+                        INSERT INTO golgg_match_mappings
+                            (canonical_match_id, golgg_match_id, confidence, mapped_by)
+                        VALUES (:canonical_id, :golgg_id, :confidence, 'auto-contained-v1')
+                        ON CONFLICT (golgg_match_id) DO NOTHING
+                        """
+                    ),
+                    {
+                        "canonical_id": best_id,
+                        "golgg_id": gmid,
+                        "confidence": best_score,
+                    },
+                )
                 session.commit()
             mapped += 1
 
@@ -287,6 +311,8 @@ def auto_map_new_matches(match_ids: list[str], candidate_statuses: list[str] | N
         "checked": checked,
         "mapped": mapped,
         "already_mapped": already_mapped,
+        "review": review,
+        "review_reasons": dict(sorted(review_reasons.items())),
         "errors": errors,
     }
 

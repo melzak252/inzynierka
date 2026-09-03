@@ -621,6 +621,10 @@ export interface RankingsResponse {
 export interface AliasCreateRequest {
   raw_name: string;
   golgg_team_name: string;
+  source_system?: string;
+  league_pattern?: string;
+  valid_from?: string;
+  valid_to?: string;
 }
 
 export interface AliasCreateResponse {

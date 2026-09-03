@@ -204,27 +204,83 @@ def resolve_scoped_alias(
     if rows_df.empty:
         return AliasResolution(None, None, None, None, 0.0)
 
+    applicable: list[dict[str, Any]] = []
     for row_obj in rows_df.to_dict("records"):
         row = dict(row_obj)
-        if "is_blocked" in columns and int(row.get("is_blocked") or 0):
-            if _row_matches_context(row, context, strict_short_alias_scope=False):
-                return AliasResolution(None, None, str(row.get("source")), int(row["id"]), 0.0, blocked=True)
+        is_blocked = "is_blocked" in columns and int(row.get("is_blocked") or 0)
+        if not _row_matches_context(
+            row,
+            context,
+            strict_short_alias_scope=False if is_blocked else strict_short_alias_scope,
+        ):
             continue
-        if not _row_matches_context(row, context, strict_short_alias_scope=strict_short_alias_scope):
-            continue
+        row["_specificity"] = sum(
+            bool(row.get(column))
+            for column in (
+                "source_system",
+                "league_pattern",
+                "tournament_pattern",
+                "valid_from",
+                "valid_to",
+            )
+            if column in columns
+        )
+        applicable.append(row)
+
+    if not applicable:
+        return AliasResolution(None, None, None, None, 0.0)
+
+    best_specificity = max(int(row["_specificity"]) for row in applicable)
+    best_rows = [
+        row for row in applicable if int(row["_specificity"]) == best_specificity
+    ]
+    blocked_rows = [
+        row for row in best_rows
+        if "is_blocked" in columns and int(row.get("is_blocked") or 0)
+    ]
+    if blocked_rows:
+        blocked = min(blocked_rows, key=lambda row: int(row["id"]))
+        return AliasResolution(
+            None,
+            None,
+            str(blocked.get("source")),
+            int(blocked["id"]),
+            0.0,
+            blocked=True,
+        )
+
+    targets: dict[str, list[dict[str, Any]]] = {}
+    for row in best_rows:
         target = str(row.get("alias") or "").strip()
         if not target:
             continue
-        normalized_target = str(row.get("normalized_alias") or "").strip() or normalize_team_name(target)
-        return AliasResolution(
-            target_name=target,
-            normalized_target=normalized_target,
-            source=str(row.get("source") or "manual"),
-            alias_id=int(row["id"]),
-            confidence=float(row.get("confidence") or 1.0),
+        normalized_target = (
+            str(row.get("normalized_alias") or "").strip()
+            or normalize_team_name(target)
         )
+        targets.setdefault(normalized_target, []).append(row)
 
-    return AliasResolution(None, None, None, None, 0.0)
+    if len(targets) != 1:
+        # Conflicting equally specific active aliases are review data, not a
+        # deterministic identity decision based on insertion order.
+        return AliasResolution(None, None, "ambiguous", None, 0.0)
+
+    normalized_target, target_rows = next(iter(targets.items()))
+    selected = max(
+        target_rows,
+        key=lambda row: (
+            str(row.get("source") or "").startswith("manual"),
+            float(row.get("confidence") or 1.0),
+            -int(row["id"]),
+        ),
+    )
+    return AliasResolution(
+        target_name=str(selected.get("alias") or "").strip(),
+        normalized_target=normalized_target,
+        source=str(selected.get("source") or "manual"),
+        alias_id=int(selected["id"]),
+        confidence=float(selected.get("confidence") or 1.0),
+    )
 
 
 def upsert_scoped_alias(
