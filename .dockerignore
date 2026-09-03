@@ -9,3 +9,13 @@ __pycache__
 data/
 thesis/build
 node_modules
+.env*
+.cache/
+backups/
+reports/
+betting_app/models/ml/
+*.db
+*.dump
+*.log
+*.sqlite
+*.sqlite3
