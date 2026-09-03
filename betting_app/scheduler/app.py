@@ -257,7 +257,7 @@ def main():
     
     logger.info("=" * 60)
     logger.info("Betting App Scheduler starting")
-    logger.info(f"Database: {database_url()[:50]}...")
+    logger.info("Database backend: %s", "PostgreSQL" if is_pg() else "SQLite")
     logger.info("=" * 60)
     
     # Register all tasks
