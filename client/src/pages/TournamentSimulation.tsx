@@ -757,34 +757,36 @@ export default function TournamentSimulation() {
           <section className="enc-results-panel">
             <h2>🏆 Wyniki ENC 2027</h2>
             {encData ? (
-              <table className="standings-table">
-                <thead>
-                  <tr>
-                    <th>Reprezentacja</th>
-                    <th>Wejście</th>
-                    <th>GL składu</th>
-                    <th>Group Stage</th>
-                    <th>Playoffs</th>
-                    <th>Top 4</th>
-                    <th>Finał</th>
-                    <th>🥇 Mistrz</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {encData.standings.map((standing) => (
-                    <tr key={standing.nation}>
-                      <td className="team-cell"><strong>{standing.nation}</strong></td>
-                      <td className="prob-cell">{standing.entry_stage === 'group_stage' ? 'Group Stage' : 'Play-In'}</td>
-                      <td className="prob-cell">{standing.roster_rating.toFixed(1)}</td>
-                      <td className="prob-cell">{(standing.group_stage_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell">{(standing.playoff_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell">{(standing.top4_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell">{(standing.top2_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell champ-prob">{(standing.champion_prob * 100).toFixed(1)}%</td>
+              <div className="enc-standings-scroll">
+                <table className="standings-table">
+                  <thead>
+                    <tr>
+                      <th>Reprezentacja</th>
+                      <th>Wejście</th>
+                      <th>GL składu</th>
+                      <th>Group Stage</th>
+                      <th>Playoffs</th>
+                      <th>Top 4</th>
+                      <th>Finał</th>
+                      <th>🥇 Mistrz</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {encData.standings.map((standing) => (
+                      <tr key={standing.nation}>
+                        <td className="team-cell"><strong>{standing.nation}</strong></td>
+                        <td className="prob-cell">{standing.entry_stage === 'group_stage' ? 'Group Stage' : 'Play-In'}</td>
+                        <td className="prob-cell">{standing.roster_rating.toFixed(1)}</td>
+                        <td className="prob-cell">{(standing.group_stage_prob * 100).toFixed(1)}%</td>
+                        <td className="prob-cell">{(standing.playoff_prob * 100).toFixed(1)}%</td>
+                        <td className="prob-cell">{(standing.top4_prob * 100).toFixed(1)}%</td>
+                        <td className="prob-cell">{(standing.top2_prob * 100).toFixed(1)}%</td>
+                        <td className="prob-cell champ-prob">{(standing.champion_prob * 100).toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : (
               <div className="empty-state">
                 <p>
