@@ -535,12 +535,33 @@ wszystkie systemy muszą odzwierciedlać identyczny kohortowy cutoff i ten sam
 stan regionalnego Glicko. Zadanie `heavy_maintenance_cycle` wykonuje kolejno
 odświeżenie GOL.GG, `rebuild_regional_ratings` oraz W20; zwykły
 `prediction_pipeline` następnie tworzy features, predykcje operacyjne
-`Operational-PlayerTeamRatings-W20 / v0.3`, hybrydę rynku i sygnały EV.
-Żaden z tych kroków nie składa zakładów automatycznie.
+`Operational-PlayerTeamRatings-W20 / v0.4-binom-series`, hybrydę rynku i
+sygnały EV. Najpierw obliczane jest prawdopodobieństwo pojedynczej mapy, a
+następnie dla `Bo1`, `Bo3`, `Bo5` i `Bo7` konwertowane binomialnym ogonem do
+prawdopodobieństwa całej serii. Przycisk **Predict** w widoku meczu używa tego
+samego modelu i respektuje ręcznie zatwierdzony skład.
 
-`player-glicko2-family-v1 / gl2f` pozostaje diagnostycznym snapshotem
-EXP-075. EXP-039 (`Sym-Cal LR-ElasticNet-W20-Binomial`) jest zamrożony i nie
-został nadpisany ani zmieniony przez ten kontrakt.
+EXP-039 (`Sym-Cal LR-ElasticNet-W20-Binomial`) pozostaje zamrożonym,
+nieoperacyjnym baseline'em wyłącznie do porównań; nie jest już wybierany przez
+interaktywną ani schedulerową ścieżkę predykcji. Żaden z tych kroków nie składa
+zakładów automatycznie.
+
+### Chronologiczne porównanie modeli
+
+Po przebudowie ratingów i W20 można odtworzyć nowy model dla wszystkich
+zmapowanych zakończonych meczów:
+
+```bash
+python -m betting_app.scripts.backfill_operational_predictions --apply
+```
+
+Backfill zapisuje osobny, niemutowalny wariant
+`v0.4-binom-series-chronological-v1`. Każda data jest najpierw przewidywana z
+ratingów i W20 z wcześniejszych pełnych dat, a dopiero potem aktualizowana;
+wyniki wymagają `data_cutoff_at <= predicted_at < match_start_at`. Widok
+**Model Analysis** pokazuje metryki EXP-039 i regionalnego replaya na ich
+wspólnej kohorcie. To porównanie jakości modelu na etykietach historycznych,
+nie dowód live forecastingu, CLV, ROI ani wykonania finansowego.
 
 ### Evidence and limitation
 

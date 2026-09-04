@@ -13,6 +13,7 @@ import type {
   SchedulerTriggerResponse,
   MatchMovementResponse,
   HorizonAccuracyResponse,
+  HistoricalModelComparison,
   PredictionHistoryPoint,
   AliasCreateRequest,
   AliasCreateResponse,
@@ -279,6 +280,12 @@ export async function fetchHorizonAccuracy(
   });
   const response = await fetch(`${API_BASE}/timing/horizon-accuracy?${params}`);
   if (!response.ok) throw new Error(`Failed to fetch horizon accuracy: ${response.statusText}`);
+  return response.json();
+}
+
+export async function fetchHistoricalModelComparison(): Promise<HistoricalModelComparison> {
+  const response = await fetch(`${API_BASE}/timing/model-comparison`);
+  if (!response.ok) throw new Error(`Failed to fetch historical model comparison: ${response.statusText}`);
   return response.json();
 }
 

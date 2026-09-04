@@ -26,6 +26,11 @@ from betting_app.api.deps import get_db, query_df
 from betting_app.core.clv import clv_odds_pct, clv_probability_points
 from betting_app.core.ev import best_ev_side
 from betting_app.services.thesis_inference_service import THESIS_HYBRID_ALPHA, THESIS_HYBRID_TEMPERATURE
+from betting_app.services.rating_contract import (
+    OPERATIONAL_BACKFILL_FEATURE_VERSION,
+    OPERATIONAL_BACKFILL_MODEL_VERSION,
+    OPERATIONAL_MODEL_NAME,
+)
 
 router = APIRouter(prefix="/timing", tags=["timing"])
 
@@ -801,6 +806,138 @@ def _compute_model_vs_bookmaker_tests(db, cutoff: str) -> list[dict]:
     return results
 
 
+
+
+@router.get("/model-comparison")
+def historical_model_comparison(
+    max_days_back: int = 3650,
+    db=Depends(get_db),
+):
+    """Compare EXP-039 and the chronological regional replay on common matches.
+
+    This endpoint is intentionally retrospective: both series are restricted to
+    predictions whose reconstructed cutoff precedes the synthetic prediction
+    timestamp and whose timestamp precedes the recorded match start. It is not
+    live-betting or financial performance.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
+    specifications = (
+        {
+            "key": "exp039",
+            "label": "EXP-039 thesis baseline",
+            "model_name": THESIS_MODEL_NAME,
+            "model_version": THESIS_MODEL_VERSION,
+            "features_version": ANALYSIS_FEATURES_VERSION,
+        },
+        {
+            "key": "operational_regional",
+            "label": "Regional operational BoN replay",
+            "model_name": OPERATIONAL_MODEL_NAME,
+            "model_version": OPERATIONAL_BACKFILL_MODEL_VERSION,
+            "features_version": OPERATIONAL_BACKFILL_FEATURE_VERSION,
+        },
+    )
+    predictions_by_key: dict[str, dict[int, dict[str, Any]]] = {}
+    summaries: list[dict[str, Any]] = []
+    for specification in specifications:
+        rows = query_df(
+            db,
+            """
+            WITH ranked AS (
+                SELECT cp.canonical_match_id, cp.prob_a, cm.winner_side,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY cp.canonical_match_id
+                           ORDER BY cp.predicted_at DESC NULLS LAST, cp.id DESC
+                       ) AS rn
+                FROM canonical_predictions cp
+                JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
+                WHERE cp.model_name = :model_name
+                  AND cp.model_version = :model_version
+                  AND cp.features_version = :features_version
+                  AND cp.data_cutoff_at IS NOT NULL
+                  AND cp.predicted_at IS NOT NULL
+                  AND cp.data_cutoff_at <= cp.predicted_at
+                  AND cp.predicted_at < cm.start_time_normalized::timestamptz
+                  AND cm.status IN ('finished', 'completed')
+                  AND cm.winner_side IN ('team_a', 'team_b')
+                  AND cm.start_time_normalized > :cutoff
+            )
+            SELECT canonical_match_id, prob_a, winner_side
+            FROM ranked WHERE rn = 1
+            """,
+            {**specification, "cutoff": cutoff},
+        )
+        eligible: dict[int, dict[str, Any]] = {}
+        y_true: list[int] = []
+        y_prob: list[float] = []
+        for row in rows:
+            try:
+                probability = float(row["prob_a"])
+                match_id = int(row["canonical_match_id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not 0.0 < probability < 1.0:
+                continue
+            winner_side = str(row.get("winner_side") or "")
+            if winner_side not in {"team_a", "team_b"}:
+                continue
+            eligible[match_id] = {"prob_a": probability, "y_true": int(winner_side == "team_a")}
+            y_prob.append(probability)
+            y_true.append(int(winner_side == "team_a"))
+        predictions_by_key[str(specification["key"])] = eligible
+        metrics = _metric_summary(y_true, y_prob) if y_true else {
+            "n_matches": 0,
+            "avg_logloss": None,
+            "avg_auc": None,
+            "avg_brier": None,
+            "accuracy": None,
+        }
+        summaries.append(
+            {
+                **specification,
+                "temporal_eligible_matches": len(eligible),
+                **metrics,
+            }
+        )
+
+    old = predictions_by_key["exp039"]
+    new = predictions_by_key["operational_regional"]
+    common_ids = sorted(set(old).intersection(new))
+    old_y = [old[match_id]["y_true"] for match_id in common_ids]
+    old_probabilities = [old[match_id]["prob_a"] for match_id in common_ids]
+    new_probabilities = [new[match_id]["prob_a"] for match_id in common_ids]
+    common = {
+        "n_matches": len(common_ids),
+        "exp039": _metric_summary(old_y, old_probabilities) if old_y else None,
+        "operational_regional": _metric_summary(old_y, new_probabilities) if old_y else None,
+    }
+    if common["exp039"] and common["operational_regional"]:
+        common["operational_minus_exp039_logloss"] = round(
+            float(common["operational_regional"]["avg_logloss"])
+            - float(common["exp039"]["avg_logloss"]),
+            6,
+        )
+        common["operational_minus_exp039_brier"] = round(
+            float(common["operational_regional"]["avg_brier"])
+            - float(common["exp039"]["avg_brier"]),
+            6,
+        )
+    else:
+        common["operational_minus_exp039_logloss"] = None
+        common["operational_minus_exp039_brier"] = None
+    return {
+        "evaluation_scope": {
+            "kind": "retrospective_chronological_replay",
+            "warning": (
+                "The regional model is replayed from historical state before each "
+                "calendar date. This is a model-quality comparison, not live "
+                "forecasting, CLV, ROI, or betting evidence."
+            ),
+            "temporal_rule": "data_cutoff_at <= predicted_at < match_start_at",
+        },
+        "models": summaries,
+        "common_cohort": common,
+    }
 @router.get("/horizon-accuracy")
 def horizon_accuracy(
     min_matches_per_bin: int = 10,

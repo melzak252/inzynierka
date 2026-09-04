@@ -208,6 +208,8 @@ def build_features_for_match(
     ratings_version: str,
     w20_version: str,
     min_mapping_confidence: float,
+    team_a_roster_override: dict[str, Any] | None = None,
+    team_b_roster_override: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one canonical match feature vector and upsert it."""
 
@@ -264,8 +266,8 @@ def build_features_for_match(
         missing.append("team_b_w20")
 
     rating_probs = rating_probabilities(ratings_a, ratings_b, regional_adjustment)
-    roster_a = load_last_roster(team_a_golgg) if team_a_golgg else None
-    roster_b = load_last_roster(team_b_golgg) if team_b_golgg else None
+    roster_a = team_a_roster_override or (load_last_roster(team_a_golgg) if team_a_golgg else None)
+    roster_b = team_b_roster_override or (load_last_roster(team_b_golgg) if team_b_golgg else None)
     if not roster_a or len(roster_a.get("players", [])) < 5:
         missing.append("team_a_last_roster")
     if not roster_b or len(roster_b.get("players", [])) < 5:
@@ -310,7 +312,9 @@ def build_features_for_match(
             "team_a": player_ratings_a,
             "team_b": player_ratings_b,
             "probabilities": player_probs,
-            "roster_source": "current_team_roster",
+            "roster_source": "match_override"
+            if team_a_roster_override or team_b_roster_override
+            else "current_team_roster",
         },
         "w20": {"team_a": w20_a, "team_b": w20_b, "probability": w20_prob},
         "diagnostics": {
@@ -332,7 +336,13 @@ def build_features_for_match(
         missing_reason=";".join(missing) if missing else None,
         features=features,
     )
-    return {"canonical_match_id": canonical_match_id, "status": status, "missing": missing, "features": features}
+    return {
+        "canonical_match_id": canonical_match_id,
+        "status": status,
+        "missing": missing,
+        "data_cutoff_at": data_cutoff_at,
+        "features": features,
+    }
 
 
 def load_team_ratings(team_name: str | None, ratings_version: str) -> dict[str, dict[str, Any]]:
@@ -823,7 +833,11 @@ def register_operational_model(
         },
         "roster_source": "current team roster, refreshed from GOL.GG or manual confirmation",
         "w20_fields": list(W20_FIELDS),
-        "formula": "0.70 * player_rating_consensus + 0.20 * team_rating_consensus + 0.10 * w20_probability; no market input",
+        "formula": (
+            "map_p = 0.70 * player_rating_consensus + 0.20 * "
+            "team_rating_consensus + 0.10 * w20_probability; "
+            "match_p = binomial_tail(map_p, best_of); no market input"
+        ),
         "limitations": [
             "last-match roster fallback",
             "not confirmed upcoming rosters",
@@ -834,7 +848,9 @@ def register_operational_model(
         "player_rating_weight": 0.70,
         "team_rating_weight": 0.20,
         "w20_weight": 0.10,
-        "clip": [0.03, 0.97],
+        "map_probability_clip": [0.03, 0.97],
+        "series_projection": "binomial_tail",
+        "supported_best_of": [1, 3, 5, 7],
     }
     schema_json = json.dumps(feature_schema, ensure_ascii=False, sort_keys=True)
     params_json = json.dumps(params, ensure_ascii=False, sort_keys=True)
@@ -891,7 +907,7 @@ def predict_all_upcoming(
         status_filter = "AND feature_status IN ('ready_player', 'ready_team', 'partial')"
     frame = query_df(
         f"""
-        SELECT umf.*, cm.team_a_name, cm.team_b_name, cm.start_time_normalized, cm.league
+        SELECT umf.*, cm.team_a_name, cm.team_b_name, cm.start_time_normalized, cm.league, cm.best_of
         FROM upcoming_match_features umf
         JOIN canonical_matches cm ON cm.id = umf.canonical_match_id
         WHERE feature_version = ? AND ratings_version = ? {status_filter}
@@ -911,13 +927,15 @@ def predict_all_upcoming(
         )
         for row in frame.to_dict("records"):
             features = json.loads(row.get("features_json") or "{}")
-            prob_a, diagnostics = predict_probability_from_features(features)
+            map_probability, diagnostics = predict_probability_from_features(features)
+            prob_a = series_probability(map_probability, row.get("best_of"))
             cursor = connection.execute(
                 """
                 INSERT INTO canonical_predictions(
                     canonical_match_id, model_artifact_id, model_name, model_version, predicted_at,
                     prob_a, prob_b, features_version, ratings_version, data_cutoff_at, diagnostics_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id
                 """,
                 (
                     int(row["canonical_match_id"]),
@@ -930,12 +948,22 @@ def predict_all_upcoming(
                     feature_version,
                     ratings_version,
                     row.get("data_cutoff_at"),
-                    json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
+                    json.dumps(
+                        {
+                            **diagnostics,
+                            "map_win_probability": map_probability,
+                            "series_win_probability": prob_a,
+                            "best_of": _normalized_best_of(row.get("best_of")),
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    ),
                 ),
             )
+            prediction_id = int(cursor.fetchone()["id"])
             results.append(
                 {
-                    "prediction_id": int(cursor.lastrowid),
+                    "prediction_id": prediction_id,
                     "canonical_match_id": int(row["canonical_match_id"]),
                     "match": f"{row.get('team_a_name')} vs {row.get('team_b_name')}",
                     "prob_a": prob_a,
@@ -944,6 +972,116 @@ def predict_all_upcoming(
                 }
             )
     return results
+
+
+def _normalized_best_of(best_of: Any) -> int:
+    """Validate supported series lengths; an absent format is a single map."""
+    value = 1 if best_of is None else int(best_of)
+    if value not in {1, 3, 5, 7}:
+        raise ValueError(f"best_of must be one of 1, 3, 5, 7; got {best_of!r}")
+    return value
+
+
+def series_probability(map_probability: float, best_of: Any) -> float:
+    """Convert a per-map probability to a BoN series probability."""
+    maps = _normalized_best_of(best_of)
+    probability = max(1e-6, min(1.0 - 1e-6, float(map_probability)))
+    wins_required = maps // 2 + 1
+    return sum(
+        math.comb(maps, wins)
+        * probability**wins
+        * (1.0 - probability) ** (maps - wins)
+        for wins in range(wins_required, maps + 1)
+    )
+
+
+def predict_operational_match(
+    match: dict[str, Any],
+    *,
+    feature_version: str = DEFAULT_FEATURE_VERSION,
+    ratings_version: str = DEFAULT_RATINGS_VERSION,
+    w20_version: str = DEFAULT_W20_VERSION,
+    model_name: str = DEFAULT_MODEL_NAME,
+    model_version: str = DEFAULT_MODEL_VERSION,
+    include_partial: bool = True,
+    team_a_roster_override: dict[str, Any] | None = None,
+    team_b_roster_override: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build and store one operational match prediction without touching others."""
+    feature_result = build_features_for_match(
+        match,
+        feature_version=feature_version,
+        ratings_version=ratings_version,
+        w20_version=w20_version,
+        min_mapping_confidence=0.72,
+        team_a_roster_override=team_a_roster_override,
+        team_b_roster_override=team_b_roster_override,
+    )
+    if feature_result["status"] != "ready_player" and not include_partial:
+        raise ValueError(
+            "operational prediction requires ready player features: "
+            + "; ".join(feature_result["missing"])
+        )
+    map_probability, diagnostics = predict_probability_from_features(feature_result["features"])
+    best_of = _normalized_best_of(match.get("best_of"))
+    probability = series_probability(map_probability, best_of)
+    diagnostics = {
+        **diagnostics,
+        "map_win_probability": map_probability,
+        "series_win_probability": probability,
+        "best_of": best_of,
+        "prediction_mode": "single-match-operational",
+    }
+    artifact_id = register_operational_model(
+        model_name=model_name,
+        model_version=model_version,
+        feature_version=feature_version,
+        ratings_version=ratings_version,
+    )
+    canonical_match_id = int(match["id"])
+    now = utc_now_iso()
+    with transaction() as connection:
+        connection.execute(
+            """
+            UPDATE canonical_predictions
+            SET prediction_status = 'stale'
+            WHERE canonical_match_id = ? AND prediction_status = 'active'
+              AND model_name = ? AND model_version = ?
+            """,
+            (canonical_match_id, model_name, model_version),
+        )
+        cursor = connection.execute(
+            """
+            INSERT INTO canonical_predictions(
+                canonical_match_id, model_artifact_id, model_name, model_version,
+                predicted_at, prob_a, prob_b, prediction_status, features_version,
+                ratings_version, data_cutoff_at, diagnostics_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
+            RETURNING id
+            """,
+            (
+                canonical_match_id,
+                artifact_id,
+                model_name,
+                model_version,
+                now,
+                probability,
+                1.0 - probability,
+                feature_version,
+                ratings_version,
+                feature_result["data_cutoff_at"],
+                json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
+            ),
+        )
+        prediction_id = int(cursor.fetchone()["id"])
+    return {
+        "prediction_id": prediction_id,
+        "canonical_match_id": canonical_match_id,
+        "prob_a": probability,
+        "prob_b": 1.0 - probability,
+        "diagnostics": diagnostics,
+        "feature_status": feature_result["status"],
+    }
 
 
 def predict_probability_from_features(features: dict[str, Any]) -> tuple[float, dict[str, Any]]:

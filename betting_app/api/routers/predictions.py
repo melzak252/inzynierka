@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from betting_app.api.deps import get_db, query_df
 from betting_app.api.schemas import EVSignal, EVSignalResponse
 from betting_app.services.market_service import expected_value, kelly_fraction, none_or_float
+from betting_app.services.upcoming_inference_service import DEFAULT_HYBRID_MODEL_NAME
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
@@ -17,7 +18,7 @@ TAX_RATE = 0.12
 def list_predictions(
     min_ev: float = Query(0.0),
     min_books: int = Query(1),
-    model_name: str | None = Query("Hybrid-Thesis-Market"),
+    model_name: str | None = Query(DEFAULT_HYBRID_MODEL_NAME),
     model_version: str | None = Query(None),
     limit: int = Query(50, le=200),
     db=Depends(get_db),

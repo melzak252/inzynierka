@@ -358,6 +358,36 @@ export interface ModelVsBookmakerTest {
   significant: boolean;
 }
 
+export interface HistoricalModelMetrics {
+  key: 'exp039' | 'operational_regional';
+  label: string;
+  model_name: string;
+  model_version: string;
+  features_version: string;
+  temporal_eligible_matches: number;
+  n_matches: number;
+  avg_logloss: number | null;
+  avg_auc: number | null;
+  avg_brier: number | null;
+  accuracy: number | null;
+}
+
+export interface HistoricalModelComparison {
+  evaluation_scope: {
+    kind: string;
+    warning: string;
+    temporal_rule: string;
+  };
+  models: HistoricalModelMetrics[];
+  common_cohort: {
+    n_matches: number;
+    exp039: Omit<HistoricalModelMetrics, 'key' | 'label' | 'model_name' | 'model_version' | 'features_version' | 'temporal_eligible_matches'> | null;
+    operational_regional: Omit<HistoricalModelMetrics, 'key' | 'label' | 'model_name' | 'model_version' | 'features_version' | 'temporal_eligible_matches'> | null;
+    operational_minus_exp039_logloss: number | null;
+    operational_minus_exp039_brier: number | null;
+  };
+}
+
 export interface HorizonAccuracyResponse {
   evaluation_scope?: {
     kind: string;

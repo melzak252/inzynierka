@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
+  fetchHistoricalModelComparison,
   fetchHorizonAccuracy,
   fetchHorizonBootstrap,
   fetchModelClvByHorizon,
   triggerSchedulerTask,
 } from '../api/client'
 import type {
+  HistoricalModelComparison,
   HorizonAccuracyResponse,
   HorizonBootstrapResponse,
   ModelAnalysisKey,
@@ -268,6 +270,57 @@ function BootstrapChart({ bins }: { bins: HorizonBootstrapResponse['bins'] }) {
   )
 }
 
+function HistoricalComparisonCard({ comparison }: { comparison: HistoricalModelComparison | null }) {
+  if (!comparison) return <div className="ma-state">Brak historycznego porównania modeli.</div>
+  const old = comparison.models.find((model) => model.key === 'exp039')
+  const regional = comparison.models.find((model) => model.key === 'operational_regional')
+  const common = comparison.common_cohort
+  return (
+    <section className="ma-section">
+      <div className="ma-section-title">
+        <div>
+          <h2>EXP-039 vs regional operational model</h2>
+          <p>Wspólna kohorta używa tylko predykcji spełniających regułę temporalną; ujemna ΔLogLoss/ΔBrier oznacza lepszy model regionalny.</p>
+        </div>
+      </div>
+      <div className="ma-methodology-note">
+        <strong>Retrospektywna rekonstrukcja chronologiczna</strong>
+        <span>{comparison.evaluation_scope.warning}</span>
+        <small>Reguła: {comparison.evaluation_scope.temporal_rule}.</small>
+      </div>
+      <div className="ma-table-wrap">
+        <table className="ma-table">
+          <thead>
+            <tr><th>Model</th><th>Wersja</th><th>Eligible</th><th>LogLoss</th><th>Brier</th><th>AUC</th><th>Accuracy</th></tr>
+          </thead>
+          <tbody>
+            {[old, regional].filter((model): model is NonNullable<typeof model> => Boolean(model)).map((model) => (
+              <tr key={model.key}>
+                <td><strong>{model.label}</strong></td>
+                <td>{model.model_version}</td>
+                <td>{model.temporal_eligible_matches}</td>
+                <td>{fmt(model.avg_logloss, 4)}</td>
+                <td>{fmt(model.avg_brier, 4)}</td>
+                <td>{fmt(model.avg_auc, 3)}</td>
+                <td>{fmtPctRate(model.accuracy)}</td>
+              </tr>
+            ))}
+            <tr>
+              <td><strong>Common cohort Δ</strong></td>
+              <td>n={common.n_matches}</td>
+              <td>—</td>
+              <td className={(common.operational_minus_exp039_logloss ?? 0) < 0 ? 'positive' : 'negative'}>{signed(common.operational_minus_exp039_logloss, 4)}</td>
+              <td className={(common.operational_minus_exp039_brier ?? 0) < 0 ? 'positive' : 'negative'}>{signed(common.operational_minus_exp039_brier, 4)}</td>
+              <td>—</td>
+              <td>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
 function ModelAnalysis() {
   const [selected, setSelected] = useState<ModelAnalysisKey>('hybrid')
   const [daysBack] = useState(90)
@@ -275,6 +328,7 @@ function ModelAnalysis() {
   const [accuracy, setAccuracy] = useState<HorizonAccuracyResponse | null>(null)
   const [bootstrap, setBootstrap] = useState<HorizonBootstrapResponse | null>(null)
   const [clv, setClv] = useState<ModelClvByHorizonResponse | null>(null)
+  const [historicalComparison, setHistoricalComparison] = useState<HistoricalModelComparison | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshingBootstrap, setRefreshingBootstrap] = useState(false)
@@ -283,17 +337,19 @@ function ModelAnalysis() {
     setLoading(true)
     setError(null)
     try {
-      const [accuracyData, clvData, bootstrapResult] = await Promise.all([
+      const [accuracyData, clvData, bootstrapResult, comparisonData] = await Promise.all([
         fetchHorizonAccuracy(daysBack, 10),
         fetchModelClvByHorizon(daysBack, maxOddsAge, 0.12, 0),
         fetchHorizonBootstrap().then(
           (data) => ({ ok: true as const, data }),
           () => ({ ok: false as const, data: null }),
         ),
+        fetchHistoricalModelComparison(),
       ])
       setAccuracy(accuracyData)
       setClv(clvData)
       setBootstrap(bootstrapResult.ok ? bootstrapResult.data : null)
+      setHistoricalComparison(comparisonData)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nie udało się pobrać danych analizy')
     } finally {
@@ -397,6 +453,8 @@ function ModelAnalysis() {
           <small>Źródło: {accuracy.evaluation_scope.prediction_source} · reguła: {accuracy.evaluation_scope.prediction_rule}.</small>
         </section>
       )}
+
+      <HistoricalComparisonCard comparison={historicalComparison} />
 
       <section className="ma-summary">
         <StatCard label="Selected model" value={modelInfo.short} hint={modelInfo.description} />
