@@ -74,7 +74,7 @@ services:
     environment:
       BETTING_APP_TAX_RATE: "${BETTING_APP_TAX_RATE:-0.12}"
       BETTING_APP_MIN_EV: "${BETTING_APP_MIN_EV:-0.05}"
-      IDENTITY_REVIEW_TOKEN: "${IDENTITY_REVIEW_TOKEN:-}"
+      IDENTITY_REVIEW_TOKEN_FILE: /run/secrets/identity_review_token
       PYTHONPATH: /app:/app/src
       DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER:-betting}:${POSTGRES_PASSWORD:-betting_local_password}@timescaledb:5432/${POSTGRES_DB:-betting}"
     shm_size: "512m"
@@ -91,6 +91,8 @@ services:
       - ./conf:/app/conf
       - ./src:/app/src
       - ./pyproject.toml:/app/pyproject.toml
+    secrets:
+      - identity_review_token
     command: >
       uvicorn betting_app.api.main:app
       --host 0.0.0.0
@@ -114,3 +116,7 @@ services:
 
 volumes:
   timescale-data:
+
+secrets:
+  identity_review_token:
+    file: "${IDENTITY_REVIEW_TOKEN_SECRET_FILE:-./secrets/identity_review_token}"

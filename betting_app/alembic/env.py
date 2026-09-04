@@ -15,6 +15,7 @@ import betting_app.models.golgg       # noqa: F401
 import betting_app.models.match      # noqa: F401
 import betting_app.models.odds       # noqa: F401
 import betting_app.models.prediction  # noqa: F401
+import betting_app.models.identity  # noqa: F401
 import betting_app.models.automation  # noqa: F401
 
 

@@ -22,6 +22,7 @@ artifacts/tmp/
 temp_*.csv
 experiments/
 reports/*.json
+secrets/
 
 # Local thesis/report materials not tracked in code repo
 docs/

@@ -12,6 +12,7 @@ import math
 import os
 import re
 import secrets
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import text
@@ -84,6 +85,25 @@ from betting_app.services.thesis_inference_service import (
 )
 
 router = APIRouter(prefix="/matches", tags=["matches"])
+
+
+def _identity_review_token() -> str | None:
+    environment_token = os.getenv("IDENTITY_REVIEW_TOKEN")
+    if environment_token:
+        return environment_token
+    token_file = os.getenv("IDENTITY_REVIEW_TOKEN_FILE")
+    if not token_file:
+        return None
+    try:
+        token = Path(token_file).read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Identity review token file is unreadable",
+        ) from exc
+    return token or None
 
 
 def _parse_bookmaker_ev_json(raw: Any) -> dict[str, Any]:
@@ -792,7 +812,7 @@ def decide_mapping_review(
     db=Depends(get_db),
 ):
     """Apply one operator-reviewed result-link decision atomically."""
-    expected_token = os.getenv("IDENTITY_REVIEW_TOKEN")
+    expected_token = _identity_review_token()
     if not expected_token:
         raise HTTPException(status_code=503, detail="Identity review mutations are disabled")
     if review_token is None or not secrets.compare_digest(review_token, expected_token):
