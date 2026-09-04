@@ -26,6 +26,8 @@ import type {
   RankingsResponse,
   RankingSquadScope,
   RatingSystem,
+  TournamentSummary,
+  TournamentSimulationResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -397,5 +399,33 @@ export async function fetchChampionEmbeddings(
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || `Failed to fetch champion embeddings: ${response.statusText}`);
   }
+  return response.json();
+}
+
+// ─── Tournaments & Bracket Simulation ─────────────────────────
+
+export async function fetchTournaments(): Promise<TournamentSummary[]> {
+  const response = await fetch(`${API_BASE}/tournaments`);
+  if (!response.ok) throw new Error('Failed to fetch tournaments');
+  return response.json();
+}
+
+export async function fetchTournamentBracket(id: string): Promise<TournamentSimulationResponse> {
+  const response = await fetch(`${API_BASE}/tournaments/${id}`);
+  if (!response.ok) throw new Error('Failed to fetch tournament bracket');
+  return response.json();
+}
+
+export async function simulateTournament(
+  id: string,
+  simulations: number = 10000,
+  manual_overrides?: Record<string, string>,
+): Promise<TournamentSimulationResponse> {
+  const response = await fetch(`${API_BASE}/tournaments/${id}/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ simulations, manual_overrides }),
+  });
+  if (!response.ok) throw new Error('Failed to run tournament simulation');
   return response.json();
 }

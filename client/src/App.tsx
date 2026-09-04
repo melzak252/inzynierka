@@ -8,6 +8,7 @@ import ManualMapping from './pages/ManualMapping'
 import ChampionEmbeddings from './pages/ChampionEmbeddings'
 import FinancialAnalysis from './pages/FinancialAnalysis'
 import Rankings from './pages/Rankings'
+import TournamentSimulation from './pages/TournamentSimulation'
 import './App.css'
 
 function Nav() {
@@ -18,8 +19,8 @@ function Nav() {
     { to: '/results', label: 'Backtest' },
     { to: '/financial', label: 'Finanse' },
     { to: '/horizon', label: 'Analiza modelu' },
+    { to: '/tournaments', label: 'Drabinka / Turnieje' },
     { to: '/rankings', label: 'Rankingi' },
-    { to: '/embeddings/champions', label: 'Embeddingi' },
     { to: '/mapping', label: 'Mapowania' },
     { to: '/system', label: 'Monitoring' },
   ]
@@ -60,6 +61,7 @@ function App() {
           <Route path="/matches/:id" element={<MatchDetail />} />
           <Route path="/results" element={<MatchResults />} />
           <Route path="/financial" element={<FinancialAnalysis />} />
+          <Route path="/tournaments" element={<TournamentSimulation />} />
           <Route path="/rankings" element={<Rankings />} />
           <Route path="/mapping" element={<ManualMapping />} />
           <Route path="/embeddings/champions" element={<ChampionEmbeddings />} />

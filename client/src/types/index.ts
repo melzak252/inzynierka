@@ -388,6 +388,43 @@ export interface HistoricalModelComparison {
   };
 }
 
+export interface TournamentStanding {
+  team: string;
+  champion_prob: number;
+  top2_prob: number;
+  top3_prob: number;
+  top4_prob: number;
+}
+
+export interface BracketMatch {
+  id: string;
+  name: string;
+  round_name: string;
+  bracket_section: 'upper' | 'lower' | 'final';
+  best_of: number;
+  team1: string | null;
+  team2: string | null;
+  winner: string | null;
+  score1: number | null;
+  score2: number | null;
+}
+
+export interface TournamentSimulationResponse {
+  tournament_id: string;
+  tournament_name: string;
+  simulations: number;
+  standings: TournamentStanding[];
+  bracket: Record<string, BracketMatch>;
+}
+
+export interface TournamentSummary {
+  id: string;
+  name: string;
+  region: string;
+  format: string;
+  teams: string[];
+}
+
 export interface HorizonAccuracyResponse {
   evaluation_scope?: {
     kind: string;
