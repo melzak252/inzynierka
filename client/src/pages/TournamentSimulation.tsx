@@ -74,9 +74,19 @@ export default function TournamentSimulation() {
   }
 
   const bracket = data?.bracket || {};
-  const upperMatches = Object.values(bracket).filter((m) => m.bracket_section === 'upper');
-  const lowerMatches = Object.values(bracket).filter((m) => m.bracket_section === 'lower');
-  const finalMatches = Object.values(bracket).filter((m) => m.bracket_section === 'final');
+  const allMatches = Object.values(bracket);
+
+  // Group matches chronologically by progression stage
+  const upperR1 = allMatches.filter((m) => m.bracket_section === 'upper' && m.round_name.includes('Round 1'));
+  const upperR2 = allMatches.filter((m) => m.bracket_section === 'upper' && (m.round_name.includes('Round 2') || m.round_name.includes('Semifinal')));
+  const upperFinal = allMatches.filter((m) => m.bracket_section === 'upper' && m.round_name.includes('Upper Final'));
+
+  const lowerR1 = allMatches.filter((m) => m.bracket_section === 'lower' && m.round_name.includes('Lower Round 1'));
+  const lowerR2 = allMatches.filter((m) => m.bracket_section === 'lower' && m.round_name.includes('Lower Round 2'));
+  const lowerSemi = allMatches.filter((m) => m.bracket_section === 'lower' && (m.round_name.includes('Lower Round 3') || m.round_name.includes('Lower Semifinal')));
+  const lowerFinal = allMatches.filter((m) => m.bracket_section === 'lower' && m.round_name.includes('Lower Final'));
+
+  const grandFinal = allMatches.filter((m) => m.bracket_section === 'final');
 
   const renderMatchCard = (m: BracketMatch) => {
     const isCompleted = m.winner !== null;
@@ -195,27 +205,68 @@ export default function TournamentSimulation() {
         </section>
 
         <section className="bracket-panel">
-          <h2>Drabinka Playoffów (Double Elimination)</h2>
+          <h2>Drzewo Turniejowe (Chronologiczny układ rund)</h2>
 
-          <div className="bracket-grid">
-            <div className="bracket-column">
-              <h3>Upper Bracket</h3>
-              <div className="matches-list">
-                {upperMatches.map(renderMatchCard)}
-              </div>
+          <div className="bracket-section-group">
+            <h3 className="section-heading">Upper Bracket</h3>
+            <div className="bracket-stages-flow">
+              {upperR1.length > 0 && (
+                <div className="stage-column">
+                  <div className="stage-title">Runda 1 (Ćwierćfinały)</div>
+                  <div className="stage-matches">{upperR1.map(renderMatchCard)}</div>
+                </div>
+              )}
+              {upperR2.length > 0 && (
+                <div className="stage-column">
+                  <div className="stage-title">Półfinały Upper</div>
+                  <div className="stage-matches">{upperR2.map(renderMatchCard)}</div>
+                </div>
+              )}
+              {upperFinal.length > 0 && (
+                <div className="stage-column">
+                  <div className="stage-title">Finał Upper Bracket</div>
+                  <div className="stage-matches">{upperFinal.map(renderMatchCard)}</div>
+                </div>
+              )}
             </div>
+          </div>
 
-            <div className="bracket-column">
-              <h3>Lower Bracket</h3>
-              <div className="matches-list">
-                {lowerMatches.map(renderMatchCard)}
-              </div>
+          <div className="bracket-section-group">
+            <h3 className="section-heading">Lower Bracket</h3>
+            <div className="bracket-stages-flow">
+              {lowerR1.length > 0 && (
+                <div className="stage-column">
+                  <div className="stage-title">Lower Runda 1</div>
+                  <div className="stage-matches">{lowerR1.map(renderMatchCard)}</div>
+                </div>
+              )}
+              {lowerR2.length > 0 && (
+                <div className="stage-column">
+                  <div className="stage-title">Lower Runda 2</div>
+                  <div className="stage-matches">{lowerR2.map(renderMatchCard)}</div>
+                </div>
+              )}
+              {lowerSemi.length > 0 && (
+                <div className="stage-column">
+                  <div className="stage-title">Półfinał Lower</div>
+                  <div className="stage-matches">{lowerSemi.map(renderMatchCard)}</div>
+                </div>
+              )}
+              {lowerFinal.length > 0 && (
+                <div className="stage-column">
+                  <div className="stage-title">Finał Lower Bracket</div>
+                  <div className="stage-matches">{lowerFinal.map(renderMatchCard)}</div>
+                </div>
+              )}
             </div>
+          </div>
 
-            <div className="bracket-column">
-              <h3>Wielki Finał</h3>
-              <div className="matches-list">
-                {finalMatches.map(renderMatchCard)}
+          <div className="bracket-section-group final-group">
+            <h3 className="section-heading">Wielki Finał</h3>
+            <div className="bracket-stages-flow">
+              <div className="stage-column">
+                <div className="stage-title">Mecz o Mistrzostwo</div>
+                <div className="stage-matches">{grandFinal.map(renderMatchCard)}</div>
               </div>
             </div>
           </div>
