@@ -44,43 +44,98 @@ class TournamentBracket:
 
 
 def get_lck_2026_playoffs_bracket() -> TournamentBracket:
-    """Construct the official 6-team LCK Double Elimination Playoff bracket tree.
+    """Construct the complete, official 6-team LCK Double Elimination Playoff bracket tree.
 
-    Live state as of Sept 4, 2026:
-      Upper R1:
-        - KT Rolster vs BNK FearX -> KT won
-        - Dplus vs T1 -> T1 won (or DK dropped)
-      Upper R2 (UB Semifinals):
-        - Gen.G (Seed 1) vs Hanwha Life Esports (Seed 2) (Upper Final slot on Sept 5)
-        - Dplus vs BNK FearX -> Dplus won 3:2 (BNK FearX eliminated)
-      Lower Bracket R2 (Sept 4):
-        - KT Rolster vs Dplus (Winner qualifies for Worlds and plays T1 on Sept 6)
-      Lower Bracket Semifinal (Sept 6):
-        - T1 vs Winner(KT Rolster vs Dplus)
-      Lower Bracket Final (Sept 12):
-        - Loser(Gen.G vs Hanwha) vs Winner(LB Semifinal)
+    Complete tournament history and upcoming matches (LCK 2026 Season - Playoffs):
+      Upper Round 1 (Quarterfinals):
+        - UB_R1_M1: KT Rolster (3) vs Dplus (0) -> KT won, Dplus dropped to Lower R1
+        - UB_R1_M2: T1 (3) vs BNK FearX (2) -> T1 won, BNK FearX dropped to Lower R1
+      Upper Round 2 (Semifinals):
+        - UB_R2_M1: Gen.G (3) vs KT Rolster (0) -> Gen.G won to UB Final, KT dropped to Lower R2
+        - UB_R2_M2: Hanwha Life (3) vs T1 (2) -> Hanwha won to UB Final, T1 dropped to Lower R3
+      Lower Round 1:
+        - LB_R1: Dplus (3) vs BNK FearX (2) -> Dplus won, BNK FearX eliminated
+      Lower Round 2 (Sept 4):
+        - LB_R2: KT Rolster vs Dplus -> Winner to Lower R3 vs T1, Loser eliminated
+      Upper Final (Sept 5):
+        - UB_Final: Gen.G vs Hanwha Life -> Winner to Grand Final, Loser to Lower Final
+      Lower Round 3 / Semifinal (Sept 6):
+        - LB_R3: T1 vs Winner(KT vs Dplus) -> Winner to Lower Final, Loser eliminated
+      Lower Final (Sept 12):
+        - LB_Final: Loser(Gen.G vs Hanwha) vs Winner(LB_R3) -> Winner to Grand Final, Loser 3rd
       Grand Final (Sept 13):
-        - Winner(Gen.G vs Hanwha) vs Winner(LB Final)
+        - Grand_Final: Winner(Gen.G vs Hanwha) vs Winner(Lower Final)
     """
     teams = ["Gen.G", "Hanwha Life Esports", "T1", "KT Rolster", "Dplus", "BNK FearX"]
 
     matches: dict[str, BracketMatchNode] = {
-        # Lower Bracket Round 1 (Completed)
-        "LB_R1": BracketMatchNode(
-            id="LB_R1",
-            name="Lower Bracket Round 1",
-            round_name="Lower Round 1",
-            bracket_section="lower",
+        # Upper Round 1
+        "UB_R1_M1": BracketMatchNode(
+            id="UB_R1_M1",
+            name="Upper Quarterfinal 1",
+            round_name="Upper Round 1",
+            bracket_section="upper",
             best_of=5,
-            team1="Dplus",
+            team1="KT Rolster",
+            team2="Dplus",
+            winner="KT Rolster",
+            score1=3,
+            score2=0,
+            next_match_winner_id="UB_R2_M1",
+            next_match_winner_slot=2,
+            next_match_loser_id="LB_R1",
+            next_match_loser_slot=1,
+        ),
+        "UB_R1_M2": BracketMatchNode(
+            id="UB_R1_M2",
+            name="Upper Quarterfinal 2",
+            round_name="Upper Round 1",
+            bracket_section="upper",
+            best_of=5,
+            team1="T1",
             team2="BNK FearX",
-            winner="Dplus",  # Completed 3:2 reverse sweep, BNK FearX eliminated
+            winner="T1",
             score1=3,
             score2=2,
-            next_match_winner_id="LB_R2",
+            next_match_winner_id="UB_R2_M2",
             next_match_winner_slot=2,
+            next_match_loser_id="LB_R1",
+            next_match_loser_slot=2,
         ),
-        # Upper Final / Upper Semifinal (Sept 5)
+        # Upper Round 2 (Semifinals)
+        "UB_R2_M1": BracketMatchNode(
+            id="UB_R2_M1",
+            name="Upper Semifinal 1",
+            round_name="Upper Round 2",
+            bracket_section="upper",
+            best_of=5,
+            team1="Gen.G",
+            team2="KT Rolster",
+            winner="Gen.G",
+            score1=3,
+            score2=0,
+            next_match_winner_id="UB_Final",
+            next_match_winner_slot=1,
+            next_match_loser_id="LB_R2",
+            next_match_loser_slot=1,
+        ),
+        "UB_R2_M2": BracketMatchNode(
+            id="UB_R2_M2",
+            name="Upper Semifinal 2",
+            round_name="Upper Round 2",
+            bracket_section="upper",
+            best_of=5,
+            team1="Hanwha Life Esports",
+            team2="T1",
+            winner="Hanwha Life Esports",
+            score1=3,
+            score2=2,
+            next_match_winner_id="UB_Final",
+            next_match_winner_slot=2,
+            next_match_loser_id="LB_R3",
+            next_match_loser_slot=1,
+        ),
+        # Upper Final
         "UB_Final": BracketMatchNode(
             id="UB_Final",
             name="Upper Bracket Final",
@@ -95,20 +150,35 @@ def get_lck_2026_playoffs_bracket() -> TournamentBracket:
             next_match_loser_id="LB_Final",
             next_match_loser_slot=1,
         ),
-        # Lower Bracket Round 2 (Sept 4 - Today)
+        # Lower Round 1
+        "LB_R1": BracketMatchNode(
+            id="LB_R1",
+            name="Lower Round 1",
+            round_name="Lower Round 1",
+            bracket_section="lower",
+            best_of=5,
+            team1="Dplus",
+            team2="BNK FearX",
+            winner="Dplus",
+            score1=3,
+            score2=2,
+            next_match_winner_id="LB_R2",
+            next_match_winner_slot=2,
+        ),
+        # Lower Round 2
         "LB_R2": BracketMatchNode(
             id="LB_R2",
-            name="Lower Bracket Round 2 (Worlds Decider)",
+            name="Lower Round 2 (Worlds Decider)",
             round_name="Lower Round 2",
             bracket_section="lower",
             best_of=5,
             team1="KT Rolster",
             team2="Dplus",
-            winner=None,  # Playing today
+            winner=None,
             next_match_winner_id="LB_R3",
             next_match_winner_slot=2,
         ),
-        # Lower Bracket Round 3 / Semifinal (Sept 6)
+        # Lower Round 3 / Semifinal
         "LB_R3": BracketMatchNode(
             id="LB_R3",
             name="Lower Bracket Semifinal",
@@ -116,31 +186,31 @@ def get_lck_2026_playoffs_bracket() -> TournamentBracket:
             bracket_section="lower",
             best_of=5,
             team1="T1",
-            team2=None,  # Winner of KT vs Dplus
+            team2=None,
             next_match_winner_id="LB_Final",
             next_match_winner_slot=2,
         ),
-        # Lower Bracket Final (Sept 12)
+        # Lower Final
         "LB_Final": BracketMatchNode(
             id="LB_Final",
             name="Lower Bracket Final",
             round_name="Lower Final",
             bracket_section="lower",
             best_of=5,
-            team1=None,  # Loser of Gen.G vs Hanwha
-            team2=None,  # Winner of LB_R3
+            team1=None,
+            team2=None,
             next_match_winner_id="Grand_Final",
             next_match_winner_slot=2,
         ),
-        # Grand Final (Sept 13)
+        # Grand Final
         "Grand_Final": BracketMatchNode(
             id="Grand_Final",
             name="Grand Final",
             round_name="Grand Final",
             bracket_section="final",
             best_of=5,
-            team1=None,  # Winner of Gen.G vs Hanwha
-            team2=None,  # Winner of Lower Final
+            team1=None,
+            team2=None,
         ),
     }
 
