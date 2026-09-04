@@ -16,14 +16,21 @@ import type {
 import './TournamentSimulation.css';
 
 const INITIAL_DIRECT_TEAMS: WorldsTeamInput[] = [
-  { team: '', region: 'LCK', pool: 1 }, { team: '', region: 'LPL', pool: 1 },
-  { team: '', region: 'LCS', pool: 1 }, { team: '', region: 'LEC', pool: 1 },
-  { team: '', region: 'LCP', pool: 2 }, { team: '', region: 'CBLOL', pool: 2 },
-  { team: '', region: 'LCK', pool: 2 }, { team: '', region: 'LPL', pool: 2 },
-  { team: '', region: 'LCS', pool: 3 }, { team: '', region: 'LEC', pool: 3 },
-  { team: '', region: 'LCK', pool: 3 }, { team: '', region: 'LPL', pool: 3 },
-  { team: '', region: 'LCP', pool: 4 }, { team: '', region: 'LCK', pool: 4 },
-  { team: '', region: 'LPL', pool: 4 },
+  { team: 'Gen.G', region: 'LCK', pool: 1 },
+  { team: 'Bilibili Gaming', region: 'LPL', pool: 1 },
+  { team: 'LYON', region: 'LCS', pool: 1 },
+  { team: 'G2 Esports', region: 'LEC', pool: 1 },
+  { team: 'Team Secret Whales', region: 'LCP', pool: 2 },
+  { team: 'Los Grandes', region: 'CBLOL', pool: 2 },
+  { team: 'Hanwha Life Esports', region: 'LCK', pool: 2 },
+  { team: "Anyone's Legend", region: 'LPL', pool: 2 },
+  { team: 'Team Liquid', region: 'LCS', pool: 3 },
+  { team: 'Karmine Corp', region: 'LEC', pool: 3 },
+  { team: 'T1', region: 'LCK', pool: 3 },
+  { team: 'Top Esports', region: 'LPL', pool: 3 },
+  { team: 'CTBC Flying Oyster', region: 'LCP', pool: 4 },
+  { team: 'Dplus KIA', region: 'LCK', pool: 4 },
+  { team: 'LGD Gaming', region: 'LPL', pool: 4 },
 ];
 
 const DIRECT_SLOT_LABELS = [
@@ -34,8 +41,8 @@ const DIRECT_SLOT_LABELS = [
 ];
 
 const INITIAL_PLAY_IN_TEAMS: WorldsTeamInput[] = [
-  { team: '', region: 'LCS' }, { team: '', region: 'LEC' },
-  { team: '', region: 'LCP' }, { team: '', region: 'CBLOL' },
+  { team: 'Cloud9', region: 'LCS' }, { team: 'GIANTX', region: 'LEC' },
+  { team: 'MVK Esports', region: 'LCP' }, { team: 'LOUD', region: 'CBLOL' },
 ];
 
 const PLAY_IN_SLOT_LABELS = ['LCS #3', 'LEC #3', 'LCP #3', 'CBLOL #2'];
@@ -58,6 +65,7 @@ export default function TournamentSimulation() {
   const [playInWorldsTeams, setPlayInWorldsTeams] = useState<WorldsTeamInput[]>(INITIAL_PLAY_IN_TEAMS);
   const [worldsData, setWorldsData] = useState<WorldsSimulationResponse | null>(null);
   const [worldsSimulating, setWorldsSimulating] = useState<boolean>(false);
+  const [worldsSimCount, setWorldsSimCount] = useState<number>(5000);
   const [activeTeams, setActiveTeams] = useState<Array<{ name: string; rating: number | null }>>([]);
   const [teamSuggestionError, setTeamSuggestionError] = useState<string | null>(null);
   const [activeSuggestionSlot, setActiveSuggestionSlot] = useState<{
@@ -123,7 +131,7 @@ export default function TournamentSimulation() {
         directWorldsTeams,
         playInWorldsTeams,
         4,
-        5000,
+        worldsSimCount,
       );
       setWorldsData(res);
     } catch (err) {
@@ -305,12 +313,28 @@ export default function TournamentSimulation() {
           </div>
         ) : (
           <div className="tournament-controls">
+            <div className="sim-config">
+              <label htmlFor="worlds-simulation-count">Próby Worlds:</label>
+              <select
+                id="worlds-simulation-count"
+                value={worldsSimCount}
+                onChange={(event) => setWorldsSimCount(Number(event.target.value))}
+                className="sim-count-select"
+              >
+                <option value={1000}>1 000</option>
+                <option value={5000}>5 000</option>
+                <option value={10000}>10 000</option>
+                <option value={20000}>20 000</option>
+              </select>
+            </div>
             <button
               className="simulate-btn"
               onClick={handleSimulateWorlds}
               disabled={worldsSimulating || !worldsReady}
             >
-              {worldsSimulating ? '⏳ Symulacja Worlds...' : '⚡ Symuluj Worlds (5 000 prób)'}
+              {worldsSimulating
+                ? '⏳ Symulacja Worlds...'
+                : `⚡ Symuluj Worlds (${worldsSimCount.toLocaleString('pl-PL')} prób)`}
             </button>
             {!worldsReady && (
               <span className="worlds-validation-hint">
