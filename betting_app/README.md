@@ -515,6 +515,9 @@ python -m betting_app.scripts.list_upcoming_model_predictions --positive-only
 
 ### Ujednolicony kandydat regionalny `ratings-v2`
 
+Pełny kontrakt danych, matematyka regionalnej projekcji i bramka promocji:
+[`docs/04_experiments/EXP-076_unified_regional_ratings_v2.md`](../docs/04_experiments/EXP-076_unified_regional_ratings_v2.md).
+
 `ratings-v2` jest jednym snapshotem kontraktowym: zawiera dokładnie systemy
 `elo`, `gl`, `ts`, `os`, `pl`, `tm`. `gl` oznacza
 `FamilyCalibratedGlicko2`, nie historyczną implementację Glicko. Nie zapisuje
