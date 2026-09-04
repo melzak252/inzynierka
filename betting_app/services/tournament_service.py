@@ -206,10 +206,9 @@ class TournamentSimulator:
 
     def __init__(self, team_ratings: dict[str, float] | None = None):
         self.team_ratings = team_ratings or self._load_team_ratings()
-
+        self._prob_cache: dict[tuple[str, str, int], float] = {}
     @staticmethod
     def _load_team_ratings() -> dict[str, float]:
-        """Load Glicko ratings for teams from entity_ratings, fallback to 1750."""
         ratings: dict[str, float] = {}
         try:
             with connect() as conn:
@@ -232,6 +231,10 @@ class TournamentSimulator:
 
     def estimate_matchup_probability(self, team1: str, team2: str, best_of: int = 5) -> float:
         """Estimate win probability of team1 vs team2 in a BoN series."""
+        cache_key = (team1, team2, best_of)
+        if cache_key in self._prob_cache:
+            return self._prob_cache[cache_key]
+
         k1 = canonical_team_key(team1)
         k2 = canonical_team_key(team2)
         r1 = self.team_ratings.get(k1, 1750.0)
@@ -242,6 +245,7 @@ class TournamentSimulator:
         p_map = 1.0 / (1.0 + 10.0 ** (-diff / 400.0))
         # Series projection
         p_series = series_probability(p_map, best_of)
+        self._prob_cache[cache_key] = p_series
         return p_series
 
     def simulate(
