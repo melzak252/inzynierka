@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  fetchActiveTeams,
   fetchTournaments,
   fetchTournamentBracket,
   simulateTournament,
@@ -57,6 +58,8 @@ export default function TournamentSimulation() {
   const [playInWorldsTeams, setPlayInWorldsTeams] = useState<WorldsTeamInput[]>(INITIAL_PLAY_IN_TEAMS);
   const [worldsData, setWorldsData] = useState<WorldsSimulationResponse | null>(null);
   const [worldsSimulating, setWorldsSimulating] = useState<boolean>(false);
+  const [activeTeams, setActiveTeams] = useState<Array<{ name: string; rating: number | null }>>([]);
+  const [teamSuggestionError, setTeamSuggestionError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTournaments()
@@ -71,8 +74,19 @@ export default function TournamentSimulation() {
   }, [selectedId]);
 
   useEffect(() => {
+    fetchActiveTeams()
+      .then((response) => setActiveTeams(response.teams))
+      .catch((reason: unknown) => {
+        setTeamSuggestionError(
+          reason instanceof Error ? reason.message : 'Nie udało się pobrać aktualnych drużyn.',
+        );
+      });
+  }, []);
+
+  useEffect(() => {
     if (!selectedId) return;
     setLoading(true);
+
     fetchTournamentBracket(selectedId)
       .then((res) => {
         setData(res);
@@ -414,6 +428,7 @@ export default function TournamentSimulation() {
                           className="team-text-input"
                           placeholder={`Wybierz ${DIRECT_SLOT_LABELS[index]}`}
                           aria-label={`Drużyna Swiss ${index + 1}`}
+                          list="worlds-active-team-suggestions"
                         />
                       </div>
                     )
@@ -437,6 +452,7 @@ export default function TournamentSimulation() {
                     className="team-text-input"
                     placeholder={`Wybierz ${PLAY_IN_SLOT_LABELS[index]}`}
                     aria-label={`Drużyna Play-In ${index + 1}`}
+                    list="worlds-active-team-suggestions"
                   />
                 </div>
               ))}
@@ -449,6 +465,21 @@ export default function TournamentSimulation() {
             >
               Źródło slotów: Leaguepedia / Fandom — Worlds 2026
             </a>
+            <datalist id="worlds-active-team-suggestions">
+              {activeTeams.map((team) => (
+                <option key={team.name} value={team.name}>
+                  {team.rating !== null ? `GL ${Math.round(team.rating)}` : ''}
+                </option>
+              ))}
+            </datalist>
+            {activeTeams.length > 0 && (
+              <p className="worlds-suggestion-note">
+                Podpowiedzi: {activeTeams.length} aktualnych drużyn z operacyjnego rankingu GL.
+              </p>
+            )}
+            {teamSuggestionError && (
+              <p className="worlds-suggestion-error">{teamSuggestionError}</p>
+            )}
           </section>
 
           <section className="worlds-results-panel">

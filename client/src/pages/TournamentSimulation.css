@@ -605,6 +605,20 @@
   text-decoration: underline;
 }
 
+.worlds-suggestion-note,
+.worlds-suggestion-error {
+  font-size: 0.75rem;
+  margin: 0.5rem 0 0;
+}
+
+.worlds-suggestion-note {
+  color: #94a3b8;
+}
+
+.worlds-suggestion-error {
+  color: #fca5a5;
+}
+
 @media (max-width: 1200px) {
   .worlds-layout {
     grid-template-columns: 1fr;
