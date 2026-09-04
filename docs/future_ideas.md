@@ -226,3 +226,46 @@ Polymarket discovery must paginate and filter the nested market, not only the to
 - [LSports OddService](https://www.lsports.eu/oddservice/)
 - [Smarkets API terms](https://help.smarkets.com/hc/en-gb/articles/34697834941085-Smarkets-API-Access-Integration-T-Cs)
 - [The Odds API supported sports](https://the-odds-api.com/sports-odds-data/sports-apis.html)
+
+---
+
+## IDEA-011 — Calibrated player-contribution rating updates
+
+- **Status:** in-progress
+- **Created:** 2026-09-04
+- **Updated:** 2026-09-04
+
+### Problem
+
+Team-outcome rating updates give every player on the winning side the same directional credit and every player on the losing side the same debit. Test whether role-normalized post-game contribution estimates can distribute bounded extra player-rating credit more faithfully while preserving an auditable team-outcome signal.
+
+### Evidence
+
+- EXP-043 already tested a local PandaSkill-like branch: role-specific post-game performance models produced a role-normalized PScore, ranked the ten players in a map, and updated OpenSkill as a free-for-all.
+- On its 2024+ map test, calibrated PandaSkill-like ratings had LogLoss `0.6171`, close to player Glicko `0.6163` and better than player Elo `0.6226`. Raw FFA OpenSkill probabilities were severely uncalibrated (`2.2550` LogLoss).
+- On 2026-09-04, a bounded zero-sum contribution prototype was benchmarked on `20,200` post-2024 maps against standard Glicko-2. The candidate degraded LogLoss (`0.615081` -> `0.615761`, delta `+0.000680`, t-stat `16.812`, with larger delta scale worsening to `0.617194`). ROC AUC dropped (`0.7186` -> `0.7179`), and ECE worsened (`0.0238` -> `0.0247`).
+- Cause: In League of Legends, high individual boxscore stats (KDA, gold share, DPM) in winning games often correlate with resource funnelling or stomps rather than sustainable independent player skill; rewarding them directly distorts rating equilibrium compared to pure team victory outcomes.
+
+### Decision & Next steps
+
+- Do NOT replace the pure team-outcome Glicko-2 update with direct boxscore contribution adjustments.
+- Keep standard Glicko-2 as the authoritative rating engine.
+- If player contribution is revisited, test it exclusively as a downstream feature in meta-models or draft profiles (IDEA-010), not as an in-place modification of rating likelihood updates.
+
+### Non-goals
+
+- Do not feed post-game player performance into the prediction for that same game.
+- Do not overwrite EXP-039 or any existing rating snapshot.
+- Do not award unrestricted points to high-stat players; player statistics are role-, champion-, game-length-, and team-context-dependent.
+- Do not replace team ratings with a player contribution score before a new artifact passes chronological evaluation.
+
+### Affected areas
+
+- `src/ratings/`
+- `betting_app/scripts/` rating rebuild and backtest runners
+- `scripts/benchmark_player_contribution_rating.py`
+
+### References
+
+- `docs/04_experiments/EXP-043_pandaskill_like_backtest.md`
+- `scripts/benchmark_player_contribution_rating.py`
