@@ -92,6 +92,27 @@ def test_review_mutation_requires_operator_token(client) -> None:
     assert response.status_code == 401
 
 
+def test_review_mutation_accepts_secret_file(client, monkeypatch, tmp_path) -> None:
+    _seed_review_mapping()
+    token_file = tmp_path / "identity-review-token"
+    token_file.write_text("file-review-token\n", encoding="utf-8")
+    monkeypatch.delenv("IDENTITY_REVIEW_TOKEN")
+    monkeypatch.setenv("IDENTITY_REVIEW_TOKEN_FILE", str(token_file))
+
+    response = client.post(
+        "/matches/mapping-review/decision",
+        json={
+            "canonical_match_id": 101,
+            "decision": "retain",
+            "reason": "Verified exact fixture identity",
+            "operator": "test-operator",
+        },
+        headers={"X-Identity-Review-Token": "file-review-token"},
+    )
+
+    assert response.status_code == 200, response.text
+
+
 def test_review_replacement_is_atomic_and_audited(client) -> None:
     _seed_review_mapping()
 
