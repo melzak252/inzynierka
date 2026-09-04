@@ -209,14 +209,14 @@ class TournamentSimulator:
 
     @staticmethod
     def _load_team_ratings() -> dict[str, float]:
-        """Load Glicko-2 ratings for teams from the database, fallback to 1500."""
+        """Load Glicko-2 ratings for teams from entity_ratings, fallback to 1750."""
         ratings: dict[str, float] = {}
         try:
             with connect() as conn:
                 rows = conn.execute(
                     """
-                    SELECT normalized_entity_name, rating
-                    FROM rating_history
+                    SELECT normalized_entity_name, rating_value
+                    FROM entity_ratings
                     WHERE entity_type = 'team' AND rating_system = 'glicko2'
                     ORDER BY id DESC
                     LIMIT 2000
@@ -224,8 +224,8 @@ class TournamentSimulator:
                 ).fetchall()
             for r in rows:
                 key = canonical_team_key(str(r["normalized_entity_name"]))
-                if key and key not in ratings:
-                    ratings[key] = float(r["rating"])
+                if key and key not in ratings and r.get("rating_value") is not None:
+                    ratings[key] = float(r["rating_value"])
         except Exception as e:
             logger.warning("Could not load team ratings from DB: %s", e)
         return ratings
