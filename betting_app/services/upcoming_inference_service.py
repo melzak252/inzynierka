@@ -572,9 +572,14 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
 
     if not roster:
         return {}
-    player_ids = [str(player.get("player_id")) for player in roster.get("players", []) if player.get("player_id")]
-    if not player_ids:
+    roster_players = {
+        str(player["player_id"]): player
+        for player in roster.get("players", [])
+        if player.get("player_id")
+    }
+    if not roster_players:
         return {}
+    player_ids = list(roster_players)
     placeholders = ",".join("?" for _ in player_ids)
     frame = query_df(
         f"""
@@ -596,15 +601,25 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
         ratings = [value for value in ratings if value is not None]
         if not ratings:
             continue
+        player_records: list[dict[str, Any]] = []
+        for player in group.to_dict("records"):
+            player_id = str(player["normalized_entity_name"])
+            roster_player = roster_players.get(player_id, {})
+            player_records.append(
+                {
+                    **player,
+                    "player_id": player_id,
+                    "player_name": roster_player.get("player_name") or player.get("entity_name"),
+                    "role": roster_player.get("role"),
+                }
+            )
         result[str(system)] = {
             "avg_rating_value": sum(ratings) / len(ratings),
             "min_rating_value": min(ratings),
             "max_rating_value": max(ratings),
             "players_with_rating": len(ratings),
             "expected_players": len(player_ids),
-            "players": group[["entity_name", "normalized_entity_name", "rating_value", "rd", "sigma", "games_played"]].to_dict(
-                "records"
-            ),
+            "players": player_records,
         }
     return result
 

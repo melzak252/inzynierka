@@ -1,4 +1,6 @@
 import pytest
+import pandas as pd
+
 from fastapi.testclient import TestClient
 
 from betting_app.api.main import app
@@ -18,6 +20,14 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
         return {
             "status": "ready_player",
             "features": {
+                "mapping": {
+                    "team_a_golgg_name": "T1",
+                    "team_b_golgg_name": "Gen.G",
+                    "team_a_confidence": 1.0,
+                    "team_b_confidence": 1.0,
+                    "team_a_source": "exact",
+                    "team_b_source": "exact",
+                },
                 "ratings": {
                     "probabilities": {"consensus": 0.65},
                     "team_a": {"gl": {"rating_value": 1850.0, "rd": 70.0}},
@@ -25,7 +35,28 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
                 },
                 "player_ratings": {
                     "probabilities": {"consensus": 0.68},
-                    "team_a": {"gl": {"avg_rating_value": 1820.0, "avg_rd": 65.0, "players": []}},
+                    "team_a_roster": {
+                        "team_name": "T1",
+                        "players": [{"player_id": "t1-top", "player_name": "Zeus", "role": "TOP"}],
+                    },
+                    "team_b_roster": {
+                        "team_name": "Gen.G",
+                        "players": [{"player_id": "geng-top", "player_name": "Kiin", "role": "TOP"}],
+                    },
+                    "team_a": {
+                        "gl": {
+                            "avg_rating_value": 1820.0,
+                            "avg_rd": 65.0,
+                            "players_with_rating": 1,
+                            "players": [{
+                                "normalized_entity_name": "t1-top",
+                                "entity_name": "ZEUS",
+                                "rating_value": 1825.0,
+                                "rd": 65.0,
+                                "games_played": 20,
+                            }],
+                        }
+                    },
                     "team_b": {"gl": {"avg_rating_value": 1710.0, "avg_rd": 68.0, "players": []}},
                 },
                 "w20": {
@@ -50,6 +81,21 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
     assert data["best_of"] == 1
     assert data["map_prob_a"] == pytest.approx(0.666, abs=0.01)
     assert data["series_prob_a"] == data["map_prob_a"]
+    assert data["team_comparison"]["team_a"] == {
+        "canonical_name": "T1",
+        "golgg_name": "T1",
+        "confidence": 1.0,
+        "source": "exact",
+    }
+    roster_a_player = data["roster_a"]["players"][0]
+    assert roster_a_player["player_id"] == "t1-top"
+    assert roster_a_player["player_name"] == "Zeus"
+    assert roster_a_player["role"] == "TOP"
+    assert roster_a_player["glicko_rating"] == 1825.0
+    assert roster_a_player["glicko_rd"] == 65.0
+    assert roster_a_player["games_played"] == 20
+    assert data["roster_b"]["players"][0]["player_name"] == "Kiin"
+    assert data["roster_b"]["players"][0]["glicko_rating"] is None
 
     # Test Bo3
     resp3 = client.post(
@@ -104,3 +150,33 @@ def test_synthetic_matchup_feature_build_does_not_upsert(monkeypatch: pytest.Mon
 
     assert result["canonical_match_id"] == 0
     assert persisted == []
+
+
+def test_player_ratings_preserve_roster_names_and_roles(monkeypatch: pytest.MonkeyPatch) -> None:
+    from betting_app.services import upcoming_inference_service as inference
+
+    monkeypatch.setattr(
+        inference,
+        "query_df",
+        lambda *_: pd.DataFrame(
+            [{
+                "rating_system": "gl",
+                "entity_name": "ZEUS",
+                "normalized_entity_name": "t1-top",
+                "rating_value": 1825.0,
+                "rd": 65.0,
+                "sigma": 0.06,
+                "games_played": 20,
+                "last_match_at": "2026-09-01T12:00:00+00:00",
+            }]
+        ),
+    )
+
+    ratings = inference.load_roster_player_ratings(
+        {"players": [{"player_id": "t1-top", "player_name": "Zeus", "role": "TOP"}]},
+        "test",
+    )
+
+    assert ratings["gl"]["players"][0]["player_id"] == "t1-top"
+    assert ratings["gl"]["players"][0]["player_name"] == "Zeus"
+    assert ratings["gl"]["players"][0]["role"] == "TOP"
