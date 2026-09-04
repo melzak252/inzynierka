@@ -1,4 +1,4 @@
-"""Client and synchronizer for fetching upcoming matches and Best-of format from Liquipedia API."""
+"""Client and synchronizer for fetching upcoming matches, Best-of format, and active team rosters from Liquipedia API."""
 
 from __future__ import annotations
 
@@ -12,13 +12,28 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Sequence
 
-from betting_app.core.db import connect, transaction
+from betting_app.core.db import connect, get_session, transaction
 from betting_app.services.canonical_match_service import canonical_team_key
+from betting_app.services.current_roster_service import upsert_current_roster
 
 logger = logging.getLogger(__name__)
 
 LIQUIPEDIA_API_URL = "https://liquipedia.net/leagueoflegends/api.php"
 DEFAULT_USER_AGENT = "EnsembleLegendsResearch/1.0 (academic research; melzacki.jakubl@gmail.com)"
+
+ROLE_MAP = {
+    "top": "TOP",
+    "jungle": "JUNGLE",
+    "jungler": "JUNGLE",
+    "mid": "MID",
+    "middle": "MID",
+    "bot": "ADC",
+    "bottom": "ADC",
+    "ad": "ADC",
+    "adc": "ADC",
+    "support": "SUPPORT",
+    "sup": "SUPPORT",
+}
 
 
 @dataclass(frozen=True)
@@ -30,21 +45,21 @@ class LiquipediaMatch:
     start_time: datetime | None
 
 
+@dataclass(frozen=True)
+class LiquipediaRosterPlayer:
+    player_id: str  # Ingame nickname / handle (e.g. Faker)
+    player_name: str | None  # Real name (e.g. Lee Sang-hyeok)
+    role: str  # TOP, JUNGLE, MID, ADC, SUPPORT
+
+
 class LiquipediaClient:
-    """Client for querying the Liquipedia MediaWiki API using template expansion."""
+    """Client for querying the Liquipedia MediaWiki API."""
 
     def __init__(self, api_url: str = LIQUIPEDIA_API_URL, user_agent: str = DEFAULT_USER_AGENT):
         self.api_url = api_url
         self.user_agent = user_agent
 
-    def fetch_recent_and_upcoming_matches(self, limit: int = 50) -> list[LiquipediaMatch]:
-        """Fetch matches parsed from the Match/Ticker/Container widget template."""
-        params = {
-            "action": "expandtemplates",
-            "text": f"{{{{#invoke:Lua|invoke|module=Widget/Factory|fn=fromTemplate|widget=Match/Ticker/Container|limit={limit}}}}}",
-            "prop": "wikitext",
-            "format": "json",
-        }
+    def _query(self, params: dict[str, Any], timeout: int = 15) -> dict[str, Any] | None:
         url = f"{self.api_url}?{urllib.parse.urlencode(params)}"
         req = urllib.request.Request(
             url,
@@ -54,13 +69,25 @@ class LiquipediaClient:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
                 if resp.info().get("Content-Encoding") == "gzip":
                     raw = gzip.decompress(raw)
-                data = json.loads(raw.decode("utf-8"))
+                return json.loads(raw.decode("utf-8"))
         except Exception as e:
-            logger.error("Failed to fetch matches from Liquipedia: %s", e)
+            logger.error("Liquipedia API request failed for %s: %s", params.get("action"), e)
+            return None
+
+    def fetch_recent_and_upcoming_matches(self, limit: int = 50) -> list[LiquipediaMatch]:
+        """Fetch matches parsed from the Match/Ticker/Container widget template."""
+        params = {
+            "action": "expandtemplates",
+            "text": f"{{{{#invoke:Lua|invoke|module=Widget/Factory|fn=fromTemplate|widget=Match/Ticker/Container|limit={limit}}}}}",
+            "prop": "wikitext",
+            "format": "json",
+        }
+        data = self._query(params)
+        if not data:
             return []
 
         html = data.get("expandtemplates", {}).get("wikitext", "")
@@ -69,10 +96,54 @@ class LiquipediaClient:
 
         return self._parse_matches_html(html)
 
+    def search_team_page(self, team_name: str) -> str | None:
+        """Find the canonical Liquipedia page title for a team using opensearch."""
+        params = {
+            "action": "opensearch",
+            "search": team_name,
+            "limit": "5",
+            "format": "json",
+        }
+        data = self._query(params)
+        if not data or len(data) < 2:
+            return None
+        titles = data[1]
+        if not titles:
+            return None
+        # Return first title that is not a subpage like /Results
+        for title in titles:
+            if "/" not in title:
+                return title
+        return titles[0]
+
+    def fetch_active_roster(self, team_page_or_name: str) -> list[LiquipediaRosterPlayer]:
+        """Fetch and parse active 5-role roster from a team page on Liquipedia."""
+        page_title = team_page_or_name.replace(" ", "_")
+        params = {
+            "action": "parse",
+            "page": page_title,
+            "prop": "text",
+            "format": "json",
+        }
+        data = self._query(params)
+        if not data or "error" in data:
+            # Try searching for the exact page title
+            resolved = self.search_team_page(team_page_or_name)
+            if resolved and resolved != team_page_or_name:
+                params["page"] = resolved.replace(" ", "_")
+                data = self._query(params)
+
+        if not data:
+            return []
+
+        html = data.get("parse", {}).get("text", {}).get("*", "")
+        if not html:
+            return []
+
+        return self._parse_roster_html(html)
+
     def _parse_matches_html(self, html: str) -> list[LiquipediaMatch]:
         matches: list[LiquipediaMatch] = []
-
-        # Split by match-info container
         chunks = re.split(r'<div[^>]*class=[\"\'][^\"\']*match-info[\"\'][^>]*>', html)
 
         for chunk in chunks[1:]:
@@ -122,6 +193,41 @@ class LiquipediaClient:
                     )
 
         return matches
+
+    def _parse_roster_html(self, html: str) -> list[LiquipediaRosterPlayer]:
+        """Extract the active players from the first matching active roster table."""
+        tables = re.findall(r'<table[^>]*>(.*?)</table>', html, flags=re.DOTALL)
+        for t in tables:
+            # Active roster tables have 'ID', 'Position' or 'Role', but NOT 'Leave Date'
+            if ("Position" in t or "Role" in t) and "Leave Date" not in t:
+                rows = re.findall(r'<tr[^>]*>(.*?)</tr>', t, flags=re.DOTALL)
+                players: list[LiquipediaRosterPlayer] = []
+                for r in rows[1:]:
+                    cells = [
+                        re.sub(r'&#\d+;', ' ', re.sub(r'<[^>]+>', '', c)).strip()
+                        for c in re.findall(r'<t[hd][^>]*>(.*?)</t[hd]>', r, flags=re.DOTALL)
+                    ]
+                    if len(cells) >= 3:
+                        handle = cells[0].strip()
+                        real_name = cells[1].strip() or None
+                        raw_pos = cells[2].lower().strip()
+                        # Match standard roles (ignore Coach, Sub, Streamer)
+                        matched_role = None
+                        for key, std_role in ROLE_MAP.items():
+                            if key in raw_pos:
+                                matched_role = std_role
+                                break
+                        if matched_role and handle:
+                            players.append(
+                                LiquipediaRosterPlayer(
+                                    player_id=handle,
+                                    player_name=real_name,
+                                    role=matched_role,
+                                )
+                            )
+                if players:
+                    return players
+        return []
 
     @staticmethod
     def _clean_team_text(text: str) -> str:
@@ -196,3 +302,77 @@ def sync_liquipedia_best_of(limit: int = 50) -> dict[str, Any]:
         "matched": matched_count,
         "updated": updated_count,
     }
+
+
+def sync_liquipedia_team_rosters(team_names: Sequence[str] | None = None) -> dict[str, Any]:
+    """Fetch active rosters for target teams from Liquipedia and update team_current_roster_players.
+
+    If team_names is None, queries upcoming matches with incomplete rosters.
+    """
+    client = LiquipediaClient()
+    session = get_session()
+    updated_teams = 0
+    failed_teams = 0
+
+    target_teams = list(team_names) if team_names else []
+    if not target_teams:
+        with connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT cm.team_a_name, cm.team_b_name
+                FROM canonical_matches cm
+                WHERE cm.status = 'upcoming'
+                ORDER BY cm.team_a_name
+                LIMIT 30
+                """
+            ).fetchall()
+        for r in rows:
+            if r.get("team_a_name"):
+                target_teams.append(str(r["team_a_name"]))
+            if r.get("team_b_name"):
+                target_teams.append(str(r["team_b_name"]))
+        target_teams = sorted(set(target_teams))
+
+    try:
+        for team_name in target_teams:
+            roster_players = client.fetch_active_roster(team_name)
+            if not roster_players:
+                failed_teams += 1
+                continue
+
+            # Need 5 distinct roles to form a valid starting roster
+            by_role: dict[str, LiquipediaRosterPlayer] = {}
+            for p in roster_players:
+                if p.role not in by_role:
+                    by_role[p.role] = p
+
+            if len(by_role) != 5:
+                failed_teams += 1
+                continue
+
+            payload = [
+                {
+                    "player_id": p.player_id,
+                    "player_name": p.player_name or p.player_id,
+                    "role": role,
+                }
+                for role, p in by_role.items()
+            ]
+
+            changed = upsert_current_roster(
+                session,
+                team_name=team_name,
+                players=payload,
+                source="liquipedia",
+            )
+            if changed:
+                updated_teams += 1
+            session.commit()
+
+        return {
+            "total_teams": len(target_teams),
+            "updated_teams": updated_teams,
+            "failed_teams": failed_teams,
+        }
+    finally:
+        session.close()
