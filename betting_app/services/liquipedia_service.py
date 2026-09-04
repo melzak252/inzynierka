@@ -12,8 +12,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Sequence
 
-from bs4 import BeautifulSoup
-
 from betting_app.core.db import connect, transaction
 from betting_app.services.canonical_match_service import canonical_team_key
 
@@ -72,48 +70,46 @@ class LiquipediaClient:
         return self._parse_matches_html(html)
 
     def _parse_matches_html(self, html: str) -> list[LiquipediaMatch]:
-        soup = BeautifulSoup(html, "html.parser")
         matches: list[LiquipediaMatch] = []
 
-        for block in soup.find_all("div", class_="match-info"):
-            time_div = block.find("span", class_="timer-object")
+        # Split by match-info container
+        chunks = re.split(r'<div[^>]*class=[\"\'][^\"\']*match-info[\"\'][^>]*>', html)
+
+        for chunk in chunks[1:]:
+            ts_m = re.search(r'data-timestamp=[\"\'](\d+)[\"\']', chunk)
             start_time = None
-            if time_div and time_div.get("data-timestamp"):
+            if ts_m:
                 try:
-                    ts = int(time_div["data-timestamp"])
-                    start_time = datetime.fromtimestamp(ts, tz=UTC)
+                    start_time = datetime.fromtimestamp(int(ts_m.group(1)), tz=UTC)
                 except (ValueError, TypeError):
                     pass
 
-            header = block.find("div", class_="match-info-header")
-            if not header:
-                continue
+            bo_m = re.search(r'\(Bo(\d)\)', chunk)
+            best_of = int(bo_m.group(1)) if bo_m else None
 
-            opp_left = header.find("div", class_="match-info-header-opponent-left")
-            opp_right_candidates = header.find_all("div", class_="match-info-header-opponent")
-            opp_right = opp_right_candidates[1] if len(opp_right_candidates) > 1 else None
-
-            scoreholder = header.find("div", class_="match-info-header-scoreholder")
-            best_of = None
-            if scoreholder:
-                bo_match = re.search(r"\(Bo(\d)\)", scoreholder.get_text())
-                if bo_match:
-                    try:
-                        best_of = int(bo_match.group(1))
-                    except ValueError:
-                        pass
-
-            tourn = block.find("div", class_="match-info-tournament")
+            tourn_m = re.search(r'class=[\"\'][^\"\']*match-info-tournament[^\"\']*[\"\']?[^>]*>(.*?)</div>', chunk, flags=re.DOTALL)
             tourn_name = None
-            if tourn:
-                clean_tourn = tourn.get_text(strip=True)
-                clean_tourn = re.sub(r"\[\[File:[^\]]+\]\]", "", clean_tourn)
-                clean_tourn = re.sub(r"\[\[[^\|\]]+\|([^\]]+)\]\]", r"\1", clean_tourn)
-                tourn_name = clean_tourn.strip() or None
+            if tourn_m:
+                t_raw = tourn_m.group(1)
+                t_raw = re.sub(r'<[^>]+>', '', t_raw)
+                t_raw = re.sub(r'\[\[File:[^\]]+\]\]', '', t_raw)
+                t_raw = re.sub(r'\[\[[^\|\]]+\|([^\]]+)\]\]', r'\1', t_raw)
+                t_clean = t_raw.strip()
+                if t_clean:
+                    tourn_name = t_clean
 
-            if opp_left and opp_right:
-                team1 = self._clean_team_text(opp_left.get_text(strip=True))
-                team2 = self._clean_team_text(opp_right.get_text(strip=True))
+            opp_left_m = re.search(r'class=[\"\'][^\"\']*match-info-header-opponent-left[^\"\']*[\"\']?[^>]*>(.*?)</div>', chunk, flags=re.DOTALL)
+            opp_candidates = re.findall(r'class=[\"\'][^\"\']*match-info-header-opponent(?:\s+[^\"\']*)?[\"\']?[^>]*>(.*?)</div>', chunk, flags=re.DOTALL)
+
+            opp_right_raw = None
+            if len(opp_candidates) > 1:
+                opp_right_raw = opp_candidates[1]
+
+            if opp_left_m and opp_right_raw:
+                t1_raw = re.sub(r'<[^>]+>', '', opp_left_m.group(1))
+                t2_raw = re.sub(r'<[^>]+>', '', opp_right_raw)
+                team1 = self._clean_team_text(t1_raw)
+                team2 = self._clean_team_text(t2_raw)
                 if team1 and team2:
                     matches.append(
                         LiquipediaMatch(
