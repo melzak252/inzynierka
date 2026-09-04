@@ -4,6 +4,10 @@ import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, updateMatc
 import type { MatchDetailResponse, PredictionHistoryPoint, RosterOverridePlayerInput, RosterPlayerCandidate } from '../types';
 import './MatchDetail.css';
 
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 // ─── Prediction History Chart Component ──────────────────────
 
 interface ChartProps {
@@ -128,14 +132,6 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
     };
   }, [data]);
 
-  if (timeLabels.length < 2) {
-    return (
-      <section className="prediction-history-section">
-        <h2>Historia predykcji i EV</h2>
-        <p className="no-data">Za mało danych do wyświetlenia wykresu (minimum 2 punkty czasowe)</p>
-      </section>
-    );
-  }
 
   // Chart dimensions
   const W = 900;
@@ -187,6 +183,14 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
     }
     return zones;
   }, [data, timeLabels]);
+  if (timeLabels.length < 2) {
+    return (
+      <section className="prediction-history-section">
+        <h2>Historia predykcji i EV</h2>
+        <p className="no-data">Za mało danych do wyświetlenia wykresu (minimum 2 punkty czasowe)</p>
+      </section>
+    );
+  }
 
   // Format time label
   const formatTimeLabel = (iso: string) => {
@@ -681,8 +685,8 @@ export default function MatchDetail() {
         const candidates = await searchRosterPlayers(match.canonical_match_id, side, player.player_name, player.role);
         setRosterCandidates(current => ({ ...current, [index]: candidates }));
         if (!candidates.length) setRosterMessage(`Brak kandydatów GOL.GG dla „${player.player_name}”.`);
-      } catch (err: any) {
-        setRosterMessage(err.message || 'Nie udało się wyszukać zawodnika GOL.GG.');
+      } catch (err: unknown) {
+        setRosterMessage(errorMessage(err, 'Nie udało się wyszukać zawodnika GOL.GG.'));
       } finally {
         setSearchingRosterPlayer(null);
       }
@@ -713,8 +717,8 @@ export default function MatchDetail() {
         setPredHistory(historyData);
         setEditingRosterSide(null);
         setRosterMessage(`${result.message} Predykcja została przeliczona.`);
-      } catch (err: any) {
-        setRosterMessage(err.message || 'Nie udało się zapisać składu.');
+      } catch (err: unknown) {
+        setRosterMessage(errorMessage(err, 'Nie udało się zapisać składu.'));
       } finally {
         setSavingRoster(false);
       }
@@ -738,8 +742,8 @@ export default function MatchDetail() {
                     const refreshed = await fetchMatchDetail(match.canonical_match_id);
                     setMatch(refreshed);
                     setRosterMessage('Przywrócono automatyczny skład z GOL.GG.');
-                  } catch (err: any) {
-                    setRosterMessage(err.message || 'Nie udało się przywrócić składu.');
+                  } catch (err: unknown) {
+                    setRosterMessage(errorMessage(err, 'Nie udało się przywrócić składu.'));
                   }
                 }}
               >Usuń override meczu</button>
@@ -869,8 +873,8 @@ export default function MatchDetail() {
                 ]);
                 setMatch(matchData);
                 setPredHistory(historyData);
-              } catch (err: any) {
-                setError(err.message || 'Predykcja nie powiodła się');
+              } catch (err: unknown) {
+                setError(errorMessage(err, 'Predykcja nie powiodła się'));
               } finally {
                 setPredicting(false);
               }

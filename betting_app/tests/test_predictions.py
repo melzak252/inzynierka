@@ -67,6 +67,30 @@ def test_operational_model_projects_map_probability_to_best_of_series(
     assert series_probability(map_probability, best_of) == pytest.approx(expected)
 
 
+@pytest.mark.parametrize(
+    ("map_probability", "best_of"),
+    [
+        (0.01, 1),
+        (0.01, 3),
+        (0.25, 5),
+        (0.60, 7),
+        (0.99, 7),
+    ],
+)
+def test_series_projection_is_side_symmetric(
+    map_probability: float, best_of: int
+) -> None:
+    assert series_probability(map_probability, best_of) == pytest.approx(
+        1.0 - series_probability(1.0 - map_probability, best_of)
+    )
+
+
+@pytest.mark.parametrize("best_of", [0, 2, 4, 6, 9, "not-a-format"])
+def test_series_projection_rejects_unsupported_formats(best_of: object) -> None:
+    with pytest.raises(ValueError, match="best_of must be one of 1, 3, 5, 7"):
+        series_probability(0.6, best_of)
+
+
 def test_match_predict_route_uses_operational_model(monkeypatch: pytest.MonkeyPatch) -> None:
     match = {
         "id": 17,

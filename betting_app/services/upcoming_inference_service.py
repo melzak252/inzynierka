@@ -976,7 +976,13 @@ def predict_all_upcoming(
 
 def _normalized_best_of(best_of: Any) -> int:
     """Validate supported series lengths; an absent format is a single map."""
-    value = 1 if best_of is None else int(best_of)
+
+    try:
+        value = 1 if best_of is None else int(best_of)
+    except (TypeError, ValueError) as error:
+        raise ValueError(
+            f"best_of must be one of 1, 3, 5, 7; got {best_of!r}"
+        ) from error
     if value not in {1, 3, 5, 7}:
         raise ValueError(f"best_of must be one of 1, 3, 5, 7; got {best_of!r}")
     return value
