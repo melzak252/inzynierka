@@ -145,6 +145,10 @@ def place_wallet_bet(
     The conditional update is the concurrency boundary.  A concurrent placement
     observes the post-debit balance and cannot overdraw the same wallet.
     """
+    if stake <= 0:
+        raise ValueError("Stake must be greater than zero")
+    if odds <= 1.0:
+        raise ValueError("Odds must be greater than 1.0")
     now = utc_now_iso()
     balance_after = db.execute(
         text(
@@ -244,8 +248,12 @@ def settle_wallet_bet_atomic(
         raise BetNotFoundError(bet_id)
     if bet["status"] != "open":
         raise BetAlreadySettledError(bet_id)
-    stake = float(bet["stake"])
+    if result not in {"won", "lost", "void", "cancelled"}:
+        raise ValueError(f"Invalid settlement result: {result}")
     odds = float(settlement_odds or bet["taken_odds"])
+    if odds <= 1.0:
+        raise ValueError("Settlement odds must be greater than 1.0")
+    stake = float(bet["stake"])
     tax_rate = float(bet["tax_rate"])
     payout = (
         stake * odds * (1.0 - tax_rate)
@@ -272,7 +280,7 @@ def settle_wallet_bet_atomic(
     )
     if updated.rowcount != 1:
         raise BetAlreadySettledError(bet_id)
-    if not payout:
+    if not payout or not bet.get("bookmaker_account_id"):
         return
     balance_after = db.execute(
         text(

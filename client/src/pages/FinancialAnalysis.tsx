@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchFinancialAnalysis } from '../api/client'
 import type { FinancialAnalysisResponse, FinancialBucket } from '../types'
@@ -55,12 +55,12 @@ export default function FinancialAnalysis() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true); setError(null)
     fetchFinancialAnalysis({ daysBack, oddsMode, stakingMode, minEv, initialBankroll: bankroll, fixedStake, modelName: MODEL.name, modelVersion: MODEL.version, dataScope })
-      .then(setData).catch(err => setError(err.message)).finally(() => setLoading(false))
-  }
-  useEffect(() => { load() }, []) // User applies draft filters explicitly.
+      .then(setData).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err))).finally(() => setLoading(false))
+  }, [daysBack, oddsMode, stakingMode, minEv, bankroll, fixedStake, dataScope])
+  useEffect(() => { load() }, [load])
   const bestHorizon = useMemo(() => data?.horizon_buckets.filter(row => row.matches >= 20).sort((a, b) => (b.roi ?? -999) - (a.roi ?? -999))[0], [data])
 
   return <div className="financial-page">

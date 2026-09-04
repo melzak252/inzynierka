@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import BetCreate, BetResponse, BetSettle, WalletResponse
@@ -55,29 +57,36 @@ def create_wallet(
     opening_balance: float = 100.0,
     db=Depends(get_db),
 ):
+    if opening_balance < 0:
+        raise HTTPException(status_code=400, detail="Opening balance cannot be negative")
     now = datetime.now(UTC).isoformat(timespec="seconds")
     try:
-        db.execute(
+        row = db.execute(
             text("""
             INSERT INTO bookmaker_accounts (bookmaker_id, account_name, currency, opening_balance, current_balance, is_active, created_at, updated_at)
             VALUES (:bid, :name, 'PLN', :bal, :bal, 1, :now, :now)
+            RETURNING id
             """),
             {"bid": bookmaker_id, "name": account_name, "bal": opening_balance, "now": now},
-        )
-        db.commit()
-        # fetch the inserted row
-        rows = query_df(
-            db,
-            "SELECT ba.*, b.name AS bookmaker_name FROM bookmaker_accounts ba "
-            "LEFT JOIN bookmakers b ON b.id=ba.bookmaker_id "
-            "WHERE ba.account_name=:name "
-            "AND (ba.bookmaker_id=:bid OR (ba.bookmaker_id IS NULL AND :bid IS NULL)) "
-            "ORDER BY ba.id DESC LIMIT 1",
-            {"name": account_name, "bid": bookmaker_id},
-        )
-        if not rows:
+        ).mappings().one_or_none()
+        if not row:
+            db.rollback()
             raise HTTPException(status_code=500, detail="Failed to create wallet")
-        r = rows[0]
+        wallet_id = row["id"]
+        db.commit()
+        # fetch the inserted row by exact id
+        r = query_one(
+            db,
+            """
+            SELECT ba.*, b.name AS bookmaker_name
+            FROM bookmaker_accounts ba
+            LEFT JOIN bookmakers b ON b.id=ba.bookmaker_id
+            WHERE ba.id = :id
+            """,
+            {"id": wallet_id},
+        )
+        if not r:
+            raise HTTPException(status_code=500, detail="Failed to retrieve created wallet")
         return WalletResponse(
             id=r["id"],
             bookmaker=r.get("bookmaker_name"),
@@ -87,7 +96,13 @@ def create_wallet(
             is_active=True,
         )
     except IntegrityError:
+        db.rollback()
         raise HTTPException(status_code=409, detail="Wallet already exists")
+    except HTTPException:
+        raise
+    except Exception:
+        db.rollback()
+        raise
 
 
 # ── GET /api/bets ───────────────────────────────────────────────────────────
@@ -156,12 +171,19 @@ def place_bet(body: BetCreate, db=Depends(get_db)):
     except InsufficientWalletBalanceError:
         db.rollback()
         raise HTTPException(status_code=400, detail="Insufficient balance")
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         db.rollback()
         raise
-    return _bet_from_row(
-        query_one(db, "SELECT * FROM bets WHERE id=:id", {"id": bet_id})
-    )
+    row = query_one(db, "SELECT * FROM bets WHERE id=:id", {"id": bet_id})
+    if not row:
+        raise HTTPException(status_code=500, detail="Bet placed but could not be retrieved")
+    return _bet_from_row(row)
+
+
+create_bet = place_bet
 
 
 @router.post("/bets/{bet_id}/settle", response_model=BetResponse)
@@ -180,12 +202,16 @@ def settle_bet(bet_id: int, body: BetSettle, db=Depends(get_db)):
     except BetAlreadySettledError:
         db.rollback()
         raise HTTPException(status_code=400, detail="Bet already settled")
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception:
         db.rollback()
         raise
-    return _bet_from_row(
-        query_one(db, "SELECT * FROM bets WHERE id=:id", {"id": bet_id})
-    )
+    row = query_one(db, "SELECT * FROM bets WHERE id=:id", {"id": bet_id})
+    if not row:
+        raise HTTPException(status_code=500, detail="Settled bet could not be retrieved")
+    return _bet_from_row(row)
 
 
 def _bet_from_row(r: dict) -> BetResponse:
@@ -204,7 +230,3 @@ def _bet_from_row(r: dict) -> BetResponse:
         settled_at=r.get("settled_at"),
         note=r.get("note"),
     )
-
-
-from sqlalchemy import text  # noqa: E402
-from sqlalchemy.exc import IntegrityError  # noqa: E402

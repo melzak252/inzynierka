@@ -169,11 +169,15 @@ def place_bet(signal_id: int, stake: float, taken_odds: float | None = None, not
             """
             INSERT INTO bets(signal_id, bookmaker_id, side, stake, taken_odds, note)
             VALUES (?, ?, ?, ?, ?, ?)
+            RETURNING id
             """,
             (signal_id, int(signal["bookmaker_id"]), signal["side"], float(stake), odds, note),
         )
         connection.execute("UPDATE bet_signals SET status = 'placed' WHERE id = ?", (signal_id,))
-        return int(cursor.lastrowid)
+        row = cursor.fetchone()
+        if row and "id" in row:
+            return int(row["id"])
+        return int(cursor.lastrowid or 0)
 
 
 def settle_bet(bet_id: int, result: str, tax_rate: float | None = None) -> float:
@@ -187,6 +191,8 @@ def settle_bet(bet_id: int, result: str, tax_rate: float | None = None) -> float
     if bet_df.empty:
         raise ValueError(f"Bet {bet_id} does not exist")
     bet = bet_df.iloc[0]
+    if bet["status"] != "open":
+        raise ValueError(f"Bet {bet_id} is already settled ({bet['status']})")
     stake = float(bet["stake"])
     if result == "won":
         profit = stake * (float(bet["taken_odds"]) * (1.0 - tax_rate) - 1.0)
@@ -196,10 +202,12 @@ def settle_bet(bet_id: int, result: str, tax_rate: float | None = None) -> float
         profit = 0.0
     bankroll_after = current_bankroll() + profit
     with transaction() as connection:
-        connection.execute(
-            "UPDATE bets SET status = ?, result = ?, profit = ?, settled_at = ? WHERE id = ?",
+        updated = connection.execute(
+            "UPDATE bets SET status = ?, result = ?, profit = ?, settled_at = ? WHERE id = ? AND status = 'open'",
             (result, result, profit, utc_now_iso(), bet_id),
         )
+        if updated.rowcount != 1:
+            raise ValueError(f"Bet {bet_id} already settled")
         connection.execute(
             "INSERT INTO bankroll_events(event_type, amount, bankroll_after, bet_id, note) VALUES (?, ?, ?, ?, ?)",
             (f"bet_{result}", profit, bankroll_after, bet_id, f"Settled bet {bet_id}"),

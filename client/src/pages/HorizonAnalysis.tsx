@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { HorizonAccuracyResponse, ModelVsBookmakerTest } from '../types';
+import { HorizonAccuracyResponse, ModelVsBookmakerTest, HybridBinMetrics } from '../types';
 import { fetchHorizonAccuracy } from '../api/client';
 import './HorizonAnalysis.css';
 
@@ -99,8 +99,8 @@ export default function HorizonAnalysis() {
     try {
       const res = await fetchHorizonAccuracy(daysBack, minMatches);
       setData(res);
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setLoading(false);
     }
@@ -256,7 +256,7 @@ export default function HorizonAnalysis() {
           const label = nameLower.includes('thesis') ? 'Thesis Hybrid' : 'Hybrid';
           
           // Build path from bins — match by label to the shown bins x-positions
-          const points: { x: number; y: number; bin: any }[] = [];
+          const points: { x: number; y: number; bin: HybridBinMetrics }[] = [];
           hb.bins.forEach((bin) => {
             const val = bin[metricKey];
             if (val !== null && val !== undefined && bin.match_count >= minMatches) {
@@ -322,7 +322,7 @@ export default function HorizonAnalysis() {
           const color = bkColors[bkIdx % bkColors.length];
 
           // Build path from bins — match by label to the shown bins x-positions
-          const points: { x: number; y: number; bin: any }[] = [];
+          const points: { x: number; y: number; bin: HybridBinMetrics }[] = [];
           bk.bins.forEach((bin) => {
             const val = bin[metricKey];
             if (val !== null && val !== undefined && bin.match_count >= minMatches) {

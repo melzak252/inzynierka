@@ -40,7 +40,10 @@ class BookmakerAccount(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=sa_text("CURRENT_TIMESTAMP"))
     updated_at: Mapped[DateTime] = mapped_column(DateTime, server_default=sa_text("CURRENT_TIMESTAMP"), onupdate=sa_text("CURRENT_TIMESTAMP"))
 
-    __table_args__ = (UniqueConstraint("bookmaker_id", "account_name"),)
+    __table_args__ = (
+        UniqueConstraint("bookmaker_id", "account_name"),
+        CheckConstraint("current_balance >= 0", name="chk_bookmaker_account_balance_non_negative"),
+    )
 
 
 class Bet(Base):

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { fetchMatchResults } from '../api/client'
 import type { MatchResultItem } from '../types'
@@ -7,16 +7,16 @@ import './MatchResults.css'
 const DAYS_OPTIONS = [7, 14, 30, 60, 90]
 const MODEL_OPTIONS = [
   {
-    label: 'Hybrid a0.35',
+    label: 'Hybrid parity v2',
     name: 'Hybrid-Thesis-Market',
-    version: 'a0.35-t0.80',
-    description: '35% EXP-039 + 65% rynek',
+    version: 'a0.35-t0.80-p2',
+    description: '35% EXP-039 parity v2 + 65% rynek',
   },
   {
-    label: 'EXP-039',
+    label: 'EXP-039 parity v2',
     name: 'Sym-Cal LR-ElasticNet-W20-Binomial',
-    version: 'exp-039',
-    description: 'czysty model thesis',
+    version: 'exp-039-parity-v2',
+    description: 'potwierdzone składy, stabilne ID i symetryczna kalibracja',
   },
 ]
 const ODDS_MODE_OPTIONS = [
@@ -63,7 +63,7 @@ export default function MatchResults() {
   }, [results])
 
   // Helper: get the effective EV/odds/kelly/prob for a match, respecting bookmaker filter
-  const getEffectiveEvOdds = (r: MatchResultItem): {
+  const getEffectiveEvOdds = useCallback((r: MatchResultItem): {
     evA: number; evB: number;
     oddsA: number | null; oddsB: number | null;
     kellyA: number | null; kellyB: number | null;
@@ -92,7 +92,7 @@ export default function MatchResults() {
       probA: r.model_prob_a,
       probB: r.model_prob_b,
     }
-  }
+  }, [selectedBookmaker])
 
 
   // Filter results
@@ -107,14 +107,14 @@ export default function MatchResults() {
       }
       return true
     })
-  }, [results, showPositiveEvOnly, selectedBookmaker])
+  }, [results, showPositiveEvOnly, selectedBookmaker, getEffectiveEvOdds])
 
   const positiveEvCount = useMemo(() => {
     return results.filter((r) => {
       const { evA, evB } = getEffectiveEvOdds(r)
       return evA > 0 || evB > 0
     }).length
-  }, [results, selectedBookmaker])
+  }, [results, getEffectiveEvOdds])
 
 
   // Determine EV outcome for a match: 'won' | 'lost' | null

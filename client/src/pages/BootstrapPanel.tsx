@@ -178,8 +178,8 @@ export default function BootstrapPanel() {
     try {
       const res = await fetchHorizonBootstrap();
       setData(res);
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load bootstrap results');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load bootstrap results');
     } finally {
       setLoading(false);
     }
@@ -194,8 +194,8 @@ export default function BootstrapPanel() {
       const resp = await fetch('/api/scheduler/trigger/horizon_bootstrap', { method: 'POST' });
       const result = await resp.json();
       alert(`Zadanie bootstrap uruchomione: ${result.message}. Odśwież stronę za ~30s.`);
-    } catch (e: any) {
-      alert(`Błąd: ${e.message}`);
+    } catch (e: unknown) {
+      alert(`Błąd: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setTriggering(false);
     }

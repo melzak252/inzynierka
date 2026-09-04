@@ -152,7 +152,7 @@ CREATE TABLE IF NOT EXISTS bookmaker_accounts (
     account_name     VARCHAR(100) NOT NULL,
     currency         VARCHAR(10) DEFAULT 'PLN',
     opening_balance  NUMERIC(12,2) DEFAULT 0,
-    current_balance  NUMERIC(12,2) DEFAULT 0,
+    current_balance  NUMERIC(12,2) DEFAULT 0 CHECK (current_balance >= 0),
     is_active        INTEGER DEFAULT 1,
     created_at       TIMESTAMPTZ DEFAULT NOW(),
     updated_at       TIMESTAMPTZ DEFAULT NOW(),
