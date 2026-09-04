@@ -673,3 +673,165 @@ class TournamentSimulator:
                 for m_id, m in bracket.matches.items()
             },
         }
+
+DEFAULT_WORLDS_2026_TEAMS = [
+    # LCK
+    "Gen.G",
+    "Hanwha Life Esports",
+    "T1",
+    "Dplus",
+    # LPL
+    "Bilibili Gaming",
+    "Top Esports",
+    "Anyone's Legend",
+    "JD Gaming",
+    # LEC
+    "G2 Esports",
+    "Karmine Corp",
+    "Movistar KOI",
+    # LCS / Americas
+    "FlyQuest",
+    "Team Liquid",
+    "Cloud9",
+    # APAC / Others
+    "PSG Talon",
+    "GAM Esports",
+]
+
+
+class WorldsSimulator(TournamentSimulator):
+    """Full Worlds simulator: 16-team Swiss Stage followed by 8-team Single Elimination Knockout."""
+
+    def simulate_swiss_round(
+        self,
+        pool: list[str],
+        record: dict[str, list[int]],
+        best_of: int,
+    ) -> tuple[list[str], list[str]]:
+        """Pair teams with identical records and simulate matches. Returns (winners, losers)."""
+        shuffled = list(pool)
+        random.shuffle(shuffled)
+        winners: list[str] = []
+        losers: list[str] = []
+
+        for i in range(0, len(shuffled) - 1, 2):
+            t1 = shuffled[i]
+            t2 = shuffled[i + 1]
+            p1 = self.estimate_matchup_probability(t1, t2, best_of=best_of)
+            if random.random() < p1:
+                winners.append(t1)
+                losers.append(t2)
+            else:
+                winners.append(t2)
+                losers.append(t1)
+
+        return winners, losers
+
+    def simulate_worlds(
+        self,
+        teams: list[str] | None = None,
+        n_simulations: int = 5000,
+    ) -> dict[str, Any]:
+        participant_teams = list(teams) if teams and len(teams) == 16 else list(DEFAULT_WORLDS_2026_TEAMS)
+
+        swiss_advance_counts = {t: 0 for t in participant_teams}
+        knockout_top4_counts = {t: 0 for t in participant_teams}
+        knockout_top2_counts = {t: 0 for t in participant_teams}
+        champion_counts = {t: 0 for t in participant_teams}
+
+        for _ in range(n_simulations):
+            # ── 1. Swiss Stage (16 teams -> 8 advance with 3 wins, 8 eliminated with 3 losses) ──
+            records: dict[str, list[int]] = {t: [0, 0] for t in participant_teams}  # [wins, losses]
+            advanced_teams: list[str] = []
+
+            # Swiss buckets by record: (wins, losses)
+            buckets: dict[tuple[int, int], list[str]] = {(0, 0): list(participant_teams)}
+
+            for round_num in range(1, 6):
+                next_buckets: dict[tuple[int, int], list[str]] = {}
+                for (w, l), pool in buckets.items():
+                    if not pool:
+                        continue
+                    # Qualification (2 wins) or Elimination (2 losses) are Bo3, otherwise Bo1
+                    is_high_stakes = (w == 2 or l == 2)
+                    bo = 3 if is_high_stakes else 1
+
+                    winners, losers = self.simulate_swiss_round(pool, records, best_of=bo)
+                    for winner in winners:
+                        records[winner][0] += 1
+                        nw = records[winner][0]
+                        nl = records[winner][1]
+                        if nw == 3:
+                            advanced_teams.append(winner)
+                        else:
+                            next_buckets.setdefault((nw, nl), []).append(winner)
+
+                    for loser in losers:
+                        records[loser][1] += 1
+                        nw = records[loser][0]
+                        nl = records[loser][1]
+                        if nl < 3:
+                            next_buckets.setdefault((nw, nl), []).append(loser)
+
+                buckets = next_buckets
+                if len(advanced_teams) == 8:
+                    break
+
+            for t in advanced_teams:
+                swiss_advance_counts[t] += 1
+
+            # ── 2. Knockout Stage (8 teams Single Elimination Bo5: QF -> SF -> Finals) ──
+            # Quarterfinals (8 -> 4)
+            qf_winners: list[str] = []
+            random.shuffle(advanced_teams)
+            for i in range(0, 8, 2):
+                t1 = advanced_teams[i]
+                t2 = advanced_teams[i + 1]
+                p = self.estimate_matchup_probability(t1, t2, best_of=5)
+                qf_winners.append(t1 if random.random() < p else t2)
+
+            for t in qf_winners:
+                knockout_top4_counts[t] += 1
+
+            # Semifinals (4 -> 2)
+            sf_winners: list[str] = []
+            for i in range(0, 4, 2):
+                t1 = qf_winners[i]
+                t2 = qf_winners[i + 1]
+                p = self.estimate_matchup_probability(t1, t2, best_of=5)
+                sf_winners.append(t1 if random.random() < p else t2)
+
+            for t in sf_winners:
+                knockout_top2_counts[t] += 1
+
+            # Grand Final (2 -> 1)
+            t1 = sf_winners[0]
+            t2 = sf_winners[1]
+            p = self.estimate_matchup_probability(t1, t2, best_of=5)
+            champ = t1 if random.random() < p else t2
+            champion_counts[champ] += 1
+
+        standings = []
+        for t in participant_teams:
+            c_p = champion_counts[t] / n_simulations
+            t2_p = knockout_top2_counts[t] / n_simulations
+            t4_p = knockout_top4_counts[t] / n_simulations
+            swiss_p = swiss_advance_counts[t] / n_simulations
+            standings.append({
+                "team": t,
+                "champion_prob": round(c_p, 4),
+                "top2_prob": round(t2_p, 4),
+                "top4_prob": round(t4_p, 4),
+                "top8_swiss_prob": round(swiss_p, 4),
+            })
+
+        standings.sort(key=lambda x: x["champion_prob"], reverse=True)
+
+        return {
+            "tournament_id": "worlds_2026",
+            "tournament_name": "League of Legends World Championship 2026",
+            "format": "swiss_and_knockout",
+            "simulations": n_simulations,
+            "teams": participant_teams,
+            "standings": standings,
+        }

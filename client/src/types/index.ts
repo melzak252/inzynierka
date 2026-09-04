@@ -450,6 +450,23 @@ export interface TournamentSummary {
   teams: string[];
 }
 
+export interface WorldsStanding {
+  team: string;
+  champion_prob: number;
+  top2_prob: number;
+  top4_prob: number;
+  top8_swiss_prob: number;
+}
+
+export interface WorldsSimulationResponse {
+  tournament_id: string;
+  tournament_name: string;
+  format: string;
+  simulations: number;
+  teams: string[];
+  standings: WorldsStanding[];
+}
+
 export interface HorizonAccuracyResponse {
   evaluation_scope?: {
     kind: string;

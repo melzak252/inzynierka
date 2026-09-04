@@ -7,8 +7,10 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from betting_app.services.tournament_service import (
+    DEFAULT_WORLDS_2026_TEAMS,
     SUPPORTED_BRACKETS,
     TournamentSimulator,
+    WorldsSimulator,
 )
 
 router = APIRouter(prefix="/tournaments", tags=["tournaments"])
@@ -18,6 +20,10 @@ class SimulateTournamentRequest(BaseModel):
     simulations: int = 10000
     manual_overrides: dict[str, str] | None = None  # match_id -> winner team name
 
+
+class SimulateWorldsRequest(BaseModel):
+    simulations: int = 5000
+    teams: list[str] | None = None  # 16 teams
 
 @router.get("")
 def list_tournaments() -> list[dict[str, Any]]:
@@ -35,6 +41,24 @@ def list_tournaments() -> list[dict[str, Any]]:
             }
         )
     return result
+
+# ─── Worlds 2026 Simulation ───────────────────────────────────────
+
+@router.get("/worlds/teams")
+def get_default_worlds_teams() -> dict[str, Any]:
+    """Return default 16 teams for Worlds 2026 simulation."""
+    return {
+        "tournament_id": "worlds_2026",
+        "default_teams": DEFAULT_WORLDS_2026_TEAMS,
+    }
+
+
+@router.post("/worlds/simulate")
+def simulate_worlds(body: SimulateWorldsRequest) -> dict[str, Any]:
+    """Simulate full Worlds (Swiss Stage + Knockout Bo5) with custom or default 16 teams."""
+    sim = WorldsSimulator()
+    n_sims = min(max(body.simulations, 100), 20000)
+    return sim.simulate_worlds(teams=body.teams, n_simulations=n_sims)
 
 
 @router.get("/{tournament_id}")

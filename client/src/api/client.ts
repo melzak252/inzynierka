@@ -29,6 +29,7 @@ import type {
   TournamentSummary,
   TournamentSimulationResponse,
   MatchupSimulationResponse,
+  WorldsSimulationResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -454,5 +455,23 @@ export async function simulateTournament(
     body: JSON.stringify({ simulations, manual_overrides }),
   });
   if (!response.ok) throw new Error('Failed to run tournament simulation');
+  return response.json();
+}
+export async function fetchWorldsDefaultTeams(): Promise<{ tournament_id: string; default_teams: string[] }> {
+  const response = await fetch(`${API_BASE}/tournaments/worlds/teams`);
+  if (!response.ok) throw new Error('Failed to fetch default Worlds teams');
+  return response.json();
+}
+
+export async function simulateWorlds(
+  teams?: string[],
+  simulations: number = 5000,
+): Promise<WorldsSimulationResponse> {
+  const response = await fetch(`${API_BASE}/tournaments/worlds/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ teams, simulations }),
+  });
+  if (!response.ok) throw new Error('Failed to run Worlds simulation');
   return response.json();
 }

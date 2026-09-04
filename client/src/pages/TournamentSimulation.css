@@ -29,6 +29,31 @@
   font-size: 0.95rem;
 }
 
+.tab-switcher {
+  display: flex;
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 0.5rem;
+}
+
+.tab-btn {
+  background: #1e293b;
+  color: #94a3b8;
+  border: 1px solid #334155;
+  padding: 0.6rem 1.25rem;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn.active {
+  background: #3b82f6;
+  color: #fff;
+  border-color: #3b82f6;
+}
+
 .tournament-controls {
   display: flex;
   align-items: center;
@@ -317,4 +342,144 @@
 .crown-icon {
   margin-left: 0.5rem;
   font-size: 0.8rem;
+}
+
+/* Worlds Layout */
+.worlds-layout {
+  display: grid;
+  grid-template-columns: 480px 1fr;
+  gap: 2rem;
+  align-items: start;
+}
+
+@media (max-width: 1200px) {
+  .worlds-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.worlds-teams-editor {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.worlds-teams-editor h2 {
+  font-size: 1.15rem;
+  color: #38bdf8;
+  margin-top: 0;
+  margin-bottom: 0.35rem;
+}
+
+.subtitle-sm {
+  font-size: 0.85rem;
+  color: #94a3b8;
+  margin-top: 0;
+  margin-bottom: 1.25rem;
+}
+
+.teams-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.team-input-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+}
+
+.team-slot-num {
+  font-size: 0.75rem;
+  color: #64748b;
+  font-weight: 600;
+  min-width: 22px;
+}
+
+.team-text-input {
+  background: transparent;
+  border: none;
+  color: #f1f5f9;
+  font-size: 0.85rem;
+  font-weight: 500;
+  width: 100%;
+  outline: none;
+}
+
+.team-text-input:focus {
+  color: #38bdf8;
+}
+
+.remove-team-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0 0.25rem;
+  font-size: 0.8rem;
+}
+
+.remove-team-btn:hover {
+  color: #ef4444;
+}
+
+.add-team-bar {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.add-team-input {
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #f1f5f9;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  flex: 1;
+}
+
+.add-btn {
+  background: #10b981;
+  color: #fff;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.add-btn:hover {
+  background: #059669;
+}
+
+.worlds-results-panel {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.worlds-results-panel h2 {
+  font-size: 1.2rem;
+  color: #facc15;
+  margin-top: 0;
+  margin-bottom: 1.25rem;
+}
+
+.empty-state {
+  padding: 3rem 1.5rem;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.95rem;
+  background: #131d31;
+  border-radius: 6px;
+  border: 1px dashed #334155;
 }
