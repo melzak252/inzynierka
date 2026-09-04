@@ -555,6 +555,36 @@ class PredictResponse(BaseModel):
     diagnostics: dict[str, Any] | None = None
 
 
+
+# ── Custom Matchup Simulation ───────────────────────────────────────────────
+
+
+class MatchupSimulationRequest(BaseModel):
+    team_a_name: str = Field(min_length=1, description="Team A name or GOL.GG identifier")
+    team_b_name: str = Field(min_length=1, description="Team B name or GOL.GG identifier")
+    best_of: int = Field(default=1, description="Series length: 1, 3, 5, or 7")
+    league: str | None = Field(default=None, description="Optional tournament/league context")
+    team_a_roster_override: dict[str, Any] | None = None
+    team_b_roster_override: dict[str, Any] | None = None
+
+
+class MatchupSimulationResponse(BaseModel):
+    team_a_name: str
+    team_b_name: str
+    best_of: int
+    map_prob_a: float
+    map_prob_b: float
+    series_prob_a: float
+    series_prob_b: float
+    model_name: str
+    model_version: str
+    roster_a: RosterInfo | None = None
+    roster_b: RosterInfo | None = None
+    recent_stats_a: TeamRecentStats | None = None
+    recent_stats_b: TeamRecentStats | None = None
+    team_comparison: TeamComparisonInfo | None = None
+    components: dict[str, Any] = Field(default_factory=dict)
+
 # ── Team alias mapping ──────────────────────────────────────────────────────
 
 

@@ -388,6 +388,31 @@ export interface HistoricalModelComparison {
   };
 }
 
+export interface MatchupSimulationRequest {
+  team_a_name: string;
+  team_b_name: string;
+  best_of?: number;
+  league?: string;
+}
+
+export interface MatchupSimulationResponse {
+  team_a_name: string;
+  team_b_name: string;
+  best_of: number;
+  map_prob_a: number;
+  map_prob_b: number;
+  series_prob_a: number;
+  series_prob_b: number;
+  model_name: string;
+  model_version: string;
+  roster_a: RosterInfo | null;
+  roster_b: RosterInfo | null;
+  recent_stats_a: TeamRecentStats | null;
+  recent_stats_b: TeamRecentStats | null;
+  team_comparison: TeamComparisonInfo | null;
+  components: Record<string, unknown>;
+}
+
 export interface TournamentStanding {
   team: string;
   champion_prob: number;

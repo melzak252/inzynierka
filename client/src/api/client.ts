@@ -28,6 +28,7 @@ import type {
   RatingSystem,
   TournamentSummary,
   TournamentSimulationResponse,
+  MatchupSimulationResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -252,6 +253,24 @@ export async function predictMatch(matchId: number): Promise<PredictResult> {
   if (!response.ok) {
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || `Failed to predict match ${matchId}: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function simulateMatchup(payload: {
+  team_a_name: string;
+  team_b_name: string;
+  best_of?: number;
+  league?: string;
+}): Promise<MatchupSimulationResponse> {
+  const response = await fetch(`${API_BASE}/matches/matchup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Nie udało się przeprowadzić symulacji: ${response.statusText}`);
   }
   return response.json();
 }

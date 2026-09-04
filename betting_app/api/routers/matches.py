@@ -33,6 +33,8 @@ from betting_app.api.schemas import (
     MatchDetailResponse,
     MatchResultItem,
     MatchResultsResponse,
+    MatchupSimulationRequest,
+    MatchupSimulationResponse,
     PredictResponse,
     PredictionHistoryPoint,
     PredictionRow,
@@ -1142,6 +1144,156 @@ def delete_alias_endpoint(body: AliasDeleteRequest, db=Depends(get_db)):
     if not deleted:
         raise HTTPException(status_code=404, detail="No manual alias found for that team")
     return {"ok": True, "deleted": True}
+
+# ── POST /matches/matchup — custom team vs team simulation ──────────────────
+
+
+@router.post("/matchup", response_model=MatchupSimulationResponse)
+def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
+    """Simulate a hypothetical head-to-head matchup between any two teams."""
+    from betting_app.services.upcoming_inference_service import (
+        DEFAULT_FEATURE_VERSION,
+        DEFAULT_MODEL_NAME,
+        DEFAULT_MODEL_VERSION,
+        DEFAULT_RATINGS_VERSION,
+        DEFAULT_W20_VERSION,
+        _normalized_best_of,
+        build_features_for_match,
+        predict_probability_from_features,
+        series_probability,
+    )
+
+    best_of = _normalized_best_of(body.best_of)
+    synthetic_match = {
+        "id": 0,
+        "team_a_name": body.team_a_name,
+        "team_b_name": body.team_b_name,
+        "league": body.league or "Custom Matchup",
+        "start_time_normalized": datetime.now(UTC).isoformat(),
+        "best_of": best_of,
+    }
+
+    feature_result = build_features_for_match(
+        synthetic_match,
+        feature_version=DEFAULT_FEATURE_VERSION,
+        ratings_version=DEFAULT_RATINGS_VERSION,
+        w20_version=DEFAULT_W20_VERSION,
+        min_mapping_confidence=0.50,
+        team_a_roster_override=body.team_a_roster_override,
+        team_b_roster_override=body.team_b_roster_override,
+    )
+
+    features = feature_result.get("features") or {}
+    map_prob_a, components = predict_probability_from_features(features)
+    series_prob_a = series_probability(map_prob_a, best_of)
+
+    # Extract rosters and comparison info
+    team_comparison = None
+    recent_stats_a = None
+    recent_stats_b = None
+    roster_a_info = None
+    roster_b_info = None
+
+    ratings = features.get("ratings")
+    mapping = features.get("mapping")
+    if isinstance(ratings, dict):
+        team_a_info = TeamMappingInfo(
+            raw_name=body.team_a_name,
+            golgg_name=mapping.get("team_a_golgg") if isinstance(mapping, dict) else body.team_a_name,
+            confidence=1.0,
+            mapping_source="direct",
+            is_blocked=False,
+        )
+        team_b_info = TeamMappingInfo(
+            raw_name=body.team_b_name,
+            golgg_name=mapping.get("team_b_golgg") if isinstance(mapping, dict) else body.team_b_name,
+            confidence=1.0,
+            mapping_source="direct",
+            is_blocked=False,
+        )
+        team_a_ratings = ratings.get("team_a") or {}
+        team_b_ratings = ratings.get("team_b") or {}
+        team_comparison = TeamComparisonInfo(
+            team_a=team_a_info,
+            team_b=team_b_info,
+            team_a_rating=_finite_float(team_a_ratings.get("gl", {}).get("rating_value")),
+            team_b_rating=_finite_float(team_b_ratings.get("gl", {}).get("rating_value")),
+            rating_system="Glicko",
+            team_a_elo=_finite_float(team_a_ratings.get("elo", {}).get("rating_value")),
+            team_b_elo=_finite_float(team_b_ratings.get("elo", {}).get("rating_value")),
+            team_a_glicko=_finite_float(team_a_ratings.get("gl", {}).get("rating_value")),
+            team_b_glicko=_finite_float(team_b_ratings.get("gl", {}).get("rating_value")),
+            team_a_glicko_rd=_finite_float(team_a_ratings.get("gl", {}).get("rd")),
+            team_b_glicko_rd=_finite_float(team_b_ratings.get("gl", {}).get("rd")),
+            rating_probabilities=features.get("ratings", {}).get("probabilities"),
+        )
+
+    w20 = features.get("w20")
+    if isinstance(w20, dict):
+        def make_stats(raw: Any) -> TeamRecentStats | None:
+            if not isinstance(raw, dict):
+                return None
+            return TeamRecentStats(
+                team_name=raw.get("team_name"),
+                matches_count=int(raw.get("matches_count", 0)) if raw.get("matches_count") is not None else None,
+                games_count=int(raw.get("games_count", 0)) if raw.get("games_count") is not None else None,
+                win_rate=_finite_float(raw.get("win_rate")),
+                avg_kills=_finite_float(raw.get("avg_kills")),
+                avg_deaths=_finite_float(raw.get("avg_deaths")),
+                avg_gd15=_finite_float(raw.get("avg_gd15")),
+                avg_dragons=_finite_float(raw.get("avg_dragons")),
+                avg_nashors=_finite_float(raw.get("avg_nashors")),
+                avg_towers=_finite_float(raw.get("avg_towers")),
+                avg_game_duration=_finite_float(raw.get("avg_game_duration")),
+                last_match_at=raw.get("last_match_at"),
+            )
+        recent_stats_a = make_stats(w20.get("team_a"))
+        recent_stats_b = make_stats(w20.get("team_b"))
+
+    player_ratings = features.get("player_ratings")
+    if isinstance(player_ratings, dict):
+        def build_roster(side_key: str, name: str) -> RosterInfo | None:
+            side_dict = player_ratings.get(side_key) or {}
+            gl_dict = side_dict.get("gl") or {}
+            raw_players = gl_dict.get("players") or []
+            p_objs = []
+            for p in raw_players:
+                if not isinstance(p, dict):
+                    continue
+                p_objs.append(RosterPlayer(
+                    player_id=str(p.get("player_id") or ""),
+                    player_name=p.get("player_name"),
+                    role=p.get("role"),
+                    glicko_rating=_finite_float(p.get("rating_value")),
+                    glicko_rd=_finite_float(p.get("rd")),
+                    games_played=int(p.get("games_played", 0)) if p.get("games_played") is not None else None,
+                ))
+            return RosterInfo(
+                team_name=name,
+                avg_glicko=_finite_float(gl_dict.get("avg_rating_value")),
+                avg_glicko_rd=_finite_float(gl_dict.get("avg_rd")),
+                players=p_objs,
+            )
+        roster_a_info = build_roster("team_a", body.team_a_name)
+        roster_b_info = build_roster("team_b", body.team_b_name)
+
+    return MatchupSimulationResponse(
+        team_a_name=body.team_a_name,
+        team_b_name=body.team_b_name,
+        best_of=best_of,
+        map_prob_a=round(map_prob_a, 4),
+        map_prob_b=round(1.0 - map_prob_a, 4),
+        series_prob_a=round(series_prob_a, 4),
+        series_prob_b=round(1.0 - series_prob_a, 4),
+        model_name=DEFAULT_MODEL_NAME,
+        model_version=DEFAULT_MODEL_VERSION,
+        roster_a=roster_a_info,
+        roster_b=roster_b_info,
+        recent_stats_a=recent_stats_a,
+        recent_stats_b=recent_stats_b,
+        team_comparison=team_comparison,
+        components=components,
+    )
 
 
 # ── POST /matches/alias/block — mark a team as blocked/unmapped ─────────────
