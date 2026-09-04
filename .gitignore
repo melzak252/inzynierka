@@ -28,6 +28,7 @@ temp_*.csv
 experiments/
 reports/*.json
 secrets/
+betting_app/models/ml/
 
 # Local thesis/report materials not tracked in code repo
 docs/

@@ -543,6 +543,34 @@ python scripts/05_ratingi_baseline/05j_evaluate_calibrated_glicko2.py \
 Okres 2024+ jest wyłącznie ponownie użytym zbiorem diagnostycznym. Nie może
 samodzielnie promować `gl2f` na domyślny system operacyjny.
 
+### Kandydat wielosystemowy `multirating-family-v1`
+
+EXP-076 stosuje wspólny, niepewny offset rodziny/poziomu rozgrywek do
+rankingów Player Elo, TrueSkill, OpenSkill, Plackett-Luce i
+Thurstone-Mosteller wyłącznie w meczach cross-league ze znaną wcześniejszą
+afiliacją obu drużyn. Player Glicko pochodzi z
+`player-glicko2-family-v1`; mecze krajowe nie dostają dodatkowego offsetu.
+
+```bash
+python scripts/06_metamodel/06ak_multirating_family_symcal.py \
+  --data-dir data \
+  --output-dir reports/experiments/exp076_multirating_family_symcal
+```
+
+Runner wykonuje sparowaną ewaluację walk-forward, symetryzację stron,
+rozszerzającą kalibrację Platta i miesięczny block bootstrap, a następnie
+zapisuje niezmienny artefakt kandydata
+`Sym-Cal LR-ElasticNet-W20-Binomial/multirating-family-v1`. Istniejący katalog
+artefaktu powoduje błąd zamiast nadpisania.
+
+W diagnostyce 2024+ (`n=4311`) LogLoss spadł z `0.581427` do `0.576200`;
+95% CI sparowanej różnicy wyniósł `[-0.013174, +0.000072]`. Dla meczów
+cross-league (`n=526`) LogLoss spadł z `0.593362` do `0.533148`, z 95% CI
+różnicy `[-0.077201, -0.037808]`. Wynik globalny nie spełnia jeszcze
+dwustronnego kryterium istotności, a mecze krajowe są słabsze, dlatego kandydat
+nie jest podłączony do schedulera, inference, EV ani zakładów i nie zastępuje
+`exp-039` ani `latest-full`.
+
 Skrócony runner:
 
 ```bash
