@@ -130,6 +130,18 @@ Never develop or make ad hoc source edits in the server checkout. Use this promo
 
 Do not use `git reset --hard`, `git clean`, direct file copying, or direct remote edits as a deployment shortcut. Do not pull or restart the server merely because local files changed; local verification and an intentional Git promotion happen first.
 
+### Branch workflow
+
+`dev` is the integration branch for all development work. Create working branches
+from `dev`, validate locally, then commit and push changes to `dev` or a branch
+that will merge into `dev`. Do not push new development commits directly to
+`main`.
+
+Promote `dev` to `main` only as an explicit, reviewed release step after the
+same local verification has passed. Keep `main` and `dev` intentionally
+synchronized through that promotion; do not treat a successful push to one
+branch as a push to the other.
+
 ## Known hazards as of 2026-09-02
 
 Treat these as known defects, not intended behavior. If a change touches one, fix the source problem and add a regression check.
