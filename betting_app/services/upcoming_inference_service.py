@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import math
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Mapping
 
 from betting_app.core.db import query_df, transaction
 from betting_app.core.ev import expected_value, fair_market_probabilities
@@ -27,7 +27,15 @@ from betting_app.services.canonical_match_service import (
 )
 from betting_app.services.mapping_service import suggest_mapping
 from betting_app.services.mapping_service import golgg_name_from_id
-
+from src.ratings.competition_adjustment import (
+    CompetitionAdjustment,
+    NEUTRAL_COMPETITION_ADJUSTMENT,
+    adjust_probability,
+)
+from src.ratings.competition_calibration import (
+    CompetitionLocation,
+    adjustment_between,
+)
 
 DEFAULT_FEATURE_VERSION = "player-team-ratings-w20-v0.2"
 DEFAULT_RATINGS_VERSION = "latest-full"
@@ -35,6 +43,9 @@ DEFAULT_W20_VERSION = "w20-latest"
 DEFAULT_MODEL_NAME = "Operational-PlayerTeamRatings-W20"
 DEFAULT_MODEL_VERSION = "v0.2"
 DEFAULT_HYBRID_MODEL_NAME = "Hybrid-Operational-Market"
+REGIONAL_FEATURE_VERSION = "player-team-ratings-w20-v0.3"
+REGIONAL_RATINGS_VERSION = "ratings-v2"
+REGIONAL_MODEL_VERSION = "v0.3"
 DEFAULT_HYBRID_ALPHA = 0.50
 DEFAULT_HYBRID_TEMPERATURE = 0.80
 RATING_SYSTEMS = ("elo", "gl", "ts", "os", "pl", "tm")
@@ -247,7 +258,8 @@ def build_features_for_match(
     if not w20_b:
         missing.append("team_b_w20")
 
-    rating_probs = rating_probabilities(ratings_a, ratings_b)
+    regional_adjustment = competition_adjustment_from_team_ratings(ratings_a, ratings_b)
+    rating_probs = rating_probabilities(ratings_a, ratings_b, regional_adjustment)
     roster_a = load_last_roster(team_a_golgg) if team_a_golgg else None
     roster_b = load_last_roster(team_b_golgg) if team_b_golgg else None
     if not roster_a or len(roster_a.get("players", [])) < 5:
@@ -261,7 +273,11 @@ def build_features_for_match(
             missing.append(f"team_a_player_rating:{system}")
         if system not in player_ratings_b:
             missing.append(f"team_b_player_rating:{system}")
-    player_probs = player_rating_probabilities(player_ratings_a, player_ratings_b)
+    player_probs = player_rating_probabilities(
+        player_ratings_a,
+        player_ratings_b,
+        regional_adjustment,
+    )
     w20_prob = w20_probability(w20_a, w20_b) if w20_a and w20_b else None
     features = {
         "canonical_match_id": canonical_match_id,
@@ -280,7 +296,15 @@ def build_features_for_match(
             "team_a_source": source_a,
             "team_b_source": source_b,
         },
-        "ratings": {"team_a": ratings_a, "team_b": ratings_b, "probabilities": rating_probs},
+        "ratings": {
+            "team_a": ratings_a,
+            "team_b": ratings_b,
+            "probabilities": rating_probs,
+            "competition_adjustment": {
+                "mean": regional_adjustment.mean,
+                "variance": regional_adjustment.variance,
+            },
+        },
         "player_ratings": {
             "team_a_roster": roster_a,
             "team_b_roster": roster_b,
@@ -332,6 +356,7 @@ def load_team_ratings(team_name: str | None, ratings_version: str) -> dict[str, 
             "sigma": none_or_float(row.get("sigma")),
             "games_played": int(row.get("games_played") or 0),
             "last_match_at": row.get("last_match_at"),
+            "state": _decode_rating_state(row.get("state_json")),
         }
     return result
 
@@ -573,7 +598,36 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
     return result
 
 
-def rating_probabilities(ratings_a: dict[str, Any], ratings_b: dict[str, Any]) -> dict[str, float]:
+def _decode_rating_state(raw_state: Any) -> dict[str, Any]:
+    if raw_state is None:
+        return {}
+    try:
+        state = json.loads(str(raw_state))
+    except json.JSONDecodeError as error:
+        raise ValueError("entity rating has invalid state_json") from error
+    if not isinstance(state, dict):
+        raise ValueError("entity rating state_json must be an object")
+    return state
+
+
+def competition_adjustment_from_team_ratings(
+    ratings_a: Mapping[str, Mapping[str, Any]],
+    ratings_b: Mapping[str, Mapping[str, Any]],
+) -> CompetitionAdjustment:
+    """Read the one regional posterior stored alongside the unified ``gl`` rows."""
+
+    location_a = CompetitionLocation.from_rating_state(ratings_a.get("gl", {}).get("state"))
+    location_b = CompetitionLocation.from_rating_state(ratings_b.get("gl", {}).get("state"))
+    return adjustment_between(location_a, location_b)
+
+
+def rating_probabilities(
+    ratings_a: dict[str, Any],
+    ratings_b: dict[str, Any],
+    adjustment: CompetitionAdjustment = NEUTRAL_COMPETITION_ADJUSTMENT,
+) -> dict[str, float]:
+    """Return effective probabilities from raw systems and one shared posterior."""
+
     probs: dict[str, float] = {}
     for system in RATING_SYSTEMS:
         left = ratings_a.get(system, {}).get("rating_value")
@@ -582,17 +636,27 @@ def rating_probabilities(ratings_a: dict[str, Any], ratings_b: dict[str, Any]) -
             continue
         diff = float(left) - float(right)
         if system in {"elo", "gl"}:
-            probs[system] = 1.0 / (1.0 + 10 ** (-diff / 400.0))
+            probability = 1.0 / (1.0 + 10 ** (-diff / 400.0))
         elif system == "os":
-            probs[system] = sigmoid(diff / 5.0)
+            probability = sigmoid(diff / 5.0)
         else:
-            probs[system] = sigmoid(diff / 8.333)
+            probability = sigmoid(diff / 8.333)
+        # ``gl`` already contains the effective family/tier location.  The
+        # other systems retain raw local skill and receive this single shared
+        # matchup projection.
+        probs[system] = probability if system == "gl" else adjust_probability(probability, adjustment)
     if probs:
         probs["consensus"] = sum(probs.values()) / len(probs)
     return probs
 
 
-def player_rating_probabilities(ratings_a: dict[str, Any], ratings_b: dict[str, Any]) -> dict[str, float]:
+def player_rating_probabilities(
+    ratings_a: dict[str, Any],
+    ratings_b: dict[str, Any],
+    adjustment: CompetitionAdjustment = NEUTRAL_COMPETITION_ADJUSTMENT,
+) -> dict[str, float]:
+    """Return roster probabilities under the teams' shared regional posterior."""
+
     probs: dict[str, float] = {}
     for system in RATING_SYSTEMS:
         left = ratings_a.get(system, {}).get("avg_rating_value")
@@ -601,11 +665,12 @@ def player_rating_probabilities(ratings_a: dict[str, Any], ratings_b: dict[str, 
             continue
         diff = float(left) - float(right)
         if system in {"elo", "gl"}:
-            probs[system] = 1.0 / (1.0 + 10 ** (-diff / 400.0))
+            probability = 1.0 / (1.0 + 10 ** (-diff / 400.0))
         elif system == "os":
-            probs[system] = sigmoid(diff / 5.0)
+            probability = sigmoid(diff / 5.0)
         else:
-            probs[system] = sigmoid(diff / 8.333)
+            probability = sigmoid(diff / 8.333)
+        probs[system] = probability if system == "gl" else adjust_probability(probability, adjustment)
     if probs:
         probs["consensus"] = sum(probs.values()) / len(probs)
     return probs
@@ -666,41 +731,86 @@ def latest_data_cutoff(ratings_version: str, w20_version: str) -> str | None:
     return None
 
 
-def register_operational_model() -> int:
-    """Register the transparent automatic upcoming baseline model."""
+def register_operational_model(
+    *,
+    model_name: str = DEFAULT_MODEL_NAME,
+    model_version: str = DEFAULT_MODEL_VERSION,
+    feature_version: str = DEFAULT_FEATURE_VERSION,
+    ratings_version: str = DEFAULT_RATINGS_VERSION,
+) -> int:
+    """Register the transparent automatic upcoming baseline for one input contract."""
 
     feature_schema = {
+        "feature_version": feature_version,
+        "ratings_version": ratings_version,
         "ratings": list(RATING_SYSTEMS),
         "player_ratings": list(RATING_SYSTEMS),
+        "competition_calibration": (
+            "shared_family_tier_posterior"
+            if ratings_version == REGIONAL_RATINGS_VERSION
+            else "none"
+        ),
         "roster_source": "current team roster, refreshed from GOL.GG or manual confirmation",
         "w20_fields": list(W20_FIELDS),
         "formula": "0.70 * player_rating_consensus + 0.20 * team_rating_consensus + 0.10 * w20_probability; no market input",
         "limitations": ["last-match roster fallback", "not confirmed upcoming rosters", "not the final EXP-039 Sym-Cal model"],
     }
-    params = {"player_rating_weight": 0.70, "team_rating_weight": 0.20, "w20_weight": 0.10, "clip": [0.03, 0.97]}
+    params = {
+        "player_rating_weight": 0.70,
+        "team_rating_weight": 0.20,
+        "w20_weight": 0.10,
+        "clip": [0.03, 0.97],
+    }
     with transaction() as connection:
-        connection.execute(
+        existing = connection.execute(
+            """
+            SELECT id, feature_schema_json
+            FROM model_artifacts
+            WHERE model_name = ? AND model_version = ?
+            """,
+            (model_name, model_version),
+        ).fetchone()
+        if existing is not None:
+            try:
+                existing_schema = json.loads(str(existing.get("feature_schema_json") or "{}"))
+            except json.JSONDecodeError as error:
+                raise ValueError(f"model artifact {model_name}/{model_version} has invalid feature schema") from error
+            if not isinstance(existing_schema, dict):
+                raise ValueError(f"model artifact {model_name}/{model_version} has non-object feature schema")
+            existing_feature_version = existing_schema.get("feature_version")
+            existing_ratings_version = existing_schema.get("ratings_version")
+            if existing_feature_version is not None or existing_ratings_version is not None:
+                if (
+                    existing_feature_version != feature_version
+                    or existing_ratings_version != ratings_version
+                ):
+                    raise ValueError(
+                        f"model artifact {model_name}/{model_version} is bound to "
+                        f"{existing_feature_version}/{existing_ratings_version}, not "
+                        f"{feature_version}/{ratings_version}"
+                    )
+            elif (model_name, model_version) != (DEFAULT_MODEL_NAME, DEFAULT_MODEL_VERSION):
+                raise ValueError(
+                    f"model artifact {model_name}/{model_version} predates explicit input contracts"
+                )
+            return int(existing["id"])
+        inserted = connection.execute(
             """
             INSERT INTO model_artifacts(
                 model_name, model_version, feature_schema_json, model_params_json, status
             ) VALUES (?, ?, ?, ?, 'active')
-            ON CONFLICT(model_name, model_version) DO UPDATE SET
-                feature_schema_json = excluded.feature_schema_json,
-                model_params_json = excluded.model_params_json,
-                status = 'active'
+            RETURNING id
             """,
             (
-                DEFAULT_MODEL_NAME,
-                DEFAULT_MODEL_VERSION,
+                model_name,
+                model_version,
                 json.dumps(feature_schema, ensure_ascii=False, sort_keys=True),
                 json.dumps(params, ensure_ascii=False, sort_keys=True),
             ),
-        )
-        row = connection.execute(
-            "SELECT id FROM model_artifacts WHERE model_name = ? AND model_version = ?",
-            (DEFAULT_MODEL_NAME, DEFAULT_MODEL_VERSION),
         ).fetchone()
-        return int(row["id"])
+        if inserted is None:
+            raise RuntimeError("operational model registration did not return an artifact")
+        return int(inserted["id"])
 
 
 def predict_all_upcoming(
@@ -713,7 +823,12 @@ def predict_all_upcoming(
 ) -> list[dict[str, Any]]:
     """Generate and store probabilities from latest upcoming feature rows."""
 
-    model_artifact_id = register_operational_model()
+    model_artifact_id = register_operational_model(
+        model_name=model_name,
+        model_version=model_version,
+        feature_version=feature_version,
+        ratings_version=ratings_version,
+    )
     params: list[Any] = [feature_version, ratings_version]
     status_filter = "AND feature_status = 'ready_player'"
     if include_partial:

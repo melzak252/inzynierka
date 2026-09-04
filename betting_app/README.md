@@ -513,35 +513,54 @@ python -m betting_app.scripts.run_upcoming_prediction_pipeline --hybrid --min-ev
 python -m betting_app.scripts.list_upcoming_model_predictions --positive-only
 ```
 
-### Kandydat ratingów `player-glicko2-family-v1`
+### Ujednolicony kandydat regionalny `ratings-v2`
 
-Skorygowany Glicko-2 z dziennymi okresami oraz niepewnymi offsetami rodzin
-rozgrywek jest utrzymywany obok `latest-full`:
-
-```bash
-python -m betting_app.scripts.rebuild_calibrated_ratings \
-  --mode full \
-  --ratings-version player-glicko2-family-v1 \
-  --source exp075-successor
-```
-
-Kolejne, pełnodniowe porcje można dopisać przez `--mode incremental`.
-Wersja zapisuje system `gl2f` w `entity_ratings` i kompletny stan silnika w
-`rating_runs.systems_json`. Nie jest podłączona do schedulera, EXP-039,
-`upcoming_match_features`, predykcji, EV ani zakładów. Przeliczenie tej wersji
-nie zastępuje operacyjnego `latest-full`.
-
-Ewaluacja porównawcza:
+`ratings-v2` jest jednym snapshotem kontraktowym: zawiera dokładnie systemy
+`elo`, `gl`, `ts`, `os`, `pl`, `tm`. `gl` oznacza
+`FamilyCalibratedGlicko2`, nie historyczną implementację Glicko. Nie zapisuje
+ani nie liczy równolegle `gl2f`.
 
 ```bash
-python scripts/05_ratingi_baseline/05j_evaluate_calibrated_glicko2.py \
-  --matches data/golgg_matches.json \
-  --baseline data/golgg_y_predicts.csv \
-  --output-dir reports/experiments/exp075_rating_successor_evaluation
+python -m betting_app.scripts.rebuild_regional_ratings \
+  --ratings-version ratings-v2 \
+  --source regional-ratings-v2
 ```
 
-Okres 2024+ jest wyłącznie ponownie użytym zbiorem diagnostycznym. Nie może
-samodzielnie promować `gl2f` na domyślny system operacyjny.
+Rebuild jest celowo pełny i atomowy. GOL.GG może skorygować wynik na już
+przetworzonej dacie; pełne odtworzenie zachowuje dzienne zamrożone priory
+Glicko-2 oraz wspólny cutoff wszystkich sześciu systemów.
+
+Elo, TrueSkill, OpenSkill, Plackett-Luce i Thurstone-Mosteller przechowują
+swoje lokalne stany. Jeden posterior rodzin/poziomów rozgrywek jest własnością
+`gl` w `rating_runs.systems_json`; przy budowaniu matchupu ten sam posterior
+koryguje prawdopodobieństwa pięciu pozostałych systemów. Dla tej samej rodziny
+offset anuluje się dokładnie. Brak wcześniejszej afiliacji jest neutralny, nie
+tworzy kierunkowej korekty.
+
+`latest-full` i `exp-039` pozostają archiwalnym kontraktem odtwarzalności.
+Nie wolno podmieniać w nim znaczenia `gl`. Scheduler i aktywny model pozostają
+na nim do czasu wytrenowania nowego artefaktu na `ratings-v2` oraz kwalifikacji
+na chronologicznie odseparowanym holdoucie. Dopiero wtedy należy jednym
+cutoverem przełączyć scheduler, feature version i model; nie mieszać wersji w
+tym samym inference.
+
+Do kontrolowanego smoke testu kontraktu `ratings-v2` bez przełączania aktywnego
+schedulera użyj osobnej wersji feature’ów i modelu:
+
+```bash
+python -m betting_app.scripts.build_upcoming_features \
+  --feature-version player-team-ratings-w20-v0.3 \
+  --ratings-version ratings-v2 \
+  --w20-version w20-latest
+python -m betting_app.scripts.predict_upcoming_matches \
+  --feature-version player-team-ratings-w20-v0.3 \
+  --ratings-version ratings-v2 \
+  --model-version v0.3
+```
+
+`Operational-PlayerTeamRatings-W20/v0.3` zapisuje niezmienny kontrakt wejścia
+`player-team-ratings-w20-v0.3/ratings-v2`. Próba użycia tej samej wersji modelu
+z innym kontraktem kończy się błędem zamiast podmiany metadanych artefaktu.
 
 ### Kandydat wielosystemowy `multirating-family-v1`
 

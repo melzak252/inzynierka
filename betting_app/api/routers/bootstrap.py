@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/bootstrap", tags=["bootstrap"])
 
-# Path to cached bootstrap results (shared volume between api + scheduler)
-BOOTSTRAP_DIR = Path("/app/docs/assets/horizon_block_bootstrap")
+# Cache path shared by the API and the scheduler in both a checkout and /app.
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+BOOTSTRAP_DIR = PROJECT_ROOT / "data/horizon_block_bootstrap"
 RESULTS_CSV = BOOTSTRAP_DIR / "horizon_block_bootstrap_results.csv"
 SAMPLES_CSV = BOOTSTRAP_DIR / "horizon_block_bootstrap_samples.csv"
 MONTHLY_CSV = BOOTSTRAP_DIR / "horizon_monthly_observed_differences.csv"

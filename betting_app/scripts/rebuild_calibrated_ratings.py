@@ -701,6 +701,7 @@ def materialize_entity_rows(
     run_id: int,
     version: str,
     snapshot_at: str,
+    rating_system: str = RATING_SYSTEM,
 ) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
     player_ids = frozenset(engine.player_ids)
@@ -717,6 +718,8 @@ def materialize_entity_rows(
         )
         team_id = metadata.player_team_ids.get(player_id)
         team_name = metadata.team_names.get(team_id, team_id) if team_id else None
+        family_state = engine.get_family_state(family) if family != UNKNOWN_AFFILIATION else None
+        tier_state = engine.get_tier_state(tier) if family != UNKNOWN_AFFILIATION else None
         state = {
             "player_id": player_id,
             "raw_rating": float(ranking.raw_rating),
@@ -725,9 +728,12 @@ def materialize_entity_rows(
             "family": family,
             "tier": tier,
             "family_residual": float(family_residual),
+            "family_variance": float(family_state.variance) if family_state else 0.0,
             "tier_offset": float(tier_offset),
+            "tier_variance": float(tier_state.variance) if tier_state else 0.0,
             "offset": float(offset),
             "location_variance": float(location_variance),
+            "competition_calibration": "family-calibrated-glicko2-v1",
             "domestic_affiliation": (
                 domestic_provenance.to_state() if domestic_provenance else None
             ),
@@ -744,7 +750,7 @@ def materialize_entity_rows(
                 player_id,
                 team_name,
                 metadata.player_roles.get(player_id),
-                RATING_SYSTEM,
+                rating_system,
                 float(ranking.rating),
                 float(ranking.rd),
                 float(ranking.volatility),
@@ -790,6 +796,8 @@ def materialize_entity_rows(
         )
         team_name = metadata.team_names.get(team_id, team_id)
         normalized_team_name = normalize_team_name(team_name)
+        family_state = engine.get_family_state(family) if family != UNKNOWN_AFFILIATION else None
+        tier_state = engine.get_tier_state(tier) if family != UNKNOWN_AFFILIATION else None
         state = {
             "team_id": team_id,
             "roster": list(roster),
@@ -799,9 +807,12 @@ def materialize_entity_rows(
             "family": family,
             "tier": tier,
             "family_residual": float(family_residual),
+            "family_variance": float(family_state.variance) if family_state else 0.0,
             "tier_offset": float(tier_offset),
+            "tier_variance": float(tier_state.variance) if tier_state else 0.0,
             "offset": float(offset),
             "location_variance": float(location_variance),
+            "competition_calibration": "family-calibrated-glicko2-v1",
             "last_activity": metadata.team_last_activity.get(team_id),
         }
         team_row = (
@@ -813,7 +824,7 @@ def materialize_entity_rows(
             normalized_team_name,
             team_name,
             None,
-            RATING_SYSTEM,
+            rating_system,
             float(rating_value),
             float(rd),
             float(volatility),

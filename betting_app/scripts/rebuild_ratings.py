@@ -663,7 +663,7 @@ def rating_from_row(system_name: str, system: Any, row: dict[str, Any], state: d
     return model.rating(mu=mu, sigma=sigma)
 
 
-def persist_entity_ratings(
+def entity_rating_rows(
     *,
     manager: RatingManager,
     version: str,
@@ -676,8 +676,8 @@ def persist_entity_ratings(
     player_games: Counter[str],
     team_last_match: dict[str, str],
     player_last_match: dict[str, str],
-) -> int:
-    """Persist current manager ratings into entity_ratings."""
+) -> list[tuple[Any, ...]]:
+    """Materialize a manager snapshot without changing database state."""
 
     rows: list[tuple[Any, ...]] = []
     for system_name, system in manager.systems.items():
@@ -694,6 +694,38 @@ def persist_entity_ratings(
                 run_id, version, snapshot_at, "player", display_name, player_key, player_teams.get(player_key), None,
                 system_name, rating, player_games[player_key], player_last_match.get(player_key), {"player_id": player_key},
             ))
+    return rows
+
+
+def persist_entity_ratings(
+    *,
+    manager: RatingManager,
+    version: str,
+    run_id: int,
+    snapshot_at: str,
+    team_names: dict[str, str],
+    player_names: dict[str, str],
+    player_teams: dict[str, str],
+    team_games: Counter[str],
+    player_games: Counter[str],
+    team_last_match: dict[str, str],
+    player_last_match: dict[str, str],
+) -> int:
+    """Persist current manager ratings into entity_ratings."""
+
+    rows = entity_rating_rows(
+        manager=manager,
+        version=version,
+        run_id=run_id,
+        snapshot_at=snapshot_at,
+        team_names=team_names,
+        player_names=player_names,
+        player_teams=player_teams,
+        team_games=team_games,
+        player_games=player_games,
+        team_last_match=team_last_match,
+        player_last_match=player_last_match,
+    )
 
     insert_sql = """
         INSERT INTO entity_ratings(

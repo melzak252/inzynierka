@@ -9,21 +9,29 @@ from .thurstone import ThurstoneRating
 from .openskill_rating import OpenSkillRating
 
 class RatingManager:
-    def __init__(self, params: Dict[str, Any] = {}):
+    def __init__(
+        self,
+        params: Dict[str, Any] | None = None,
+        *,
+        include_glicko: bool = True,
+    ):
         params = params or {}
         self.systems = {
             "elo": EloRating(**params.get("elo", {})),
-            "gl": GlickoRating(**params.get("gl", {})),
             "ts": TrueSkillRating(**params.get("ts", {"tau": 0.166})),
             "os": OpenSkillRating(**params.get("os", {"sigma": 5.0})),
             "pl": PlackettLuceRating(**params.get("pl", {"beta": 18.75, "tau": 0.0833})),
-            "tm": ThurstoneRating(**params.get("tm", {"beta": 18.75, "tau": 0.0833}))
+            "tm": ThurstoneRating(**params.get("tm", {"beta": 18.75, "tau": 0.0833})),
         }
+        if include_glicko:
+            self.systems["gl"] = GlickoRating(**params.get("gl", {}))
         self.last_match_date = {} # team_id -> date
 
     def update_before_match(self, t1: str, t2: str, players_1: List[str], players_2: List[str], match_date: date) -> Dict[str, Any]:
-        # Only Glicko needs time decay before match
-        self.systems["gl"].update_rd_before_match(t1, t2, players_1, players_2, match_date)
+        # Only legacy Glicko needs time decay before match.
+        legacy_glicko = self.systems.get("gl")
+        if legacy_glicko is not None:
+            legacy_glicko.update_rd_before_match(t1, t2, players_1, players_2, match_date)
         
         # Calculate days since last match
         days_1 = (match_date - self.last_match_date[t1]).days if t1 in self.last_match_date else 30
@@ -106,8 +114,11 @@ class RatingManager:
         p1 = players_1 if players_1 else [f"dummy_{t1}"]
         p2 = players_2 if players_2 else [f"dummy_{t2}"]
 
-        # Glicko takes a list of scores for the match
+        # Legacy Glicko takes a list of scores for the match.
+        legacy_glicko = self.systems.get("gl")
+        if legacy_glicko is None:
+            return
         for score_1 in scores:
             score_2 = 1 - score_1
-            self.systems["gl"].update_team(t1, t2, score_1, score_2)
-            self.systems["gl"].update_player(p1, p2, score_1, score_2)
+            legacy_glicko.update_team(t1, t2, score_1, score_2)
+            legacy_glicko.update_player(p1, p2, score_1, score_2)

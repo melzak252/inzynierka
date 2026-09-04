@@ -12,7 +12,7 @@ Usage:
   docker exec ensemblelegends-betting-api python3 \\
     /app/betting_app/scripts/horizon_block_bootstrap.py
 
-Output (/app/docs/assets/horizon_block_bootstrap/):
+Output (/app/data/horizon_block_bootstrap/):
   - horizon_block_bootstrap_results.csv
   - horizon_monthly_observed_differences.csv
   - horizon_block_bootstrap_samples.csv
@@ -76,7 +76,7 @@ BIN_DEFS: list[tuple[str, float, float]] = [
     ("48h+",   48,  9999),
 ]
 
-OUTPUT_DIR = _PROJECT_ROOT / "docs/assets/horizon_block_bootstrap"
+OUTPUT_DIR = _PROJECT_ROOT / "data/horizon_block_bootstrap"
 
 
 # ── Data structures ────────────────────────────────────────────────────────
