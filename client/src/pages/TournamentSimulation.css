@@ -686,3 +686,171 @@
     text-align: left;
   }
 }
+
+/* Esports Nations Cup */
+.enc-layout {
+  display: grid;
+  grid-template-columns: minmax(620px, 1.4fr) minmax(420px, 1fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.enc-rosters-panel,
+.enc-results-panel {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.enc-rosters-panel h2,
+.enc-results-panel h2 {
+  color: #facc15;
+  font-size: 1.2rem;
+  margin-top: 0;
+}
+
+.enc-format-grid {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 1rem 0;
+}
+
+.enc-format-grid div,
+.enc-team-card {
+  background: #131d31;
+  border: 1px solid #334155;
+  border-radius: 6px;
+}
+
+.enc-format-grid div {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem;
+}
+
+.enc-format-grid strong {
+  color: #7dd3fc;
+  font-size: 0.82rem;
+}
+
+.enc-format-grid span,
+.enc-draw-note,
+.enc-ranking,
+.enc-missing-roles,
+.enc-roster-rating,
+.enc-team-card details {
+  color: #94a3b8;
+  font-size: 0.76rem;
+}
+
+.enc-draw-note {
+  margin: 0.75rem 0 1.25rem;
+}
+
+.enc-blocking-issues {
+  background: #3f2c13;
+  border: 1px solid #b45309;
+  border-radius: 6px;
+  color: #fde68a;
+  font-size: 0.82rem;
+  margin-top: 1rem;
+  padding: 0.8rem;
+}
+
+.enc-blocking-issues ul {
+  margin: 0.5rem 0 0 1.25rem;
+  padding: 0;
+}
+
+.enc-team-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.enc-team-card {
+  padding: 0.75rem;
+}
+
+.enc-team-card.incomplete,
+.enc-team-card.awaiting_announcement {
+  border-color: #92400e;
+}
+
+.enc-team-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.enc-team-heading h3 {
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.enc-team-heading span {
+  color: #7dd3fc;
+  font-size: 0.68rem;
+  text-align: right;
+}
+
+.enc-ranking,
+.enc-missing-roles,
+.enc-roster-rating {
+  margin: 0.4rem 0;
+}
+
+.enc-missing-roles {
+  color: #fbbf24;
+}
+
+.enc-player-row {
+  align-items: center;
+  border-top: 1px solid #1e293b;
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: 62px minmax(0, 1fr) auto;
+  padding: 0.35rem 0;
+}
+
+.enc-player-row span {
+  color: #7dd3fc;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.enc-player-row strong {
+  color: #e2e8f0;
+  font-size: 0.8rem;
+}
+
+.enc-player-row small {
+  color: #cbd5e1;
+  font-size: 0.7rem;
+}
+
+.enc-team-card summary {
+  cursor: pointer;
+}
+
+.enc-team-card details p {
+  line-height: 1.45;
+  margin: 0.4rem 0 0;
+}
+
+@media (max-width: 1200px) {
+  .enc-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .enc-format-grid,
+  .enc-team-grid {
+    grid-template-columns: 1fr;
+  }
+}

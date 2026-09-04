@@ -6,6 +6,11 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from betting_app.services.enc_simulation_service import (
+    EncConfigurationError,
+    EncSimulator,
+    build_enc_configuration,
+)
 from betting_app.services.tournament_service import (
     SUPPORTED_BRACKETS,
     TournamentSimulator,
@@ -32,6 +37,10 @@ class SimulateWorldsRequest(BaseModel):
     direct_teams: list[WorldsTeamInput]
     play_in_teams: list[WorldsTeamInput]
     play_in_winner_pool: int
+
+
+class SimulateEncRequest(BaseModel):
+    simulations: int = 5000
 
 @router.get("")
 def list_tournaments() -> list[dict[str, Any]]:
@@ -73,6 +82,23 @@ def simulate_worlds(body: SimulateWorldsRequest) -> dict[str, Any]:
             n_simulations=n_simulations,
         )
     except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@router.get("/enc")
+def get_enc_configuration() -> dict[str, Any]:
+    """Return the published ENC field and best available GL lineup for every nation."""
+    return build_enc_configuration()
+
+
+@router.post("/enc/simulate")
+def simulate_enc(body: SimulateEncRequest) -> dict[str, Any]:
+    """Simulate the published ENC 2027 format when every roster is verifiable."""
+    configuration = build_enc_configuration()
+    n_simulations = min(max(body.simulations, 100), 50000)
+    try:
+        return EncSimulator.from_configuration(configuration).simulate(n_simulations)
+    except EncConfigurationError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 

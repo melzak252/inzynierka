@@ -26,9 +26,11 @@ import type {
   RankingsResponse,
   RankingSquadScope,
   RatingSystem,
-  TournamentSummary,
-  TournamentSimulationResponse,
+  EncConfigurationResponse,
+  EncSimulationResponse,
   MatchupSimulationResponse,
+  TournamentSimulationResponse,
+  TournamentSummary,
   WorldsSimulationResponse,
   WorldsTeamInput,
 } from '../types';
@@ -475,5 +477,21 @@ export async function simulateWorlds(
     }),
   });
   if (!response.ok) throw new Error(`Failed to run Worlds simulation: ${await response.text()}`);
+  return response.json();
+}
+
+export async function fetchEncConfiguration(): Promise<EncConfigurationResponse> {
+  const response = await fetch(`${API_BASE}/tournaments/enc`);
+  if (!response.ok) throw new Error(`Failed to load ENC configuration: ${response.statusText}`);
+  return response.json();
+}
+
+export async function simulateEnc(simulations: number = 5000): Promise<EncSimulationResponse> {
+  const response = await fetch(`${API_BASE}/tournaments/enc/simulate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ simulations }),
+  });
+  if (!response.ok) throw new Error(`Failed to run ENC simulation: ${await response.text()}`);
   return response.json();
 }

@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
 import {
   fetchActiveTeams,
-  fetchTournaments,
+  fetchEncConfiguration,
   fetchTournamentBracket,
+  fetchTournaments,
+  simulateEnc,
   simulateTournament,
   simulateWorlds,
 } from '../api/client';
 import type {
   BracketMatch,
+  EncConfigurationResponse,
+  EncSimulationResponse,
   TournamentSimulationResponse,
   TournamentSummary,
   WorldsSimulationResponse,
@@ -48,7 +52,7 @@ const INITIAL_PLAY_IN_TEAMS: WorldsTeamInput[] = [
 const PLAY_IN_SLOT_LABELS = ['LCS #3', 'LEC #3', 'LCP #3', 'CBLOL #2'];
 
 export default function TournamentSimulation() {
-  const [activeTab, setActiveTab] = useState<'regional' | 'worlds'>('regional');
+  const [activeTab, setActiveTab] = useState<'regional' | 'worlds' | 'enc'>('regional');
 
   // Regional state
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
@@ -73,6 +77,12 @@ export default function TournamentSimulation() {
     index: number;
   } | null>(null);
 
+  const [encConfiguration, setEncConfiguration] = useState<EncConfigurationResponse | null>(null);
+  const [encData, setEncData] = useState<EncSimulationResponse | null>(null);
+  const [encLoading, setEncLoading] = useState<boolean>(false);
+  const [encSimulating, setEncSimulating] = useState<boolean>(false);
+  const [encSimCount, setEncSimCount] = useState<number>(5000);
+
   useEffect(() => {
     fetchTournaments()
       .then((list) => {
@@ -94,6 +104,17 @@ export default function TournamentSimulation() {
         );
       });
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'enc' || encConfiguration || encLoading) return;
+    setEncLoading(true);
+    fetchEncConfiguration()
+      .then(setEncConfiguration)
+      .catch((reason: unknown) => {
+        setError(reason instanceof Error ? reason.message : 'Nie udało się pobrać konfiguracji ENC.');
+      })
+      .finally(() => setEncLoading(false));
+  }, [activeTab, encConfiguration, encLoading]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -138,6 +159,18 @@ export default function TournamentSimulation() {
       setError(err instanceof Error ? err.message : 'Błąd symulacji Worlds');
     } finally {
       setWorldsSimulating(false);
+    }
+  };
+
+  const handleSimulateEnc = async () => {
+    if (!encConfiguration?.simulation_ready) return;
+    setEncSimulating(true);
+    try {
+      setEncData(await simulateEnc(encSimCount));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Błąd symulacji ENC');
+    } finally {
+      setEncSimulating(false);
     }
   };
 
@@ -270,6 +303,12 @@ export default function TournamentSimulation() {
           >
             🌍 Worlds 2026 (Swiss + Knockout)
           </button>
+          <button
+            className={`tab-btn ${activeTab === 'enc' ? 'active' : ''}`}
+            onClick={() => setActiveTab('enc')}
+          >
+            🏳️ ENC 2027 (reprezentacje)
+          </button>
         </div>
 
         {activeTab === 'regional' ? (
@@ -311,7 +350,7 @@ export default function TournamentSimulation() {
               </button>
             )}
           </div>
-        ) : (
+        ) : activeTab === 'worlds' ? (
           <div className="tournament-controls">
             <div className="sim-config">
               <label htmlFor="worlds-simulation-count">Próby Worlds:</label>
@@ -341,6 +380,30 @@ export default function TournamentSimulation() {
                 Uzupełnij drużyny dla wszystkich 15 slotów Swiss i 4 slotów Play-In.
               </span>
             )}
+          </div>
+        ) : (
+          <div className="tournament-controls">
+            <div className="sim-config">
+              <label htmlFor="enc-simulation-count">Próby ENC:</label>
+              <select
+                id="enc-simulation-count"
+                value={encSimCount}
+                onChange={(event) => setEncSimCount(Number(event.target.value))}
+                className="sim-count-select"
+              >
+                <option value={1000}>1 000</option>
+                <option value={5000}>5 000</option>
+                <option value={10000}>10 000</option>
+                <option value={20000}>20 000</option>
+              </select>
+            </div>
+            <button
+              className="simulate-btn"
+              onClick={handleSimulateEnc}
+              disabled={encSimulating || !encConfiguration?.simulation_ready}
+            >
+              {encSimulating ? '⏳ Symulacja ENC...' : `⚡ Symuluj ENC (${encSimCount.toLocaleString('pl-PL')} prób)`}
+            </button>
           </div>
         )}
       </header>
@@ -446,13 +509,13 @@ export default function TournamentSimulation() {
             </div>
           </section>
         </div>
-      ) : (
+      ) : activeTab === 'worlds' ? (
         <div className="worlds-layout">
           <section className="worlds-teams-editor">
             <h2>Skład Worlds 2026 — wybierz drużyny do oficjalnych slotów</h2>
             <p className="subtitle-sm">
-              Nazwy drużyn pozostają puste. Regiony, seedy i pule są ustawione zgodnie z tabelą uczestników
-              Worlds 2026 w Leaguepedia/Fandom; wypełniasz wyłącznie zespół, który zdobędzie dany seed.
+              Wstępnie wypełnione zespoły odpowiadają slotom Leaguepedia/Fandom. Możesz je zmienić przed
+              symulacją; regiony, seedy i pule pozostają zgodne z opublikowaną strukturą Worlds 2026.
             </p>
 
             <div className="worlds-stage-heading">
@@ -612,6 +675,110 @@ export default function TournamentSimulation() {
               <div className="empty-state">
                 <p>Wpisz własne 15 bezpośrednich uczestników i 4 zespoły Play-In. Symulacja obejmie Play-In,
                   Swiss (Bo1/Bo3) oraz pucharową fazę Bo5.</p>
+              </div>
+            )}
+          </section>
+        </div>
+      ) : (
+        <div className="enc-layout">
+          <section className="enc-rosters-panel">
+            <h2>ENC 2027 — najlepszy aktualnie oceniony skład na rolę</h2>
+            {encLoading && <div className="empty-state"><p>Ładowanie składów i snapshotu GL...</p></div>}
+            {encConfiguration && (
+              <>
+                <p className="subtitle-sm">
+                  Każda rola wybiera najwyższy rating GL wyłącznie spośród publicznie ogłoszonej kadry danego kraju.
+                  Średnia pięciu ról jest wyłącznie wskaźnikiem siły kadry, nie predykcją modelu EXP-039.
+                </p>
+                <div className="enc-format-grid">
+                  <div><strong>Play-In</strong><span>{encConfiguration.format.play_in}</span></div>
+                  <div><strong>Group Stage</strong><span>{encConfiguration.format.group_stage}</span></div>
+                  <div><strong>Playoffs</strong><span>{encConfiguration.format.playoffs}</span></div>
+                </div>
+                {!encConfiguration.simulation_ready && (
+                  <div className="enc-blocking-issues">
+                    <strong>Symulacja jest zablokowana — nie tworzymy zastępczych zawodników ani ratingów.</strong>
+                    <ul>{encConfiguration.blocking_issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
+                  </div>
+                )}
+                <a
+                  className="worlds-source-link"
+                  href={encConfiguration.source_url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Źródło struktury i kadr: Leaguepedia / Fandom — Esports Nations Cup 2027
+                </a>
+                <p className="enc-draw-note">{encConfiguration.format.draw_and_tiebreak_policy}</p>
+                <div className="enc-team-grid">
+                  {encConfiguration.teams.map((team) => (
+                    <article key={team.nation} className={`enc-team-card ${team.selection_status}`}>
+                      <div className="enc-team-heading">
+                        <h3>{team.nation}</h3>
+                        <span>{team.entry_stage === 'group_stage' ? 'bezpośrednio Group Stage' : 'Play-In'}</span>
+                      </div>
+                      {team.ranking !== null && <p className="enc-ranking">Ranking zaproszeń #{team.ranking}</p>}
+                      {team.selected_roster.map((player) => (
+                        <div className="enc-player-row" key={player.role}>
+                          <span>{player.role}</span>
+                          <strong>{player.player}</strong>
+                          <small>GL {player.rating.toFixed(1)}</small>
+                        </div>
+                      ))}
+                      {team.missing_roles.length > 0 && (
+                        <p className="enc-missing-roles">Brak ratingu/roli: {team.missing_roles.join(', ')}</p>
+                      )}
+                      {team.roster_rating !== null && <p className="enc-roster-rating">Średnia GL: {team.roster_rating.toFixed(1)}</p>}
+                      {team.source_roster.length > 0 && (
+                        <details>
+                          <summary>Ogłoszona kadra ({team.source_roster.length})</summary>
+                          <p>{team.source_roster.join(' · ')}</p>
+                        </details>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="enc-results-panel">
+            <h2>🏆 Wyniki ENC 2027</h2>
+            {encData ? (
+              <table className="standings-table">
+                <thead>
+                  <tr>
+                    <th>Reprezentacja</th>
+                    <th>Wejście</th>
+                    <th>GL składu</th>
+                    <th>Group Stage</th>
+                    <th>Playoffs</th>
+                    <th>Top 4</th>
+                    <th>Finał</th>
+                    <th>🥇 Mistrz</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {encData.standings.map((standing) => (
+                    <tr key={standing.nation}>
+                      <td className="team-cell"><strong>{standing.nation}</strong></td>
+                      <td className="prob-cell">{standing.entry_stage === 'group_stage' ? 'Group Stage' : 'Play-In'}</td>
+                      <td className="prob-cell">{standing.roster_rating.toFixed(1)}</td>
+                      <td className="prob-cell">{(standing.group_stage_prob * 100).toFixed(1)}%</td>
+                      <td className="prob-cell">{(standing.playoff_prob * 100).toFixed(1)}%</td>
+                      <td className="prob-cell">{(standing.top4_prob * 100).toFixed(1)}%</td>
+                      <td className="prob-cell">{(standing.top2_prob * 100).toFixed(1)}%</td>
+                      <td className="prob-cell champ-prob">{(standing.champion_prob * 100).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="empty-state">
+                <p>
+                  Po zamknięciu pełnych, zweryfikowanych składów symulator rozegra cztery grupy Play-In Bo1,
+                  cztery grupy główne Bo3 i puchar Bo3/Bo5 zgodnie z opublikowanym formatem.
+                </p>
               </div>
             )}
           </section>

@@ -83,6 +83,7 @@ System składa się z pięciu warstw:
 5. **UI / operacja**
    - React frontend (`client/`) — lista meczów, szczegóły, status systemu, scheduler, analiza timingowa.
    - FastAPI backend (`betting_app/api/`) — REST API z endpointami dla matches, predictions, bets, system, scheduler, timing.
+   - Widok ENC 2027 wybiera najwyżej ocenioną rolę GL wyłącznie z ogłoszonej kadry narodowej i blokuje symulację, gdy roster lub rating nie jest zweryfikowany; nie jest to predykcja modelu EXP-039 ani sygnał bukmacherski.
 
 ## Kiedy co uruchamiać
 

@@ -480,6 +480,68 @@ export interface WorldsSimulationResponse {
   standings: WorldsStanding[];
 }
 
+export interface EncSelectedPlayer {
+  role: 'TOP' | 'JUNGLE' | 'MID' | 'ADC' | 'SUPPORT';
+  player: string;
+  normalized_player_id: string;
+  rating: number;
+  games_played: number;
+}
+
+export interface EncTeamConfiguration {
+  nation: string;
+  entry_stage: 'group_stage' | 'play_in';
+  ranking: number | null;
+  source_roster: string[];
+  selected_roster: EncSelectedPlayer[];
+  missing_roles: string[];
+  selection_status: 'ready' | 'incomplete' | 'awaiting_announcement';
+  roster_rating: number | null;
+}
+
+export interface EncFormat {
+  participants: number;
+  invited: number;
+  direct_group_stage: number;
+  online_qualifiers: number;
+  wildcards: string[];
+  play_in: string;
+  group_stage: string;
+  playoffs: string;
+  draw_and_tiebreak_policy: string;
+}
+
+export interface EncConfigurationResponse {
+  tournament_id: string;
+  tournament_name: string;
+  source_url: string;
+  format: EncFormat;
+  ratings_version: string | null;
+  data_cutoff_at: string | null;
+  teams: EncTeamConfiguration[];
+  simulation_ready: boolean;
+  blocking_issues: string[];
+}
+
+export interface EncStanding {
+  nation: string;
+  entry_stage: 'group_stage' | 'play_in';
+  roster_rating: number;
+  group_stage_prob: number;
+  playoff_prob: number;
+  top4_prob: number;
+  top2_prob: number;
+  champion_prob: number;
+}
+
+export interface EncSimulationResponse {
+  tournament_id: string;
+  tournament_name: string;
+  format: EncFormat;
+  simulations: number;
+  standings: EncStanding[];
+}
+
 export interface HorizonAccuracyResponse {
   evaluation_scope?: {
     kind: string;
