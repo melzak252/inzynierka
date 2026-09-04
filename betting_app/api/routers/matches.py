@@ -1170,27 +1170,32 @@ def get_active_teams(db=Depends(get_db)):
         """,
         {"version": OPERATIONAL_RATINGS_VERSION},
     )
-    if rows.empty:
-        # Fallback to golgg_teams if entity_ratings is empty in dev
+    if not rows:
+        # Fallback to golgg_teams if entity_ratings is empty in dev.
         fallback_rows = query_df(
             db,
             """
             SELECT team_name AS entity_name, 1500.0 AS rating_value
             FROM golgg_teams
             LIMIT 100
-            """
+            """,
         )
-        teams = [{"name": str(r["entity_name"]), "rating": round(float(r["rating_value"]), 0)} for r in fallback_rows.to_dict("records")]
+        teams = [
+            {"name": str(row["entity_name"]), "rating": round(float(row["rating_value"]), 0)}
+            for row in fallback_rows
+        ]
         return {"teams": teams}
 
     teams = [
         {
-            "name": str(r["entity_name"]),
-            "rating": round(float(r["rating_value"]), 0) if r.get("rating_value") is not None else None,
-            "games": int(r.get("games_played", 0)),
-            "last_active": str(r.get("last_match_at") or "")[:10],
+            "name": str(row["entity_name"]),
+            "rating": round(float(row["rating_value"]), 0)
+            if row.get("rating_value") is not None
+            else None,
+            "games": int(row.get("games_played", 0)),
+            "last_active": str(row.get("last_match_at") or "")[:10],
         }
-        for r in rows.to_dict("records")
+        for row in rows
     ]
     return {"teams": teams}
 
@@ -1249,18 +1254,16 @@ def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
     mapping = features.get("mapping")
     if isinstance(ratings, dict):
         team_a_info = TeamMappingInfo(
-            raw_name=body.team_a_name,
-            golgg_name=mapping.get("team_a_golgg") if isinstance(mapping, dict) else body.team_a_name,
-            confidence=1.0,
-            mapping_source="direct",
-            is_blocked=False,
+            canonical_name=body.team_a_name,
+            golgg_name=mapping.get("team_a_golgg_name") if isinstance(mapping, dict) else None,
+            confidence=_finite_float(mapping.get("team_a_confidence")) if isinstance(mapping, dict) else None,
+            source=mapping.get("team_a_source") if isinstance(mapping, dict) else None,
         )
         team_b_info = TeamMappingInfo(
-            raw_name=body.team_b_name,
-            golgg_name=mapping.get("team_b_golgg") if isinstance(mapping, dict) else body.team_b_name,
-            confidence=1.0,
-            mapping_source="direct",
-            is_blocked=False,
+            canonical_name=body.team_b_name,
+            golgg_name=mapping.get("team_b_golgg_name") if isinstance(mapping, dict) else None,
+            confidence=_finite_float(mapping.get("team_b_confidence")) if isinstance(mapping, dict) else None,
+            source=mapping.get("team_b_source") if isinstance(mapping, dict) else None,
         )
         team_a_ratings = ratings.get("team_a") or {}
         team_b_ratings = ratings.get("team_b") or {}
@@ -1303,28 +1306,59 @@ def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
 
     player_ratings = features.get("player_ratings")
     if isinstance(player_ratings, dict):
-        def build_roster(side_key: str, name: str) -> RosterInfo | None:
+        def build_roster(side_key: str, name: str) -> RosterInfo:
+            roster = player_ratings.get(f"{side_key}_roster") or {}
+            roster_players = roster.get("players") or []
             side_dict = player_ratings.get(side_key) or {}
             gl_dict = side_dict.get("gl") or {}
-            raw_players = gl_dict.get("players") or []
+            ratings_by_player_id = {
+                str(player.get("player_id") or player.get("normalized_entity_name")): player
+                for player in gl_dict.get("players") or []
+                if player.get("player_id") or player.get("normalized_entity_name")
+            }
+            raw_players = roster_players or gl_dict.get("players") or []
             p_objs = []
-            for p in raw_players:
-                if not isinstance(p, dict):
-                    continue
-                p_objs.append(RosterPlayer(
-                    player_id=str(p.get("player_id") or ""),
-                    player_name=p.get("player_name"),
-                    role=p.get("role"),
-                    glicko_rating=_finite_float(p.get("rating_value")),
-                    glicko_rd=_finite_float(p.get("rd")),
-                    games_played=int(p.get("games_played", 0)) if p.get("games_played") is not None else None,
-                ))
+            for player in raw_players:
+                player_id = str(player.get("player_id") or player.get("normalized_entity_name") or "")
+                rating = ratings_by_player_id.get(player_id, {})
+                rating_value = rating.get("rating_value")
+                if rating_value is None:
+                    rating_value = player.get("rating_value")
+                rating_rd = rating.get("rd")
+                if rating_rd is None:
+                    rating_rd = player.get("rd")
+                games_played = rating.get("games_played")
+                if games_played is None:
+                    games_played = player.get("games_played")
+                p_objs.append(
+                    RosterPlayer(
+                        player_id=player_id,
+                        player_name=player.get("player_name")
+                        or player.get("entity_name")
+                        or rating.get("player_name")
+                        or rating.get("entity_name"),
+                        role=player.get("role") or rating.get("role"),
+                        glicko_rating=_finite_float(rating_value),
+                        glicko_rd=_finite_float(rating_rd),
+                        games_played=int(games_played) if games_played is not None else None,
+                    )
+                )
             return RosterInfo(
-                team_name=name,
+                team_name=roster.get("team_name") or name,
+                source_match_id=roster.get("source_match_id"),
+                source_date=roster.get("source_match_date"),
+                source_tournament=roster.get("source_tournament"),
+                roster_source=roster.get("source"),
                 avg_glicko=_finite_float(gl_dict.get("avg_rating_value")),
                 avg_glicko_rd=_finite_float(gl_dict.get("avg_rd")),
+                players_with_rating=(
+                    int(gl_dict["players_with_rating"])
+                    if gl_dict.get("players_with_rating") is not None
+                    else None
+                ),
                 players=p_objs,
             )
+
         roster_a_info = build_roster("team_a", body.team_a_name)
         roster_b_info = build_roster("team_b", body.team_b_name)
 
