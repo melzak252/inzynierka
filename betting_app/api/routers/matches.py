@@ -64,8 +64,9 @@ from betting_app.services.market_service import (
     none_or_float,
     safe_json_get,
 )
-from betting_app.services.mapping_service import suggest_mapping
+from betting_app.services.mapping_service import golgg_name_from_id, suggest_mapping
 from betting_app.services.current_roster_service import upsert_current_roster
+from betting_app.services.upcoming_inference_service import load_aligned_golgg_ids_for_match
 from betting_app.core.db import is_sqlite
 from betting_app.services.thesis_inference_service import (
     build_thesis_features_for_match,
@@ -73,14 +74,17 @@ from betting_app.services.thesis_inference_service import (
     _load_model,
     _swap_feature_vector,
     _symmetrize,
-    _logit,
+    _calibrate_symmetrically,
     _register_thesis_model,
     _load_roster_overrides,
     THESIS_MODEL_NAME,
+    THESIS_BASE_ARTIFACT_VERSION,
     THESIS_MODEL_VERSION,
+    THESIS_FEATURES_VERSION,
     THESIS_HYBRID_MODEL_NAME,
     THESIS_HYBRID_ALPHA,
     THESIS_HYBRID_TEMPERATURE,
+    THESIS_HYBRID_VERSION_SUFFIX,
     EPSILON,
 )
 
@@ -137,11 +141,17 @@ def _parse_bookmaker_ev_json(raw: Any) -> dict[str, Any]:
 TAX_RATE = 0.12
 DEFAULT_MAX_ODDS_AGE_HOURS = 24.0
 HYBRID_MODEL_NAME = THESIS_HYBRID_MODEL_NAME
-HYBRID_MODEL_VERSION = "a0.35-t0.80"
+HYBRID_MODEL_VERSION = (
+    f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}-"
+    f"{THESIS_HYBRID_VERSION_SUFFIX}"
+)
 
 
 def _parse_hybrid_version(version: str) -> tuple[float, float]:
-    match = re.fullmatch(r"a([0-9]+(?:\.[0-9]+)?)-t([0-9]+(?:\.[0-9]+)?)", version)
+    match = re.fullmatch(
+        r"a([0-9]+(?:\.[0-9]+)?)-t([0-9]+(?:\.[0-9]+)?)(?:-[a-z0-9-]+)?",
+        version,
+    )
     if not match:
         return THESIS_HYBRID_ALPHA, THESIS_HYBRID_TEMPERATURE
     return float(match.group(1)), float(match.group(2))
@@ -439,7 +449,14 @@ def list_results(
 
     use_hybrid = model_name == HYBRID_MODEL_NAME
     prediction_model_name = THESIS_MODEL_NAME if use_hybrid else model_name
-    prediction_model_version = THESIS_MODEL_VERSION if use_hybrid else model_version
+    if use_hybrid:
+        prediction_model_version = (
+            THESIS_MODEL_VERSION
+            if model_version.endswith(f"-{THESIS_HYBRID_VERSION_SUFFIX}")
+            else THESIS_BASE_ARTIFACT_VERSION
+        )
+    else:
+        prediction_model_version = model_version
     hybrid_alpha, hybrid_temperature = _parse_hybrid_version(model_version)
 
     match_rows = query_df(
@@ -1646,6 +1663,30 @@ def odds_history(match_id: int, db=Depends(get_db)):
     return history
 
 
+# ── GET /matches/{id}/market-comparison ─────────────────────────────────────
+
+
+@router.get("/{match_id}/market-comparison")
+def match_market_comparison(
+    match_id: int,
+    horizon_hours: float = 6.0,
+    tolerance_hours: float = 1.5,
+    db=Depends(get_db),
+):
+    """Compare Pinnacle consensus line with Polish bookmakers and model EV around a horizon."""
+    from betting_app.services.oddspapi_service import compare_match_market
+
+    comparison = compare_match_market(
+        canonical_match_id=match_id,
+        session=db,
+        horizon_hours=horizon_hours,
+        tolerance_hours=tolerance_hours,
+    )
+    if not comparison:
+        raise HTTPException(status_code=404, detail="Match not found or start time unavailable")
+    return comparison
+
+
 # ── GET /matches/{id}/prediction-history ────────────────────────────────────
 
 
@@ -1955,13 +1996,22 @@ def update_match_roster(match_id: int, body: MatchRosterOverrideRequest, db=Depe
     """
     meta = query_one(
         db,
-        "SELECT id, team_a_name, team_b_name, status FROM canonical_matches WHERE id=:id",
+        "SELECT id, team_a_name, team_b_name, league, start_time_normalized, status "
+        "FROM canonical_matches WHERE id=:id",
         {"id": match_id},
     )
     if not meta:
         raise HTTPException(status_code=404, detail="Match not found")
     if str(meta.get("status") or "") in {"finished", "completed"}:
         raise HTTPException(status_code=409, detail="Nie można zmienić składu zakończonego meczu")
+    golgg_a_id, golgg_b_id = load_aligned_golgg_ids_for_match(meta)
+    selected_team_id = golgg_a_id if body.team_side == "a" else golgg_b_id
+    if selected_team_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Brak jednoznacznego identyfikatora GOL.GG dla wybranej strony meczu",
+        )
+    selected_golgg_team = golgg_name_from_id(selected_team_id)
 
     roles = [str(p.role or "").upper() for p in body.players]
     if any(role and role not in {"TOP", "JUNGLE", "MID", "ADC", "SUPPORT"} for role in roles):
@@ -1999,6 +2049,7 @@ def update_match_roster(match_id: int, body: MatchRosterOverrideRequest, db=Depe
     now_iso = datetime.now(UTC).isoformat()
     roster = {
         "team_name": team_name,
+        "team_id": str(selected_team_id) if selected_team_id is not None else None,
         "source_match_id": None,
         "source_match_date": now_iso,
         "source_tournament": "manual confirmation",
@@ -2021,14 +2072,15 @@ def update_match_roster(match_id: int, body: MatchRosterOverrideRequest, db=Depe
         },
     )
     # Promote a confirmed lineup to the team's durable current roster as well.
-    # The per-match override remains the hard guarantee for this exact match;
-    # the team roster is the automatic fallback for subsequent fixtures.
+    # The match override is the hard guarantee for this fixture; the durable
+    # manual confirmation can serve subsequent fixtures for the same stable ID.
     upsert_current_roster(
         db,
-        team_name=str(expected_golgg_team or team_name),
+        team_name=str(selected_golgg_team or expected_golgg_team or team_name),
         players=resolved_players,
         source="manual",
         source_match_date=now_iso,
+        team_id=str(selected_team_id),
     )
     db.commit()
 
@@ -2050,8 +2102,8 @@ def update_match_roster(match_id: int, body: MatchRosterOverrideRequest, db=Depe
 def delete_match_roster_override(match_id: int, team_side: str, db=Depends(get_db)):
     """Remove only the match-specific override.
 
-    The selected side then uses the durable current team roster, which may be
-    an automatic GOL.GG roster or a newer manual team confirmation.
+    The parity predictor can then use a still-current durable manual roster.
+    An automatically observed GOL.GG roster is not treated as confirmation.
     """
     if team_side not in {"a", "b"}:
         raise HTTPException(status_code=422, detail="team_side must be 'a' or 'b'")
@@ -2062,7 +2114,10 @@ def delete_match_roster_override(match_id: int, team_side: str, db=Depends(get_d
     db.commit()
     if not result.rowcount:
         raise HTTPException(status_code=404, detail="Brak ręcznego składu do przywrócenia")
-    return {"ok": True, "message": "Usunięto override tego meczu; używany jest aktualny skład drużyny."}
+    return {
+        "ok": True,
+        "message": "Usunięto override meczu; wymagany jest nadal aktualny ręcznie potwierdzony skład.",
+    }
 
 
 # ── POST /matches/{id}/predict — run prediction for single match ────────────
@@ -2072,8 +2127,8 @@ def delete_match_roster_override(match_id: int, team_side: str, db=Depends(get_d
 def predict_match(match_id: int, db=Depends(get_db)):
     """Run thesis model prediction for a single match.
 
-    Builds features, runs inference with order symmetry + Platt calibration,
-    stores the prediction, then generates hybrid + EV signals.
+    Builds point-in-time features, applies order and calibration symmetry,
+    stores the versioned prediction, then generates hybrid and EV signals.
     """
     import numpy as np
     import json as _json
@@ -2093,13 +2148,22 @@ def predict_match(match_id: int, db=Depends(get_db)):
         )
 
     best_of = m.get("best_of") or 1
+    prediction_time = datetime.now(UTC)
+    golgg_a_id, golgg_b_id = load_aligned_golgg_ids_for_match(m)
     roster_overrides = _load_roster_overrides(match_id)
 
     # 2. Build features
     feature_vector, diagnostics = build_thesis_features_for_match(
-        team_a, team_b, best_of=best_of,
+        team_a,
+        team_b,
+        team_a_golgg_id=golgg_a_id,
+        team_b_golgg_id=golgg_b_id,
+        league=str(m.get("league") or ""),
+        match_date=str(m.get("start_time_normalized") or ""),
+        best_of=int(best_of),
         team_a_roster_override=roster_overrides.get("a"),
         team_b_roster_override=roster_overrides.get("b"),
+        as_of=prediction_time,
     )
     if feature_vector is None:
         return PredictResponse(
@@ -2125,15 +2189,22 @@ def predict_match(match_id: int, db=Depends(get_db)):
     # Symmetrize
     sym_prob = _symmetrize(original_prob, swapped_prob)
 
-    # Platt calibration
-    calibrated_prob = float(calibrator.predict_proba(_logit([sym_prob]))[0, 1])
-    calibrated_prob = max(EPSILON, min(1 - EPSILON, calibrated_prob))
+    calibrated_prob = _calibrate_symmetrically(calibrator, sym_prob)
 
     prob_a = round(calibrated_prob, 6)
     prob_b = round(1 - calibrated_prob, 6)
+    diagnostics.update(
+        {
+            "original_prob": original_prob,
+            "swapped_prob": swapped_prob,
+            "symmetric_prob": sym_prob,
+            "calibrated_prob": calibrated_prob,
+            "calibration": "orientation-symmetric frozen EXP-039 Platt",
+        }
+    )
 
     # 4. Register model artifact and store prediction
-    now_iso = datetime.now(UTC).isoformat(timespec="seconds")
+    now_iso = prediction_time.isoformat()
 
     # Mark old thesis predictions as stale for this match
     db.execute(
@@ -2165,10 +2236,10 @@ def predict_match(match_id: int, db=Depends(get_db)):
             "pat": now_iso,
             "pa": prob_a,
             "pb": prob_b,
-            "fv": diagnostics.get("features_version", "46f-v1") if isinstance(diagnostics, dict) else "46f-v1",
-            "rv": diagnostics.get("ratings_version", "latest-full") if isinstance(diagnostics, dict) else "latest-full",
-            "dca": now_iso,
-            "dj": _json.dumps(diagnostics) if isinstance(diagnostics, dict) else None,
+            "fv": THESIS_FEATURES_VERSION,
+            "rv": diagnostics["ratings_version"],
+            "dca": diagnostics["data_cutoff_at"],
+            "dj": _json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
         },
     )
     db.commit()

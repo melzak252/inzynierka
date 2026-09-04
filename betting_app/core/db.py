@@ -121,6 +121,8 @@ def _seed_bookmakers() -> None:
         ("betfan", "https://betfan.pl/"),
         ("totalbet", "https://totalbet.pl/"),
         ("lebull", "https://www.lebull.pl/"),
+        ("pinnacle", "https://www.pinnacle.com/"),
+        ("kalshi", "https://kalshi.com/"),
     ]
     with get_session() as session:
         for name, url in bookmakers:

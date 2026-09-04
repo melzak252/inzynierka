@@ -54,7 +54,7 @@ registry = TaskRegistry()
 
 def register_all_tasks():
     """Register all tasks in the system."""
-    from .tasks import scrape, predict, maintenance, ml
+    from .tasks import scrape, predict, maintenance, ml, oddspapi
     
     # Scrape tasks - run at :55 every 2 hours (e.g., 9:55, 11:55, 13:55...)
     # Most matches start at full hours, so this captures odds close to start time
@@ -250,6 +250,27 @@ def register_all_tasks():
         kwargs={"stale_seen_hours": 6},
         description="Mark matches as expired when not seen by scrapers for 6h",
         enabled=True
+    ))
+
+    # OddsPapi fixture sync - runs every 3 days (1 request per run, ~10 requests/month)
+    registry.register(TaskDefinition(
+        id="oddspapi_fixture_sync",
+        name="OddsPapi Fixture Sync",
+        func=oddspapi.sync_fixtures_task,
+        cron_trigger="0 3 */3 * *",  # Every 3 days at 03:00 UTC
+        description="Sync upcoming LoL fixtures from OddsPapi to local mappings (1 request per run)",
+        enabled=True,
+    ))
+
+    # OddsPapi horizon odds - checks every 30 minutes for matches in T-6h window
+    registry.register(TaskDefinition(
+        id="oddspapi_horizon_fetch",
+        name="OddsPapi Horizon Fetch",
+        func=oddspapi.fetch_horizon_odds_task,
+        cron_trigger="5,35 * * * *",  # Twice an hour at :05 and :35 UTC
+        kwargs={"target_horizon_hours": 6.0, "tolerance_hours": 1.0, "max_requests": 2},
+        description="Fetch Pinnacle pre-match odds near T-6h (strictly capped by daily/monthly budget)",
+        enabled=True,
     ))
     
     logger.info(f"Registered {len(registry.list_all())} tasks")
