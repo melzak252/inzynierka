@@ -13,6 +13,11 @@ from betting_app.scripts.rebuild_calibrated_ratings import (
     RATING_SYSTEM,
     rebuild_calibrated_ratings,
 )
+from betting_app.scripts.rebuild_regional_ratings import (
+    PUBLIC_SYSTEMS,
+    RATINGS_VERSION,
+    rebuild_regional_ratings,
+)
 
 
 @pytest.fixture
@@ -339,3 +344,53 @@ def test_team_snapshot_uses_player_uncertainty_projected_to_cutoff(
     ) / 2
 
     assert team_state["raw_rd"] == pytest.approx(expected_raw_rd)
+
+
+def test_regional_rebuild_materializes_one_cohort_for_all_public_systems(
+    calibrated_db: None,
+) -> None:
+    _insert_history()
+
+    stats = rebuild_regional_ratings()
+
+    assert stats == {
+        "version": RATINGS_VERSION,
+        "mode": "full",
+        "matches": 3,
+        "games": 6,
+        "players": 8,
+        "entities": 12,
+        "rows": 72,
+        "data_cutoff_at": "2024-02-01",
+    }
+    rows = _rating_rows(RATINGS_VERSION)
+    assert {str(row["rating_system"]) for row in rows} == set(PUBLIC_SYSTEMS)
+    for system in PUBLIC_SYSTEMS:
+        system_rows = [row for row in rows if row["rating_system"] == system]
+        assert len(system_rows) == 12
+        assert {
+            (str(row["entity_type"]), str(row["normalized_entity_name"]))
+            for row in system_rows
+        } == {
+            (str(row["entity_type"]), str(row["normalized_entity_name"]))
+            for row in rows
+            if row["rating_system"] == "gl"
+        }
+
+    regional_state = json.loads(
+        str(
+            next(
+                row["state_json"]
+                for row in rows
+                if row["rating_system"] == "gl"
+                and row["entity_type"] == "team"
+                and row["normalized_entity_name"] == "korea alpha"
+            )
+        )
+    )
+    assert regional_state["competition_calibration"] == "family-calibrated-glicko2-v1"
+    run = _run(RATINGS_VERSION)
+    payload = json.loads(str(run["systems_json"]))
+    assert payload["contract_version"] == RATINGS_VERSION
+    assert payload["public_systems"] == list(PUBLIC_SYSTEMS)
+    assert payload["gl"]["engine"] == "family-calibrated-glicko2-v1"

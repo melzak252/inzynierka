@@ -602,6 +602,10 @@ export interface RankingEntry {
   system_count: number;
   games_played: number;
   last_match_at: string | null;
+  region_family: string | null;
+  region_tier: string | null;
+  regional_offset: number | null;
+  regional_uncertainty: number | null;
 }
 
 export interface RankingsResponse {

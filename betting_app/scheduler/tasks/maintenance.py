@@ -29,14 +29,18 @@ def refresh_golgg() -> dict:
 
 
 def rebuild_ratings() -> dict:
-    """Incrementally update Elo/Glicko/etc. ratings after GOL.GG refresh."""
-    logger.info("Updating ratings incrementally")
+    """Fully replay the one immutable regional ``ratings-v2`` snapshot."""
+    logger.info("Rebuilding regional ratings-v2 from the complete chronology")
     start = datetime.now(UTC)
 
-    success = _run_module("betting_app.scripts.rebuild_ratings", timeout=900)
+    success = _run_module(
+        "betting_app.scripts.rebuild_regional_ratings",
+        args=["--ratings-version", "ratings-v2", "--source", "scheduler-regional-ratings-v2"],
+        timeout=3600,
+    )
     duration = (datetime.now(UTC) - start).total_seconds()
 
-    logger.info(f"Ratings incremental update: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+    logger.info(f"Regional ratings-v2 rebuild: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
 
     return {"success": success, "duration_s": duration}
 
@@ -164,7 +168,7 @@ def refresh_model_analysis_cache() -> dict:
 
 
 def run_heavy_cycle() -> dict:
-    """Refresh GolGG, ratings, and rolling features as one ordered task."""
+    """Refresh GOL.GG, regional ratings, and rolling features in order."""
     logger.info("Starting heavy maintenance cycle")
     start = datetime.now(UTC)
 

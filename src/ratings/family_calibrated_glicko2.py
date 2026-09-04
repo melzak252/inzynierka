@@ -215,6 +215,43 @@ class FamilyCalibratedGlicko2:
     def get_player_rankings(self) -> tuple[PlayerRanking, ...]:
         return tuple(self.get_player_ranking(player_id) for player_id in self.player_ids)
 
+    def get_location_difference(
+        self,
+        family_a: str,
+        tier_a: str,
+        family_b: str,
+        tier_b: str,
+    ) -> GaussianOffsetState:
+        """Return the uncertainty-aware regional offset from side A to side B.
+
+        The result is neutral for a shared family and retains no directional
+        correction for absent affiliations.  Consumers use it to project this
+        engine's one posterior onto non-Glicko rating probabilities.
+        """
+        family_a, tier_a = self._validate_affiliation(
+            family_a, tier_a, "side A location"
+        )
+        family_b, tier_b = self._validate_affiliation(
+            family_b, tier_b, "side B location"
+        )
+        event = RatingEvent(
+            event_id="location-query",
+            event_date=self._current_date or date.min,
+            team_a_id="side-a",
+            team_b_id="side-b",
+            players_a=(),
+            players_b=(),
+            family_a=family_a,
+            family_b=family_b,
+            tier_a=tier_a,
+            tier_b=tier_b,
+            scores=(1,),
+        )
+        return self._location_difference(
+            event, self._family_states, self._tier_states
+        )
+
+
     def process_period(self, events: Iterable[RatingEvent]) -> dict[str, float]:
         """Process exactly one complete calendar date against a frozen prior.
 

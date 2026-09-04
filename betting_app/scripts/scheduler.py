@@ -78,7 +78,7 @@ def run_light_cycle(
         run_module("betting_app.scripts.rematch_canonical_matches", "--rebuild", check=False, automation_run_id=run_id)
         run_module(
             "betting_app.scripts.run_upcoming_prediction_pipeline",
-            "--hybrid",
+            "--operational-hybrid",
             "--min-ev",
             str(min_ev),
             check=False,
@@ -104,7 +104,7 @@ def run_heavy_cycle(
     interval_seconds: int | None = None,
     trigger_source: str = "scheduler",
 ) -> None:
-    """Refresh GOL.GG/SQLite/rating/W20, then run light cycle."""
+    """Refresh GOL.GG/SQLite/regional ratings/W20, then run light cycle."""
 
     run_id = start_run("heavy", trigger_source=trigger_source, interval_seconds=interval_seconds)
     log("Starting heavy cycle")
@@ -116,9 +116,11 @@ def run_heavy_cycle(
         run_module(*refresh_args, check=False, automation_run_id=run_id)
         run_module("betting_app.scripts.import_golgg_to_db", check=False, automation_run_id=run_id)
         run_module(
-            "betting_app.scripts.rebuild_ratings",
+            "betting_app.scripts.rebuild_regional_ratings",
             "--ratings-version",
-            "latest-full",
+            "ratings-v2",
+            "--source",
+            "legacy-scheduler-regional-ratings-v2",
             check=False,
             automation_run_id=run_id,
         )

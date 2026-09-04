@@ -21,10 +21,18 @@ def main() -> None:
     parser.add_argument("--skip-scrape", action="store_true")
     parser.add_argument("--refresh-golgg", action="store_true", help="Fetch missing finished GOL.GG matches first.")
     parser.add_argument("--reimport-golgg", action="store_true", help="Import GOL.GG JSON into SQLite.")
-    parser.add_argument("--rebuild-ratings", action="store_true", help="Rebuild latest-full ratings from SQLite GOL.GG.")
+    parser.add_argument(
+        "--rebuild-ratings",
+        action="store_true",
+        help="Fully rebuild the regional ratings-v2 snapshot from SQLite GOL.GG.",
+    )
     parser.add_argument("--rebuild-w20", action="store_true", help="Rebuild w20-latest rolling features.")
     parser.add_argument("--min-ev", type=float, default=0.05)
-    parser.add_argument("--hybrid", action="store_true", help="Use hybrid model+market probabilities for EV signals.")
+    parser.add_argument(
+        "--operational-hybrid",
+        action="store_true",
+        help="Use ratings-v2 operational+market hybrid probabilities for EV signals.",
+    )
     args = parser.parse_args()
 
     if args.refresh_golgg:
@@ -32,7 +40,13 @@ def main() -> None:
     if args.reimport_golgg:
         run_module("betting_app.scripts.import_golgg_to_db")
     if args.rebuild_ratings:
-        run_module("betting_app.scripts.rebuild_ratings", "--ratings-version", "latest-full")
+        run_module(
+            "betting_app.scripts.rebuild_regional_ratings",
+            "--ratings-version",
+            "ratings-v2",
+            "--source",
+            "manual-regional-ratings-v2",
+        )
     if args.rebuild_w20:
         run_module("betting_app.scripts.rebuild_w20_features", "--feature-version", "w20-latest", "--window-size", "20")
 
@@ -45,8 +59,8 @@ def main() -> None:
 
     run_module("betting_app.scripts.rematch_canonical_matches", "--rebuild")
     pipeline_args = ["--min-ev", str(args.min_ev)]
-    if args.hybrid:
-        pipeline_args.append("--hybrid")
+    if args.operational_hybrid:
+        pipeline_args.append("--operational-hybrid")
     run_module("betting_app.scripts.run_upcoming_prediction_pipeline", *pipeline_args)
     run_module("betting_app.scripts.list_upcoming_model_predictions", "--positive-only")
 

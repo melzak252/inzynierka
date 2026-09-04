@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import calendar
+import json
+import math
 from datetime import date
 from typing import Literal
 
@@ -10,6 +12,7 @@ from fastapi import APIRouter, Depends, Query
 
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import RankingEntry, RankingsResponse
+from betting_app.services.rating_contract import OPERATIONAL_RATINGS_VERSION
 
 router = APIRouter(tags=["rankings"])
 
@@ -26,6 +29,54 @@ def _subtract_months(value: date, months: int) -> date:
     return date(year, month, day)
 
 
+def _load_regional_metadata(
+    db,
+    *,
+    ratings_version: str,
+    entity_type: EntityType,
+    normalized_names: list[str],
+) -> dict[str, dict[str, object]]:
+    if not normalized_names:
+        return {}
+    params: dict[str, object] = {
+        "ratings_version": ratings_version,
+        "entity_type": entity_type,
+        "gl": "gl",
+    }
+    placeholders: list[str] = []
+    for index, name in enumerate(normalized_names):
+        key = f"name_{index}"
+        params[key] = name
+        placeholders.append(f":{key}")
+    states = query_df(
+        db,
+        f"""
+        SELECT normalized_entity_name, state_json
+        FROM entity_ratings
+        WHERE ratings_version = :ratings_version
+          AND entity_type = :entity_type
+          AND rating_system = :gl
+          AND normalized_entity_name IN ({", ".join(placeholders)})
+        """,
+        params,
+    )
+    result: dict[str, dict[str, object]] = {}
+    for row in states:
+        try:
+            state = json.loads(str(row.get("state_json") or "{}"))
+            variance = float(state.get("location_variance"))
+            offset = float(state.get("offset"))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        result[str(row["normalized_entity_name"])] = {
+            "region_family": state.get("family"),
+            "region_tier": state.get("tier"),
+            "regional_offset": offset,
+            "regional_uncertainty": math.sqrt(variance),
+        }
+    return result
+
+
 @router.get("/rankings", response_model=RankingsResponse)
 def get_rankings(
     entity_type: EntityType = "team",
@@ -37,16 +88,20 @@ def get_rankings(
     limit: int = Query(default=100, ge=1, le=500),
     db=Depends(get_db),
 ) -> RankingsResponse:
-    """Return one leaderboard from the most recent completed rating run."""
+    """Return the regional operational leaderboard when its snapshot exists."""
     run = query_one(
         db,
         """
         SELECT ratings_version, data_cutoff_at
         FROM rating_runs
         WHERE status = 'completed'
-        ORDER BY finished_at DESC NULLS LAST, id DESC
+        ORDER BY
+            CASE WHEN ratings_version = :operational_version THEN 0 ELSE 1 END,
+            finished_at DESC NULLS LAST,
+            id DESC
         LIMIT 1
         """,
+        {"operational_version": OPERATIONAL_RATINGS_VERSION},
     )
     if run is None:
         return RankingsResponse(
@@ -168,6 +223,7 @@ def get_rankings(
                     MIN(games_played) AS games_played,
                     MAX(last_match_at) AS last_match_at,
                     MAX(snapshot_at) AS snapshot_at,
+                    NULL AS state_json,
                     COUNT(DISTINCT rating_system) AS system_count
                 FROM system_positions
                 GROUP BY entity_type, normalized_entity_name
@@ -201,6 +257,7 @@ def get_rankings(
                     games_played,
                     last_match_at,
                     snapshot_at,
+                    state_json,
                     1 AS system_count
                 FROM entity_ratings
                 WHERE ratings_version = :ratings_version
@@ -230,6 +287,24 @@ def get_rankings(
         params,
     )
     snapshot_at = next((str(row["snapshot_at"]) for row in rows if row.get("snapshot_at")), None)
+    region_by_entity = _load_regional_metadata(
+        db,
+        ratings_version=ratings_version,
+        entity_type=entity_type,
+        normalized_names=[
+            str(row["normalized_entity_name"]) for row in rows
+        ],
+    )
+    rankings: list[RankingEntry] = []
+    for row in rows:
+        record = dict(row)
+        record.pop("state_json", None)
+        record.update(
+            region_by_entity.get(
+                str(record["normalized_entity_name"]), {}
+            )
+        )
+        rankings.append(RankingEntry(**record))
 
     return RankingsResponse(
         entity_type=entity_type,
@@ -241,5 +316,5 @@ def get_rankings(
         snapshot_at=snapshot_at,
         total=int(count["total"] if count else 0),
         available_rating_systems=available_rating_systems,
-        rankings=[RankingEntry(**row) for row in rows],
+        rankings=rankings,
     )

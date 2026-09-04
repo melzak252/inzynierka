@@ -30,8 +30,8 @@ def run_prediction_pipeline() -> dict:
     if rematch_ok:
         predict_ok = _run_module(
             "betting_app.scripts.run_upcoming_prediction_pipeline",
-            args=["--include-partial", "--thesis", "--thesis-hybrid"],
-            timeout=300,
+            args=["--include-partial", "--operational-hybrid"],
+            timeout=900,
         )
     else:
         logger.error("Skipping prediction because canonical rematching failed")

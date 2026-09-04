@@ -415,6 +415,10 @@ class RankingEntry(BaseModel):
     system_count: int = 1
     games_played: int
     last_match_at: str | None = None
+    region_family: str | None = None
+    region_tier: str | None = None
+    regional_offset: float | None = None
+    regional_uncertainty: float | None = None
 
 
 class RankingsResponse(BaseModel):

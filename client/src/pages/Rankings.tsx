@@ -6,7 +6,7 @@ import './Rankings.css'
 const RATING_SYSTEMS: Array<{ id: RatingSystem; label: string; detail: string }> = [
   { id: 'unified', label: 'Unified', detail: 'średnia pozycji percentylowych' },
   { id: 'elo', label: 'Elo', detail: 'klasyczny rating wyniku' },
-  { id: 'gl', label: 'Glicko-2', detail: 'rating z niepewnością RD' },
+  { id: 'gl', label: 'Glicko-2 regionalny', detail: 'rating z niepewnością RD i korektą regionu' },
   { id: 'ts', label: 'TrueSkill', detail: 'rating probabilistyczny' },
   { id: 'os', label: 'OpenSkill', detail: 'rating probabilistyczny' },
   { id: 'pl', label: 'Plackett–Luce', detail: 'model rankingowy' },
@@ -37,6 +37,14 @@ function uncertainty(row: RankingsResponse['rankings'][number]): string {
   if (row.rd != null) return `RD ${row.rd.toFixed(1)}`
   if (row.sigma != null) return `σ ${row.sigma.toFixed(2)}`
   return '—'
+}
+
+function regionalContext(row: RankingsResponse['rankings'][number]): string {
+  if (!row.region_family) return '—'
+  const tier = row.region_tier ? ` · ${row.region_tier}` : ''
+  const offset = row.regional_offset == null ? '' : ` · Δ ${row.regional_offset.toFixed(1)}`
+  const uncertainty = row.regional_uncertainty == null ? '' : ` ± ${row.regional_uncertainty.toFixed(1)}`
+  return `${row.region_family}${tier}${offset}${uncertainty}`
 }
 
 export default function Rankings() {
@@ -112,7 +120,7 @@ export default function Rankings() {
         <div>
           <span className="rankings-eyebrow">AKTUALNY SNAPSHOT SIŁY</span>
           <h1>Rankingi drużyn i zawodników</h1>
-          <p>Domyślny ranking Unified łączy pozycje percentylowe ze wszystkich kompletnych systemów. Możesz też sprawdzić każdy rating osobno; ich surowe skale nie są bezpośrednio porównywalne.</p>
+          <p>Domyślny ranking Unified łączy pozycje percentylowe ze wszystkich kompletnych systemów w snapshotcie ratings-v2. Każdy wpis pokazuje też przypisanie regionalne i skorygowaną lokalizację z regionalnego Glicko-2; surowe skale systemów nie są bezpośrednio porównywalne.</p>
         </div>
         <div className="rankings-snapshot">
           <span>Wersja ratingów</span>
@@ -224,6 +232,7 @@ export default function Rankings() {
                     <th>Pozycja</th>
                     <th>{entityType === 'team' ? 'Drużyna' : 'Zawodnik'}</th>
                     {entityType === 'player' && <th>Ostatni zespół / rola</th>}
+                    <th>Region</th>
                     <th>Rating</th>
                     <th>Niepewność</th>
                     <th>Gry</th>
@@ -236,6 +245,7 @@ export default function Rankings() {
                       <td><span className={`rank-badge rank-${row.rank <= 3 ? row.rank : 'other'}`}>{row.rank}</span></td>
                       <td><strong>{row.entity_name}</strong>{entityType === 'team' && <small>{row.normalized_entity_name}</small>}</td>
                       {entityType === 'player' && <td><strong className="team-label">{row.team_name || '—'}</strong><small>{row.role || 'rola nieznana'}</small></td>}
+                      <td>{regionalContext(row)}</td>
                       <td><strong className="rating-value">{formatRating(row.rating_value, ratingSystem)}</strong></td>
                       <td>{uncertainty(row)}</td>
                       <td>{row.games_played}</td>
@@ -244,7 +254,7 @@ export default function Rankings() {
                   ))}
                   {!data.rankings.length && (
                     <tr>
-                      <td colSpan={entityType === 'player' ? 7 : 6} className="rankings-empty">
+                      <td colSpan={entityType === 'player' ? 8 : 7} className="rankings-empty">
                         <strong>{data.ratings_version ? 'Brak pozycji dla tych filtrów.' : 'Brak zakończonego przebiegu ratingów.'}</strong>
                         <span>{data.ratings_version ? `Dostępne systemy: ${availableLabels || 'brak'}. Zmień aktywność, typ składu, minimum gier lub wyszukiwanie.` : 'Uruchom zakończony rebuild ratingów, aby utworzyć ranking.'}</span>
                       </td>

@@ -25,19 +25,32 @@ from betting_app.services.canonical_match_service import (
     canonical_team_key,
     parse_iso,
 )
-from betting_app.services.mapping_service import suggest_mapping
-from betting_app.services.mapping_service import golgg_name_from_id
+from betting_app.services.mapping_service import golgg_name_from_id, suggest_mapping
+from betting_app.services.rating_contract import (
+    OPERATIONAL_FEATURE_VERSION,
+    OPERATIONAL_MODEL_NAME,
+    OPERATIONAL_MODEL_VERSION,
+    OPERATIONAL_RATINGS_VERSION,
+    PUBLIC_RATING_SYSTEMS,
+    RAW_RATING_SYSTEMS,
+    REGIONAL_ENGINE,
+)
+from src.ratings.competition_adjustment import (
+    CompetitionAdjustment,
+    NEUTRAL_COMPETITION_ADJUSTMENT,
+    adjust_probability,
+)
+from src.ratings.family_calibrated_glicko2 import FamilyCalibratedGlicko2
 
-
-DEFAULT_FEATURE_VERSION = "player-team-ratings-w20-v0.2"
-DEFAULT_RATINGS_VERSION = "latest-full"
+DEFAULT_FEATURE_VERSION = OPERATIONAL_FEATURE_VERSION
+DEFAULT_RATINGS_VERSION = OPERATIONAL_RATINGS_VERSION
 DEFAULT_W20_VERSION = "w20-latest"
-DEFAULT_MODEL_NAME = "Operational-PlayerTeamRatings-W20"
-DEFAULT_MODEL_VERSION = "v0.2"
+DEFAULT_MODEL_NAME = OPERATIONAL_MODEL_NAME
+DEFAULT_MODEL_VERSION = OPERATIONAL_MODEL_VERSION
 DEFAULT_HYBRID_MODEL_NAME = "Hybrid-Operational-Market"
 DEFAULT_HYBRID_ALPHA = 0.50
 DEFAULT_HYBRID_TEMPERATURE = 0.80
-RATING_SYSTEMS = ("elo", "gl", "ts", "os", "pl", "tm")
+RATING_SYSTEMS = PUBLIC_RATING_SYSTEMS
 W20_FIELDS = (
     "win_rate",
     "avg_kills",
@@ -234,6 +247,9 @@ def build_features_for_match(
 
     ratings_a = load_team_ratings(team_a_golgg, ratings_version) if team_a_golgg else {}
     ratings_b = load_team_ratings(team_b_golgg, ratings_version) if team_b_golgg else {}
+    regional_adjustment = load_regional_adjustment(
+        ratings_a, ratings_b, ratings_version
+    )
     for system in RATING_SYSTEMS:
         if system not in ratings_a:
             missing.append(f"team_a_rating:{system}")
@@ -247,7 +263,7 @@ def build_features_for_match(
     if not w20_b:
         missing.append("team_b_w20")
 
-    rating_probs = rating_probabilities(ratings_a, ratings_b)
+    rating_probs = rating_probabilities(ratings_a, ratings_b, regional_adjustment)
     roster_a = load_last_roster(team_a_golgg) if team_a_golgg else None
     roster_b = load_last_roster(team_b_golgg) if team_b_golgg else None
     if not roster_a or len(roster_a.get("players", [])) < 5:
@@ -261,7 +277,9 @@ def build_features_for_match(
             missing.append(f"team_a_player_rating:{system}")
         if system not in player_ratings_b:
             missing.append(f"team_b_player_rating:{system}")
-    player_probs = player_rating_probabilities(player_ratings_a, player_ratings_b)
+    player_probs = player_rating_probabilities(
+        player_ratings_a, player_ratings_b, regional_adjustment
+    )
     w20_prob = w20_probability(w20_a, w20_b) if w20_a and w20_b else None
     features = {
         "canonical_match_id": canonical_match_id,
@@ -280,7 +298,12 @@ def build_features_for_match(
             "team_a_source": source_a,
             "team_b_source": source_b,
         },
-        "ratings": {"team_a": ratings_a, "team_b": ratings_b, "probabilities": rating_probs},
+        "ratings": {
+            "team_a": ratings_a,
+            "team_b": ratings_b,
+            "probabilities": rating_probs,
+        },
+        "regional_adjustment": regional_adjustment_state(regional_adjustment),
         "player_ratings": {
             "team_a_roster": roster_a,
             "team_b_roster": roster_b,
@@ -332,6 +355,7 @@ def load_team_ratings(team_name: str | None, ratings_version: str) -> dict[str, 
             "sigma": none_or_float(row.get("sigma")),
             "games_played": int(row.get("games_played") or 0),
             "last_match_at": row.get("last_match_at"),
+            "state_json": row.get("state_json"),
         }
     return result
 
@@ -573,39 +597,140 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
     return result
 
 
-def rating_probabilities(ratings_a: dict[str, Any], ratings_b: dict[str, Any]) -> dict[str, float]:
+def _regional_affiliation(rating: dict[str, Any], side: str) -> tuple[str, str] | None:
+    state_json = rating.get("state_json")
+    if not state_json:
+        return None
+    try:
+        state = json.loads(str(state_json))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"invalid regional Glicko state for {side}") from error
+    if not isinstance(state, dict):
+        raise ValueError(f"invalid regional Glicko state for {side}")
+    family = state.get("family")
+    tier = state.get("tier")
+    if family is None and tier is None:
+        return None
+    if not isinstance(family, str) or not isinstance(tier, str):
+        raise ValueError(f"invalid regional affiliation for {side}")
+    return family, tier
+
+
+def load_regional_adjustment(
+    ratings_a: dict[str, Any],
+    ratings_b: dict[str, Any],
+    ratings_version: str,
+) -> CompetitionAdjustment:
+    """Load the one persisted regional posterior for a v2 matchup.
+
+    The calibrated Glicko probability already contains this location effect.
+    Non-Glicko systems receive the same posterior once, after their native
+    probability is calculated.  Unknown team affiliations remain neutral.
+    """
+    if ratings_version != OPERATIONAL_RATINGS_VERSION:
+        return NEUTRAL_COMPETITION_ADJUSTMENT
+    left = ratings_a.get("gl")
+    right = ratings_b.get("gl")
+    if left is None or right is None:
+        return NEUTRAL_COMPETITION_ADJUSTMENT
+    affiliation_a = _regional_affiliation(left, "team_a")
+    affiliation_b = _regional_affiliation(right, "team_b")
+    if affiliation_a is None or affiliation_b is None:
+        return NEUTRAL_COMPETITION_ADJUSTMENT
+    runs = query_df(
+        """
+        SELECT systems_json
+        FROM rating_runs
+        WHERE ratings_version = ? AND status = 'completed'
+        ORDER BY finished_at DESC, id DESC
+        LIMIT 1
+        """,
+        (ratings_version,),
+    )
+    if runs.empty:
+        raise ValueError(f"no completed regional rating run for {ratings_version!r}")
+    try:
+        payload = json.loads(str(runs.iloc[0]["systems_json"]))
+        regional = payload["gl"]
+        if regional.get("engine") != REGIONAL_ENGINE:
+            raise ValueError("unexpected regional Glicko engine")
+        engine = FamilyCalibratedGlicko2.from_state(regional["state"])
+    except (KeyError, TypeError, json.JSONDecodeError, ValueError) as error:
+        raise ValueError(
+            f"invalid persisted regional posterior for {ratings_version!r}"
+        ) from error
+    location = engine.get_location_difference(
+        affiliation_a[0],
+        affiliation_a[1],
+        affiliation_b[0],
+        affiliation_b[1],
+    )
+    return CompetitionAdjustment(
+        mean=float(location.mean), variance=float(location.variance)
+    )
+
+
+def regional_adjustment_state(adjustment: CompetitionAdjustment) -> dict[str, Any]:
+    return {
+        "engine": REGIONAL_ENGINE,
+        "mean": adjustment.mean,
+        "variance": adjustment.variance,
+        "applies_to": list(RAW_RATING_SYSTEMS),
+    }
+
+
+def _rating_probability(system: str, left: float, right: float) -> float:
+    diff = left - right
+    if system in {"elo", "gl"}:
+        return 1.0 / (1.0 + 10 ** (-diff / 400.0))
+    if system == "os":
+        return sigmoid(diff / 5.0)
+    return sigmoid(diff / 8.333)
+
+
+def _with_regional_adjustment(
+    system: str,
+    probability: float,
+    adjustment: CompetitionAdjustment,
+) -> float:
+    if system == "gl":
+        return probability
+    return adjust_probability(probability, adjustment)
+
+
+def rating_probabilities(
+    ratings_a: dict[str, Any],
+    ratings_b: dict[str, Any],
+    adjustment: CompetitionAdjustment = NEUTRAL_COMPETITION_ADJUSTMENT,
+) -> dict[str, float]:
     probs: dict[str, float] = {}
     for system in RATING_SYSTEMS:
         left = ratings_a.get(system, {}).get("rating_value")
         right = ratings_b.get(system, {}).get("rating_value")
         if left is None or right is None:
             continue
-        diff = float(left) - float(right)
-        if system in {"elo", "gl"}:
-            probs[system] = 1.0 / (1.0 + 10 ** (-diff / 400.0))
-        elif system == "os":
-            probs[system] = sigmoid(diff / 5.0)
-        else:
-            probs[system] = sigmoid(diff / 8.333)
+        probs[system] = _with_regional_adjustment(
+            system, _rating_probability(system, float(left), float(right)), adjustment
+        )
     if probs:
         probs["consensus"] = sum(probs.values()) / len(probs)
     return probs
 
 
-def player_rating_probabilities(ratings_a: dict[str, Any], ratings_b: dict[str, Any]) -> dict[str, float]:
+def player_rating_probabilities(
+    ratings_a: dict[str, Any],
+    ratings_b: dict[str, Any],
+    adjustment: CompetitionAdjustment = NEUTRAL_COMPETITION_ADJUSTMENT,
+) -> dict[str, float]:
     probs: dict[str, float] = {}
     for system in RATING_SYSTEMS:
         left = ratings_a.get(system, {}).get("avg_rating_value")
         right = ratings_b.get(system, {}).get("avg_rating_value")
         if left is None or right is None:
             continue
-        diff = float(left) - float(right)
-        if system in {"elo", "gl"}:
-            probs[system] = 1.0 / (1.0 + 10 ** (-diff / 400.0))
-        elif system == "os":
-            probs[system] = sigmoid(diff / 5.0)
-        else:
-            probs[system] = sigmoid(diff / 8.333)
+        probs[system] = _with_regional_adjustment(
+            system, _rating_probability(system, float(left), float(right)), adjustment
+        )
     if probs:
         probs["consensus"] = sum(probs.values()) / len(probs)
     return probs
@@ -666,41 +791,82 @@ def latest_data_cutoff(ratings_version: str, w20_version: str) -> str | None:
     return None
 
 
-def register_operational_model() -> int:
-    """Register the transparent automatic upcoming baseline model."""
-
+def register_operational_model(
+    *,
+    model_name: str = DEFAULT_MODEL_NAME,
+    model_version: str = DEFAULT_MODEL_VERSION,
+    feature_version: str = DEFAULT_FEATURE_VERSION,
+    ratings_version: str = DEFAULT_RATINGS_VERSION,
+) -> int:
+    """Register one exact, immutable regional operational-model contract."""
+    expected = (
+        DEFAULT_MODEL_NAME,
+        DEFAULT_MODEL_VERSION,
+        DEFAULT_FEATURE_VERSION,
+        DEFAULT_RATINGS_VERSION,
+    )
+    actual = (model_name, model_version, feature_version, ratings_version)
+    if actual != expected:
+        raise ValueError(
+            "operational model contract must be "
+            f"{expected!r}, got {actual!r}"
+        )
     feature_schema = {
         "ratings": list(RATING_SYSTEMS),
         "player_ratings": list(RATING_SYSTEMS),
+        "ratings_version": ratings_version,
+        "regional_engine": REGIONAL_ENGINE,
+        "regional_projection": {
+            "source": "family-calibrated Glicko-2 posterior",
+            "applies_to": list(RAW_RATING_SYSTEMS),
+            "excluded_system": "gl",
+        },
         "roster_source": "current team roster, refreshed from GOL.GG or manual confirmation",
         "w20_fields": list(W20_FIELDS),
         "formula": "0.70 * player_rating_consensus + 0.20 * team_rating_consensus + 0.10 * w20_probability; no market input",
-        "limitations": ["last-match roster fallback", "not confirmed upcoming rosters", "not the final EXP-039 Sym-Cal model"],
+        "limitations": [
+            "last-match roster fallback",
+            "not confirmed upcoming rosters",
+            "not the final EXP-039 Sym-Cal model",
+        ],
     }
-    params = {"player_rating_weight": 0.70, "team_rating_weight": 0.20, "w20_weight": 0.10, "clip": [0.03, 0.97]}
+    params = {
+        "player_rating_weight": 0.70,
+        "team_rating_weight": 0.20,
+        "w20_weight": 0.10,
+        "clip": [0.03, 0.97],
+    }
+    schema_json = json.dumps(feature_schema, ensure_ascii=False, sort_keys=True)
+    params_json = json.dumps(params, ensure_ascii=False, sort_keys=True)
     with transaction() as connection:
         connection.execute(
             """
             INSERT INTO model_artifacts(
                 model_name, model_version, feature_schema_json, model_params_json, status
             ) VALUES (?, ?, ?, ?, 'active')
-            ON CONFLICT(model_name, model_version) DO UPDATE SET
-                feature_schema_json = excluded.feature_schema_json,
-                model_params_json = excluded.model_params_json,
-                status = 'active'
+            ON CONFLICT(model_name, model_version) DO NOTHING
             """,
-            (
-                DEFAULT_MODEL_NAME,
-                DEFAULT_MODEL_VERSION,
-                json.dumps(feature_schema, ensure_ascii=False, sort_keys=True),
-                json.dumps(params, ensure_ascii=False, sort_keys=True),
-            ),
+            (model_name, model_version, schema_json, params_json),
         )
         row = connection.execute(
-            "SELECT id FROM model_artifacts WHERE model_name = ? AND model_version = ?",
-            (DEFAULT_MODEL_NAME, DEFAULT_MODEL_VERSION),
+            """
+            SELECT id, feature_schema_json, model_params_json, status
+            FROM model_artifacts
+            WHERE model_name = ? AND model_version = ?
+            """,
+            (model_name, model_version),
         ).fetchone()
-        return int(row["id"])
+    if row is None:
+        raise RuntimeError("operational model artifact was not persisted")
+    if (
+        row["feature_schema_json"] != schema_json
+        or row["model_params_json"] != params_json
+        or row["status"] != "active"
+    ):
+        raise ValueError(
+            f"existing operational artifact {model_name}/{model_version} does not match the ratings-v2 contract"
+        )
+    return int(row["id"])
 
 
 def predict_all_upcoming(
@@ -713,7 +879,12 @@ def predict_all_upcoming(
 ) -> list[dict[str, Any]]:
     """Generate and store probabilities from latest upcoming feature rows."""
 
-    model_artifact_id = register_operational_model()
+    model_artifact_id = register_operational_model(
+        model_name=model_name,
+        model_version=model_version,
+        feature_version=feature_version,
+        ratings_version=ratings_version,
+    )
     params: list[Any] = [feature_version, ratings_version]
     status_filter = "AND feature_status = 'ready_player'"
     if include_partial:
@@ -821,8 +992,17 @@ def generate_hybrid_predictions(
     if not 0 <= alpha <= 1:
         raise ValueError("alpha must be in [0, 1]")
     if hybrid_model_version is None:
-        hybrid_model_version = f"a{alpha:.2f}-t{temperature:.2f}"
-    model_artifact_id = register_hybrid_model(alpha=alpha, temperature=temperature, version=hybrid_model_version)
+        hybrid_model_version = (
+            f"{base_model_version}-a{alpha:.2f}-t{temperature:.2f}"
+        )
+    model_artifact_id = register_hybrid_model(
+        base_model_name=base_model_name,
+        base_model_version=base_model_version,
+        alpha=alpha,
+        temperature=temperature,
+        model_name=hybrid_model_name,
+        version=hybrid_model_version,
+    )
     rows = query_df(
         """
         WITH latest_predictions AS (
@@ -941,38 +1121,53 @@ def generate_hybrid_predictions(
     return results
 
 
-def register_hybrid_model(*, alpha: float, temperature: float, version: str) -> int:
+def register_hybrid_model(
+    *,
+    base_model_name: str,
+    base_model_version: str,
+    alpha: float,
+    temperature: float,
+    model_name: str,
+    version: str,
+) -> int:
     feature_schema = {
-        "base_model": f"{DEFAULT_MODEL_NAME}/{DEFAULT_MODEL_VERSION}",
+        "base_model": f"{base_model_name}/{base_model_version}",
         "market_signal": "average no-vig probability from latest bookmaker odds",
         "formula": "alpha * temperature(base_model_probability) + (1-alpha) * market_probability",
         "historical_reference": "EXP-032/EXP-033/EXP-041 model-market hybrid experiments",
     }
     params = {"alpha": alpha, "temperature": temperature}
+    schema_json = json.dumps(feature_schema, ensure_ascii=False, sort_keys=True)
+    params_json = json.dumps(params, ensure_ascii=False, sort_keys=True)
     with transaction() as connection:
         connection.execute(
             """
             INSERT INTO model_artifacts(
                 model_name, model_version, feature_schema_json, model_params_json, status
             ) VALUES (?, ?, ?, ?, 'active')
-            ON CONFLICT(model_name, model_version) DO UPDATE SET
-                feature_schema_json = excluded.feature_schema_json,
-                model_params_json = excluded.model_params_json,
-                status = 'active'
+            ON CONFLICT(model_name, model_version) DO NOTHING
             """,
-            (
-                DEFAULT_HYBRID_MODEL_NAME,
-                version,
-                json.dumps(feature_schema, ensure_ascii=False, sort_keys=True),
-                json.dumps(params, ensure_ascii=False, sort_keys=True),
-            ),
+            (model_name, version, schema_json, params_json),
         )
         row = connection.execute(
-            "SELECT id FROM model_artifacts WHERE model_name = ? AND model_version = ?",
-            (DEFAULT_HYBRID_MODEL_NAME, version),
+            """
+            SELECT id, feature_schema_json, model_params_json, status
+            FROM model_artifacts
+            WHERE model_name = ? AND model_version = ?
+            """,
+            (model_name, version),
         ).fetchone()
-        return int(row["id"])
-
+    if row is None:
+        raise RuntimeError("hybrid model artifact was not persisted")
+    if (
+        row["feature_schema_json"] != schema_json
+        or row["model_params_json"] != params_json
+        or row["status"] != "active"
+    ):
+        raise ValueError(
+            f"existing hybrid artifact {model_name}/{version} does not match its base-model contract"
+        )
+    return int(row["id"])
 
 def generate_model_ev_signals(
     *,

@@ -701,6 +701,8 @@ def materialize_entity_rows(
     run_id: int,
     version: str,
     snapshot_at: str,
+    rating_system: str = RATING_SYSTEM,
+    competition_calibration: str | None = None,
 ) -> list[tuple[Any, ...]]:
     rows: list[tuple[Any, ...]] = []
     player_ids = frozenset(engine.player_ids)
@@ -734,6 +736,8 @@ def materialize_entity_rows(
             "team_id": team_id,
             "last_activity": metadata.player_last_activity.get(player_id),
         }
+        if competition_calibration:
+            state["competition_calibration"] = competition_calibration
         rows.append(
             (
                 run_id,
@@ -744,7 +748,7 @@ def materialize_entity_rows(
                 player_id,
                 team_name,
                 metadata.player_roles.get(player_id),
-                RATING_SYSTEM,
+                rating_system,
                 float(ranking.rating),
                 float(ranking.rd),
                 float(ranking.volatility),
@@ -804,6 +808,8 @@ def materialize_entity_rows(
             "location_variance": float(location_variance),
             "last_activity": metadata.team_last_activity.get(team_id),
         }
+        if competition_calibration:
+            state["competition_calibration"] = competition_calibration
         team_row = (
             run_id,
             version,
@@ -813,7 +819,7 @@ def materialize_entity_rows(
             normalized_team_name,
             team_name,
             None,
-            RATING_SYSTEM,
+            rating_system,
             float(rating_value),
             float(rd),
             float(volatility),

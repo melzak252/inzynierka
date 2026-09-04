@@ -17,6 +17,7 @@ from betting_app.services.automation_service import (
     automation_run_context,
     current_automation_run_id,
 )
+from betting_app.scripts import scheduler as legacy_scheduler
 
 
 @pytest.fixture(autouse=True)
@@ -205,8 +206,8 @@ def test_prediction_pipeline_uses_fast_rematch_mode(monkeypatch: pytest.MonkeyPa
         ),
         (
             "betting_app.scripts.run_upcoming_prediction_pipeline",
-            ["--include-partial", "--thesis", "--thesis-hybrid"],
-            300,
+            ["--include-partial", "--operational-hybrid"],
+            900,
         ),
     ]
 
@@ -225,6 +226,75 @@ def test_prediction_pipeline_stops_when_rematch_fails(monkeypatch: pytest.Monkey
     assert result["steps"] == {"rematch": False, "predict": False}
     assert result["error"] == "Canonical rematching failed"
 
+
+
+def test_rebuild_ratings_invokes_full_regional_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, list[str] | None, int]] = []
+
+    def run_module(module: str, args: list[str] | None = None, timeout: int = 300) -> bool:
+        calls.append((module, args, timeout))
+        return True
+
+    monkeypatch.setattr(maintenance, "_run_module", run_module)
+
+    result = maintenance.rebuild_ratings()
+
+    assert result["success"] is True
+    assert calls == [
+        (
+            "betting_app.scripts.rebuild_regional_ratings",
+            [
+                "--ratings-version",
+                "ratings-v2",
+                "--source",
+                "scheduler-regional-ratings-v2",
+            ],
+            3600,
+        )
+    ]
+
+
+def test_legacy_scheduler_uses_regional_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, tuple[str, ...]]] = []
+    finished: list[tuple[int, str]] = []
+
+    monkeypatch.setattr(
+        legacy_scheduler,
+        "start_run",
+        lambda *args, **kwargs: 91,
+    )
+    monkeypatch.setattr(
+        legacy_scheduler,
+        "finish_run",
+        lambda run_id, *, status, **kwargs: finished.append((run_id, status)),
+    )
+    monkeypatch.setattr(
+        legacy_scheduler,
+        "run_module",
+        lambda module, *args, **kwargs: calls.append((module, args)) or 0,
+    )
+
+    legacy_scheduler.run_light_cycle(0.05, ["sts"])
+    legacy_scheduler.run_heavy_cycle(0.05, ["sts"])
+
+    assert (
+        "betting_app.scripts.run_upcoming_prediction_pipeline",
+        ("--operational-hybrid", "--min-ev", "0.05"),
+    ) in calls
+    assert (
+        "betting_app.scripts.rebuild_regional_ratings",
+        (
+            "--ratings-version",
+            "ratings-v2",
+            "--source",
+            "legacy-scheduler-regional-ratings-v2",
+        ),
+    ) in calls
+    assert finished == [(91, "completed"), (91, "completed")]
 
 def test_execute_task_records_trigger_context_and_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     observed: dict[str, object] = {}

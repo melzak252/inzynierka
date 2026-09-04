@@ -183,3 +183,54 @@ def test_default_cohort_excludes_stale_and_explicit_development_squads(client: T
         "SK Telecom T1",
         "T1 Esports Academy",
     }
+
+
+def test_rankings_prefer_regional_snapshot_and_expose_region(client: TestClient) -> None:
+    _seed_completed_rankings()
+    with get_session() as session:
+        session.execute(
+            text(
+                """
+                INSERT INTO rating_runs(
+                    id, ratings_version, data_cutoff_at, started_at, finished_at,
+                    status, matches_processed, games_processed, players_processed
+                ) VALUES (
+                    4, 'ratings-v2', '2026-07-01T00:00:00+00:00',
+                    '2026-07-01T00:00:00+00:00', '2026-07-01T00:05:00+00:00',
+                    'completed', 40, 80, 200
+                )
+                """
+            )
+        )
+        session.execute(
+            text(
+                """
+                INSERT INTO entity_ratings(
+                    rating_run_id, ratings_version, snapshot_at, entity_type,
+                    entity_name, normalized_entity_name, team_name, role,
+                    rating_system, rating_value, rd, sigma, games_played,
+                    last_match_at, state_json
+                ) VALUES (
+                    4, 'ratings-v2', '2026-07-01T00:05:00+00:00', 'team',
+                    'Gen.G', 'gen g', 'Gen.G', NULL, 'gl', 1725.0, 80.0, 0.06,
+                    50, '2026-06-30',
+                    '{"family":"LCK","tier":"major","offset": 25.0,"location_variance": 100.0}'
+                )
+                """
+            )
+        )
+        session.commit()
+
+    response = client.get(
+        "/rankings",
+        params={"entity_type": "team", "rating_system": "unified", "min_games": 10},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ratings_version"] == "ratings-v2"
+    assert data["available_rating_systems"] == ["gl"]
+    assert data["rankings"][0]["region_family"] == "LCK"
+    assert data["rankings"][0]["region_tier"] == "major"
+    assert data["rankings"][0]["regional_offset"] == 25.0
+    assert data["rankings"][0]["regional_uncertainty"] == 10.0

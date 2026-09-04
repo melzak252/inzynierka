@@ -111,7 +111,7 @@ BETTING_SCHEDULER_INTERVAL_SECONDS=10800 docker compose up -d betting-scheduler 
 Jeżeli chcesz tylko przeliczyć model/EV bez nowych requestów do bukmacherów:
 
 ```bash
-python -m betting_app.scripts.run_upcoming_prediction_pipeline --hybrid --min-ev 0.05
+python -m betting_app.scripts.run_upcoming_prediction_pipeline --operational-hybrid --min-ev 0.05
 ```
 
 Close odds najlepiej robić selektywnie: najpierw panel wskazuje ciekawe EV+, potem otwierasz `offer_url` albo odpalasz pojedynczy scraper przed startem. Nie ma potrzeby agresywnie odpytywać wszystkich bukmacherów co kilka minut.
@@ -178,7 +178,7 @@ docker compose run --rm betting-scheduler \
 
 # ręczny pipeline bez scrapowania, na istniejących kursach
 docker compose run --rm betting-scheduler \
-  python -m betting_app.scripts.run_upcoming_prediction_pipeline --hybrid --min-ev 0.05
+  python -m betting_app.scripts.run_upcoming_prediction_pipeline --operational-hybrid --min-ev 0.05
 ```
 
 Ciężki maintenance z GOL.GG korzysta teraz z lokalnego scrapera `betting_app/scrapers/golgg.py`:
@@ -272,7 +272,7 @@ python -m betting_app.scripts.scrape_odds --bookmaker dry-run
 3. Uruchom pipeline predykcji:
 
 ```bash
-python -m betting_app.scripts.run_upcoming_prediction_pipeline --hybrid --min-ev 0.05
+python -m betting_app.scripts.run_upcoming_prediction_pipeline --operational-hybrid --min-ev 0.05
 ```
 
 4. Sprawdź wyniki w froncie React na `http://localhost:3000`.
@@ -507,49 +507,48 @@ python -m betting_app.scripts.scrape_odds --bookmaker betfan --headless
 python -m betting_app.scripts.scrape_odds --bookmaker totalbet
 python -m betting_app.scripts.scrape_odds --bookmaker lebull
 python -m betting_app.scripts.rematch_canonical_matches --rebuild
-python -m betting_app.scripts.rebuild_ratings --ratings-version latest-full
+python -m betting_app.scripts.rebuild_regional_ratings --ratings-version ratings-v2
 python -m betting_app.scripts.rebuild_w20_features --feature-version w20-latest --window-size 20
-python -m betting_app.scripts.run_upcoming_prediction_pipeline --hybrid --min-ev 0.05
+python -m betting_app.scripts.run_upcoming_prediction_pipeline --operational-hybrid --min-ev 0.05
 python -m betting_app.scripts.list_upcoming_model_predictions --positive-only
 ```
 
-### Kandydat ratingów `player-glicko2-family-v1`
+### Operacyjny kontrakt regionalny `ratings-v2`
 
-Skorygowany Glicko-2 z dziennymi okresami oraz niepewnymi offsetami rodzin
-rozgrywek jest utrzymywany obok `latest-full`:
-
-```bash
-python -m betting_app.scripts.rebuild_calibrated_ratings \
-  --mode full \
-  --ratings-version player-glicko2-family-v1 \
-  --source exp075-successor
-```
-
-Kolejne, pełnodniowe porcje można dopisać przez `--mode incremental`.
-Wersja zapisuje system `gl2f` w `entity_ratings` i kompletny stan silnika w
-`rating_runs.systems_json`. Nie jest podłączona do schedulera, EXP-039,
-`upcoming_match_features`, predykcji, EV ani zakładów. Przeliczenie tej wersji
-nie zastępuje operacyjnego `latest-full`.
-
-Ewaluacja porównawcza:
+`ratings-v2` jest pełnym, chronologicznym snapshotem sześciu systemów:
+`elo`, regionalny `gl`, `ts`, `os`, `pl` i `tm`. `gl` używa
+`family-calibrated-glicko2-v1`; jego niepewny offset rodziny/poziomu jest
+stosowany dokładnie raz do prawdopodobieństw pięciu pozostałych systemów.
+Prawdopodobieństwo `gl` nie dostaje drugiej korekty.
 
 ```bash
-python scripts/05_ratingi_baseline/05j_evaluate_calibrated_glicko2.py \
-  --matches data/golgg_matches.json \
-  --baseline data/golgg_y_predicts.csv \
-  --output-dir reports/experiments/exp075_rating_successor_evaluation
+python -m betting_app.scripts.rebuild_regional_ratings \
+  --ratings-version ratings-v2 \
+  --source manual-regional-ratings-v2
+python -m betting_app.scripts.rebuild_w20_features --feature-version w20-latest
+python -m betting_app.scripts.run_upcoming_prediction_pipeline \
+  --operational-hybrid --include-partial
 ```
 
-Okres 2024+ jest wyłącznie ponownie użytym zbiorem diagnostycznym. Nie może
-samodzielnie promować `gl2f` na domyślny system operacyjny.
+Rebuild jest zawsze pełny. Nie uruchamiaj `rebuild_ratings` dla `ratings-v2`:
+wszystkie systemy muszą odzwierciedlać identyczny kohortowy cutoff i ten sam
+stan regionalnego Glicko. Zadanie `heavy_maintenance_cycle` wykonuje kolejno
+odświeżenie GOL.GG, `rebuild_regional_ratings` oraz W20; zwykły
+`prediction_pipeline` następnie tworzy features, predykcje operacyjne
+`Operational-PlayerTeamRatings-W20 / v0.3`, hybrydę rynku i sygnały EV.
+Żaden z tych kroków nie składa zakładów automatycznie.
 
-### Kandydat wielosystemowy `multirating-family-v1`
+`player-glicko2-family-v1 / gl2f` pozostaje diagnostycznym snapshotem
+EXP-075. EXP-039 (`Sym-Cal LR-ElasticNet-W20-Binomial`) jest zamrożony i nie
+został nadpisany ani zmieniony przez ten kontrakt.
 
-EXP-076 stosuje wspólny, niepewny offset rodziny/poziomu rozgrywek do
-rankingów Player Elo, TrueSkill, OpenSkill, Plackett-Luce i
-Thurstone-Mosteller wyłącznie w meczach cross-league ze znaną wcześniejszą
-afiliacją obu drużyn. Player Glicko pochodzi z
-`player-glicko2-family-v1`; mecze krajowe nie dostają dodatkowego offsetu.
+### Evidence and limitation
+
+EXP-076 applies the shared uncertain family/tier offset to Player Elo,
+TrueSkill, OpenSkill, Plackett-Luce and Thurstone-Mosteller only when both
+sides have a prior domestic affiliation. Player Glicko is the regional
+calibrated system; domestic same-family games receive no additional
+probability offset.
 
 ```bash
 python scripts/06_metamodel/06ak_multirating_family_symcal.py \
@@ -557,33 +556,28 @@ python scripts/06_metamodel/06ak_multirating_family_symcal.py \
   --output-dir reports/experiments/exp076_multirating_family_symcal
 ```
 
-Runner wykonuje sparowaną ewaluację walk-forward, symetryzację stron,
-rozszerzającą kalibrację Platta i miesięczny block bootstrap, a następnie
-zapisuje niezmienny artefakt kandydata
-`Sym-Cal LR-ElasticNet-W20-Binomial/multirating-family-v1`. Istniejący katalog
-artefaktu powoduje błąd zamiast nadpisania.
-
-W diagnostyce 2024+ (`n=4311`) LogLoss spadł z `0.581427` do `0.576200`;
-95% CI sparowanej różnicy wyniósł `[-0.013174, +0.000072]`. Dla meczów
-cross-league (`n=526`) LogLoss spadł z `0.593362` do `0.533148`, z 95% CI
-różnicy `[-0.077201, -0.037808]`. Wynik globalny nie spełnia jeszcze
-dwustronnego kryterium istotności, a mecze krajowe są słabsze, dlatego kandydat
-nie jest podłączony do schedulera, inference, EV ani zakładów i nie zastępuje
-`exp-039` ani `latest-full`.
+The 2024+ diagnostic result (`n=4311`) reduced LogLoss from `0.581427` to
+`0.576200`, but its paired 95% CI was `[-0.013174, +0.000072]`; it does not
+meet the global two-sided significance criterion. Cross-league rows (`n=526`)
+improved from `0.593362` to `0.533148`, while domestic rows were weaker.
+`ratings-v2` is therefore an explicitly versioned operational research
+baseline, not evidence of financially executable performance or a replacement
+for the frozen thesis result.
 
 Skrócony runner:
 
 ```bash
 # lekki tryb: scrape bukmacherów -> canonical matching -> features -> predykcje -> EV
 # uruchamiaj ręcznie albo schedulerem co 1-2h, nie co kilka minut
-python -m betting_app.scripts.run_daily_automation --hybrid --min-ev 0.05
+python -m betting_app.scripts.run_daily_automation --operational-hybrid --min-ev 0.05
 
 # samo przeliczenie predykcji/EV bez nowych requestów do bukmacherów
-python -m betting_app.scripts.run_upcoming_prediction_pipeline --hybrid --min-ev 0.05
+python -m betting_app.scripts.run_upcoming_prediction_pipeline --operational-hybrid --min-ev 0.05
 
 # cięższy tryb po odświeżeniu zakończonych meczów GOL.GG
 python -m betting_app.scripts.run_daily_automation \
-  --refresh-golgg --reimport-golgg --rebuild-ratings --rebuild-w20 --min-ev 0.05
+  --refresh-golgg --reimport-golgg --rebuild-ratings --rebuild-w20 \
+  --operational-hybrid --min-ev 0.05
 ```
 
 ## Zasada parserów HTML
