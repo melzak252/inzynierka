@@ -1,76 +1,79 @@
 import { useState, useEffect } from 'react';
-import { searchGolggTeams, simulateMatchup } from '../api/client';
+import { fetchActiveTeams, simulateMatchup } from '../api/client';
 import type { MatchupSimulationResponse } from '../types';
 import './MatchupSimulator.css';
 
+interface TeamOption {
+  name: string;
+  rating: number | null;
+  games?: number;
+  last_active?: string;
+}
+
+const DEFAULT_CURRENT_TEAMS: TeamOption[] = [
+  { name: 'T1', rating: 1890 },
+  { name: 'Gen.G', rating: 1915 },
+  { name: 'Bilibili Gaming', rating: 1880 },
+  { name: 'Hanwha Life Esports', rating: 1870 },
+  { name: 'Top Esports', rating: 1840 },
+  { name: 'G2 Esports', rating: 1760 },
+  { name: 'Fnatic', rating: 1710 },
+  { name: 'FlyQuest', rating: 1730 },
+  { name: 'Team Liquid', rating: 1705 },
+  { name: 'Cloud9', rating: 1690 },
+  { name: 'Weibo Gaming', rating: 1810 },
+  { name: 'Dplus KIA', rating: 1800 },
+  { name: 'JD Gaming', rating: 1790 },
+  { name: 'KT Rolster', rating: 1750 },
+  { name: 'Kwangdong Freecs', rating: 1670 },
+  { name: 'Nongshim RedForce', rating: 1640 },
+  { name: 'FearX', rating: 1650 },
+];
+
 export default function MatchupSimulator() {
+  const [activeTeams, setActiveTeams] = useState<TeamOption[]>(DEFAULT_CURRENT_TEAMS);
   const [teamA, setTeamA] = useState('T1');
   const [teamB, setTeamB] = useState('Gen.G');
   const [bestOf, setBestOf] = useState<number>(3);
-  const [league, setLeague] = useState('LCK');
-
-  const [candidatesA, setCandidatesA] = useState<string[]>([]);
-  const [candidatesB, setCandidatesB] = useState<string[]>([]);
-  const [searchingA, setSearchingA] = useState(false);
-  const [searchingB, setSearchingB] = useState(false);
+  const [loadingTeams, setLoadingTeams] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<MatchupSimulationResponse | null>(null);
 
-  // Search autocomplete for Team A
+  // Load active current teams on mount
   useEffect(() => {
-    if (!teamA.trim() || teamA.length < 2) {
-      setCandidatesA([]);
+    setLoadingTeams(true);
+    fetchActiveTeams()
+      .then((res) => {
+        if (res?.teams?.length) {
+          setActiveTeams(res.teams);
+        }
+      })
+      .catch(() => {
+        // Fallback to DEFAULT_CURRENT_TEAMS
+      })
+      .finally(() => {
+        setLoadingTeams(false);
+      });
+  }, []);
+
+  const handleSimulate = async (nameA = teamA, nameB = teamB, bo = bestOf) => {
+    if (!nameA.trim() || !nameB.trim()) {
+      setError('Wybierz obie drużyny.');
       return;
     }
-    const timer = setTimeout(async () => {
-      setSearchingA(true);
-      try {
-        const res = await searchGolggTeams(teamA, 6);
-        setCandidatesA(res.teams);
-      } catch {
-        setCandidatesA([]);
-      } finally {
-        setSearchingA(false);
-      }
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [teamA]);
-
-  // Search autocomplete for Team B
-  useEffect(() => {
-    if (!teamB.trim() || teamB.length < 2) {
-      setCandidatesB([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setSearchingB(true);
-      try {
-        const res = await searchGolggTeams(teamB, 6);
-        setCandidatesB(res.teams);
-      } catch {
-        setCandidatesB([]);
-      } finally {
-        setSearchingB(false);
-      }
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [teamB]);
-
-  const handleSimulate = async () => {
-    if (!teamA.trim() || !teamB.trim()) {
-      setError('Wybierz obie drużyny do porównania.');
+    if (nameA === nameB) {
+      setError('Wybierz dwie różne drużyny do zestawienia.');
       return;
     }
     setLoading(true);
     setError(null);
     try {
       const data = await simulateMatchup({
-        team_a_name: teamA.trim(),
-        team_b_name: teamB.trim(),
-        best_of: bestOf,
-        league: league.trim() || undefined,
+        team_a_name: nameA,
+        team_b_name: nameB,
+        best_of: bo,
       });
       setResult(data);
     } catch (err: unknown) {
@@ -80,11 +83,17 @@ export default function MatchupSimulator() {
     }
   };
 
-  // Run on first render with defaults
+  // Run automatically when team A, team B or bestOf changes
   useEffect(() => {
-    handleSimulate();
+    handleSimulate(teamA, teamB, bestOf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [teamA, teamB, bestOf]);
+
+  const swapTeams = () => {
+    const temp = teamA;
+    setTeamA(teamB);
+    setTeamB(temp);
+  };
 
   return (
     <div className="matchup-page">
@@ -92,82 +101,68 @@ export default function MatchupSimulator() {
         <p className="eyebrow">Symulator starć bezpośrednich</p>
         <h1>Matchup Simulator (H2H)</h1>
         <p className="subtitle">
-          Zestaw ze sobą dwie dowolne drużyny (nawet z różnych lig lub reprezentacji), wybierz format serii i zobacz predykcję modelu oraz porównanie ratingów.
+          Wybierz aktywne drużyny z profesjonalnej sceny, ustaw format serii i sprawdź bezpośrednią predykcję modelu oraz zestawienie aktualnych składów 5v5.
         </p>
       </header>
 
       <section className="matchup-controls-card">
-        <div className="matchup-inputs-row">
-          <div className="team-input-block">
-            <label htmlFor="team-a-input">Drużyna A (Niebieska / Gospodarz)</label>
-            <input
-              id="team-a-input"
-              type="text"
-              value={teamA}
-              onChange={(e) => setTeamA(e.target.value)}
-              placeholder="np. T1, Gen.G, Fnatic..."
-            />
-            {searchingA && <small className="searching-hint">Szukanie w GOL.GG...</small>}
-            {candidatesA.length > 0 && (
-              <div className="candidates-list">
-                {candidatesA.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className="candidate-item"
-                    onClick={() => {
-                      setTeamA(name);
-                      setCandidatesA([]);
-                    }}
-                  >
-                    {name}
-                  </button>
+        <div className="matchup-dropdowns-row">
+          <div className="team-select-container">
+            <label htmlFor="select-team-a">Drużyna A (Niebieska / Gospodarz)</label>
+            <div className="select-wrapper">
+              <select
+                id="select-team-a"
+                value={teamA}
+                onChange={(e) => setTeamA(e.target.value)}
+                disabled={loadingTeams}
+              >
+                {activeTeams.map((t) => (
+                  <option key={`a-${t.name}`} value={t.name}>
+                    {t.name} {t.rating ? `(Glicko ${Math.round(t.rating)})` : ''}
+                  </option>
                 ))}
-              </div>
-            )}
+              </select>
+            </div>
           </div>
 
-          <div className="versus-badge">VS</div>
+          <button
+            type="button"
+            className="swap-teams-btn"
+            onClick={swapTeams}
+            title="Zamień strony"
+            aria-label="Zamień strony"
+          >
+            ⇄
+          </button>
 
-          <div className="team-input-block">
-            <label htmlFor="team-b-input">Drużyna B (Czerwona / Gość)</label>
-            <input
-              id="team-b-input"
-              type="text"
-              value={teamB}
-              onChange={(e) => setTeamB(e.target.value)}
-              placeholder="np. Bilibili Gaming, Cloud9..."
-            />
-            {searchingB && <small className="searching-hint">Szukanie w GOL.GG...</small>}
-            {candidatesB.length > 0 && (
-              <div className="candidates-list">
-                {candidatesB.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className="candidate-item"
-                    onClick={() => {
-                      setTeamB(name);
-                      setCandidatesB([]);
-                    }}
-                  >
-                    {name}
-                  </button>
+          <div className="team-select-container">
+            <label htmlFor="select-team-b">Drużyna B (Czerwona / Gość)</label>
+            <div className="select-wrapper">
+              <select
+                id="select-team-b"
+                value={teamB}
+                onChange={(e) => setTeamB(e.target.value)}
+                disabled={loadingTeams}
+              >
+                {activeTeams.map((t) => (
+                  <option key={`b-${t.name}`} value={t.name}>
+                    {t.name} {t.rating ? `(Glicko ${Math.round(t.rating)})` : ''}
+                  </option>
                 ))}
-              </div>
-            )}
+              </select>
+            </div>
           </div>
         </div>
 
-        <div className="matchup-options-row">
-          <div className="option-item">
-            <span>Format serii:</span>
-            <div className="bo-selector">
+        <div className="matchup-options-bar">
+          <div className="format-selection-group">
+            <span className="label">Format serii:</span>
+            <div className="bo-pills">
               {[1, 3, 5, 7].map((b) => (
                 <button
                   key={b}
                   type="button"
-                  className={bestOf === b ? 'active' : ''}
+                  className={`pill-btn ${bestOf === b ? 'active' : ''}`}
                   onClick={() => setBestOf(b)}
                 >
                   Bo{b}
@@ -176,129 +171,151 @@ export default function MatchupSimulator() {
             </div>
           </div>
 
-          <div className="option-item">
-            <label htmlFor="league-context">Kontekst ligi:</label>
-            <input
-              id="league-context"
-              type="text"
-              value={league}
-              onChange={(e) => setLeague(e.target.value)}
-              placeholder="np. LCK, Worlds, MSI..."
-            />
+          <div className="quick-info">
+            {loading ? (
+              <span className="status-loading">⏳ Obliczanie predykcji...</span>
+            ) : (
+              <span className="status-ready">Model: Operational-PlayerTeamRatings-W20 v0.4</span>
+            )}
           </div>
-
-          <button
-            type="button"
-            className={`simulate-btn ${loading ? 'loading' : ''}`}
-            onClick={handleSimulate}
-            disabled={loading}
-          >
-            {loading ? '⏳ Symulacja...' : '⚡ Porównaj drużyny'}
-          </button>
         </div>
 
         {error && <div className="matchup-error">{error}</div>}
       </section>
 
       {result && (
-        <section className="matchup-results-section">
+        <section className="matchup-view-section">
           {/* Main probability banner */}
-          <div className="probability-hero-card">
-            <div className="hero-side left">
+          <div className="matchup-hero-card">
+            <div className="team-hero-box left">
+              <span className="side-indicator">Niebiescy (Blue)</span>
               <h2>{result.team_a_name}</h2>
-              <span className="series-prob">{(result.series_prob_a * 100).toFixed(1)}%</span>
-              <small className="map-prob">Pojedyncza mapa: {(result.map_prob_a * 100).toFixed(1)}%</small>
+              <div className="prob-big">{(result.series_prob_a * 100).toFixed(1)}%</div>
+              <div className="prob-sub">Pojedyncza mapa: {(result.map_prob_a * 100).toFixed(1)}%</div>
             </div>
 
-            <div className="hero-center">
-              <span className="format-badge">Bo{result.best_of}</span>
-              <div className="prob-bar-track">
+            <div className="vs-center-col">
+              <div className="series-pill">Seria Bo{result.best_of}</div>
+              <div className="h2h-bar">
                 <div
-                  className="prob-bar-fill-a"
+                  className="bar-fill-a"
                   style={{ width: `${result.series_prob_a * 100}%` }}
                 />
               </div>
-              <small className="model-tag">
-                {result.model_name} <span className="version">({result.model_version})</span>
-              </small>
+              <span className="binomial-formula-hint">Rzutowanie dwumianowe (Binomial Tail)</span>
             </div>
 
-            <div className="hero-side right">
+            <div className="team-hero-box right">
+              <span className="side-indicator">Czerwoni (Red)</span>
               <h2>{result.team_b_name}</h2>
-              <span className="series-prob">{(result.series_prob_b * 100).toFixed(1)}%</span>
-              <small className="map-prob">Pojedyncza mapa: {(result.map_prob_b * 100).toFixed(1)}%</small>
+              <div className="prob-big red">{(result.series_prob_b * 100).toFixed(1)}%</div>
+              <div className="prob-sub">Pojedyncza mapa: {(result.map_prob_b * 100).toFixed(1)}%</div>
             </div>
           </div>
 
-          {/* Model components breakdown */}
-          <div className="components-summary-card">
-            <h3>Wagi składowe predykcji</h3>
-            <div className="components-grid">
-              <div className="comp-box">
-                <span className="comp-label">Gracze (Consensus 70%)</span>
-                <strong className="comp-val">
-                  {typeof result.components.player_rating_consensus === 'number'
-                    ? `${(result.components.player_rating_consensus * 100).toFixed(1)}%`
-                    : '— (brak składu)'}
-                </strong>
-              </div>
-              <div className="comp-box">
-                <span className="comp-label">Zespoły (Consensus 20%)</span>
-                <strong className="comp-val">
-                  {typeof result.components.team_rating_consensus === 'number'
-                    ? `${(result.components.team_rating_consensus * 100).toFixed(1)}%`
-                    : '— (brak historii)'}
-                </strong>
-              </div>
-              <div className="comp-box">
-                <span className="comp-label">Forma W20 (10%)</span>
-                <strong className="comp-val">
-                  {typeof result.components.w20_probability === 'number'
-                    ? `${(result.components.w20_probability * 100).toFixed(1)}%`
-                    : '— (brak W20)'}
-                </strong>
-              </div>
+          {/* Model Weights Breakdown */}
+          <div className="breakdown-cards-row">
+            <div className="breakdown-card">
+              <span className="bd-title">Ratingi zawodników (70%)</span>
+              <strong className="bd-metric">
+                {typeof result.components.player_rating_consensus === 'number'
+                  ? `${(result.components.player_rating_consensus * 100).toFixed(1)}%`
+                  : '50.0%'}
+              </strong>
+              <small className="bd-desc">Średnia siła 5 graczy z Glicko-2</small>
+            </div>
+            <div className="breakdown-card">
+              <span className="bd-title">Ratingi zespołowe (20%)</span>
+              <strong className="bd-metric">
+                {typeof result.components.team_rating_consensus === 'number'
+                  ? `${(result.components.team_rating_consensus * 100).toFixed(1)}%`
+                  : '50.0%'}
+              </strong>
+              <small className="bd-desc">Stabilność organizacji i synergia</small>
+            </div>
+            <div className="breakdown-card">
+              <span className="bd-title">Forma W20 (10%)</span>
+              <strong className="bd-metric">
+                {typeof result.components.w20_probability === 'number'
+                  ? `${(result.components.w20_probability * 100).toFixed(1)}%`
+                  : '50.0%'}
+              </strong>
+              <small className="bd-desc">Kroczące statystyki z ostatnich 20 gier</small>
             </div>
           </div>
 
-          {/* Detailed Team & Player Rosters */}
-          <div className="rosters-comparison-grid">
-            <div className="roster-panel">
-              <h3>Skład {result.team_a_name}</h3>
-              {result.roster_a?.players?.length ? (
-                <ul className="roster-list">
-                  {result.roster_a.players.map((p, idx) => (
-                    <li key={idx} className="player-row">
-                      <span className="role-tag">{p.role || '—'}</span>
-                      <strong className="player-name">{p.player_name || 'Nieznany'}</strong>
-                      <span className="rating-tag">
-                        Glicko {p.glicko_rating ? Math.round(p.glicko_rating) : '—'}
+          {/* Rosters comparison - PROMINENT 5v5 VIEW */}
+          <div className="rosters-comparison-container">
+            <div className="roster-block">
+              <div className="roster-header">
+                <div>
+                  <h3>Skład {result.team_a_name}</h3>
+                  <p className="roster-meta">
+                    Średni Glicko: <strong>{result.roster_a?.avg_glicko ? Math.round(result.roster_a.avg_glicko) : '—'}</strong>
+                    {result.roster_a?.avg_glicko_rd ? ` (RD ±${Math.round(result.roster_a.avg_glicko_rd)})` : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="roster-table">
+                <div className="roster-row-header">
+                  <span>Rola</span>
+                  <span>Zawodnik</span>
+                  <span className="text-right">Glicko</span>
+                  <span className="text-right">Pewność (RD)</span>
+                </div>
+                {result.roster_a?.players?.length ? (
+                  result.roster_a.players.map((player, idx) => (
+                    <div className="roster-row" key={`ra-${idx}`}>
+                      <span className={`role-badge ${player.role?.toLowerCase()}`}>{player.role || '—'}</span>
+                      <span className="player-title">{player.player_name || 'Nieznany'}</span>
+                      <span className="player-rating text-right">
+                        {player.glicko_rating ? Math.round(player.glicko_rating) : '—'}
                       </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="empty-hint">Brak zapisanego rosteru w bazie GOL.GG</p>
-              )}
+                      <span className="player-rd text-right">
+                        {player.glicko_rd ? `±${Math.round(player.glicko_rd)}` : '—'}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="no-roster-msg">Brak zapisanego składu w bazie</div>
+                )}
+              </div>
             </div>
 
-            <div className="roster-panel">
-              <h3>Skład {result.team_b_name}</h3>
-              {result.roster_b?.players?.length ? (
-                <ul className="roster-list">
-                  {result.roster_b.players.map((p, idx) => (
-                    <li key={idx} className="player-row">
-                      <span className="role-tag">{p.role || '—'}</span>
-                      <strong className="player-name">{p.player_name || 'Nieznany'}</strong>
-                      <span className="rating-tag">
-                        Glicko {p.glicko_rating ? Math.round(p.glicko_rating) : '—'}
+            <div className="roster-block">
+              <div className="roster-header">
+                <div>
+                  <h3>Skład {result.team_b_name}</h3>
+                  <p className="roster-meta">
+                    Średni Glicko: <strong>{result.roster_b?.avg_glicko ? Math.round(result.roster_b.avg_glicko) : '—'}</strong>
+                    {result.roster_b?.avg_glicko_rd ? ` (RD ±${Math.round(result.roster_b.avg_glicko_rd)})` : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="roster-table">
+                <div className="roster-row-header">
+                  <span>Rola</span>
+                  <span>Zawodnik</span>
+                  <span className="text-right">Glicko</span>
+                  <span className="text-right">Pewność (RD)</span>
+                </div>
+                {result.roster_b?.players?.length ? (
+                  result.roster_b.players.map((player, idx) => (
+                    <div className="roster-row" key={`rb-${idx}`}>
+                      <span className={`role-badge ${player.role?.toLowerCase()}`}>{player.role || '—'}</span>
+                      <span className="player-title">{player.player_name || 'Nieznany'}</span>
+                      <span className="player-rating text-right">
+                        {player.glicko_rating ? Math.round(player.glicko_rating) : '—'}
                       </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="empty-hint">Brak zapisanego rosteru w bazie GOL.GG</p>
-              )}
+                      <span className="player-rd text-right">
+                        {player.glicko_rd ? `±${Math.round(player.glicko_rd)}` : '—'}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="no-roster-msg">Brak zapisanego składu w bazie</div>
+                )}
+              </div>
             </div>
           </div>
         </section>

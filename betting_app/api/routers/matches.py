@@ -1145,6 +1145,56 @@ def delete_alias_endpoint(body: AliasDeleteRequest, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail="No manual alias found for that team")
     return {"ok": True, "deleted": True}
 
+# ── GET /matches/active-teams — list current active teams with rosters ────────
+
+
+@router.get("/active-teams")
+def get_active_teams(db=Depends(get_db)):
+    """Return a curated list of active professional teams with recent matches."""
+    from betting_app.services.rating_contract import OPERATIONAL_RATINGS_VERSION
+
+    # Load teams with recent activity from entity_ratings
+    rows = query_df(
+        db,
+        """
+        SELECT entity_name, normalized_entity_name, rating_value, games_played, last_match_at
+        FROM entity_ratings
+        WHERE ratings_version = :version
+          AND entity_type = 'team'
+          AND rating_system = 'gl'
+          AND games_played >= 5
+          AND last_match_at IS NOT NULL
+          AND SUBSTR(last_match_at, 1, 4) >= '2024'
+        ORDER BY rating_value DESC
+        LIMIT 150
+        """,
+        {"version": OPERATIONAL_RATINGS_VERSION},
+    )
+    if rows.empty:
+        # Fallback to golgg_teams if entity_ratings is empty in dev
+        fallback_rows = query_df(
+            db,
+            """
+            SELECT team_name AS entity_name, 1500.0 AS rating_value
+            FROM golgg_teams
+            LIMIT 100
+            """
+        )
+        teams = [{"name": str(r["entity_name"]), "rating": round(float(r["rating_value"]), 0)} for r in fallback_rows.to_dict("records")]
+        return {"teams": teams}
+
+    teams = [
+        {
+            "name": str(r["entity_name"]),
+            "rating": round(float(r["rating_value"]), 0) if r.get("rating_value") is not None else None,
+            "games": int(r.get("games_played", 0)),
+            "last_active": str(r.get("last_match_at") or "")[:10],
+        }
+        for r in rows.to_dict("records")
+    ]
+    return {"teams": teams}
+
+
 # ── POST /matches/matchup — custom team vs team simulation ──────────────────
 
 

@@ -275,6 +275,14 @@ export async function simulateMatchup(payload: {
   return response.json();
 }
 
+export async function fetchActiveTeams(): Promise<{ teams: Array<{ name: string; rating: number | null; games?: number; last_active?: string }> }> {
+  const response = await fetch(`${API_BASE}/matches/active-teams`);
+  if (!response.ok) {
+    throw new Error(`Nie udało się pobrać listy aktywnych drużyn: ${response.statusText}`);
+  }
+  return response.json();
+}
+
 // ─── Prediction History ──────────────────────────────────────
 
 export async function fetchPredictionHistory(matchId: number): Promise<PredictionHistoryPoint[]> {
