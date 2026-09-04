@@ -562,12 +562,56 @@
   white-space: nowrap;
 }
 
-.worlds-team-slot .team-text-input {
+.worlds-suggestion-container {
   min-width: 0;
+  position: relative;
+}
+
+.worlds-suggestion-container .team-text-input {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
   background: #1e293b;
   border: 1px solid #334155;
   border-radius: 4px;
   padding: 0.45rem 0.5rem;
+}
+
+.worlds-suggestion-menu {
+  background: #0f172a;
+  border: 1px solid #38bdf8;
+  border-radius: 4px;
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.35);
+  left: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.2rem);
+  z-index: 10;
+}
+
+.worlds-suggestion-option {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #e2e8f0;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.78rem;
+  justify-content: space-between;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  width: 100%;
+}
+
+.worlds-suggestion-option:hover {
+  background: #1e3a5f;
+}
+
+.worlds-suggestion-option small {
+  color: #94a3b8;
+  margin-left: 0.5rem;
 }
 
 .worlds-select {

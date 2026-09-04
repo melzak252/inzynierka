@@ -60,6 +60,10 @@ export default function TournamentSimulation() {
   const [worldsSimulating, setWorldsSimulating] = useState<boolean>(false);
   const [activeTeams, setActiveTeams] = useState<Array<{ name: string; rating: number | null }>>([]);
   const [teamSuggestionError, setTeamSuggestionError] = useState<string | null>(null);
+  const [activeSuggestionSlot, setActiveSuggestionSlot] = useState<{
+    stage: 'direct' | 'playIn';
+    index: number;
+  } | null>(null);
 
   useEffect(() => {
     fetchTournaments()
@@ -156,6 +160,24 @@ export default function TournamentSimulation() {
       setPlayInWorldsTeams(updateTeams);
     }
     setWorldsData(null);
+  };
+
+  const activeSuggestionValue = activeSuggestionSlot
+    ? (activeSuggestionSlot.stage === 'direct'
+      ? directWorldsTeams[activeSuggestionSlot.index].team
+      : playInWorldsTeams[activeSuggestionSlot.index].team)
+    : '';
+  const visibleTeamSuggestions = activeTeams
+    .filter((team) => team.name.toLocaleLowerCase().includes(activeSuggestionValue.toLocaleLowerCase()))
+    .slice(0, 8);
+
+  const handleSelectSuggestedTeam = (
+    stage: 'direct' | 'playIn',
+    index: number,
+    teamName: string,
+  ) => {
+    handleUpdateWorldsTeam(stage, index, teamName);
+    setActiveSuggestionSlot(null);
   };
 
   const worldsReady = [
@@ -421,15 +443,43 @@ export default function TournamentSimulation() {
                     team.pool === pool && (
                       <div key={index} className="worlds-team-slot">
                         <span className="worlds-slot-label">{DIRECT_SLOT_LABELS[index]}</span>
-                        <input
-                          type="text"
-                          value={team.team}
-                          onChange={(event) => handleUpdateWorldsTeam('direct', index, event.target.value)}
-                          className="team-text-input"
-                          placeholder={`Wybierz ${DIRECT_SLOT_LABELS[index]}`}
-                          aria-label={`Drużyna Swiss ${index + 1}`}
-                          list="worlds-active-team-suggestions"
-                        />
+                        <div className="worlds-suggestion-container">
+                          <input
+                            type="text"
+                            value={team.team}
+                            onChange={(event) => handleUpdateWorldsTeam('direct', index, event.target.value)}
+                            onFocus={() => setActiveSuggestionSlot({ stage: 'direct', index })}
+                            onBlur={() => {
+                              window.setTimeout(() => {
+                                setActiveSuggestionSlot((current) => (
+                                  current?.stage === 'direct' && current.index === index ? null : current
+                                ));
+                              }, 150);
+                            }}
+                            className="team-text-input"
+                            placeholder={`Wybierz ${DIRECT_SLOT_LABELS[index]}`}
+                            aria-label={`Drużyna Swiss ${index + 1}`}
+                            autoComplete="off"
+                          />
+                          {activeSuggestionSlot?.stage === 'direct'
+                            && activeSuggestionSlot.index === index
+                            && visibleTeamSuggestions.length > 0 && (
+                              <div className="worlds-suggestion-menu" role="listbox">
+                                {visibleTeamSuggestions.map((suggestion) => (
+                                  <button
+                                    key={suggestion.name}
+                                    type="button"
+                                    className="worlds-suggestion-option"
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => handleSelectSuggestedTeam('direct', index, suggestion.name)}
+                                  >
+                                    <span>{suggestion.name}</span>
+                                    {suggestion.rating !== null && <small>GL {Math.round(suggestion.rating)}</small>}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                        </div>
                       </div>
                     )
                   ))}
@@ -445,15 +495,43 @@ export default function TournamentSimulation() {
               {playInWorldsTeams.map((team, index) => (
                 <div key={index} className="worlds-team-slot">
                   <span className="worlds-slot-label">{PLAY_IN_SLOT_LABELS[index]}</span>
-                  <input
-                    type="text"
-                    value={team.team}
-                    onChange={(event) => handleUpdateWorldsTeam('playIn', index, event.target.value)}
-                    className="team-text-input"
-                    placeholder={`Wybierz ${PLAY_IN_SLOT_LABELS[index]}`}
-                    aria-label={`Drużyna Play-In ${index + 1}`}
-                    list="worlds-active-team-suggestions"
-                  />
+                  <div className="worlds-suggestion-container">
+                    <input
+                      type="text"
+                      value={team.team}
+                      onChange={(event) => handleUpdateWorldsTeam('playIn', index, event.target.value)}
+                      onFocus={() => setActiveSuggestionSlot({ stage: 'playIn', index })}
+                      onBlur={() => {
+                        window.setTimeout(() => {
+                          setActiveSuggestionSlot((current) => (
+                            current?.stage === 'playIn' && current.index === index ? null : current
+                          ));
+                        }, 150);
+                      }}
+                      className="team-text-input"
+                      placeholder={`Wybierz ${PLAY_IN_SLOT_LABELS[index]}`}
+                      aria-label={`Drużyna Play-In ${index + 1}`}
+                      autoComplete="off"
+                    />
+                    {activeSuggestionSlot?.stage === 'playIn'
+                      && activeSuggestionSlot.index === index
+                      && visibleTeamSuggestions.length > 0 && (
+                        <div className="worlds-suggestion-menu" role="listbox">
+                          {visibleTeamSuggestions.map((suggestion) => (
+                            <button
+                              key={suggestion.name}
+                              type="button"
+                              className="worlds-suggestion-option"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => handleSelectSuggestedTeam('playIn', index, suggestion.name)}
+                            >
+                              <span>{suggestion.name}</span>
+                              {suggestion.rating !== null && <small>GL {Math.round(suggestion.rating)}</small>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -465,13 +543,6 @@ export default function TournamentSimulation() {
             >
               Źródło slotów: Leaguepedia / Fandom — Worlds 2026
             </a>
-            <datalist id="worlds-active-team-suggestions">
-              {activeTeams.map((team) => (
-                <option key={team.name} value={team.name}>
-                  {team.rating !== null ? `GL ${Math.round(team.rating)}` : ''}
-                </option>
-              ))}
-            </datalist>
             {activeTeams.length > 0 && (
               <p className="worlds-suggestion-note">
                 Podpowiedzi: {activeTeams.length} aktualnych drużyn z operacyjnego rankingu GL.
