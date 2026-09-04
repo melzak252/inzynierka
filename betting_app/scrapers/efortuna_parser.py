@@ -51,8 +51,7 @@ ODD_RE = re.compile(r"^\d+[,.]\d{2}$")
 # -4.5 → under 4.5 maps → Bo5 (3, 4, or 5 maps possible)
 # -0.5 or 0.5 → Bo1 (exactly 1 map)
 LICZBA_MAP_RE = re.compile(r"liczba\s+map", re.IGNORECASE)
-MAP_LINE_RE = re.compile(r"^([+-]?\d+[,.]\d+)$")
-
+MAP_LINE_RE = re.compile(r"^[+-]?\s*(\d+[,.]\d+)$")
 
 def _infer_best_from_map_line(line_value: str) -> int | None:
     """Infer best_of from an over/under map total line.
@@ -63,7 +62,8 @@ def _infer_best_from_map_line(line_value: str) -> int | None:
     - Line ≤ 4.5 → Bo5 (3-5 maps possible)
     """
     try:
-        val = abs(float(line_value.replace(",", ".")))
+        clean = line_value.replace(" ", "").replace(",", ".")
+        val = abs(float(clean))
     except ValueError:
         return None
     if val <= 1.5:

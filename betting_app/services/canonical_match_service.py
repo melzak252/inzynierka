@@ -104,7 +104,6 @@ _BO3_LEAGUE_PATTERNS: list[str] = [
     "lpl",
     "lec",
     "lck challengers",
-    "lck road to msi",
     "cblo",
     "ljl",
     "lcs na",
@@ -116,11 +115,23 @@ _BO3_LEAGUE_PATTERNS: list[str] = [
 
 # Leagues whose names contain a Bo3 pattern substring but are actually Bo1.
 _BO1_OVERRIDE_PATTERNS: list[str] = [
-    "lpol",   # LPLOL, Inygon / LPLOL
+    "lplol",  # LPLOL, Inygon / LPLOL
+    "lpol",
     "nacl",   # NACL (contains "lcs" substring via "na challengers league")
     "na challengers",
 ]
 
+# Explicit Bo5 stages and tournament qualifiers
+_BO5_LEAGUE_PATTERNS: list[str] = [
+    "playoffs",
+    "play-offs",
+    "play off",
+    "bracket",
+    "finals",
+    "semifinals",
+    "lck road to msi",
+    "regional qualifiers",
+]
 # Bo5 is only for playoffs / finals — we cannot reliably detect that from
 # the league name alone, so default regular-season Bo3 leagues to 3.
 # Everything else defaults to Bo1.
@@ -190,13 +201,19 @@ def infer_best_of(league: str | None) -> int:
     """Return the best-of value for a given league name.
 
     Uses substring matching so that variants like "Riot LoL / LCK" still
-    resolve correctly.  Bo1 overrides take precedence over Bo3 patterns
-    (e.g. LPLOL contains "lpl" but is Bo1).
+    resolve correctly.
+    Precedence:
+    1. Bo5 patterns (playoffs, finals, Road to MSI)
+    2. Bo1 overrides (e.g. LPLOL, NACL)
+    3. Bo3 leagues (LCK, LPL, LEC, etc.)
+    4. Default: 1 (Bo1)
     """
     if not league:
         return 1
     low = league.lower()
-    # Check Bo1 overrides first — they take precedence
+    for pattern in _BO5_LEAGUE_PATTERNS:
+        if pattern in low:
+            return 5
     for pattern in _BO1_OVERRIDE_PATTERNS:
         if pattern in low:
             return 1
@@ -483,9 +500,8 @@ def league_match_score(left: str | None, right: str | None) -> float:
     return similarity(left, right)
 
 
-def normalize_start_time(value: str | None) -> str | None:
+def normalize_start_time(value: str | None, *, now_utc: datetime | None = None) -> str | None:
     """Normalize bookmaker start labels to ISO-like UTC where possible."""
-
     if not value:
         return None
     raw = str(value).strip()
@@ -533,7 +549,7 @@ def normalize_start_time(value: str | None) -> str | None:
         re.IGNORECASE,
     )
     if match:
-        today = datetime.now(UTC).date()
+        today = (now_utc or datetime.now(UTC)).date()
         day_s, month_s, hour_s, minute_s = match.groups()
         month = polish_months.get(month_s.lower())
         if month:
@@ -544,7 +560,7 @@ def normalize_start_time(value: str | None) -> str | None:
             return candidate.isoformat()
     # Use UTC date so "dziś/dzisiaj" resolves correctly even when the
     # scraper runs after midnight in the local timezone (CEST/UTC+2).
-    today = datetime.now(UTC).date()
+    today = (now_utc or datetime.now(UTC)).date()
     rel = re.match(r"^(?:dzi[śs]|dzisiaj)\s+(\d{1,2}):(\d{2})$", raw, re.IGNORECASE)
     if rel:
         hour, minute = map(int, rel.groups())
