@@ -486,6 +486,7 @@ export interface EncSelectedPlayer {
   normalized_player_id: string;
   rating: number;
   games_played: number;
+  rating_source: 'gl' | 'default';
 }
 
 export interface EncTeamConfiguration {
@@ -495,7 +496,7 @@ export interface EncTeamConfiguration {
   source_roster: string[];
   selected_roster: EncSelectedPlayer[];
   missing_roles: string[];
-  selection_status: 'ready' | 'incomplete' | 'awaiting_announcement';
+  selection_status: 'ready' | 'incomplete' | 'defaulted';
   roster_rating: number | null;
 }
 
@@ -518,6 +519,8 @@ export interface EncConfigurationResponse {
   format: EncFormat;
   ratings_version: string | null;
   data_cutoff_at: string | null;
+  default_rating: number;
+  default_rating_policy: string;
   teams: EncTeamConfiguration[];
   simulation_ready: boolean;
   blocking_issues: string[];

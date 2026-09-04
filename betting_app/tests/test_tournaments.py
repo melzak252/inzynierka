@@ -86,13 +86,13 @@ def test_enc_selects_the_best_listed_polish_player_for_each_role() -> None:
     configuration = build_enc_configuration(
         rating_run={"ratings_version": "ratings-v2", "data_cutoff_at": "2026-09-03T00:00:00+00:00"},
         rating_rows=[
-            {"entity_name": "Tracyn", "normalized_entity_name": "tracyn", "role": "TOP", "rating_value": 1736.5, "games_played": 50},
-            {"entity_name": "Inspired", "normalized_entity_name": "inspired", "role": "JUNGLE", "rating_value": 2005.5, "games_played": 50},
-            {"entity_name": "Jankos", "normalized_entity_name": "jankos", "role": "JUNGLE", "rating_value": 1662.6, "games_played": 50},
-            {"entity_name": "Czajek", "normalized_entity_name": "czajek", "role": "MID", "rating_value": 1794.4, "games_played": 50},
-            {"entity_name": "Harpoon", "normalized_entity_name": "harpoon", "role": "ADC", "rating_value": 1977.1, "games_played": 50},
-            {"entity_name": "Busio", "normalized_entity_name": "busio", "role": "SUPPORT", "rating_value": 2056.9, "games_played": 50},
-            {"entity_name": "Trymbi", "normalized_entity_name": "trymbi", "role": "SUPPORT", "rating_value": 1824.8, "games_played": 50},
+            {"entity_name": "Tracyn", "normalized_entity_name": "tracyn", "role": "MID", "rating_value": 1736.5, "games_played": 50},
+            {"entity_name": "Inspired", "normalized_entity_name": "inspired", "role": "MID", "rating_value": 2005.5, "games_played": 50},
+            {"entity_name": "Jankos", "normalized_entity_name": "jankos", "role": "MID", "rating_value": 1662.6, "games_played": 50},
+            {"entity_name": "Czajek", "normalized_entity_name": "czajek", "role": "TOP", "rating_value": 1794.4, "games_played": 50},
+            {"entity_name": "Harpoon", "normalized_entity_name": "harpoon", "role": "TOP", "rating_value": 1977.1, "games_played": 50},
+            {"entity_name": "Busio", "normalized_entity_name": "busio", "role": "TOP", "rating_value": 2056.9, "games_played": 50},
+            {"entity_name": "Trymbi", "normalized_entity_name": "trymbi", "role": "TOP", "rating_value": 1824.8, "games_played": 50},
         ],
     )
     poland = next(team for team in configuration["teams"] if team["nation"] == "Poland")
@@ -105,6 +105,26 @@ def test_enc_selects_the_best_listed_polish_player_for_each_role() -> None:
         "ADC": "Harpoon",
         "SUPPORT": "Busio",
     }
+
+
+def test_enc_defaults_unrated_fandom_role_players_and_simulates() -> None:
+    configuration = build_enc_configuration(
+        rating_run={"ratings_version": "ratings-v2", "data_cutoff_at": "2026-09-03T00:00:00+00:00"},
+        rating_rows=[],
+    )
+    guatemala = next(team for team in configuration["teams"] if team["nation"] == "Guatemala")
+    solidarity = next(team for team in configuration["teams"] if team["nation"] == "Solidarity Slot")
+
+    assert configuration["simulation_ready"] is True
+    assert configuration["default_rating"] == 1750.0
+    assert len(configuration["teams"]) == 32
+    assert [player["player"] for player in guatemala["selected_roster"]] == [
+        "Putilt", "BlindWalker", "Piyey", "SunTiger", "Onier",
+    ]
+    assert all(player["rating"] == 1750.0 and player["rating_source"] == "default"
+               for player in guatemala["selected_roster"])
+    assert solidarity["selection_status"] == "defaulted"
+    assert EncSimulator.from_configuration(configuration).simulate(100)["simulations"] == 100
 
 
 def test_enc_simulator_uses_published_stage_sizes_and_series_lengths() -> None:

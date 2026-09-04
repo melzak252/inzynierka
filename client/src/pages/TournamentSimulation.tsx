@@ -682,13 +682,14 @@ export default function TournamentSimulation() {
       ) : (
         <div className="enc-layout">
           <section className="enc-rosters-panel">
-            <h2>ENC 2027 — najlepszy aktualnie oceniony skład na rolę</h2>
+            <h2>ENC 2027 — najwyższy aktualny GL w roli z Fandom</h2>
             {encLoading && <div className="empty-state"><p>Ładowanie składów i snapshotu GL...</p></div>}
             {encConfiguration && (
               <>
                 <p className="subtitle-sm">
-                  Każda rola wybiera najwyższy rating GL wyłącznie spośród publicznie ogłoszonej kadry danego kraju.
-                  Średnia pięciu ról jest wyłącznie wskaźnikiem siły kadry, nie predykcją modelu EXP-039.
+                  Każda rola wybiera najwyższy rating GL wyłącznie wśród zawodników przypisanych do niej w publicznej tabeli kadry Fandom.
+                  Zawodnik bez wpisu GL dostaje jawny rating domyślny {encConfiguration.default_rating.toFixed(1)}; średnia pięciu ról jest wskaźnikiem
+                  siły kadry, nie predykcją modelu EXP-039.
                 </p>
                 <div className="enc-format-grid">
                   <div><strong>Play-In</strong><span>{encConfiguration.format.play_in}</span></div>
@@ -697,9 +698,17 @@ export default function TournamentSimulation() {
                 </div>
                 {!encConfiguration.simulation_ready && (
                   <div className="enc-blocking-issues">
-                    <strong>Symulacja jest zablokowana — nie tworzymy zastępczych zawodników ani ratingów.</strong>
+                    <strong>Symulacja wymaga przypisania wszystkich pięciu ról.</strong>
                     <ul>{encConfiguration.blocking_issues.map((issue) => <li key={issue}>{issue}</li>)}</ul>
                   </div>
+                )}
+                {encConfiguration.teams.some((team) => (
+                  team.selected_roster.some((player) => player.rating_source === 'default')
+                )) && (
+                  <p className="enc-default-note">
+                    <strong>GL domyślny {encConfiguration.default_rating.toFixed(1)}:</strong> użyty wyłącznie tam, gdzie ogłoszony zawodnik nie ma
+                    aktualnego wpisu GL. Wiersze są oznaczone „domyślny”.
+                  </p>
                 )}
                 <a
                   className="worlds-source-link"
@@ -722,7 +731,10 @@ export default function TournamentSimulation() {
                         <div className="enc-player-row" key={player.role}>
                           <span>{player.role}</span>
                           <strong>{player.player}</strong>
-                          <small>GL {player.rating.toFixed(1)}</small>
+                          <small>
+                            GL {player.rating.toFixed(1)}
+                            {player.rating_source === 'default' ? ' · domyślny' : ''}
+                          </small>
                         </div>
                       ))}
                       {team.missing_roles.length > 0 && (
@@ -776,8 +788,8 @@ export default function TournamentSimulation() {
             ) : (
               <div className="empty-state">
                 <p>
-                  Po zamknięciu pełnych, zweryfikowanych składów symulator rozegra cztery grupy Play-In Bo1,
-                  cztery grupy główne Bo3 i puchar Bo3/Bo5 zgodnie z opublikowanym formatem.
+                  Uruchom symulację, aby rozegrać cztery grupy Play-In Bo1, cztery grupy główne Bo3 i puchar
+                  Bo3/Bo5 zgodnie z opublikowanym formatem.
                 </p>
               </div>
             )}

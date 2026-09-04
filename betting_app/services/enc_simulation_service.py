@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import random
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -11,11 +10,16 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from betting_app.core.db import get_session
-from betting_app.services.enc_rosters import ENC_PARTICIPANTS, ENC_ROSTER_SOURCE_URL
+from betting_app.services.enc_rosters import (
+    ENC_PARTICIPANTS,
+    ENC_PUBLISHED_ROLE_PLAYERS,
+    ENC_ROSTER_SOURCE_URL,
+)
 from betting_app.services.rating_contract import OPERATIONAL_RATINGS_VERSION
 from betting_app.services.upcoming_inference_service import series_probability
 
 STANDARD_ROLES = ("TOP", "JUNGLE", "MID", "ADC", "SUPPORT")
+DEFAULT_PLAYER_RATING = 1750.0
 
 # Leaguepedia names that resolve to more than one current player-rating entity.
 # These ids identify the player linked from the published national roster.
@@ -74,34 +78,49 @@ def _rating_snapshot(session: Session) -> tuple[dict[str, Any] | None, list[dict
 
 
 def _select_lineup(
-    source_players: Sequence[str],
+    nation: str,
     ratings_by_name: Mapping[str, list[dict[str, Any]]],
 ) -> tuple[list[dict[str, Any]], list[str]]:
-    candidates_by_role: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for player_name in source_players:
-        candidate_id = ROSTER_PLAYER_IDS.get(player_name)
-        for row in ratings_by_name.get(player_name.casefold(), []):
-            if candidate_id and str(row["normalized_entity_name"]) != candidate_id:
-                continue
-            if row.get("role") not in STANDARD_ROLES:
-                continue
-            candidates_by_role[str(row["role"])].append(row)
-
+    role_players = ENC_PUBLISHED_ROLE_PLAYERS.get(nation, {})
     selected: list[dict[str, Any]] = []
     missing_roles: list[str] = []
     for role in STANDARD_ROLES:
-        candidates = candidates_by_role.get(role, [])
-        if not candidates:
+        eligible_players = role_players.get(role, ())
+        if not eligible_players:
             missing_roles.append(role)
             continue
-        best = max(candidates, key=lambda item: float(item["rating_value"]))
+
+        candidates: list[dict[str, Any]] = []
+        for player_name in eligible_players:
+            candidate_id = ROSTER_PLAYER_IDS.get(player_name)
+            for row in ratings_by_name.get(player_name.casefold(), []):
+                if candidate_id and str(row["normalized_entity_name"]) != candidate_id:
+                    continue
+                candidates.append(dict(row))
+
+        if candidates:
+            best = max(candidates, key=lambda item: float(item["rating_value"]))
+            selected.append(
+                {
+                    "role": role,
+                    "player": best["entity_name"],
+                    "normalized_player_id": str(best["normalized_entity_name"]),
+                    "rating": round(float(best["rating_value"]), 1),
+                    "games_played": int(best.get("games_played") or 0),
+                    "rating_source": "gl",
+                }
+            )
+            continue
+
+        default_player = eligible_players[0]
         selected.append(
             {
                 "role": role,
-                "player": best["entity_name"],
-                "normalized_player_id": str(best["normalized_entity_name"]),
-                "rating": round(float(best["rating_value"]), 1),
-                "games_played": int(best.get("games_played") or 0),
+                "player": default_player,
+                "normalized_player_id": f"default:{nation.casefold()}:{role.casefold()}",
+                "rating": DEFAULT_PLAYER_RATING,
+                "games_played": 0,
+                "rating_source": "default",
             }
         )
     return selected, missing_roles
@@ -113,10 +132,10 @@ def build_enc_configuration(
     rating_run: Mapping[str, Any] | None = None,
     rating_rows: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Select the highest current GL-rated listed player for each standard role.
+    """Select the highest current GL rating in each Fandom-designated ENC role.
 
-    A missing player, rating, or role intentionally makes the nation ineligible.
-    No rating or player-position fallback is invented for a tournament result.
+    A published player with no current GL row receives the explicit 1750.0
+    default. The UI marks this separately from a stored rating.
     """
     if rating_rows is None:
         if session is None:
@@ -133,21 +152,23 @@ def build_enc_configuration(
             "format": enc_format(),
             "ratings_version": None,
             "data_cutoff_at": None,
+            "default_rating": DEFAULT_PLAYER_RATING,
+            "default_rating_policy": "Published player without a current GL row",
             "teams": [],
             "simulation_ready": False,
             "blocking_issues": ["Brak ukończonego snapshotu rankingów GL."],
         }
 
-    ratings_by_name: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    ratings_by_name: dict[str, list[dict[str, Any]]] = {}
     for row in rating_rows:
         name = str(row.get("entity_name") or "")
         if name:
-            ratings_by_name[name.casefold()].append(dict(row))
+            ratings_by_name.setdefault(name.casefold(), []).append(dict(row))
 
     teams: list[dict[str, Any]] = []
     incomplete_nations: list[str] = []
     for participant in ENC_PARTICIPANTS:
-        selected, missing_roles = _select_lineup(participant["players"], ratings_by_name)
+        selected, missing_roles = _select_lineup(participant["nation"], ratings_by_name)
         ready = not missing_roles
         if not ready:
             incomplete_nations.append(participant["nation"])
@@ -166,22 +187,33 @@ def build_enc_configuration(
             }
         )
 
+    default_solidarity_roster = [
+        {
+            "role": role,
+            "player": f"Solidarity Slot — {role}",
+            "normalized_player_id": f"default:solidarity:{role.casefold()}",
+            "rating": DEFAULT_PLAYER_RATING,
+            "games_played": 0,
+            "rating_source": "default",
+        }
+        for role in STANDARD_ROLES
+    ]
     teams.append(
         {
             "nation": "Solidarity Slot",
             "entry_stage": "play_in",
             "ranking": None,
             "source_roster": [],
-            "selected_roster": [],
-            "missing_roles": list(STANDARD_ROLES),
-            "selection_status": "awaiting_announcement",
-            "roster_rating": None,
+            "selected_roster": default_solidarity_roster,
+            "missing_roles": [],
+            "selection_status": "defaulted",
+            "roster_rating": DEFAULT_PLAYER_RATING,
         }
     )
-    issues = ["Solidarity Slot nie ma jeszcze ogłoszonego kraju ani składu w Leaguepedia/Fandom."]
+    issues: list[str] = []
     if incomplete_nations:
         issues.append(
-            "Brak pełnego składu pięciu ról w snapshotcie GL dla: "
+            "Brak przypisanej roli w ogłoszonej kadrze dla: "
             + ", ".join(incomplete_nations)
             + "."
         )
@@ -192,6 +224,8 @@ def build_enc_configuration(
         "format": enc_format(),
         "ratings_version": str(rating_run["ratings_version"]),
         "data_cutoff_at": str(rating_run["data_cutoff_at"]),
+        "default_rating": DEFAULT_PLAYER_RATING,
+        "default_rating_policy": "Published player without a current GL row",
         "teams": teams,
         "simulation_ready": not issues,
         "blocking_issues": issues,
