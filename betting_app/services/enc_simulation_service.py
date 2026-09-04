@@ -19,7 +19,7 @@ from betting_app.services.rating_contract import OPERATIONAL_RATINGS_VERSION
 from betting_app.services.upcoming_inference_service import series_probability
 
 STANDARD_ROLES = ("TOP", "JUNGLE", "MID", "ADC", "SUPPORT")
-DEFAULT_PLAYER_RATING = 1750.0
+DEFAULT_PLAYER_RATING = 1500.0
 
 # Leaguepedia names that resolve to more than one current player-rating entity.
 # These ids identify the player linked from the published national roster.
@@ -134,7 +134,7 @@ def build_enc_configuration(
 ) -> dict[str, Any]:
     """Select the highest current GL rating in each Fandom-designated ENC role.
 
-    A published player with no current GL row receives the explicit 1750.0
+    A published player with no current GL row receives the explicit 1500.0
     default. The UI marks this separately from a stored rating.
     """
     if rating_rows is None:

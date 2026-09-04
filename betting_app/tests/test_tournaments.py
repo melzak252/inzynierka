@@ -116,12 +116,12 @@ def test_enc_defaults_unrated_fandom_role_players_and_simulates() -> None:
     solidarity = next(team for team in configuration["teams"] if team["nation"] == "Solidarity Slot")
 
     assert configuration["simulation_ready"] is True
-    assert configuration["default_rating"] == 1750.0
+    assert configuration["default_rating"] == 1500.0
     assert len(configuration["teams"]) == 32
     assert [player["player"] for player in guatemala["selected_roster"]] == [
         "Putilt", "BlindWalker", "Piyey", "SunTiger", "Onier",
     ]
-    assert all(player["rating"] == 1750.0 and player["rating_source"] == "default"
+    assert all(player["rating"] == 1500.0 and player["rating_source"] == "default"
                for player in guatemala["selected_roster"])
     assert solidarity["selection_status"] == "defaulted"
     assert EncSimulator.from_configuration(configuration).simulate(100)["simulations"] == 100
