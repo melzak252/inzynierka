@@ -394,3 +394,38 @@ def test_regional_rebuild_materializes_one_cohort_for_all_public_systems(
     assert payload["contract_version"] == RATINGS_VERSION
     assert payload["public_systems"] == list(PUBLIC_SYSTEMS)
     assert payload["gl"]["engine"] == "family-calibrated-glicko2-v1"
+
+
+def test_regional_rebuild_deduplicates_renamed_team_across_every_system(
+    calibrated_db: None,
+) -> None:
+    _insert_history()
+    _insert_match(
+        match_id="300",
+        match_date="2024-03-01",
+        tournament="LCK 2024 Spring",
+        team_a=("kr-a-renamed", "Korea Alpha"),
+        team_b=("kr-b", "Korea Beta"),
+        roster_a=(("k1", "K One"), ("k2", "K Two")),
+        roster_b=(("k3", "K Three"), ("k4", "K Four")),
+        scores=(1, 1),
+    )
+
+    stats = rebuild_regional_ratings()
+
+    assert stats["entities"] == 12
+    assert stats["rows"] == 72
+    rows = _rating_rows(RATINGS_VERSION)
+    expected = {
+        (str(row["entity_type"]), str(row["normalized_entity_name"]))
+        for row in rows
+        if row["rating_system"] == "gl"
+    }
+    for system in PUBLIC_SYSTEMS:
+        current = [
+            (str(row["entity_type"]), str(row["normalized_entity_name"]))
+            for row in rows
+            if row["rating_system"] == system
+        ]
+        assert len(current) == len(expected)
+        assert set(current) == expected

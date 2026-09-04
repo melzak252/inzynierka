@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from datetime import date
 from typing import Any, Sequence
 
@@ -29,38 +30,60 @@ PUBLIC_SYSTEMS = ("elo", "gl", "ts", "os", "pl", "tm")
 def _raw_rows(
     *,
     manager: RatingManager,
+    engine: calibrated.FamilyCalibratedGlicko2,
     metadata: calibrated.RebuildMetadata,
     run_id: int,
     version: str,
     snapshot_at: str,
 ) -> list[tuple[Any, ...]]:
-    """Serialize non-Glicko systems against calibrated roster metadata."""
+    """Serialize raw systems for exactly the regional Glicko entity cohort."""
     rows: list[tuple[Any, ...]] = []
+    player_ids = set(engine.player_ids)
+    eligible_team_ids = {
+        team_id
+        for team_id, roster in metadata.team_rosters.items()
+        if any(player_id in player_ids for player_id in roster)
+    }
     for system_name in RAW_SYSTEMS:
         system = manager.systems[system_name]
-        for team_id, rating in sorted(system.team_ratings.items()):
-            team_key = str(team_id)
-            team_name = metadata.team_names[team_key]
-            rows.append(
-                raw.entity_rating_row(
-                    run_id,
-                    version,
-                    snapshot_at,
-                    "team",
-                    team_name,
-                    calibrated.normalize_team_name(team_name),
-                    team_name,
-                    None,
-                    system_name,
-                    rating,
-                    metadata.team_games[team_key],
-                    metadata.team_last_activity.get(team_key),
-                    {"team_id": team_key},
+        team_rows: dict[str, tuple[Any, ...]] = {}
+        team_priorities: dict[str, tuple[str, str]] = {}
+        for team_id in sorted(eligible_team_ids):
+            rating = system.team_ratings.get(team_id)
+            if rating is None:
+                raise RuntimeError(
+                    f"ratings-v2 {system_name} is missing team {team_id!r}"
                 )
+            team_name = metadata.team_names[team_id]
+            normalized_team_name = calibrated.normalize_team_name(team_name)
+            priority = (metadata.team_last_activity.get(team_id, ""), team_id)
+            if priority <= team_priorities.get(normalized_team_name, ("", "")):
+                continue
+            team_priorities[normalized_team_name] = priority
+            team_rows[normalized_team_name] = raw.entity_rating_row(
+                run_id,
+                version,
+                snapshot_at,
+                "team",
+                team_name,
+                normalized_team_name,
+                team_name,
+                None,
+                system_name,
+                rating,
+                metadata.team_games[team_id],
+                metadata.team_last_activity.get(team_id),
+                {"team_id": team_id},
             )
-        for player_id, rating in sorted(system.player_ratings.items()):
-            player_key = str(player_id)
-            team_id = metadata.player_team_ids.get(player_key)
+        rows.extend(team_rows[key] for key in sorted(team_rows))
+
+        for player_id in sorted(player_ids):
+            rating = system.player_ratings.get(player_id)
+            if rating is None:
+                raise RuntimeError(
+                    f"ratings-v2 {system_name} is missing player {player_id!r}"
+                )
+            team_id = metadata.player_team_ids.get(player_id)
             team_name = metadata.team_names.get(team_id, team_id) if team_id else None
             rows.append(
                 raw.entity_rating_row(
@@ -68,15 +91,15 @@ def _raw_rows(
                     version,
                     snapshot_at,
                     "player",
-                    metadata.player_names[player_key],
-                    player_key,
+                    metadata.player_names[player_id],
+                    player_id,
                     team_name,
-                    metadata.player_roles.get(player_key),
+                    metadata.player_roles.get(player_id),
                     system_name,
                     rating,
-                    metadata.player_games[player_key],
-                    metadata.player_last_activity.get(player_key),
-                    {"player_id": player_key},
+                    metadata.player_games[player_id],
+                    metadata.player_last_activity.get(player_id),
+                    {"player_id": player_id},
                 )
             )
     return rows
@@ -137,12 +160,22 @@ def _validate_rows(rows: Sequence[tuple[Any, ...]]) -> None:
             "ratings-v2 materialization has an invalid public system set: "
             f"{sorted(systems)!r}"
         )
-    identities = {(str(row[3]), str(row[5])) for row in rows if row[8] == "gl"}
+    expected = Counter(
+        (str(row[3]), str(row[5]))
+        for row in rows
+        if row[8] == "gl"
+    )
+    if not expected or any(count != 1 for count in expected.values()):
+        raise RuntimeError("ratings-v2 regional Glicko cohort contains duplicate identities")
     for system in RAW_SYSTEMS:
-        current = {(str(row[3]), str(row[5])) for row in rows if row[8] == system}
-        if current != identities:
+        current = Counter(
+            (str(row[3]), str(row[5]))
+            for row in rows
+            if row[8] == system
+        )
+        if current != expected:
             raise RuntimeError(
-                f"ratings-v2 {system} rows do not match the regional Glicko cohort"
+                f"ratings-v2 {system} rows do not exactly match the regional Glicko cohort"
             )
 
 
@@ -188,6 +221,7 @@ def rebuild_regional_ratings(
         rows.extend(
             _raw_rows(
                 manager=raw_manager,
+                engine=engine,
                 metadata=metadata,
                 run_id=start.run_id,
                 version=version,
