@@ -210,8 +210,9 @@ def build_features_for_match(
     min_mapping_confidence: float,
     team_a_roster_override: dict[str, Any] | None = None,
     team_b_roster_override: dict[str, Any] | None = None,
+    persist: bool = True,
 ) -> dict[str, Any]:
-    """Build one canonical match feature vector and upsert it."""
+    """Build one canonical match feature vector, persisting it when requested."""
 
     canonical_match_id = int(match["id"])
     team_a_raw = str(match.get("team_a_name") or "")
@@ -325,17 +326,18 @@ def build_features_for_match(
     }
     status = "ready_player" if not missing else "partial"
     data_cutoff_at = latest_data_cutoff(ratings_version, w20_version)
-    upsert_upcoming_features(
-        canonical_match_id=canonical_match_id,
-        feature_version=feature_version,
-        ratings_version=ratings_version,
-        data_cutoff_at=data_cutoff_at,
-        team_a_golgg_name=team_a_golgg,
-        team_b_golgg_name=team_b_golgg,
-        feature_status=status,
-        missing_reason=";".join(missing) if missing else None,
-        features=features,
-    )
+    if persist:
+        upsert_upcoming_features(
+            canonical_match_id=canonical_match_id,
+            feature_version=feature_version,
+            ratings_version=ratings_version,
+            data_cutoff_at=data_cutoff_at,
+            team_a_golgg_name=team_a_golgg,
+            team_b_golgg_name=team_b_golgg,
+            feature_status=status,
+            missing_reason=";".join(missing) if missing else None,
+            features=features,
+        )
     return {
         "canonical_match_id": canonical_match_id,
         "status": status,

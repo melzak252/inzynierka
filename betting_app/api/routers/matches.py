@@ -1231,6 +1231,7 @@ def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
         min_mapping_confidence=0.50,
         team_a_roster_override=body.team_a_roster_override,
         team_b_roster_override=body.team_b_roster_override,
+        persist=False,
     )
 
     features = feature_result.get("features") or {}
