@@ -7,8 +7,8 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from betting_app.services.tournament_service import (
+    SUPPORTED_BRACKETS,
     TournamentSimulator,
-    get_lck_2026_playoffs_bracket,
 )
 
 router = APIRouter(prefix="/tournaments", tags=["tournaments"])
@@ -22,25 +22,29 @@ class SimulateTournamentRequest(BaseModel):
 @router.get("")
 def list_tournaments() -> list[dict[str, Any]]:
     """Return available tournaments supported for bracket simulation."""
-    lck = get_lck_2026_playoffs_bracket()
-    return [
-        {
-            "id": lck.id,
-            "name": lck.name,
-            "region": lck.region,
-            "format": lck.format,
-            "teams": lck.teams,
-        }
-    ]
+    result = []
+    for fn in SUPPORTED_BRACKETS.values():
+        b = fn()
+        result.append(
+            {
+                "id": b.id,
+                "name": b.name,
+                "region": b.region,
+                "format": b.format,
+                "teams": b.teams,
+            }
+        )
+    return result
 
 
 @router.get("/{tournament_id}")
 def get_tournament_bracket(tournament_id: str) -> dict[str, Any]:
     """Return the current bracket state and default simulation results."""
-    if tournament_id != "lck_2026_playoffs":
+    builder = SUPPORTED_BRACKETS.get(tournament_id)
+    if not builder:
         raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
 
-    bracket = get_lck_2026_playoffs_bracket()
+    bracket = builder()
     simulator = TournamentSimulator()
     return simulator.simulate(bracket, n_simulations=5000)
 
@@ -48,10 +52,11 @@ def get_tournament_bracket(tournament_id: str) -> dict[str, Any]:
 @router.post("/{tournament_id}/simulate")
 def simulate_tournament(tournament_id: str, body: SimulateTournamentRequest) -> dict[str, Any]:
     """Run Monte Carlo simulation with optional what-if manual match winners."""
-    if tournament_id != "lck_2026_playoffs":
+    builder = SUPPORTED_BRACKETS.get(tournament_id)
+    if not builder:
         raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
 
-    bracket = get_lck_2026_playoffs_bracket()
+    bracket = builder()
     simulator = TournamentSimulator()
     n_sims = min(max(body.simulations, 100), 50000)
     return simulator.simulate(bracket, n_simulations=n_sims, manual_overrides=body.manual_overrides)

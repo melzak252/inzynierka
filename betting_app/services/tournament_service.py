@@ -44,101 +44,173 @@ class TournamentBracket:
 
 
 def get_lck_2026_playoffs_bracket() -> TournamentBracket:
-    """Construct the official 6-team LCK Double Elimination Playoff bracket tree."""
+    """Construct the official 6-team LCK Double Elimination Playoff bracket tree.
+
+    Live state as of Sept 4, 2026:
+      Upper R1:
+        - KT Rolster vs BNK FearX -> KT won
+        - Dplus vs T1 -> T1 won (or DK dropped)
+      Upper R2 (UB Semifinals):
+        - Gen.G (Seed 1) vs Hanwha Life Esports (Seed 2) (Upper Final slot on Sept 5)
+        - Dplus vs BNK FearX -> Dplus won 3:2 (BNK FearX eliminated)
+      Lower Bracket R2 (Sept 4):
+        - KT Rolster vs Dplus (Winner qualifies for Worlds and plays T1 on Sept 6)
+      Lower Bracket Semifinal (Sept 6):
+        - T1 vs Winner(KT Rolster vs Dplus)
+      Lower Bracket Final (Sept 12):
+        - Loser(Gen.G vs Hanwha) vs Winner(LB Semifinal)
+      Grand Final (Sept 13):
+        - Winner(Gen.G vs Hanwha) vs Winner(LB Final)
+    """
     teams = ["Gen.G", "Hanwha Life Esports", "T1", "KT Rolster", "Dplus", "BNK FearX"]
-    
+
     matches: dict[str, BracketMatchNode] = {
-        # Upper Round 1
-        "UB_R1_M1": BracketMatchNode(
-            id="UB_R1_M1",
-            name="Upper Round 1 - Match 1",
-            round_name="Upper Round 1",
-            bracket_section="upper",
-            best_of=5,
-            team1="KT Rolster",
-            team2="Dplus",
-            winner=None,  # In progress / upcoming
-            next_match_winner_id="UB_R2_M1",
-            next_match_winner_slot=2,
-            next_match_loser_id="LB_R1_M1",
-            next_match_loser_slot=1,
-        ),
-        "UB_R1_M2": BracketMatchNode(
-            id="UB_R1_M2",
-            name="Upper Round 1 - Match 2",
-            round_name="Upper Round 1",
-            bracket_section="upper",
-            best_of=5,
-            team1="T1",
-            team2="BNK FearX",
-            winner="T1",  # Completed 3:1
-            score1=3,
-            score2=1,
-            next_match_winner_id="UB_R2_M2",
-            next_match_winner_slot=2,
-            next_match_loser_id="LB_R1_M1",
-            next_match_loser_slot=2,
-        ),
-        # Upper Round 2 (Semifinals)
-        "UB_R2_M1": BracketMatchNode(
-            id="UB_R2_M1",
-            name="Upper Semifinal 1",
-            round_name="Upper Round 2",
-            bracket_section="upper",
-            best_of=5,
-            team1="Gen.G",
-            team2=None,  # Winner of UB_R1_M1
-            next_match_winner_id="UB_Final",
-            next_match_winner_slot=1,
-            next_match_loser_id="LB_R2_M1",
-            next_match_loser_slot=1,
-        ),
-        "UB_R2_M2": BracketMatchNode(
-            id="UB_R2_M2",
-            name="Upper Semifinal 2",
-            round_name="Upper Round 2",
-            bracket_section="upper",
-            best_of=5,
-            team1="Hanwha Life Esports",
-            team2="T1",
-            next_match_winner_id="UB_Final",
-            next_match_winner_slot=2,
-            next_match_loser_id="LB_R2_M2",
-            next_match_loser_slot=1,
-        ),
-        # Lower Round 1
-        "LB_R1_M1": BracketMatchNode(
-            id="LB_R1_M1",
-            name="Lower Round 1",
+        # Lower Bracket Round 1 (Completed)
+        "LB_R1": BracketMatchNode(
+            id="LB_R1",
+            name="Lower Bracket Round 1",
             round_name="Lower Round 1",
             bracket_section="lower",
             best_of=5,
-            team1=None,  # Loser of UB_R1_M1
-            team2="BNK FearX",  # Loser of UB_R1_M2
-            next_match_winner_id="LB_R2_M2",
+            team1="Dplus",
+            team2="BNK FearX",
+            winner="Dplus",  # Completed 3:2 reverse sweep, BNK FearX eliminated
+            score1=3,
+            score2=2,
+            next_match_winner_id="LB_R2",
             next_match_winner_slot=2,
         ),
-        # Lower Round 2 (Quarterfinals)
-        "LB_R2_M1": BracketMatchNode(
-            id="LB_R2_M1",
-            name="Lower Round 2 - Match 1",
+        # Upper Final / Upper Semifinal (Sept 5)
+        "UB_Final": BracketMatchNode(
+            id="UB_Final",
+            name="Upper Bracket Final",
+            round_name="Upper Final",
+            bracket_section="upper",
+            best_of=5,
+            team1="Gen.G",
+            team2="Hanwha Life Esports",
+            winner=None,
+            next_match_winner_id="Grand_Final",
+            next_match_winner_slot=1,
+            next_match_loser_id="LB_Final",
+            next_match_loser_slot=1,
+        ),
+        # Lower Bracket Round 2 (Sept 4 - Today)
+        "LB_R2": BracketMatchNode(
+            id="LB_R2",
+            name="Lower Bracket Round 2 (Worlds Decider)",
             round_name="Lower Round 2",
             bracket_section="lower",
             best_of=5,
-            team1=None,  # Loser of UB_R2_M1
-            team2=None,
-            next_match_winner_id="LB_R3_M1",
+            team1="KT Rolster",
+            team2="Dplus",
+            winner=None,  # Playing today
+            next_match_winner_id="LB_R3",
+            next_match_winner_slot=2,
+        ),
+        # Lower Bracket Round 3 / Semifinal (Sept 6)
+        "LB_R3": BracketMatchNode(
+            id="LB_R3",
+            name="Lower Bracket Semifinal",
+            round_name="Lower Round 3",
+            bracket_section="lower",
+            best_of=5,
+            team1="T1",
+            team2=None,  # Winner of KT vs Dplus
+            next_match_winner_id="LB_Final",
+            next_match_winner_slot=2,
+        ),
+        # Lower Bracket Final (Sept 12)
+        "LB_Final": BracketMatchNode(
+            id="LB_Final",
+            name="Lower Bracket Final",
+            round_name="Lower Final",
+            bracket_section="lower",
+            best_of=5,
+            team1=None,  # Loser of Gen.G vs Hanwha
+            team2=None,  # Winner of LB_R3
+            next_match_winner_id="Grand_Final",
+            next_match_winner_slot=2,
+        ),
+        # Grand Final (Sept 13)
+        "Grand_Final": BracketMatchNode(
+            id="Grand_Final",
+            name="Grand Final",
+            round_name="Grand Final",
+            bracket_section="final",
+            best_of=5,
+            team1=None,  # Winner of Gen.G vs Hanwha
+            team2=None,  # Winner of Lower Final
+        ),
+    }
+
+    return TournamentBracket(
+        id="lck_2026_playoffs",
+        name="LCK 2026 Season - Playoffs",
+        region="LCK",
+        format="double_elimination",
+        matches=matches,
+        teams=teams,
+    )
+
+
+def get_lec_2026_summer_playoffs_bracket() -> TournamentBracket:
+    """Construct the official 6-team LEC 2026 Summer Double Elimination Playoff bracket tree."""
+    teams = ["Karmine Corp", "GIANTX", "G2 Esports", "Team Vitality", "Natus Vincere", "Movistar KOI"]
+
+    matches: dict[str, BracketMatchNode] = {
+        # Upper Semifinal 1
+        "UB_SF1": BracketMatchNode(
+            id="UB_SF1",
+            name="Upper Semifinal 1",
+            round_name="Upper Semifinals",
+            bracket_section="upper",
+            best_of=5,
+            team1="Karmine Corp",
+            team2="GIANTX",
+            winner=None,
+            next_match_winner_id="UB_Final",
+            next_match_winner_slot=1,
+            next_match_loser_id="LB_R1_M1",
+            next_match_loser_slot=2,
+        ),
+        # Upper Semifinal 2
+        "UB_SF2": BracketMatchNode(
+            id="UB_SF2",
+            name="Upper Semifinal 2",
+            round_name="Upper Semifinals",
+            bracket_section="upper",
+            best_of=5,
+            team1="G2 Esports",
+            team2="Team Vitality",
+            winner=None,
+            next_match_winner_id="UB_Final",
+            next_match_winner_slot=2,
+            next_match_loser_id="LB_R1_M2",
+            next_match_loser_slot=2,
+        ),
+        # Lower Round 1 - Match 1
+        "LB_R1_M1": BracketMatchNode(
+            id="LB_R1_M1",
+            name="Lower Round 1 - Match 1",
+            round_name="Lower Round 1",
+            bracket_section="lower",
+            best_of=5,
+            team1="Natus Vincere",
+            team2=None,  # Loser of KC vs GX
+            next_match_winner_id="LB_SF",
             next_match_winner_slot=1,
         ),
-        "LB_R2_M2": BracketMatchNode(
-            id="LB_R2_M2",
-            name="Lower Round 2 - Match 2",
-            round_name="Lower Round 2",
+        # Lower Round 1 - Match 2
+        "LB_R1_M2": BracketMatchNode(
+            id="LB_R1_M2",
+            name="Lower Round 1 - Match 2",
+            round_name="Lower Round 1",
             bracket_section="lower",
             best_of=5,
-            team1=None,  # Loser of UB_R2_M2
-            team2=None,  # Winner of LB_R1_M1
-            next_match_winner_id="LB_R3_M1",
+            team1="Movistar KOI",
+            team2=None,  # Loser of G2 vs VIT
+            next_match_winner_id="LB_SF",
             next_match_winner_slot=2,
         ),
         # Upper Final
@@ -155,11 +227,11 @@ def get_lck_2026_playoffs_bracket() -> TournamentBracket:
             next_match_loser_id="LB_Final",
             next_match_loser_slot=1,
         ),
-        # Lower Round 3 (Semifinal)
-        "LB_R3_M1": BracketMatchNode(
-            id="LB_R3_M1",
+        # Lower Semifinal
+        "LB_SF": BracketMatchNode(
+            id="LB_SF",
             name="Lower Bracket Semifinal",
-            round_name="Lower Round 3",
+            round_name="Lower Semifinal",
             bracket_section="lower",
             best_of=5,
             team1=None,
@@ -182,7 +254,7 @@ def get_lck_2026_playoffs_bracket() -> TournamentBracket:
         # Grand Final
         "Grand_Final": BracketMatchNode(
             id="Grand_Final",
-            name="Grand Final",
+            name="LEC Grand Final (Nice)",
             round_name="Grand Final",
             bracket_section="final",
             best_of=5,
@@ -192,14 +264,145 @@ def get_lck_2026_playoffs_bracket() -> TournamentBracket:
     }
 
     return TournamentBracket(
-        id="lck_2026_playoffs",
-        name="LCK 2026 Season - Playoffs",
-        region="LCK",
+        id="lec_2026_summer_playoffs",
+        name="LEC 2026 Summer - Playoffs",
+        region="LEC",
         format="double_elimination",
         matches=matches,
         teams=teams,
     )
 
+
+def get_lpl_2026_split3_playoffs_bracket() -> TournamentBracket:
+    """Construct the LPL 2026 Split 3 Playoff bracket tree."""
+    teams = [
+        "Bilibili Gaming",
+        "Anyone's Legend",
+        "LGD Gaming",
+        "JD Gaming",
+        "Ninjas in Pyjamas",
+        "Top Esports",
+    ]
+
+    matches: dict[str, BracketMatchNode] = {
+        # Upper Round 2
+        "UB_R2_M1": BracketMatchNode(
+            id="UB_R2_M1",
+            name="Upper Round 2 - Match 1",
+            round_name="Upper Round 2",
+            bracket_section="upper",
+            best_of=5,
+            team1="Anyone's Legend",
+            team2="LGD Gaming",
+            winner=None,
+            next_match_winner_id="UB_Final",
+            next_match_winner_slot=1,
+            next_match_loser_id="LB_R2_M1",
+            next_match_loser_slot=1,
+        ),
+        "UB_R2_M2": BracketMatchNode(
+            id="UB_R2_M2",
+            name="Upper Round 2 - Match 2",
+            round_name="Upper Round 2",
+            bracket_section="upper",
+            best_of=5,
+            team1="Bilibili Gaming",
+            team2="Top Esports",
+            winner=None,
+            next_match_winner_id="UB_Final",
+            next_match_winner_slot=2,
+            next_match_loser_id="LB_R2_M2",
+            next_match_loser_slot=1,
+        ),
+        # Lower Round 1
+        "LB_R1_M1": BracketMatchNode(
+            id="LB_R1_M1",
+            name="Lower Round 1",
+            round_name="Lower Round 1",
+            bracket_section="lower",
+            best_of=5,
+            team1="JD Gaming",
+            team2="Ninjas in Pyjamas",
+            winner=None,
+            next_match_winner_id="LB_R2_M1",
+            next_match_winner_slot=2,
+        ),
+        # Lower Round 2
+        "LB_R2_M1": BracketMatchNode(
+            id="LB_R2_M1",
+            name="Lower Round 2",
+            round_name="Lower Round 2",
+            bracket_section="lower",
+            best_of=5,
+            team1=None,  # Loser of AL vs LGD
+            team2=None,  # Winner of JDG vs NIP
+            next_match_winner_id="LB_Final",
+            next_match_winner_slot=2,
+        ),
+        "LB_R2_M2": BracketMatchNode(
+            id="LB_R2_M2",
+            name="Lower Round 2 - Match 2",
+            round_name="Lower Round 2",
+            bracket_section="lower",
+            best_of=5,
+            team1=None,  # Loser of BLG vs TES
+            team2=None,
+            next_match_winner_id="LB_Final",
+            next_match_winner_slot=2,
+        ),
+        # Upper Final
+        "UB_Final": BracketMatchNode(
+            id="UB_Final",
+            name="Upper Bracket Final",
+            round_name="Upper Final",
+            bracket_section="upper",
+            best_of=5,
+            team1=None,
+            team2=None,
+            next_match_winner_id="Grand_Final",
+            next_match_winner_slot=1,
+            next_match_loser_id="LB_Final",
+            next_match_loser_slot=1,
+        ),
+        # Lower Final
+        "LB_Final": BracketMatchNode(
+            id="LB_Final",
+            name="Lower Bracket Final",
+            round_name="Lower Final",
+            bracket_section="lower",
+            best_of=5,
+            team1=None,
+            team2=None,
+            next_match_winner_id="Grand_Final",
+            next_match_winner_slot=2,
+        ),
+        # Grand Final
+        "Grand_Final": BracketMatchNode(
+            id="Grand_Final",
+            name="LPL Grand Final (Shanghai)",
+            round_name="Grand Final",
+            bracket_section="final",
+            best_of=5,
+            team1=None,
+            team2=None,
+        ),
+    }
+
+    return TournamentBracket(
+        id="lpl_2026_split3_playoffs",
+        name="LPL 2026 Split 3 - Playoffs",
+        region="LPL",
+        format="double_elimination",
+        matches=matches,
+        teams=teams,
+    )
+
+
+SUPPORTED_BRACKETS = {
+    "lck_2026_playoffs": get_lck_2026_playoffs_bracket,
+    "lec_2026_summer_playoffs": get_lec_2026_summer_playoffs_bracket,
+    "lpl_2026_split3_playoffs": get_lpl_2026_split3_playoffs_bracket,
+}
 
 class TournamentSimulator:
     """Monte Carlo tournament simulator powered by model win-rate estimations."""
@@ -264,18 +467,35 @@ class TournamentSimulator:
         top3_counts = {team: 0 for team in bracket.teams}
         top4_counts = {team: 0 for team in bracket.teams}
 
-        # Topological evaluation order of matches
-        execution_order = [
-            "UB_R1_M1", "UB_R1_M2",
-            "UB_R2_M1", "UB_R2_M2",
-            "LB_R1_M1",
-            "LB_R2_M1", "LB_R2_M2",
-            "UB_Final",
-            "LB_R3_M1",
-            "LB_Final",
-            "Grand_Final",
-        ]
+        # Dynamic topological sort of matches based on dependency
+        def get_execution_order(matches: dict[str, BracketMatchNode]) -> list[str]:
+            dependencies: dict[str, set[str]] = {m_id: set() for m_id in matches}
+            for m_id, m in matches.items():
+                if m.next_match_winner_id and m.next_match_winner_id in dependencies:
+                    dependencies[m.next_match_winner_id].add(m_id)
+                if m.next_match_loser_id and m.next_match_loser_id in dependencies:
+                    dependencies[m.next_match_loser_id].add(m_id)
 
+            order: list[str] = []
+            visited: set[str] = set()
+
+            while len(order) < len(matches):
+                progress = False
+                for m_id, deps in dependencies.items():
+                    if m_id not in visited and deps.issubset(visited):
+                        order.append(m_id)
+                        visited.add(m_id)
+                        progress = True
+                if not progress:
+                    # Cycle or disconnected node, append remaining
+                    for m_id in matches:
+                        if m_id not in visited:
+                            order.append(m_id)
+                            visited.add(m_id)
+                    break
+            return order
+
+        execution_order = get_execution_order(bracket.matches)
         for _ in range(n_simulations):
             # Clone match states
             state = {
@@ -326,16 +546,15 @@ class TournamentSimulator:
                             target_m["team1"] = loser
                         else:
                             target_m["team2"] = loser
-            gf = state["Grand_Final"]
-            champ = gf.get("winner")
-            runner_up = gf.get("team2") if champ == gf.get("team1") else gf.get("team1")
+            gf = state.get("Grand_Final")
+            champ = gf.get("winner") if gf else None
+            runner_up = (gf.get("team2") if champ == gf.get("team1") else gf.get("team1")) if gf else None
 
-            lb_fin = state["LB_Final"]
-            third = lb_fin.get("team2") if lb_fin.get("winner") == lb_fin.get("team1") else lb_fin.get("team1")
+            lb_fin = state.get("LB_Final")
+            third = (lb_fin.get("team2") if lb_fin.get("winner") == lb_fin.get("team1") else lb_fin.get("team1")) if lb_fin else None
 
-            lb_r3 = state["LB_R3_M1"]
-            fourth = lb_r3.get("team2") if lb_r3.get("winner") == lb_r3.get("team1") else lb_r3.get("team1")
-
+            lb_semi = state.get("LB_R3") or state.get("LB_SF") or state.get("LB_R3_M1")
+            fourth = (lb_semi.get("team2") if lb_semi.get("winner") == lb_semi.get("team1") else lb_semi.get("team1")) if lb_semi else None
             if champ and champ in championship_counts:
                 championship_counts[champ] += 1
             if runner_up and runner_up in top2_counts:
