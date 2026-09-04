@@ -229,6 +229,43 @@ Polymarket discovery must paginate and filter the nested market, not only the to
 
 ---
 
+## IDEA-015 — Adaptive horizon market blending (alpha(t) calibration)
+
+- **Status:** in-progress
+- **Created:** 2026-09-04
+- **Updated:** 2026-09-04
+
+### Problem
+
+The current hybrid model applies a fixed model weight (e.g. $\alpha = 0.50$ or $\alpha = 0.35$) regardless of market timing. Early opening odds (>24h before match) are soft and set with wide spreads and lower liquidity, offering substantial model edge. Closing odds (<2h before match) incorporate sharp crowd information, lineup announcements, and heavy volume, making the pure market much harder to beat.
+
+### Evidence
+
+- Evaluated on $N = 4,528$ matches from the 2024–2026 test cohort using pre-match metamodel forecasts and opening vs closing market odds:
+  - **Opening lines (>24h):** Higher model weight ($\alpha = 0.55$) achieves superior LogLoss (`0.605859` vs `0.610785` for static 0.50, and `0.7113` for pure market), ROC AUC (`0.7255` vs `0.7140`), and ECE (`0.0227`). It generates $1,941.82$ units of profit at $+5\%$ min EV with $+7.69\%$ average CLV.
+  - **Closing lines (<2h):** The market becomes significantly sharper. However, over-shrinking $\alpha$ to $0.25$ degrades LogLoss from `0.6086` (at $\alpha=0.50$) to `0.6422`, because esports opening-to-closing lines retain persistent inefficiencies on non-major leagues.
+  - Static $\alpha = 0.50$ serves as a balanced compromise across all horizons, but an adaptive schedule $\alpha(t) = 0.55$ (for $t > 24\text{h}$) decaying to $\alpha(t) = 0.45$ (for $t < 2\text{h}$) strictly optimizes opening-line EV capture without destabilizing late calibration.
+
+### Non-goals
+
+- Do not use closing odds as features for match outcome models (temporal leakage).
+- Do not allow market probabilities to feed back into pure sports rating updates.
+- Do not bet automatically or bypass wallet risk bounds.
+
+### Implementation outline
+
+1. Formalize $\alpha(t)$ in `betting_app/services/upcoming_inference_service.py` as a function of `hours_before_start = (match_start - snapshot_time).total_seconds() / 3600`:
+   $$\alpha(t) = \text{clip}(0.40 + 0.15 \cdot \sigma((t - 12) / 6), 0.40, 0.55)$$
+2. When generating hybrid predictions, calculate the median age of the active odds snapshots relative to match kickoff and parameterize $\alpha$.
+3. Record $\alpha(t)$ and `hours_before_start` in `canonical_predictions.diagnostics_json`.
+
+### References
+
+- `reports/exp039_alpha_sweep/summary.json`
+- `scripts/benchmark_adaptive_hybrid_alpha.py`
+
+---
+
 ## IDEA-011 — Calibrated player-contribution rating updates
 
 - **Status:** in-progress
