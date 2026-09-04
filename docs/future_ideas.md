@@ -306,3 +306,108 @@ Team-outcome rating updates give every player on the winning side the same direc
 
 - `docs/04_experiments/EXP-043_pandaskill_like_backtest.md`
 - `scripts/benchmark_player_contribution_rating.py`
+
+---
+
+## IDEA-016 — Horizon-gated and Tier-calibrated EV Signal Filtering
+
+- **Status:** proposed
+- **Created:** 2026-09-04
+- **Updated:** 2026-09-04
+
+### Problem
+
+The betting application currently evaluates and presents EV+ signals regardless of time-to-match and competition tier. Empirical analysis of the historical betting ledger with Poland's mandatory 12% turnover tax demonstrates that:
+1. CLV is highly positive (>+20%) only at long horizons (>24-48h before start), while bets placed <2-6h before match yield zero CLV and negative net ROI (-4.36%) due to tax friction on efficient closing lines.
+2. Signals on Tier 1 (LPL, LEC, LCK) and Offseason/Cup tournaments (KeSPA Cup) deliver positive net ROI (+6.5% to +71.7%), whereas ERL / Tier 2 regional leagues exhibit high variance and negative net returns (-23.8% ROI) at the baseline +5% EV threshold.
+
+Displaying unsegmented EV signals creates a hazard where users act on late, low-CLV bets or high-variance regional matches that cannot overcome the 12% tax hurdle.
+
+### Evidence
+
+- Ledger analysis of 201 qualified historical bets on opening lines with 12% tax:
+  - **48h+ horizon:** average CLV +20.32%, 68.4% beating closing line, positive yield.
+  - **<2h horizon:** average CLV 0.00%, negative yield (-4.36%).
+  - **Tier 1 (Major):** N=76, average CLV +21.53%, +6.5% ROI.
+  - **Offseason/Cups:** N=32, average CLV +9.86%, 78.1% win rate, +71.7% ROI.
+  - **Regional (ERL):** N=76, average CLV +13.46%, 35.5% win rate, -23.8% ROI.
+
+### Non-goals
+
+- Do not automate bet placement.
+- Do not hide raw odds or model probabilities; only modulate the derived EV/recommendation signal.
+- Do not bypass the 12% turnover tax calculation in any financial metric.
+
+### Prerequisites and open decisions
+
+- Decide whether late signals (<6h) should be hidden entirely, grayed out, or marked with a "Low CLV expected" badge.
+- Establish tier-dependent EV thresholds: e.g. +5% EV for Tier 1 / Cups, +10% EV for ERL / Tier 2.
+
+### Implementation outline
+
+1. Add `clv_confidence_tier` to `MatchBoardItem` schema in `betting_app/api/schemas.py`.
+2. In `betting_app/api/routers/matches.py`, compute `hours_before_start`:
+   - If `hours_before_start < 6.0`: flag signal as `stale_horizon` and suppress positive EV badge.
+   - Classify tournament tier using existing `competition_tiers` taxonomy.
+   - For ERLs, enforce a stricter EV threshold (e.g. +10%) before emitting an active EV signal.
+3. Update frontend `MatchBoardItem` and `MatchDetail` to display tier and horizon confidence chips.
+
+### Affected areas
+
+- `betting_app/api/schemas.py`
+- `betting_app/api/routers/matches.py`
+- `client/src/pages/MatchList.tsx`
+- `client/src/pages/MatchDetail.tsx`
+
+### References
+
+- `reports/exp039_db_market_backtest_v3_corrected/roi_benchmark_ev5/ledger_open_poland_tax_12.csv`
+- `reports/exp039_db_market_backtest_v3_corrected/roi_benchmark_ev5/roi_summary.json`
+
+---
+
+## IDEA-017 — Dynamic Blue/Red Side-Selection Advantage by Patch and League
+
+- **Status:** proposed
+- **Created:** 2026-09-04
+- **Updated:** 2026-09-04
+
+### Problem
+
+Professional League of Legends games exhibit an asymmetry in win rates between Blue and Red sides, historically ranging from 51% to over 57% depending on the meta patch (first pick priority vs counterpick/flex draft power) and specific league.
+Currently, the pre-match operational baseline treats match sides symmetrically without incorporating the rolling side win rate of the active patch or tournament.
+Furthermore, in Bo3/Bo5 series, Team A (the canonical home team / higher seed) receives side selection for Game 1, and the loser of each game typically chooses side for the subsequent game. Modeling this dynamic can improve both single-map probability and BoN series correlation.
+
+### Evidence
+
+- Patch-level GOL.GG data shows significant drift in Blue side advantage across seasons and tournament patches (e.g. MSI/Worlds patches frequently spike Blue side win rate to 56%+).
+- In Bo3 series, winning Game 1 on Blue side creates a strong structural advantage because the losing team must play Game 2 on Blue, altering the series state transitions.
+
+### Non-goals
+
+- Do not violate order symmetry in baseline team ratings: rating updates must remain side-invariant. Side advantage is an additive matchup-level feature, not a distortion of intrinsic team/player skill.
+- Do not use in-game draft information before it is timestamped and verified prior to kickoff.
+
+### Prerequisites and open decisions
+
+- Extract and verify which team holds Game 1 side selection from canonical fixtures.
+- Materialize a leakage-safe, walk-forward feature: `rolling_blue_winrate_patch` and `rolling_blue_winrate_league` computed strictly from games completed before the match cutoff.
+
+### Implementation outline
+
+1. Create a side-advantage feature builder in `betting_app/ml/features/`.
+2. Define a zero-sum logit adjustment:
+   $$\Delta \text{logit}_{\text{side}} = \beta_{\text{side}} \cdot (\text{WR}_{\text{blue, patch}} - 0.50)$$
+   allocated positively to the team with Game 1 side selection.
+3. Test as an ablation on the chronological walk-forward benchmark against the current `v0.4-binom-series` baseline.
+
+### Affected areas
+
+- `betting_app/services/upcoming_inference_service.py`
+- `betting_app/ml/features/`
+- `betting_app/models/canonical.py`
+
+### References
+
+- `data/golgg_matches.json`
+- `docs/03_methodology/01_research_design.md`
