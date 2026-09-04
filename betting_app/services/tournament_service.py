@@ -209,7 +209,7 @@ class TournamentSimulator:
 
     @staticmethod
     def _load_team_ratings() -> dict[str, float]:
-        """Load Glicko-2 ratings for teams from entity_ratings, fallback to 1750."""
+        """Load Glicko ratings for teams from entity_ratings, fallback to 1750."""
         ratings: dict[str, float] = {}
         try:
             with connect() as conn:
@@ -217,9 +217,9 @@ class TournamentSimulator:
                     """
                     SELECT normalized_entity_name, rating_value
                     FROM entity_ratings
-                    WHERE entity_type = 'team' AND rating_system = 'glicko2'
+                    WHERE entity_type = 'team' AND rating_system = 'gl'
                     ORDER BY id DESC
-                    LIMIT 2000
+                    LIMIT 4000
                     """
                 ).fetchall()
             for r in rows:
