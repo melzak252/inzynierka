@@ -103,11 +103,11 @@ def test_evaluation_pipeline_logs_run_and_candidate(client):
         """))
         session.execute(text("""
             INSERT INTO canonical_predictions (
-                id, canonical_match_id, model_name, model_version, predicted_at,
+                id, canonical_match_id, model_name, model_version, predicted_at, data_cutoff_at,
                 prob_a, prob_b, prediction_status
             ) VALUES
-            (1001, 501, 'PipelineModel', 'v1', '2026-01-10T09:00:00+00:00', 0.70, 0.30, 'stale'),
-            (1002, 502, 'PipelineModel', 'v1', '2026-01-11T09:00:00+00:00', 0.40, 0.60, 'stale')
+            (1001, 501, 'PipelineModel', 'v1', '2026-01-10T09:00:00+00:00', '2026-01-10T08:00:00+00:00', 0.70, 0.30, 'stale'),
+            (1002, 502, 'PipelineModel', 'v1', '2026-01-11T09:00:00+00:00', '2026-01-11T08:00:00+00:00', 0.40, 0.60, 'stale')
         """))
         session.execute(text("""
             INSERT INTO odds_snapshots (
@@ -141,6 +141,11 @@ def test_evaluation_pipeline_logs_run_and_candidate(client):
     assert result.metrics["labels_loaded"] == 2
     assert result.metrics["odds_quotes_loaded"] == 2
     assert result.metrics["comparison_observations"] == 2
+    assert result.metrics["predictions_temporally_eligible"] == 2
+    assert result.metrics["prediction_temporal_exclusions"] == {}
+    assert result.metrics["cohort_start_at"] == "2026-01-10T12:00:00+00:00"
+    assert result.metrics["cohort_end_at"] == "2026-01-11T12:00:00+00:00"
+    assert result.metrics["financial_execution_evaluated"] is False
     assert result.evaluation_run_id
     assert registered is not None
     assert registered["metrics"]["predictions_loaded"] == 2

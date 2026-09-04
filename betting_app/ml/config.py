@@ -28,4 +28,5 @@ class BacktestConfig:
     max_bets_per_match: int = 1
     odds_policy: str = "latest_pre_match"
     min_minutes_before_start: int = 0
-    require_prediction_before_odds: bool = False
+    require_prediction_before_odds: bool = True
+    strict_temporal_eligibility: bool = True

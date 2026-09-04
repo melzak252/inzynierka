@@ -85,3 +85,10 @@ class PredictionMarketComparison:
     market_brier: float
     model_accuracy: float
     market_accuracy: float
+    model_auc: float = float("nan")
+    market_auc: float = float("nan")
+    model_ece: float = float("nan")
+    market_ece: float = float("nan")
+    eligible_predictions: int = 0
+    prediction_exclusions: dict[str, int] = field(default_factory=dict)
+    quote_exclusions: dict[str, int] = field(default_factory=dict)

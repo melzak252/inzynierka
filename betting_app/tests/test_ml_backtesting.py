@@ -7,7 +7,7 @@ import pytest
 from betting_app.ml.backtesting import HistoricalPrediction, MatchLabel, OddsQuote, compare_predictions_to_market, run_backtest
 from betting_app.ml.backtesting.odds_selection import select_quotes_for_match
 from betting_app.ml.config import BacktestConfig, StakingConfig
-from betting_app.ml.metrics import brier_score, max_drawdown, roi
+from betting_app.ml.metrics import binary_auc, brier_score, expected_calibration_error, max_drawdown, roi
 
 
 UTC = timezone.utc
@@ -42,6 +42,7 @@ def test_backtest_places_highest_ev_bet_and_settles_with_tax() -> None:
                 prob_a=0.60,
                 prob_b=0.40,
                 predicted_at=dt(10),
+                data_cutoff_at=dt(9),
             )
         ],
         labels=[MatchLabel(canonical_match_id=1, winner_side="a", start_time=dt(18))],
@@ -65,7 +66,7 @@ def test_backtest_places_highest_ev_bet_and_settles_with_tax() -> None:
 
 def test_backtest_can_require_odds_after_prediction_time() -> None:
     result = run_backtest(
-        predictions=[HistoricalPrediction(1, "test", "v1", prob_a=0.60, prob_b=0.40, predicted_at=dt(10))],
+        predictions=[HistoricalPrediction(1, "test", "v1", prob_a=0.60, prob_b=0.40, predicted_at=dt(10), data_cutoff_at=dt(9))],
         labels=[MatchLabel(1, "a", start_time=dt(18))],
         odds_quotes=[
             OddsQuote(1, 10, "book-a", 2.50, 1.50, dt(9), 101),
@@ -82,16 +83,17 @@ def test_backtest_can_require_odds_after_prediction_time() -> None:
     assert len(result.bets) == 1
     assert result.bets[0].odds_snapshot_id == 102
 
-
 def test_metrics_helpers() -> None:
     assert brier_score([1, 0], [0.75, 0.25]) == pytest.approx(0.0625)
+    assert binary_auc([0, 1, 1], [0.2, 0.7, 0.8]) == pytest.approx(1.0)
+    assert expected_calibration_error([1, 0], [0.75, 0.25]) == pytest.approx(0.25)
     assert roi(12.0, 100.0) == pytest.approx(0.12)
     assert max_drawdown([100.0, 120.0, 90.0, 130.0]) == pytest.approx(30.0)
 
 
 def test_compare_predictions_to_market_returns_probability_metrics() -> None:
     comparison = compare_predictions_to_market(
-        predictions=[HistoricalPrediction(1, "test", "v1", prob_a=0.70, prob_b=0.30, predicted_at=dt(10))],
+        predictions=[HistoricalPrediction(1, "test", "v1", prob_a=0.70, prob_b=0.30, predicted_at=dt(10), data_cutoff_at=dt(9))],
         labels=[MatchLabel(1, "a", start_time=dt(18))],
         odds_quotes=[OddsQuote(1, 10, "book-a", 2.20, 1.70, dt(12), 102)],
         config=BacktestConfig(),
@@ -99,4 +101,24 @@ def test_compare_predictions_to_market_returns_probability_metrics() -> None:
 
     assert comparison.observations == 1
     assert comparison.model_brier == pytest.approx(0.09)
+    assert comparison.model_ece == pytest.approx(0.3)
     assert comparison.model_log_loss < comparison.market_log_loss
+
+
+def test_market_comparison_excludes_post_start_predictions_and_pre_prediction_quotes() -> None:
+    comparison = compare_predictions_to_market(
+        predictions=[
+            HistoricalPrediction(1, "test", "v1", 0.70, 0.30, predicted_at=dt(10), data_cutoff_at=dt(9)),
+            HistoricalPrediction(1, "test", "v1", 0.80, 0.20, predicted_at=dt(19), data_cutoff_at=dt(9)),
+        ],
+        labels=[MatchLabel(1, "a", start_time=dt(18))],
+        odds_quotes=[
+            OddsQuote(1, 10, "book-a", 2.20, 1.70, dt(9), 101),
+            OddsQuote(1, 10, "book-a", 2.10, 1.75, dt(12), 102),
+        ],
+    )
+
+    assert comparison.observations == 1
+    assert comparison.eligible_predictions == 1
+    assert comparison.prediction_exclusions == {"prediction_not_before_match_start": 1}
+    assert comparison.quote_exclusions == {"quote_before_prediction": 1}

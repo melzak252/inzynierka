@@ -41,7 +41,7 @@ def run_historical_evaluation(params: dict[str, Any]) -> dict[str, Any]:
         model_name=params["model_name"],
         model_version=params["model_version"],
         days_back=params.get("days_back", 365),
-        include_stale=params.get("include_stale", True),
+        include_stale=params.get("include_stale", False),
         latest_per_match=params.get("latest_per_match", True),
         backtest=BacktestConfig(
             bankroll_start=backtest_params.get("bankroll_start", 1_000.0),
@@ -59,7 +59,7 @@ def run_historical_evaluation(params: dict[str, Any]) -> dict[str, Any]:
             min_roi=gate_params.get("min_roi"),
         ),
         register_candidate=params.get("register_candidate", False),
-        run_type=params.get("run_type", "historical_backtest"),
+        run_type=params.get("run_type", "strict_market_benchmark"),
     )
     result: EvaluationPipelineResult = run_evaluation_pipeline(config)
     return {

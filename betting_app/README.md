@@ -309,6 +309,27 @@ python -m betting_app.scripts.inspect_final_thesis_model --register
 
 Ważne: obecny operacyjny predictor upcoming działa jako `Operational-PlayerTeamRatings-W20` + hybryda z rynkiem. To praktyczny fallback do codziennego użycia. Żeby mieć inference **1:1 finalnego EXP-039**, potrzebny jest jeszcze zapisany artefakt modelu sklearn/calibratora/symetryzacji (`joblib`/`pkl`) albo odtworzenie trenowania i eksport takiego artefaktu. Skrypt `inspect_final_thesis_model` zapisuje w `model_artifacts`, czy taki artefakt jest dostępny.
 
+## Rygorystyczny benchmark modelu względem rynku
+
+```bash
+.venv/bin/python -m betting_app.ml.pipelines.evaluate_existing_model \
+  --model-name Operational-PlayerTeamRatings-W20 \
+  --model-version <wersja> \
+  --json
+```
+
+Benchmark odrzuca predykcje bez strefy czasowej lub bez pełnego łańcucha:
+
+```text
+data_cutoff_at <= predicted_at <= quote_at < match_start_at
+```
+
+Wybiera ostatnią kwalifikującą się predykcję przed startem meczu i porównuje ją
+z no-vig probability kursu dostępnego po predykcji. Raport zawiera liczność
+kohorty, powody wykluczeń, log loss, Brier, AUC i ECE dla modelu oraz rynku.
+To benchmark jakości predykcji, nie dowód wykonalnego ROI: symulacja bankrolla
+wymaga jeszcze ledgeru rozliczającego nakładające się mecze według czasu wyniku.
+
 ## TimescaleDB / Postgres
 
 Dodany jest serwis TimescaleDB:
