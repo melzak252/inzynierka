@@ -854,10 +854,14 @@ def historical_model_comparison(
                 WHERE cp.model_name = :model_name
                   AND cp.model_version = :model_version
                   AND cp.features_version = :features_version
-                  AND cp.data_cutoff_at IS NOT NULL
-                  AND cp.predicted_at IS NOT NULL
-                  AND cp.data_cutoff_at <= cp.predicted_at
-                  AND cp.predicted_at < cm.start_time_normalized::timestamptz
+                  AND CASE
+                      WHEN cp.data_cutoff_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}'
+                      THEN cp.data_cutoff_at::timestamptz
+                  END <= cp.predicted_at
+                  AND cp.predicted_at < CASE
+                      WHEN cm.start_time_normalized ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}'
+                      THEN cm.start_time_normalized::timestamptz
+                  END
                   AND cm.status IN ('finished', 'completed')
                   AND cm.winner_side IN ('team_a', 'team_b')
                   AND cm.start_time_normalized > :cutoff

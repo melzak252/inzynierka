@@ -35,5 +35,5 @@ def test_historical_model_comparison_uses_only_temporally_eligible_common_cohort
     assert result["models"][0]["temporal_eligible_matches"] == 2
     assert result["models"][1]["temporal_eligible_matches"] == 3
     assert result["common_cohort"]["operational_minus_exp039_logloss"] < 0
-    assert all("cp.data_cutoff_at <= cp.predicted_at" in query for query in queries)
-    assert all("cp.predicted_at < cm.start_time_normalized" in query for query in queries)
+    assert all("cp.data_cutoff_at::timestamptz" in query for query in queries)
+    assert all("cm.start_time_normalized::timestamptz" in query for query in queries)
