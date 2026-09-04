@@ -35,6 +35,7 @@ def get_or_create_bookmaker(name: str, base_url: str | None = None) -> int:
 
     _KNOWN_BOOKMAKERS = {
         "sts", "betclic", "superbet", "efortuna", "betfan", "totalbet", "lebull",
+        "pinnacle", "kalshi",
     }
 
     if name not in _KNOWN_BOOKMAKERS:
@@ -45,11 +46,26 @@ def get_or_create_bookmaker(name: str, base_url: str | None = None) -> int:
     with transaction() as connection:
         row = connection.execute("SELECT id FROM bookmakers WHERE name = ?", (name,)).fetchone()
         if row is None:
-            raise ValueError(
-                f"Bookmaker '{name}' is known but not seeded in DB. Run seed_bookmakers() first."
+            default_urls = {
+                "pinnacle": "https://www.pinnacle.com/",
+                "kalshi": "https://kalshi.com/",
+                "sts": "https://www.sts.pl/",
+                "betclic": "https://www.betclic.pl/",
+                "superbet": "https://superbet.pl/",
+                "efortuna": "https://www.efortuna.pl/",
+                "betfan": "https://betfan.pl/",
+                "totalbet": "https://totalbet.pl/",
+                "lebull": "https://www.lebull.pl/",
+            }
+            url = base_url or default_urls.get(name, "")
+            connection.execute(
+                "INSERT INTO bookmakers (name, base_url, is_active) VALUES (?, ?, 1)",
+                (name, url),
             )
+            row = connection.execute("SELECT id FROM bookmakers WHERE name = ?", (name,)).fetchone()
+            if row is None:
+                raise ValueError(f"Bookmaker '{name}' is known but could not be registered.")
         return int(row["id"])
-
 
 def make_match_key(bookmaker: str, raw_team_a: str, raw_team_b: str, start_time: str | None) -> str:
     """Build a stable bookmaker match key from raw data."""

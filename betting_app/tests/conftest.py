@@ -34,7 +34,8 @@ def client() -> Generator[TestClient, None, None]:
                 "('manual',NULL),('sts','https://www.sts.pl/'),('betclic','https://www.betclic.pl/'),"
                 "('superbet','https://superbet.pl/'),('efortuna','https://www.efortuna.pl/'),"
                 "('fortuna','https://www.efortuna.pl/'),('betfan','https://betfan.pl/'),"
-                "('totalbet','https://totalbet.pl/'),('lebull','https://www.lebull.pl/')"
+                "('totalbet','https://totalbet.pl/'),('lebull','https://www.lebull.pl/'),"
+                "('pinnacle','https://www.pinnacle.com/'),('kalshi','https://kalshi.com/')"
             )
         )
         s.commit()

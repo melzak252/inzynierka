@@ -38,6 +38,10 @@ from betting_app.models.identity import (
     SourceCompetitionIdentity,
     SourceTeamIdentity,
 )
+from betting_app.models.oddspapi import (
+    OddspapiFixtureMapping,
+    OddspapiRequestLog,
+)
 
 __all__ = [
     "Base",
@@ -78,4 +82,6 @@ __all__ = [
     "ModelEvSignal",
     "AutomationRun",
     "AutomationCommand",
+    "OddspapiFixtureMapping",
+    "OddspapiRequestLog",
 ]

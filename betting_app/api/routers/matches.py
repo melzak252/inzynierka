@@ -1892,6 +1892,30 @@ def odds_history(match_id: int, db=Depends(get_db)):
     return history
 
 
+# ── GET /matches/{id}/market-comparison ─────────────────────────────────────
+
+
+@router.get("/{match_id}/market-comparison")
+def match_market_comparison(
+    match_id: int,
+    horizon_hours: float = 1.0,
+    tolerance_hours: float = 0.5,
+    db=Depends(get_db),
+):
+    """Compare Pinnacle consensus line with Polish bookmakers and model EV around a horizon."""
+    from betting_app.services.oddspapi_service import compare_match_market
+
+    comparison = compare_match_market(
+        canonical_match_id=match_id,
+        session=db,
+        horizon_hours=horizon_hours,
+        tolerance_hours=tolerance_hours,
+    )
+    if not comparison:
+        raise HTTPException(status_code=404, detail="Match not found or start time unavailable")
+    return comparison
+
+
 # ── GET /matches/{id}/prediction-history ────────────────────────────────────
 
 
