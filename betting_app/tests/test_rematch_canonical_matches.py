@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import sys
 
 import pytest
 
 from betting_app.core.db import dispose_engine, init_db, transaction
+from betting_app.scripts import rematch_canonical_matches
 from betting_app.scripts.rematch_canonical_matches import deduplicate_odds_for_canonical_update
 
 
@@ -85,3 +87,17 @@ def test_deduplicate_odds_for_canonical_update_keeps_highest_id_inside_same_matc
 
     assert removed == 1
     assert rows == [{"id": 2, "canonical_match_id": 100}]
+
+def test_main_no_overview_suppresses_canonical_match_report(monkeypatch, capsys):
+    monkeypatch.setattr(rematch_canonical_matches, "init_db", lambda: None)
+    monkeypatch.setattr(rematch_canonical_matches, "rematch_odds_snapshots", lambda: 3)
+    monkeypatch.setattr(
+        rematch_canonical_matches,
+        "canonical_match_overview",
+        lambda limit: pytest.fail("overview must not be queried"),
+    )
+    monkeypatch.setattr(sys, "argv", ["rematch_canonical_matches.py", "--no-overview"])
+
+    rematch_canonical_matches.main()
+
+    assert capsys.readouterr().out == "Rematched odds snapshots: 3\n"

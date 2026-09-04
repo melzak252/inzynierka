@@ -17,6 +17,11 @@ def main() -> None:
         action="store_true",
         help="Clear canonical_matches and rebuild all links from upcoming_matches from scratch.",
     )
+    parser.add_argument(
+        "--no-overview",
+        action="store_true",
+        help="Suppress the tabular canonical-match overview after rematching.",
+    )
     args = parser.parse_args()
 
     init_db()
@@ -24,9 +29,10 @@ def main() -> None:
         reset_canonical_matches()
     updated = rematch_odds_snapshots()
     print(f"Rematched odds snapshots: {updated}")
-    overview = canonical_match_overview(limit=20)
-    if not overview.empty:
-        print(overview.to_string(index=False))
+    if not args.no_overview:
+        overview = canonical_match_overview(limit=20)
+        if not overview.empty:
+            print(overview.to_string(index=False))
 
 
 def rematch_odds_snapshots() -> int:
