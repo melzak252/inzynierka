@@ -1,18 +1,36 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   fetchTournaments,
   fetchTournamentBracket,
   simulateTournament,
-  fetchWorldsDefaultTeams,
   simulateWorlds,
 } from '../api/client';
 import type {
-  TournamentSummary,
-  TournamentSimulationResponse,
   BracketMatch,
+  TournamentSimulationResponse,
+  TournamentSummary,
   WorldsSimulationResponse,
+  WorldsTeamInput,
 } from '../types';
 import './TournamentSimulation.css';
+
+const WORLDS_REGIONS = ['LCK', 'LPL', 'LEC', 'LCS', 'LCP', 'CBLOL', 'EMEA Masters', 'Other'];
+
+const INITIAL_DIRECT_TEAMS: WorldsTeamInput[] = [
+  { team: '', region: '', pool: 1 }, { team: '', region: '', pool: 1 },
+  { team: '', region: '', pool: 1 }, { team: '', region: '', pool: 1 },
+  { team: '', region: '', pool: 2 }, { team: '', region: '', pool: 2 },
+  { team: '', region: '', pool: 2 }, { team: '', region: '', pool: 2 },
+  { team: '', region: '', pool: 3 }, { team: '', region: '', pool: 3 },
+  { team: '', region: '', pool: 3 }, { team: '', region: '', pool: 3 },
+  { team: '', region: '', pool: 4 }, { team: '', region: '', pool: 4 },
+  { team: '', region: '', pool: 4 },
+];
+
+const INITIAL_PLAY_IN_TEAMS: WorldsTeamInput[] = [
+  { team: '', region: '' }, { team: '', region: '' },
+  { team: '', region: '' }, { team: '', region: '' },
+];
 
 export default function TournamentSimulation() {
   const [activeTab, setActiveTab] = useState<'regional' | 'worlds'>('regional');
@@ -27,11 +45,12 @@ export default function TournamentSimulation() {
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
-  // Worlds state
-  const [worldsTeams, setWorldsTeams] = useState<string[]>([]);
+  // Worlds state: the operator enters every participant, region, and Swiss seed pool.
+  const [directWorldsTeams, setDirectWorldsTeams] = useState<WorldsTeamInput[]>(INITIAL_DIRECT_TEAMS);
+  const [playInWorldsTeams, setPlayInWorldsTeams] = useState<WorldsTeamInput[]>(INITIAL_PLAY_IN_TEAMS);
+  const [playInWinnerPool, setPlayInWinnerPool] = useState<number>(4);
   const [worldsData, setWorldsData] = useState<WorldsSimulationResponse | null>(null);
   const [worldsSimulating, setWorldsSimulating] = useState<boolean>(false);
-  const [newTeamInput, setNewTeamInput] = useState<string>('');
 
   useEffect(() => {
     fetchTournaments()
@@ -43,11 +62,6 @@ export default function TournamentSimulation() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Błąd ładowania turniejów'));
 
-    fetchWorldsDefaultTeams()
-      .then((res) => {
-        setWorldsTeams(res.default_teams);
-      })
-      .catch((err) => console.error('Błąd ładowania drużyn Worlds:', err));
   }, [selectedId]);
 
   useEffect(() => {
@@ -81,7 +95,12 @@ export default function TournamentSimulation() {
   const handleSimulateWorlds = async () => {
     setWorldsSimulating(true);
     try {
-      const res = await simulateWorlds(worldsTeams, 5000);
+      const res = await simulateWorlds(
+        directWorldsTeams,
+        playInWorldsTeams,
+        playInWinnerPool,
+        5000,
+      );
       setWorldsData(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Błąd symulacji Worlds');
@@ -103,25 +122,34 @@ export default function TournamentSimulation() {
     });
   };
 
-  const handleUpdateWorldsTeam = (index: number, val: string) => {
-    setWorldsTeams((prev) => {
-      const updated = [...prev];
-      updated[index] = val;
-      return updated;
-    });
-  };
-
-  const handleAddWorldsTeam = () => {
-    if (!newTeamInput.trim()) return;
-    if (worldsTeams.length < 16) {
-      setWorldsTeams((prev) => [...prev, newTeamInput.trim()]);
-      setNewTeamInput('');
+  const handleUpdateWorldsTeam = (
+    stage: 'direct' | 'playIn',
+    index: number,
+    field: keyof WorldsTeamInput,
+    value: string | number,
+  ) => {
+    const updateTeams = (teams: WorldsTeamInput[]) => teams.map((team, teamIndex) => (
+      teamIndex === index ? { ...team, [field]: value } : team
+    ));
+    if (stage === 'direct') {
+      setDirectWorldsTeams(updateTeams);
+    } else {
+      setPlayInWorldsTeams(updateTeams);
     }
+    setWorldsData(null);
   };
 
-  const handleRemoveWorldsTeam = (index: number) => {
-    setWorldsTeams((prev) => prev.filter((_, i) => i !== index));
-  };
+  const directPoolCounts = [1, 2, 3, 4].map((pool) => (
+    directWorldsTeams.filter((team) => team.pool === pool).length
+  ));
+  const worldsReady = [
+    ...directWorldsTeams,
+    ...playInWorldsTeams,
+  ].every((team) => team.team.trim() && team.region)
+    && directPoolCounts[playInWinnerPool - 1] === 3
+    && directPoolCounts.every(
+      (count, index) => index === playInWinnerPool - 1 || count === 4,
+    );
 
   if (loading && activeTab === 'regional') {
     return <div className="tournament-container"><div className="loading-state">Ładowanie drabinki i symulatora...</div></div>;
@@ -246,10 +274,15 @@ export default function TournamentSimulation() {
             <button
               className="simulate-btn"
               onClick={handleSimulateWorlds}
-              disabled={worldsSimulating || worldsTeams.length !== 16}
+              disabled={worldsSimulating || !worldsReady}
             >
               {worldsSimulating ? '⏳ Symulacja Worlds...' : '⚡ Symuluj Worlds (5 000 prób)'}
             </button>
+            {!worldsReady && (
+              <span className="worlds-validation-hint">
+                Uzupełnij 15 miejsc Swiss i 4 miejsc Play-In; pula zwycięzcy Play-In musi mieć 3 zespoły.
+              </span>
+            )}
           </div>
         )}
       </header>
@@ -358,46 +391,98 @@ export default function TournamentSimulation() {
       ) : (
         <div className="worlds-layout">
           <section className="worlds-teams-editor">
-            <h2>Uczestnicy Worlds 2026 (16 drużyn w fazie Swiss)</h2>
+            <h2>Skład Worlds 2026 — wpisujesz wszystkie drużyny</h2>
             <p className="subtitle-sm">
-              Możesz edytować nazwy drużyn lub wpisać własnych faworytów. Model użyje ich aktualnych ratingów.
+              Brak prognozowanych składów. Wybierz własne drużyny, ich region oraz pulę do losowania Swiss.
+              Pierwsza runda Swiss łączy pule 1–4 i 2–3; kolejne rundy dobierają bilanse, unikając rewanżów,
+              gdy układ danej grupy na to pozwala.
             </p>
 
-            <div className="teams-grid">
-              {worldsTeams.map((team, idx) => (
-                <div key={idx} className="team-input-card">
-                  <span className="team-slot-num">#{idx + 1}</span>
-                  <input
-                    type="text"
-                    value={team}
-                    onChange={(e) => handleUpdateWorldsTeam(idx, e.target.value)}
-                    className="team-text-input"
-                  />
-                  <button
-                    className="remove-team-btn"
-                    onClick={() => handleRemoveWorldsTeam(idx)}
-                    title="Usuń slot"
-                  >
-                    ✕
-                  </button>
+            <div className="worlds-stage-heading">
+              <h3>Swiss — 15 bezpośrednich miejsc</h3>
+              <span>Po 3–4 zespoły w każdej puli</span>
+            </div>
+            <div className="worlds-pool-grid">
+              {[1, 2, 3, 4].map((pool) => (
+                <div key={pool} className="worlds-pool-card">
+                  <h4>Pula {pool} <span>({directPoolCounts[pool - 1]})</span></h4>
+                  {directWorldsTeams.map((team, index) => (
+                    team.pool === pool && (
+                      <div key={index} className="worlds-team-slot">
+                        <input
+                          type="text"
+                          value={team.team}
+                          onChange={(event) => handleUpdateWorldsTeam('direct', index, 'team', event.target.value)}
+                          className="team-text-input"
+                          placeholder={`Drużyna ${index + 1}`}
+                          aria-label={`Drużyna Swiss ${index + 1}`}
+                        />
+                        <select
+                          value={team.region}
+                          onChange={(event) => handleUpdateWorldsTeam('direct', index, 'region', event.target.value)}
+                          className="worlds-select"
+                          aria-label={`Region drużyny Swiss ${index + 1}`}
+                        >
+                          <option value="">Region</option>
+                          {WORLDS_REGIONS.map((region) => <option key={region} value={region}>{region}</option>)}
+                        </select>
+                        <select
+                          value={team.pool}
+                          onChange={(event) => handleUpdateWorldsTeam('direct', index, 'pool', Number(event.target.value))}
+                          className="worlds-select pool-select"
+                          aria-label={`Pula drużyny Swiss ${index + 1}`}
+                        >
+                          {[1, 2, 3, 4].map((poolOption) => (
+                            <option key={poolOption} value={poolOption}>P{poolOption}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )
+                  ))}
                 </div>
               ))}
             </div>
 
-            {worldsTeams.length < 16 && (
-              <div className="add-team-bar">
-                <input
-                  type="text"
-                  placeholder="Wpisz nazwę drużyny..."
-                  value={newTeamInput}
-                  onChange={(e) => setNewTeamInput(e.target.value)}
-                  className="add-team-input"
-                />
-                <button className="add-btn" onClick={handleAddWorldsTeam}>
-                  + Dodaj drużynę ({worldsTeams.length}/16)
-                </button>
-              </div>
-            )}
+            <div className="worlds-stage-heading">
+              <h3>Play-In — 4 zespoły</h3>
+              <span>Double elimination Bo5; jeden zwycięzca przechodzi do Swiss</span>
+            </div>
+            <div className="play-in-grid">
+              {playInWorldsTeams.map((team, index) => (
+                <div key={index} className="worlds-team-slot">
+                  <input
+                    type="text"
+                    value={team.team}
+                    onChange={(event) => handleUpdateWorldsTeam('playIn', index, 'team', event.target.value)}
+                    className="team-text-input"
+                    placeholder={`Play-In ${index + 1}`}
+                    aria-label={`Drużyna Play-In ${index + 1}`}
+                  />
+                  <select
+                    value={team.region}
+                    onChange={(event) => handleUpdateWorldsTeam('playIn', index, 'region', event.target.value)}
+                    className="worlds-select"
+                    aria-label={`Region drużyny Play-In ${index + 1}`}
+                  >
+                    <option value="">Region</option>
+                    {WORLDS_REGIONS.map((region) => <option key={region} value={region}>{region}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <label className="play-in-pool-field">
+              Pula zwycięzcy Play-In w Swiss
+              <select
+                value={playInWinnerPool}
+                onChange={(event) => {
+                  setPlayInWinnerPool(Number(event.target.value));
+                  setWorldsData(null);
+                }}
+                className="worlds-select"
+              >
+                {[1, 2, 3, 4].map((pool) => <option key={pool} value={pool}>Pula {pool}</option>)}
+              </select>
+            </label>
           </section>
 
           <section className="worlds-results-panel">
@@ -407,27 +492,34 @@ export default function TournamentSimulation() {
                 <thead>
                   <tr>
                     <th>Drużyna</th>
+                    <th>Region / etap</th>
+                    <th>Play-In → Swiss</th>
                     <th>🥇 Puchar Worlds</th>
-                    <th>🥈 Finał (Top 2)</th>
-                    <th>Półfinał (Top 4)</th>
-                    <th>Wyjście ze Swiss (Top 8)</th>
+                    <th>🥈 Finał</th>
+                    <th>Top 4</th>
+                    <th>Swiss Top 8</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {worldsData.standings.map((s) => (
-                    <tr key={s.team}>
-                      <td className="team-cell"><strong>{s.team}</strong></td>
-                      <td className="prob-cell champ-prob">{(s.champion_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell">{(s.top2_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell">{(s.top4_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell">{(s.top8_swiss_prob * 100).toFixed(1)}%</td>
+                  {worldsData.standings.map((standing) => (
+                    <tr key={standing.team}>
+                      <td className="team-cell"><strong>{standing.team}</strong></td>
+                      <td className="prob-cell">
+                        {standing.region} · {standing.stage === 'play_in' ? 'Play-In' : `Swiss P${standing.pool}`}
+                      </td>
+                      <td className="prob-cell">{(standing.play_in_qualifier_prob * 100).toFixed(1)}%</td>
+                      <td className="prob-cell champ-prob">{(standing.champion_prob * 100).toFixed(1)}%</td>
+                      <td className="prob-cell">{(standing.top2_prob * 100).toFixed(1)}%</td>
+                      <td className="prob-cell">{(standing.top4_prob * 100).toFixed(1)}%</td>
+                      <td className="prob-cell">{(standing.top8_swiss_prob * 100).toFixed(1)}%</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             ) : (
               <div className="empty-state">
-                <p>Kliknij <strong>⚡ Symuluj Worlds</strong> powyżej, aby przeprowadzić 5 000 pełnych symulacji fazy Swiss (Bo1/Bo3) i fazy pucharowej (Bo5)!</p>
+                <p>Wpisz własne 15 bezpośrednich uczestników i 4 zespoły Play-In. Symulacja obejmie Play-In,
+                  Swiss (Bo1/Bo3) oraz pucharową fazę Bo5.</p>
               </div>
             )}
           </section>

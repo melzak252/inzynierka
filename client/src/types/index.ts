@@ -450,8 +450,18 @@ export interface TournamentSummary {
   teams: string[];
 }
 
+export interface WorldsTeamInput {
+  team: string;
+  region: string;
+  pool?: number;
+}
+
 export interface WorldsStanding {
   team: string;
+  region: string;
+  stage: 'direct_swiss' | 'play_in';
+  pool: number | null;
+  play_in_qualifier_prob: number;
   champion_prob: number;
   top2_prob: number;
   top4_prob: number;
@@ -464,6 +474,9 @@ export interface WorldsSimulationResponse {
   format: string;
   simulations: number;
   teams: string[];
+  direct_teams: WorldsTeamInput[];
+  play_in_teams: WorldsTeamInput[];
+  play_in_winner_pool: number;
   standings: WorldsStanding[];
 }
 

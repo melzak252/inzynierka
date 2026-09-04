@@ -483,3 +483,130 @@
   border-radius: 6px;
   border: 1px dashed #334155;
 }
+
+.worlds-layout {
+  grid-template-columns: minmax(620px, 1.2fr) minmax(480px, 1fr);
+}
+
+.worlds-validation-hint {
+  color: #fbbf24;
+  font-size: 0.8rem;
+  max-width: 360px;
+}
+
+.worlds-stage-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.5rem 0 0.75rem;
+}
+
+.worlds-stage-heading h3 {
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.worlds-stage-heading span {
+  color: #94a3b8;
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.worlds-pool-grid,
+.play-in-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.worlds-pool-card {
+  background: #131d31;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.7rem;
+}
+
+.worlds-pool-card h4 {
+  color: #38bdf8;
+  font-size: 0.8rem;
+  margin: 0 0 0.65rem;
+}
+
+.worlds-pool-card h4 span {
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.worlds-team-slot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px 42px;
+  gap: 0.35rem;
+  align-items: center;
+  margin-bottom: 0.45rem;
+}
+
+.play-in-grid .worlds-team-slot {
+  grid-template-columns: minmax(0, 1fr) 120px;
+  background: #131d31;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  padding: 0.45rem;
+  margin: 0;
+}
+
+.worlds-team-slot .team-text-input {
+  min-width: 0;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  padding: 0.45rem 0.5rem;
+}
+
+.worlds-select {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  color: #e2e8f0;
+  font-size: 0.75rem;
+  min-width: 0;
+  padding: 0.45rem 0.35rem;
+}
+
+.pool-select {
+  text-align: center;
+}
+
+.play-in-pool-field {
+  align-items: center;
+  color: #cbd5e1;
+  display: flex;
+  font-size: 0.82rem;
+  gap: 0.75rem;
+  margin-top: 0.85rem;
+}
+
+@media (max-width: 1200px) {
+  .worlds-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .worlds-layout,
+  .worlds-pool-grid,
+  .play-in-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .worlds-stage-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .worlds-stage-heading span {
+    text-align: left;
+  }
+}

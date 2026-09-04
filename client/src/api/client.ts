@@ -30,6 +30,7 @@ import type {
   TournamentSimulationResponse,
   MatchupSimulationResponse,
   WorldsSimulationResponse,
+  WorldsTeamInput,
 } from '../types';
 
 const API_BASE = '/api';
@@ -457,21 +458,22 @@ export async function simulateTournament(
   if (!response.ok) throw new Error('Failed to run tournament simulation');
   return response.json();
 }
-export async function fetchWorldsDefaultTeams(): Promise<{ tournament_id: string; default_teams: string[] }> {
-  const response = await fetch(`${API_BASE}/tournaments/worlds/teams`);
-  if (!response.ok) throw new Error('Failed to fetch default Worlds teams');
-  return response.json();
-}
-
 export async function simulateWorlds(
-  teams?: string[],
+  directTeams: WorldsTeamInput[],
+  playInTeams: WorldsTeamInput[],
+  playInWinnerPool: number,
   simulations: number = 5000,
 ): Promise<WorldsSimulationResponse> {
   const response = await fetch(`${API_BASE}/tournaments/worlds/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ teams, simulations }),
+    body: JSON.stringify({
+      direct_teams: directTeams,
+      play_in_teams: playInTeams,
+      play_in_winner_pool: playInWinnerPool,
+      simulations,
+    }),
   });
-  if (!response.ok) throw new Error('Failed to run Worlds simulation');
+  if (!response.ok) throw new Error(`Failed to run Worlds simulation: ${await response.text()}`);
   return response.json();
 }
