@@ -18,28 +18,26 @@ def rematch_canonical() -> bool:
     )
 
 
-def sync_liquipedia() -> bool:
-    """Sync Best-of format and upcoming match info from Liquipedia."""
-    logger.info("Syncing match info and Best-of formats from Liquipedia")
-    return _run_module(
+def sync_liquipedia_daily() -> dict:
+    """Daily task to sync Best-of formats and active team rosters from Liquipedia."""
+    logger.info("Running daily Liquipedia sync (BoN + rosters)")
+    ok = _run_module(
         "betting_app.scripts.sync_liquipedia_bon",
-        args=["--limit", "60"],
-        timeout=180,
+        args=["--limit", "60", "--sync-rosters"],
+        timeout=300,
     )
+    return {"success": ok}
 
 
 def run_prediction_pipeline() -> dict:
-    """Run the full prediction pipeline:
+    """Run the prediction pipeline:
     1. Rematch canonical matches
-    2. Sync Best-of formats from Liquipedia
-    3. Build features + predict + hybrid + EV signals
+    2. Build features + predict + hybrid + EV signals
     """
     logger.info("Starting prediction pipeline")
     start = datetime.now(UTC)
     
     rematch_ok = rematch_canonical()
-    # Syncing BoN is best-effort and does not block pipeline on external network failure
-    bon_sync_ok = sync_liquipedia()
     if rematch_ok:
         predict_ok = _run_module(
             "betting_app.scripts.run_upcoming_prediction_pipeline",
@@ -52,7 +50,6 @@ def run_prediction_pipeline() -> dict:
 
     steps = {
         "rematch": rematch_ok,
-        "liquipedia_bon": bon_sync_ok,
         "predict": predict_ok,
     }
     duration = (datetime.now(UTC) - start).total_seconds()
