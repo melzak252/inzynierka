@@ -155,28 +155,40 @@ def test_synthetic_matchup_feature_build_does_not_upsert(monkeypatch: pytest.Mon
 def test_player_ratings_preserve_roster_names_and_roles(monkeypatch: pytest.MonkeyPatch) -> None:
     from betting_app.services import upcoming_inference_service as inference
 
-    monkeypatch.setattr(
-        inference,
-        "query_df",
-        lambda *_: pd.DataFrame(
+    query: dict[str, object] = {}
+
+    def fake_query_df(sql: str, params: tuple[object, ...]) -> pd.DataFrame:
+        query["sql"] = sql
+        query["params"] = params
+        return pd.DataFrame(
             [{
                 "rating_system": "gl",
-                "entity_name": "ZEUS",
-                "normalized_entity_name": "t1-top",
+                "entity_name": "Zeus",
+                "normalized_entity_name": "golgg-123",
                 "rating_value": 1825.0,
                 "rd": 65.0,
                 "sigma": 0.06,
                 "games_played": 20,
                 "last_match_at": "2026-09-01T12:00:00+00:00",
             }]
-        ),
-    )
+        )
+
+    monkeypatch.setattr(inference, "query_df", fake_query_df)
 
     ratings = inference.load_roster_player_ratings(
-        {"players": [{"player_id": "t1-top", "player_name": "Zeus", "role": "TOP"}]},
+        {
+            "players": [{
+                "player_id": "Zeus",
+                "player_name": "Choi Hyeon-jun",
+                "role": "TOP",
+            }]
+        },
         "test",
     )
 
-    assert ratings["gl"]["players"][0]["player_id"] == "t1-top"
-    assert ratings["gl"]["players"][0]["player_name"] == "Zeus"
+    assert "LOWER(entity_name)" in str(query["sql"])
+    assert "zeus" in query["params"]
+
+    assert ratings["gl"]["players"][0]["player_id"] == "Zeus"
+    assert ratings["gl"]["players"][0]["player_name"] == "Choi Hyeon-jun"
     assert ratings["gl"]["players"][0]["role"] == "TOP"

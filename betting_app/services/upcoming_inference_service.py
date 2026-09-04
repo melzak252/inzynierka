@@ -579,15 +579,37 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
     }
     if not roster_players:
         return {}
+    roster_players_by_identity: dict[str, dict[str, Any]] = {}
+    for player in roster_players.values():
+        for identity in (player.get("player_id"), player.get("player_name")):
+            if identity:
+                roster_players_by_identity.setdefault(
+                    normalize_team_name(str(identity)),
+                    player,
+                )
+
     player_ids = list(roster_players)
-    placeholders = ",".join("?" for _ in player_ids)
+    player_names = list(
+        dict.fromkeys(
+            str(identity).casefold()
+            for player in roster_players.values()
+            for identity in (player.get("player_id"), player.get("player_name"))
+            if identity
+        )
+    )
+    id_placeholders = ",".join("?" for _ in player_ids)
+    name_placeholders = ",".join("?" for _ in player_names)
     frame = query_df(
         f"""
         SELECT rating_system, entity_name, normalized_entity_name, rating_value, rd, sigma, games_played, last_match_at
         FROM entity_ratings
-        WHERE ratings_version = ? AND entity_type = 'player' AND normalized_entity_name IN ({placeholders})
+        WHERE ratings_version = ? AND entity_type = 'player'
+          AND (
+              normalized_entity_name IN ({id_placeholders})
+              OR LOWER(entity_name) IN ({name_placeholders})
+          )
         """,
-        (ratings_version, *player_ids),
+        (ratings_version, *player_ids, *player_names),
     )
     # ``query_df`` returns a column-less empty DataFrame when none of a
     # manually selected/new roster's IDs has a rating snapshot yet. That is a
@@ -597,22 +619,35 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
         return {}
     result: dict[str, dict[str, Any]] = {}
     for system, group in frame.groupby("rating_system"):
-        ratings = [none_or_float(value) for value in group["rating_value"].tolist()]
+        matched_players: dict[str, dict[str, Any]] = {}
+        for player in group.to_dict("records"):
+            roster_player = roster_players.get(str(player["normalized_entity_name"]))
+            if roster_player is None:
+                roster_player = roster_players_by_identity.get(
+                    normalize_team_name(str(player.get("entity_name") or ""))
+                )
+            if roster_player is None:
+                continue
+            player_id = str(roster_player["player_id"])
+            existing = matched_players.get(player_id)
+            if existing is None or int(player.get("games_played") or 0) > int(
+                existing["games_played"] or 0
+            ):
+                matched_players[player_id] = {
+                    **player,
+                    "player_id": player_id,
+                    "player_name": roster_player.get("player_name")
+                    or player.get("entity_name"),
+                    "role": roster_player.get("role"),
+                }
+        player_records = list(matched_players.values())
+        ratings = [
+            none_or_float(player.get("rating_value"))
+            for player in player_records
+        ]
         ratings = [value for value in ratings if value is not None]
         if not ratings:
             continue
-        player_records: list[dict[str, Any]] = []
-        for player in group.to_dict("records"):
-            player_id = str(player["normalized_entity_name"])
-            roster_player = roster_players.get(player_id, {})
-            player_records.append(
-                {
-                    **player,
-                    "player_id": player_id,
-                    "player_name": roster_player.get("player_name") or player.get("entity_name"),
-                    "role": roster_player.get("role"),
-                }
-            )
         result[str(system)] = {
             "avg_rating_value": sum(ratings) / len(ratings),
             "min_rating_value": min(ratings),
