@@ -24,6 +24,7 @@ from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import (
     BettingRecommendation,
     AliasBlockRequest,
+    AliasCreateRequest,
     AliasCreateResponse,
     AliasDeleteRequest,
     BookmakerOddsRow,
