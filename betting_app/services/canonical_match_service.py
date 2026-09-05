@@ -125,6 +125,9 @@ TEAM_ALIASES = {
     "ucam tokiers": "ucam",
     "ucam": "ucam",
     "e wie einfach": "e wie einfach e sports",
+    "ninjas in pyjamas cn": "ninjas in pyjamas",
+    "invictus gaming": "invictus gaming",
+    "ig": "invictus gaming",
 }
 
 

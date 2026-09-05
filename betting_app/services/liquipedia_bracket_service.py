@@ -60,20 +60,36 @@ TOURNAMENT_METADATA: dict[str, dict[str, Any]] = {
         "format": "double_elimination",
         "teams": ["Karmine Corp", "GIANTX", "G2 Esports", "Team Vitality", "Natus Vincere", "Movistar KOI"],
         "round_order": [
-            "UB_R1_M1", "UB_R1_M2", "UB_Final",
-            "LB_R1_M1", "LB_R1_M2", "LB_R2", "LB_Final", "Grand_Final",
+            "UB_SF1", "UB_SF2",
+            "LB_R1_M1", "LB_R1_M2",
+            "UB_Final", "LB_SF", "LB_Final", "Grand_Final",
         ],
     },
     "lpl_2026_split3_playoffs": {
         "name": "LPL 2026 Split 3 - Playoffs",
-        "liquipedia_page": "LPL/2026_Season/Split_3/Playoffs",
-        "fandom_overview": "LPL/2026 Season/Split 3",
+        "liquipedia_page": "LPL/2026_Season/Grand_Finals",
+        "fandom_overview": "LPL/2026 Season/Grand Finals",
         "region": "LPL",
         "format": "double_elimination",
-        "teams": ["Bilibili Gaming", "Anyone's Legend", "LGD Gaming", "JD Gaming", "Ninjas in Pyjamas", "Top Esports"],
+        "teams": [
+            "Bilibili Gaming",
+            "Anyone's Legend",
+            "Team WE",
+            "JD Gaming",
+            "LGD Gaming",
+            "Top Esports",
+            "Invictus Gaming",
+            "Ninjas in Pyjamas",
+        ],
         "round_order": [
-            "UB_R1_M1", "UB_R1_M2", "UB_R2_M1", "UB_R2_M2",
-            "LB_R1", "LB_R2", "UB_Final", "LB_R3", "LB_Final", "Grand_Final",
+            "UB_R1_M1", "UB_R1_M2",
+            "UB_R2_M1", "UB_R2_M2",
+            "LB_R1_M1", "LB_R1_M2",
+            "LB_R2_M1", "LB_R2_M2",
+            "LB_R3",
+            "UB_Final",
+            "LB_Final",
+            "Grand_Final",
         ],
     },
 }
@@ -124,7 +140,7 @@ class LiquipediaBracketService:
             "fields": "Team1,Team2,Winner,Team1Score,Team2Score,MatchDay,DateTime_UTC,BestOf,Tab",
             "where": f"OverviewPage = '{overview_page}'",
             "format": "json",
-            "limit": "50",
+            "limit": "250",
             "order_by": "DateTime_UTC ASC",
         }
         url = f"{self.fandom_url}?{urllib.parse.urlencode(params)}"
@@ -333,10 +349,19 @@ class LiquipediaBracketService:
         for p in sorted_matches:
             p_t1 = canonical_team_key(p["team1"])
             p_t2 = canonical_team_key(p["team2"])
+            if p_t1 not in display_names or p_t2 not in display_names:
+                continue
             p_winner_raw = p.get("winner")
             p_winner = canonical_team_key(p_winner_raw) if p_winner_raw else None
             p_s1 = p.get("score1")
             p_s2 = p.get("score2")
+            if not p_winner and p_s1 is not None and p_s2 is not None:
+                if p_s1 >= 3 and p_s1 > p_s2:
+                    p_winner = p_t1
+                    p_winner_raw = p["team1"]
+                elif p_s2 >= 3 and p_s2 > p_s1:
+                    p_winner = p_t2
+                    p_winner_raw = p["team2"]
 
             matched_node_id: str | None = None
             for node_id in round_order:
@@ -348,13 +373,15 @@ class LiquipediaBracketService:
                 n_t1 = canonical_team_key(node.team1 or "")
                 n_t2 = canonical_team_key(node.team2 or "")
 
+                has_empty_slot = (not node.team1) or (not node.team2)
                 if (n_t1 == p_t1 and n_t2 == p_t2) or (n_t1 == p_t2 and n_t2 == p_t1):
                     matched_node_id = node_id
                     break
-                elif (node.winner is None) and (n_t1 == p_t1 or n_t2 == p_t1 or n_t1 == p_t2 or n_t2 == p_t2):
-                    matched_node_id = node_id
-                    break
-
+                elif has_empty_slot and (node.winner is None):
+                    known_key = n_t1 if node.team1 else n_t2
+                    if known_key in (p_t1, p_t2):
+                        matched_node_id = node_id
+                        break
             if matched_node_id:
                 assigned_nodes.add(matched_node_id)
                 node = bracket.matches[matched_node_id]
@@ -392,10 +419,14 @@ class LiquipediaBracketService:
                         elif node.next_match_loser_slot == 2:
                             loser_target.team2 = loser_disp
 
-                if p_s1 is not None:
-                    node.score1 = p_s1
-                if p_s2 is not None:
-                    node.score2 = p_s2
+                if p_s1 is not None or p_s2 is not None:
+                    n_k1 = canonical_team_key(node.team1 or "")
+                    if n_k1 == p_t2:
+                        node.score1 = p_s2
+                        node.score2 = p_s1
+                    else:
+                        node.score1 = p_s1
+                        node.score2 = p_s2
                 updated_count += 1
 
         return bracket, updated_count

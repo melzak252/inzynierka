@@ -41,7 +41,9 @@ def test_supported_brackets_structure() -> None:
 
     lpl = get_lpl_2026_split3_playoffs_bracket()
     assert lpl.region == "LPL"
-    assert len(lpl.teams) == 6
+    assert len(lpl.teams) == 8
+    assert "UB_R1_M1" in lpl.matches
+    assert "LB_R3" in lpl.matches
 
 
 def test_tournament_simulator_deterministic_manual_override() -> None:
@@ -83,6 +85,16 @@ def test_tournaments_api_endpoints() -> None:
     )
     assert sim_lec.status_code == 200
     assert len(sim_lec.json()["standings"]) == 6
+    # LPL simulation endpoint
+    sim_lpl = client.post(
+        "/tournaments/lpl_2026_split3_playoffs/simulate",
+        json={"simulations": 200},
+    )
+    assert sim_lpl.status_code == 200
+    lpl_standings = sim_lpl.json()["standings"]
+    assert len(lpl_standings) == 8
+    assert round(sum(s["champion_prob"] for s in lpl_standings), 1) == 1.0
+
 
     # Bracket GET endpoint with sync metadata
     get_lck = client.get("/tournaments/lck_2026_playoffs")
@@ -157,6 +169,39 @@ def test_bracket_sync_service_chronological_mapping() -> None:
     assert updated_bracket.matches["LB_R2"].winner == "Dplus"
 
 
+def test_lpl_simulation_tes_elimination_and_no_100_percent_top3_bug() -> None:
+    """Verify TES is not mathematically forced to 100% Top 3 and when eliminated in LB R1 has 0% Top 3."""
+    sim = TournamentSimulator()
+
+    # 1. Pre-playoff state: TES must NOT be hardcoded to 100% Top 3
+    bracket_pre = get_lpl_2026_split3_playoffs_bracket()
+    res_pre = sim.simulate(bracket_pre, n_simulations=500)
+    standings_pre = {s["team"]: s for s in res_pre["standings"]}
+    assert len(res_pre["standings"]) == 8
+    assert standings_pre["Top Esports"]["top3_prob"] < 1.0, "TES must not have 100% top 3 before playoffs"
+    assert standings_pre["Top Esports"]["champion_prob"] > 0.0
+
+    # 2. Live state where TES was eliminated in LB R1 by Invictus Gaming
+    bracket_live = get_lpl_2026_split3_playoffs_bracket()
+    # UB R1 results: TES lost to LGD
+    bracket_live.matches["UB_R1_M1"].winner = "LGD Gaming"
+    bracket_live.matches["UB_R1_M1"].score1 = 2
+    bracket_live.matches["UB_R1_M1"].score2 = 3
+    # Advance loser TES to LB_R1_M1 slot 2
+    bracket_live.matches["LB_R1_M1"].team2 = "Top Esports"
+    # LB R1 results: Invictus Gaming defeats Top Esports
+    bracket_live.matches["LB_R1_M1"].winner = "Invictus Gaming"
+    bracket_live.matches["LB_R1_M1"].score1 = 3
+    bracket_live.matches["LB_R1_M1"].score2 = 2
+
+    res_live = sim.simulate(bracket_live, n_simulations=500)
+    standings_live = {s["team"]: s for s in res_live["standings"]}
+    tes = standings_live["Top Esports"]
+    assert tes["champion_prob"] == 0.0
+    assert tes["top2_prob"] == 0.0
+    assert tes["top3_prob"] == 0.0
+    assert tes["top4_prob"] == 0.0
+
 def test_enc_selects_the_best_listed_polish_player_for_each_role() -> None:
     configuration = build_enc_configuration(
         rating_run={"ratings_version": "ratings-v2", "data_cutoff_at": "2026-09-03T00:00:00+00:00"},
@@ -214,3 +259,98 @@ def test_enc_simulator_uses_published_stage_sizes_and_series_lengths() -> None:
     assert len(result["standings"]) == 32
     assert sum(team["champion_prob"] for team in result["standings"]) == 1.0
     assert all(team["group_stage_prob"] == 1.0 for team in result["standings"] if team["entry_stage"] == "group_stage")
+
+
+def test_lec_bracket_round_order_keys_match() -> None:
+    """Verify LEC round_order keys in metadata strictly match bracket match IDs."""
+    meta = TOURNAMENT_METADATA["lec_2026_summer_playoffs"]
+    bracket = get_lec_2026_summer_playoffs_bracket()
+    for node_id in meta["round_order"]:
+        assert node_id in bracket.matches, f"Node {node_id} from round_order must exist in LEC matches"
+
+
+def test_score_alignment_reversed_order() -> None:
+    """Verify scores are aligned to node.team1 and node.team2 even when parsed match has reversed sides."""
+    service = LiquipediaBracketService()
+    bracket = get_lck_2026_playoffs_bracket()
+    # In bracket: UB_R1_M1 has team1="KT Rolster", team2="Dplus"
+    # Parsed match has team1="Dplus KIA" (0) vs team2="KT Rolster" (3)
+    parsed = [
+        {
+            "team1": "Dplus KIA",
+            "team2": "KT Rolster",
+            "score1": 0,
+            "score2": 3,
+            "winner": "KT Rolster",
+            "date": "2026-08-30 08:00:00",
+        }
+    ]
+    updated, count = service.map_matches_chronologically(bracket, parsed, ["UB_R1_M1"])
+    assert count == 1
+    node = updated.matches["UB_R1_M1"]
+    assert node.team1 == "KT Rolster"
+    assert node.team2 == "Dplus"
+    assert node.score1 == 3, "KT Rolster (team1) must have score 3, not 0"
+    assert node.score2 == 0, "Dplus (team2) must have score 0, not 3"
+    assert node.winner == "KT Rolster"
+
+
+def test_all_supported_brackets_simulate_successfully() -> None:
+    """Verify each supported bracket tree simulates without dead ends or missing slots."""
+    sim = TournamentSimulator()
+    for tournament_id, builder in SUPPORTED_BRACKETS.items():
+        bracket = builder()
+        res = sim.simulate(bracket, n_simulations=200)
+        assert res["tournament_id"] == tournament_id
+        assert len(res["standings"]) == len(bracket.teams)
+        total_champ = sum(s["champion_prob"] for s in res["standings"])
+        assert round(total_champ, 2) == 1.0, f"{tournament_id} champion probabilities must sum to 1"
+
+
+def test_lpl_bracket_sync_and_upper_finals() -> None:
+    """Verify LPL 2026 bracket mapping places AL vs BLG in Upper Finals and does not pre-populate Grand Final."""
+    service = LiquipediaBracketService()
+    bracket = get_lpl_2026_split3_playoffs_bracket()
+    round_order = TOURNAMENT_METADATA["lpl_2026_split3_playoffs"]["round_order"]
+
+    # Simulated real Cargo export matches up to 2026-09-05
+    fandom_matches = [
+        {"team1": "Top Esports", "team2": "LGD Gaming", "score1": 2, "score2": 3, "winner": "LGD Gaming", "date": "2026-08-29 09:00:00"},
+        {"team1": "JD Gaming", "team2": "Team WE", "score1": 1, "score2": 3, "winner": "Team WE", "date": "2026-08-30 09:00:00"},
+        {"team1": "Bilibili Gaming", "team2": "Team WE", "score1": 3, "score2": 1, "winner": "Bilibili Gaming", "date": "2026-09-03 09:00:00"},
+        {"team1": "Anyone's Legend", "team2": "LGD Gaming", "score1": 3, "score2": 1, "winner": "Anyone's Legend", "date": "2026-09-04 09:00:00"},
+        {"team1": "Invictus Gaming", "team2": "Top Esports", "score1": 3, "score2": 2, "winner": "Invictus Gaming", "date": "2026-09-05 06:00:00"},
+        {"team1": "Ninjas in Pyjamas.CN", "team2": "JD Gaming", "score1": 1, "score2": 0, "winner": None, "date": "2026-09-05 11:00:00"},
+        {"team1": "Invictus Gaming", "team2": "Team WE", "score1": None, "score2": None, "winner": None, "date": "2026-09-06 06:00:00"},
+        {"team1": "Anyone's Legend", "team2": "Bilibili Gaming", "score1": None, "score2": None, "winner": None, "date": "2026-09-07 09:00:00"},
+    ]
+
+    updated, count = service.map_matches_chronologically(bracket, fandom_matches, round_order)
+    assert count >= 6
+
+    # Upper Finals MUST be Anyone's Legend vs Bilibili Gaming
+    ub_final = updated.matches["UB_Final"]
+    assert {ub_final.team1, ub_final.team2} == {"Anyone's Legend", "Bilibili Gaming"}
+    assert ub_final.winner is None
+
+    # Lower Round 2 Match 1 MUST be Invictus Gaming vs Team WE
+    lb_r2_m1 = updated.matches["LB_R2_M1"]
+    assert {lb_r2_m1.team1, lb_r2_m1.team2} == {"Invictus Gaming", "Team WE"}
+
+    # Lower Round 2 Match 2 MUST await winner of NIP vs JDG and loser of AL vs LGD (LGD Gaming)
+    lb_r2_m2 = updated.matches["LB_R2_M2"]
+    assert "LGD Gaming" in (lb_r2_m2.team1, lb_r2_m2.team2)
+
+    # Grand Final MUST NOT have predetermined teams or winner
+    grand_final = updated.matches["Grand_Final"]
+    assert grand_final.team1 is None
+    assert grand_final.team2 is None
+    assert grand_final.winner is None
+
+    # Simulate tournament: AL and BLG must have high champion probability, TES must be 0%
+    sim = TournamentSimulator()
+    sim_res = sim.simulate(updated, n_simulations=500)
+    standings_map = {s["team"]: s for s in sim_res["standings"]}
+    assert standings_map["Top Esports"]["champion_prob"] == 0.0
+    assert standings_map["Bilibili Gaming"]["champion_prob"] > 0.25
+    assert standings_map["Anyone's Legend"]["champion_prob"] > 0.25
