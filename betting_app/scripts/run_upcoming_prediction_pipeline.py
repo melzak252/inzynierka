@@ -71,6 +71,11 @@ def main() -> None:
     )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--signals-limit", type=int, default=15)
+    parser.add_argument(
+        "--notify",
+        action="store_true",
+        help="Scan and dispatch Value Bet alerts via Discord/Telegram if new EV signals exist.",
+    )
     args = parser.parse_args()
 
     init_db()
@@ -158,6 +163,14 @@ def main() -> None:
             f"stake={row['stake_suggestion']:.2f}"
         )
 
+
+    if args.notify:
+        from betting_app.core.db import get_session
+        from betting_app.services.alert_service import scan_and_dispatch_ev_alerts
+        print("\nScanning and dispatching Value Bet alerts...")
+        with get_session() as session:
+            alert_res = scan_and_dispatch_ev_alerts(session)
+            print(f"Alerts summary: {alert_res.get('message')}")
     print_readiness_counts()
 
 

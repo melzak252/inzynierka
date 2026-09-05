@@ -12,6 +12,7 @@ import Rankings from './pages/Rankings'
 import TournamentSimulation from './pages/TournamentSimulation'
 import MatchupSimulator from './pages/MatchupSimulator'
 import PlayerComparison from './pages/PlayerComparison'
+import AlertsCenter from './pages/AlertsCenter'
 import './App.css'
 
 interface NavSingle {
@@ -65,6 +66,7 @@ const NAV_ENTRIES: NavEntry[] = [
     label: 'Zarządzanie',
     items: [
       { to: '/system', label: 'Monitoring & Scheduler', desc: 'Status scraperów, bazy i zadania cron' },
+      { to: '/alerts', label: 'Centrum Alertów', desc: 'Powiadomienia Value Bet (Telegram & Discord)' },
       { to: '/mapping', label: 'Mapowania drużyn', desc: 'Aliasy i powiązania z GOL.GG' },
     ],
   },
@@ -217,6 +219,7 @@ function App() {
           <Route path="/system" element={<SystemPage />} />
           <Route path="/horizon" element={<ModelAnalysis />} />
           <Route path="/bootstrap" element={<ModelAnalysis />} />
+          <Route path="/alerts" element={<AlertsCenter />} />
         </Routes>
       </main>
     </BrowserRouter>

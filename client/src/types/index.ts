@@ -658,11 +658,66 @@ export interface ModelClvBin {
   avg_ev: number | null;
   aggregation_level: 'model_match_horizon' | string;
 }
+export interface BookmakerClvBreakdown {
+  bookmaker_name: string;
+  entry_count: number;
+  match_count: number;
+  avg_clv_odds_pct: number | null;
+  median_clv_odds_pct: number | null;
+  positive_clv_rate: number | null;
+  positive_clv_count: number;
+  avg_clv_probability_pp: number | null;
+  avg_ev: number | null;
+  avg_taken_odds: number | null;
+  avg_closing_odds: number | null;
+}
+
+export interface OddsTierClvBreakdown {
+  tier_label: string;
+  odds_min: number;
+  odds_max: number | null;
+  entry_count: number;
+  match_count: number;
+  avg_clv_odds_pct: number | null;
+  median_clv_odds_pct: number | null;
+  positive_clv_rate: number | null;
+  positive_clv_count: number;
+  avg_ev: number | null;
+  avg_taken_odds: number | null;
+  avg_closing_odds: number | null;
+}
+
+export interface ModelConditionsSummary {
+  best_horizon?: {
+    label: string;
+    avg_clv_odds_pct: number | null;
+    positive_clv_rate: number | null;
+    match_count: number;
+    entry_count: number;
+  };
+  worst_horizon?: {
+    label: string;
+    avg_clv_odds_pct: number | null;
+    positive_clv_rate: number | null;
+    match_count: number;
+    entry_count: number;
+  };
+  top_bookmakers?: BookmakerClvBreakdown[];
+  best_odds_tier?: OddsTierClvBreakdown;
+  overall_entry_count?: number;
+  overall_matches_count?: number;
+  overall_beat_closing_rate?: number | null;
+  overall_avg_clv_odds_pct?: number | null;
+  recommendations?: string[];
+}
 
 export interface ModelClvModelSummary {
   model_key: ModelAnalysisKey | string;
   model_label: string;
   bins: ModelClvBin[];
+  bookmaker_breakdown?: BookmakerClvBreakdown[];
+  odds_tier_breakdown?: OddsTierClvBreakdown[];
+  conditions_summary?: ModelConditionsSummary;
 }
 
 export interface ModelClvByHorizonResponse {
@@ -681,6 +736,8 @@ export interface ModelClvByHorizonResponse {
   total_entries: number;
   models: ModelClvModelSummary[];
   bins: ModelClvBin[];
+  bookmaker_breakdown?: BookmakerClvBreakdown[];
+  odds_tier_breakdown?: OddsTierClvBreakdown[];
   skips: Record<string, number>;
 }
 
@@ -1211,4 +1268,85 @@ export interface PlayerComparisonResponse {
   timeline_a: RatingTimelinePoint[];
   timeline_b: RatingTimelinePoint[];
   available_rating_systems: string[];
+}
+
+export interface AlertConfigResponse {
+  is_enabled: boolean;
+  min_ev: number;
+  min_odds: number;
+  max_odds: number | null;
+  cooldown_hours: number;
+  discord_enabled: boolean;
+  discord_configured: boolean;
+  discord_webhook_url_masked: string | null;
+  telegram_enabled: boolean;
+  telegram_configured: boolean;
+  telegram_bot_token_masked: string | null;
+  telegram_chat_id_masked: string | null;
+  updated_at: string | null;
+}
+
+export interface AlertConfigUpdateRequest {
+  is_enabled?: boolean;
+  min_ev?: number;
+  min_odds?: number;
+  max_odds?: number;
+  cooldown_hours?: number;
+  discord_enabled?: boolean;
+  discord_webhook_url?: string;
+  telegram_enabled?: boolean;
+  telegram_bot_token?: string;
+  telegram_chat_id?: string;
+}
+
+export interface AlertLogEntry {
+  id: number;
+  created_at: string;
+  canonical_match_id: number | null;
+  match_label: string;
+  league: string | null;
+  match_start_at: string | null;
+  side: string | null;
+  team_name: string | null;
+  bookmaker_name: string | null;
+  odds: number | null;
+  model_prob: number | null;
+  market_prob: number | null;
+  ev: number | null;
+  suggested_stake: number | null;
+  channels: string;
+  status: string;
+  error_message: string | null;
+}
+
+export interface AlertHistoryResponse {
+  total: number;
+  alerts: AlertLogEntry[];
+}
+
+export interface AlertDispatchedItem {
+  match: string;
+  team: string;
+  bookmaker: string;
+  odds: number;
+  ev: number;
+  channels: string[];
+  status: string;
+}
+
+export interface AlertCheckResponse {
+  dispatched: number;
+  skipped: number;
+  failed: number;
+  message: string;
+  alerts: AlertDispatchedItem[];
+}
+
+export interface AlertChannelTestResult {
+  ok?: boolean;
+  error?: string | null;
+}
+
+export interface AlertTestResponse {
+  results: Record<string, AlertChannelTestResult>;
 }

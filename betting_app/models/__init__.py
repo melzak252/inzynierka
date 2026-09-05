@@ -42,6 +42,7 @@ from betting_app.models.oddspapi import (
     OddspapiFixtureMapping,
     OddspapiRequestLog,
 )
+from betting_app.models.alerts import AlertConfig, ValueAlertLog
 
 __all__ = [
     "Base",
@@ -49,6 +50,8 @@ __all__ = [
     "get_async_session",
     "is_timescale",
     "is_sqlite",
+    "AlertConfig",
+    "ValueAlertLog",
     "Bookmaker",
     "BookmakerAccount",
     "Bet",

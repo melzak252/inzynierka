@@ -29,6 +29,22 @@ def sync_liquipedia_daily() -> dict:
     return {"success": ok}
 
 
+def dispatch_value_alerts() -> dict:
+    """Scan upcoming EV+ signals and dispatch notifications to Discord / Telegram."""
+    logger.info("Scanning and dispatching Value Bet alerts")
+    from betting_app.core.db import get_session
+    from betting_app.services.alert_service import scan_and_dispatch_ev_alerts
+
+    with get_session() as session:
+        result = scan_and_dispatch_ev_alerts(session)
+    logger.info(
+        "Alert dispatch finished: %d dispatched, %d skipped, %d failed",
+        result.get("dispatched", 0),
+        result.get("skipped", 0),
+        result.get("failed", 0),
+    )
+    return result
+
 def run_prediction_pipeline() -> dict:
     """Run the prediction pipeline:
     1. Rematch canonical matches
@@ -41,7 +57,7 @@ def run_prediction_pipeline() -> dict:
     if rematch_ok:
         predict_ok = _run_module(
             "betting_app.scripts.run_upcoming_prediction_pipeline",
-            args=["--include-partial", "--operational-hybrid"],
+            args=["--include-partial", "--operational-hybrid", "--notify"],
             timeout=900,
         )
     else:

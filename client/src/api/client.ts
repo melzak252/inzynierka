@@ -38,6 +38,11 @@ import type {
   RatingTimelinePoint,
   PlayerComparisonResponse,
   ParlayRecommendationsResponse,
+  AlertConfigResponse,
+  AlertConfigUpdateRequest,
+  AlertHistoryResponse,
+  AlertCheckResponse,
+  AlertTestResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -564,5 +569,52 @@ export async function fetchPlayerComparison(
     const err = await response.json().catch(() => ({}));
     throw new Error(err.detail || `Failed to compare players: ${response.statusText}`);
   }
+  return response.json();
+}
+
+// ─── Value Bet Alerts ──────────────────────────────────────
+
+export async function fetchAlertConfig(): Promise<AlertConfigResponse> {
+  const response = await fetch(`${API_BASE}/alerts/config`);
+  if (!response.ok) throw new Error(`Failed to fetch alert config: ${response.statusText}`);
+  return response.json();
+}
+
+export async function updateAlertConfig(payload: AlertConfigUpdateRequest): Promise<AlertConfigResponse> {
+  const response = await fetch(`${API_BASE}/alerts/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to update alert config: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function fetchAlertHistory(limit: number = 50, status?: string): Promise<AlertHistoryResponse> {
+  const params = new URLSearchParams({ limit: limit.toString() });
+  if (status) params.set('status', status);
+  const response = await fetch(`${API_BASE}/alerts/history?${params}`);
+  if (!response.ok) throw new Error(`Failed to fetch alert history: ${response.statusText}`);
+  return response.json();
+}
+
+export async function triggerAlertCheck(dryRun: boolean = false): Promise<AlertCheckResponse> {
+  const params = new URLSearchParams({ dry_run: dryRun.toString() });
+  const response = await fetch(`${API_BASE}/alerts/check?${params}`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error(`Failed to trigger alert check: ${response.statusText}`);
+  return response.json();
+}
+
+export async function triggerAlertTest(channel: string = 'both'): Promise<AlertTestResponse> {
+  const params = new URLSearchParams({ channel });
+  const response = await fetch(`${API_BASE}/alerts/test?${params}`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error(`Failed to send test alert: ${response.statusText}`);
   return response.json();
 }

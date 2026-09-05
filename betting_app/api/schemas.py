@@ -946,3 +946,73 @@ class MappingReviewDecisionResponse(BaseModel):
     decision: str
     old_golgg_match_id: str | None
     new_golgg_match_id: str | None
+
+
+# ── Alerts / Notifications ──────────────────────────────────────────────────
+
+
+class AlertConfigResponse(BaseModel):
+    is_enabled: bool
+    min_ev: float
+    min_odds: float
+    max_odds: float | None = None
+    cooldown_hours: float
+    discord_enabled: bool
+    discord_configured: bool
+    discord_webhook_url_masked: str | None = None
+    telegram_enabled: bool
+    telegram_configured: bool
+    telegram_bot_token_masked: str | None = None
+    telegram_chat_id_masked: str | None = None
+    updated_at: str | None = None
+
+
+class AlertConfigUpdateRequest(BaseModel):
+    is_enabled: bool | None = None
+    min_ev: float | None = None
+    min_odds: float | None = None
+    max_odds: float | None = None
+    cooldown_hours: float | None = None
+    discord_enabled: bool | None = None
+    discord_webhook_url: str | None = None
+    telegram_enabled: bool | None = None
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+
+
+class AlertLogEntry(BaseModel):
+    id: int
+    created_at: str
+    canonical_match_id: int | None = None
+    match_label: str
+    league: str | None = None
+    match_start_at: str | None = None
+    side: str | None = None
+    team_name: str | None = None
+    bookmaker_name: str | None = None
+    odds: float | None = None
+    model_prob: float | None = None
+    market_prob: float | None = None
+    ev: float | None = None
+    suggested_stake: float | None = None
+    channels: str
+    status: str
+    error_message: str | None = None
+
+
+class AlertHistoryResponse(BaseModel):
+    total: int
+    alerts: list[AlertLogEntry]
+
+
+class AlertCheckResponse(BaseModel):
+    dispatched: int
+    skipped: int
+    failed: int
+    message: str
+    alerts: list[dict[str, Any]]
+
+
+class AlertTestResponse(BaseModel):
+    results: dict[str, Any]
+

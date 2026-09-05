@@ -16,6 +16,7 @@ from betting_app.api.routers.financial import router as financial_router
 from betting_app.api.routers.rankings import router as rankings_router
 from betting_app.api.routers.tournaments import router as tournaments_router
 from betting_app.api.routers.players import router as players_router
+from betting_app.api.routers.alerts import router as alerts_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -50,3 +51,4 @@ app.include_router(embeddings_router)
 app.include_router(rankings_router)
 app.include_router(tournaments_router)
 app.include_router(players_router)
+app.include_router(alerts_router)

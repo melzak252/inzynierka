@@ -79,6 +79,16 @@ def register_all_tasks():
         enabled=True
     ))
 
+    # Value Bet alerts dispatch - runs periodically and can be triggered on demand
+    registry.register(TaskDefinition(
+        id="value_alerts_dispatch",
+        name="Value Bet Alerts Dispatch",
+        func=predict.dispatch_value_alerts,
+        cron_trigger="15 */2 * * *",  # 5 min after prediction pipeline
+        description="Scan upcoming EV+ opportunities and send Discord/Telegram notifications",
+        enabled=True
+    ))
+
     # Shadow ML inference - after the main prediction pipeline
     registry.register(TaskDefinition(
         id="shadow_ml_inference",
