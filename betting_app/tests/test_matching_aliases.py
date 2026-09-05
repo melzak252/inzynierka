@@ -141,6 +141,7 @@ def test_lck_cl_academy_aliases_and_mappings() -> None:
     assert BOOKMAKER_TO_GOLGG_ALIASES["kiwoom drx challengers"] == "KRX Challengers"
     assert BOOKMAKER_TO_GOLGG_ALIASES["kt challengers"] == "KT Rolster Challengers"
     assert BOOKMAKER_TO_GOLGG_ALIASES["kt rolster challengers"] == "KT Rolster Challengers"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["ktrolster challengers"] == "KT Rolster Challengers"
     assert BOOKMAKER_TO_GOLGG_ALIASES["ns challengers"] == "Nongshim Esports Academy"
     assert BOOKMAKER_TO_GOLGG_ALIASES["fearx challengers"] == "BNK FEARX Youth"
     assert BOOKMAKER_TO_GOLGG_ALIASES["brion challengers"] == "HANJIN BRION Challengers"
