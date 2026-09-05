@@ -65,9 +65,17 @@ class MatchBoardItem(BaseModel):
     fusion_symaug_prob_b: float | None = None
     fusion_symaug_ev_a: float | None = None
     fusion_symaug_ev_b: float | None = None
+    # Conformal Risk Bounds and 1/4 Kelly Stake (EXP-040)
+    conformal_prob_low_a: float | None = None
+    conformal_prob_low_b: float | None = None
+    conformal_ev_a: float | None = None
+    conformal_ev_b: float | None = None
+    is_conformal_value_a: bool = False
+    is_conformal_value_b: bool = False
+    recommended_stake_a: float | None = None
+    recommended_stake_b: float | None = None
 
     last_scraped_at: str | None = None
-
 
 class MatchBoardResponse(BaseModel):
     total: int

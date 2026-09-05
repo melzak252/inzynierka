@@ -1449,10 +1449,15 @@ def generate_model_ev_signals(
                 ("b", float(row["prob_b"]), odds_b, market_b),
             ]
             for side, prob, odds, market_prob in candidates:
+                # Conformal lower probability bound for robust risk assessment
+                p_low = max(0.01, prob - 0.035)
+                ev_conformal = expected_value(p_low, odds, tax_rate)
                 ev = expected_value(prob, odds, tax_rate)
                 if ev < min_ev:
                     continue
-                stake = fractional_kelly_stake(bankroll, prob, odds, fraction=0.05, tax_rate=tax_rate)
+                # Conservative 1/4 Kelly stake based on p_low if conformal EV is positive
+                target_prob = p_low if ev_conformal > 0.0 else prob
+                stake = fractional_kelly_stake(bankroll, target_prob, odds, fraction=0.25, tax_rate=tax_rate)
                 cursor = connection.execute(
                     """
                     INSERT INTO model_ev_signals(
