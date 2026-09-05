@@ -12,12 +12,15 @@ from betting_app.services.tournament_service import (
     get_lec_2026_summer_playoffs_bracket,
     get_lpl_2026_split3_playoffs_bracket,
 )
+from betting_app.services.liquipedia_bracket_service import (
+    LiquipediaBracketService,
+    TOURNAMENT_METADATA,
+)
 from betting_app.services.enc_simulation_service import (
     EncSimulator,
     EncTeam,
     build_enc_configuration,
 )
-
 client = TestClient(app)
 
 
@@ -80,6 +83,78 @@ def test_tournaments_api_endpoints() -> None:
     )
     assert sim_lec.status_code == 200
     assert len(sim_lec.json()["standings"]) == 6
+
+    # Bracket GET endpoint with sync metadata
+    get_lck = client.get("/tournaments/lck_2026_playoffs")
+    assert get_lck.status_code == 200
+    get_lck_data = get_lck.json()
+    assert "source" in get_lck_data
+    assert "status" in get_lck_data
+    assert "bracket" in get_lck_data
+    assert len(get_lck_data["standings"]) == 6
+
+    # Sync POST endpoint
+    sync_res = client.post(
+        "/tournaments/lck_2026_playoffs/sync",
+        json={"source": "auto", "force": False},
+    )
+    assert sync_res.status_code == 200
+    sync_data = sync_res.json()
+    assert sync_data["tournament_id"] == "lck_2026_playoffs"
+    assert "source" in sync_data
+    assert "bracket" in sync_data
+
+
+def test_liquipedia_parser_wikitext_and_html() -> None:
+    service = LiquipediaBracketService()
+
+    # Test Wikitext parsing
+    wikitext_sample = (
+        "{{Bracket\n"
+        "|r1m1team1=KT Rolster |r1m1score1=3 |r1m1win1=1\n"
+        "|r1m1team2=Dplus KIA |r1m1score2=0\n"
+        "|r1m2team1=T1 |r1m2score1=3 |r1m2win1=1\n"
+        "|r1m2team2=BNK FearX |r1m2score2=2\n"
+        "}}"
+    )
+    wiki_matches = service.parse_bracket_wikitext(wikitext_sample)
+    assert len(wiki_matches) == 2
+    assert wiki_matches[0]["team1"] == "KT Rolster"
+    assert wiki_matches[0]["score1"] == 3
+    assert wiki_matches[0]["winner"] == "KT Rolster"
+
+    # Test HTML parsing
+    html_sample = (
+        '<div class="bracket-game">'
+        '  <span class="bracket-team">KT Rolster</span><span class="bracket-score">1</span>'
+        '  <span class="bracket-team">Dplus KIA</span><span class="bracket-score">3</span>'
+        '</div>'
+    )
+    html_matches = service.parse_bracket_html(html_sample)
+    assert len(html_matches) == 1
+    assert html_matches[0]["team1"] == "KT Rolster"
+    assert html_matches[0]["score2"] == 3
+    assert html_matches[0]["winner"] == "Dplus KIA"
+
+
+def test_bracket_sync_service_chronological_mapping() -> None:
+    service = LiquipediaBracketService()
+    bracket = get_lck_2026_playoffs_bracket()
+    round_order = TOURNAMENT_METADATA["lck_2026_playoffs"]["round_order"]
+
+    parsed_matches = [
+        {"team1": "T1", "team2": "BNK FearX", "score1": 3, "score2": 2, "winner": "T1", "date": "2026-08-29 08:00:00"},
+        {"team1": "Dplus KIA", "team2": "KT Rolster", "score1": 0, "score2": 3, "winner": "KT Rolster", "date": "2026-08-30 08:00:00"},
+        {"team1": "Gen.G", "team2": "KT Rolster", "score1": 3, "score2": 0, "winner": "Gen.G", "date": "2026-09-01 08:00:00"},
+        {"team1": "KT Rolster", "team2": "Dplus KIA", "score1": 1, "score2": 3, "winner": "Dplus KIA", "date": "2026-09-04 08:00:00"},
+    ]
+
+    updated_bracket, count = service.map_matches_chronologically(bracket, parsed_matches, round_order)
+    assert count == 4
+    assert updated_bracket.matches["UB_R1_M1"].winner == "KT Rolster"
+    assert updated_bracket.matches["UB_R1_M2"].winner == "T1"
+    assert updated_bracket.matches["UB_R2_M1"].winner == "Gen.G"
+    assert updated_bracket.matches["LB_R2"].winner == "Dplus"
 
 
 def test_enc_selects_the_best_listed_polish_player_for_each_role() -> None:

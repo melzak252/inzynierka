@@ -11,6 +11,7 @@ from betting_app.services.enc_simulation_service import (
     EncSimulator,
     build_enc_configuration,
 )
+from betting_app.services.liquipedia_bracket_service import LiquipediaBracketService
 from betting_app.services.tournament_service import (
     SUPPORTED_BRACKETS,
     TournamentSimulator,
@@ -24,6 +25,11 @@ router = APIRouter(prefix="/tournaments", tags=["tournaments"])
 class SimulateTournamentRequest(BaseModel):
     simulations: int = 10000
     manual_overrides: dict[str, str] | None = None  # match_id -> winner team name
+
+class SyncBracketRequest(BaseModel):
+    source: str = "auto"  # "auto" | "fandom" | "liquipedia"
+    force: bool = True
+    raw_content: str | None = None
 
 
 class WorldsTeamInput(BaseModel):
@@ -109,9 +115,46 @@ def get_tournament_bracket(tournament_id: str) -> dict[str, Any]:
     if not builder:
         raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
 
-    bracket = builder()
+    service = LiquipediaBracketService()
+    sync_res = service.sync_bracket(tournament_id, source="auto", force=False)
+    bracket = sync_res.get("bracket") or builder()
+
     simulator = TournamentSimulator()
-    return simulator.simulate(bracket, n_simulations=5000)
+    sim_res = simulator.simulate(bracket, n_simulations=5000)
+    sim_res["source"] = sync_res.get("source", "curated")
+    sim_res["status"] = sync_res.get("status", "ready")
+    sim_res["synced_at"] = sync_res.get("synced_at")
+    sim_res["sync_message"] = sync_res.get("message")
+    sim_res["updated_matches"] = sync_res.get("updated_matches", 0)
+    return sim_res
+
+
+@router.post("/{tournament_id}/sync")
+def sync_tournament_bracket(
+    tournament_id: str,
+    body: SyncBracketRequest = SyncBracketRequest(),
+) -> dict[str, Any]:
+    """Sync the tournament bracket from LoL Fandom or Liquipedia, then simulate."""
+    builder = SUPPORTED_BRACKETS.get(tournament_id)
+    if not builder:
+        raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
+
+    service = LiquipediaBracketService()
+    sync_res = service.sync_bracket(
+        tournament_id,
+        source=body.source,
+        raw_content=body.raw_content,
+        force=body.force,
+    )
+    bracket = sync_res.get("bracket") or builder()
+    simulator = TournamentSimulator()
+    sim_res = simulator.simulate(bracket, n_simulations=5000)
+    sim_res["source"] = sync_res.get("source", "curated")
+    sim_res["status"] = sync_res.get("status", "ready")
+    sim_res["synced_at"] = sync_res.get("synced_at")
+    sim_res["sync_message"] = sync_res.get("message")
+    sim_res["updated_matches"] = sync_res.get("updated_matches", 0)
+    return sim_res
 
 
 @router.post("/{tournament_id}/simulate")
@@ -121,7 +164,16 @@ def simulate_tournament(tournament_id: str, body: SimulateTournamentRequest) -> 
     if not builder:
         raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
 
-    bracket = builder()
+    service = LiquipediaBracketService()
+    sync_res = service.sync_bracket(tournament_id, source="auto", force=False)
+    bracket = sync_res.get("bracket") or builder()
+
     simulator = TournamentSimulator()
     n_sims = min(max(body.simulations, 100), 50000)
-    return simulator.simulate(bracket, n_simulations=n_sims, manual_overrides=body.manual_overrides)
+    sim_res = simulator.simulate(bracket, n_simulations=n_sims, manual_overrides=body.manual_overrides)
+    sim_res["source"] = sync_res.get("source", "curated")
+    sim_res["status"] = sync_res.get("status", "ready")
+    sim_res["synced_at"] = sync_res.get("synced_at")
+    sim_res["sync_message"] = sync_res.get("message")
+    sim_res["updated_matches"] = sync_res.get("updated_matches", 0)
+    return sim_res

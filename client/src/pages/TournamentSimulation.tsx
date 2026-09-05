@@ -7,6 +7,7 @@ import {
   simulateEnc,
   simulateTournament,
   simulateWorlds,
+  syncTournamentBracket,
 } from '../api/client';
 import type {
   BracketMatch,
@@ -67,7 +68,11 @@ export default function TournamentSimulation() {
   const [simCount, setSimCount] = useState<number>(10000);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-
+  const [syncing, setSyncing] = useState<boolean>(false);
+  const [syncSource, setSyncSource] = useState<'auto' | 'fandom' | 'liquipedia'>('auto');
+  const [syncSuccessMessage, setSyncSuccessMessage] = useState<string | null>(null);
+  const [manualModalOpen, setManualModalOpen] = useState<boolean>(false);
+  const [manualText, setManualText] = useState<string>('');
   // Worlds slots follow the published Leaguepedia/Fandom 2026 regional allocation.
   const [directWorldsTeams, setDirectWorldsTeams] = useState<WorldsTeamInput[]>(INITIAL_DIRECT_TEAMS);
   const [playInWorldsTeams, setPlayInWorldsTeams] = useState<WorldsTeamInput[]>(INITIAL_PLAY_IN_TEAMS);
@@ -135,6 +140,45 @@ export default function TournamentSimulation() {
       });
   }, [selectedId]);
 
+  const handleSyncBracket = async (sourceOverride?: 'auto' | 'fandom' | 'liquipedia') => {
+    if (!selectedId) return;
+    setSyncing(true);
+    setError(null);
+    setSyncSuccessMessage(null);
+    try {
+      const chosenSource = sourceOverride || syncSource;
+      const res = await syncTournamentBracket(selectedId, chosenSource, true);
+      setData(res);
+      setOverrides({});
+      if (res.sync_message) {
+        setSyncSuccessMessage(res.sync_message);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Błąd synchronizacji drabinki');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleManualImport = async () => {
+    if (!selectedId || !manualText.trim()) return;
+    setSyncing(true);
+    setError(null);
+    try {
+      const res = await syncTournamentBracket(selectedId, 'liquipedia', true, manualText);
+      setData(res);
+      setOverrides({});
+      setManualModalOpen(false);
+      setManualText('');
+      if (res.sync_message) {
+        setSyncSuccessMessage(res.sync_message);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Błąd importu ręcznego');
+    } finally {
+      setSyncing(false);
+    }
+  };
   const handleSimulate = async () => {
     if (!selectedId) return;
     setSimulating(true);
@@ -318,62 +362,132 @@ export default function TournamentSimulation() {
         </div>
 
         {activeTab === 'regional' ? (
-          <div className="tournament-controls">
-            <select
-              value={selectedId}
-              onChange={(e) => setSelectedId(e.target.value)}
-              className="tournament-select"
-            >
-              {tournaments.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.region})
-                </option>
-              ))}
-            </select>
-            <div className="sim-config">
-              <label>Próby:</label>
+          <>
+            <div className="tournament-controls">
               <select
-                value={simCount}
-                onChange={(e) => setSimCount(Number(e.target.value))}
-                className="sim-count-select"
+                value={selectedId}
+                onChange={(e) => setSelectedId(e.target.value)}
+                className="tournament-select"
               >
-                <option value={1000}>1 000</option>
-                <option value={5000}>5 000</option>
-                <option value={10000}>10 000</option>
-                <option value={25000}>25 000</option>
+                {tournaments.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.region})
+                  </option>
+                ))}
               </select>
-            </div>
-            <button
-              className="simulate-btn"
-              onClick={handleSimulate}
-              disabled={simulating}
-            >
-              {simulating ? '⏳ Symulowanie...' : '⚡ Uruchom symulację'}
-            </button>
-            {Object.keys(overrides).length > 0 && (
-              <button className="reset-btn" onClick={() => setOverrides({})}>
-                Reset scenariuszy ({Object.keys(overrides).length})
-              </button>
-            )}
-            <div className="layout-toggle-group" role="group" aria-label="Układ widoku regionalnego">
+              <div className="sim-config">
+                <label>Próby:</label>
+                <select
+                  value={simCount}
+                  onChange={(e) => setSimCount(Number(e.target.value))}
+                  className="sim-count-select"
+                >
+                  <option value={1000}>1 000</option>
+                  <option value={5000}>5 000</option>
+                  <option value={10000}>10 000</option>
+                  <option value={25000}>25 000</option>
+                </select>
+              </div>
               <button
-                type="button"
-                className={`layout-toggle-btn ${regionalLayout === 'split' ? 'active' : ''}`}
-                onClick={() => setRegionalLayout('split')}
-                title="Widok obok siebie (Szeroka tabela + Drabinka)"
+                className="simulate-btn"
+                onClick={handleSimulate}
+                disabled={simulating}
               >
-                ⊞ Obok siebie
+                {simulating ? '⏳ Symulowanie...' : '⚡ Uruchom symulację'}
+              </button>
+              {Object.keys(overrides).length > 0 && (
+                <button className="reset-btn" onClick={() => setOverrides({})}>
+                  Reset scenariuszy ({Object.keys(overrides).length})
+                </button>
+              )}
+              <div className="layout-toggle-group" role="group" aria-label="Układ widoku regionalnego">
+                <button
+                  type="button"
+                  className={`layout-toggle-btn ${regionalLayout === 'split' ? 'active' : ''}`}
+                  onClick={() => setRegionalLayout('split')}
+                  title="Widok obok siebie (Szeroka tabela + Drabinka)"
+                >
+                  ⊞ Obok siebie
+                </button>
+                <button
+                  type="button"
+                  className={`layout-toggle-btn ${regionalLayout === 'stacked' ? 'active' : ''}`}
+                  onClick={() => setRegionalLayout('stacked')}
+                  title="Widok pełnej szerokości (Tabela na górze, Drabinka pod spodem)"
+                >
+                  ☰ Tabela na górze
+                </button>
+              </div>
+            </div>
+
+            <div className="sync-toolbar">
+              <div className="sync-source-group">
+                <label>Źródło danych:</label>
+                <select
+                  value={syncSource}
+                  onChange={(e) => setSyncSource(e.target.value as 'auto' | 'fandom' | 'liquipedia')}
+                  className="sync-source-select"
+                >
+                  <option value="auto">⚡ Auto (LoL Fandom / Liquipedia)</option>
+                  <option value="fandom">🎮 LoL Fandom Cargo (Live)</option>
+                  <option value="liquipedia">📖 Liquipedia MediaWiki</option>
+                </select>
+              </div>
+              <button
+                className="sync-btn"
+                onClick={() => handleSyncBracket()}
+                disabled={syncing || loading}
+                title="Pobierz i zaktualizuj bieżący stan meczów, wyników i awansów z wybranego źródła"
+              >
+                {syncing ? '⏳ Pobieranie z API...' : '🔄 Pobierz stan drabinki'}
               </button>
               <button
-                type="button"
-                className={`layout-toggle-btn ${regionalLayout === 'stacked' ? 'active' : ''}`}
-                onClick={() => setRegionalLayout('stacked')}
-                title="Widok pełnej szerokości (Tabela na górze, Drabinka pod spodem)"
+                className="manual-import-btn"
+                onClick={() => setManualModalOpen(true)}
+                title="Wklej ręcznie wikitext szablonu Bracket lub fragment HTML z Liquipedii"
               >
-                ☰ Tabela na górze
+                📋 Import Wikitext / HTML
               </button>
+              <div className="sync-status-badges">
+                {data?.source && (
+                  <span
+                    className={`sync-badge ${
+                      data.source.includes('fandom')
+                        ? 'fandom'
+                        : data.source.includes('manual')
+                        ? 'manual'
+                        : data.source.includes('liquipedia')
+                        ? 'liquipedia'
+                        : 'cache'
+                    }`}
+                  >
+                    {data.source.includes('fandom')
+                      ? '🎮 LoL Fandom (Live)'
+                      : data.source.includes('manual')
+                      ? '📋 Wikitext/HTML'
+                      : data.source.includes('liquipedia')
+                      ? '📖 Liquipedia'
+                      : '💾 Pamięć podręczna'}
+                  </span>
+                )}
+                {data?.synced_at && (
+                  <span className="sync-meta-chip">
+                    🕒 Zaktualizowano:{' '}
+                    {new Date(data.synced_at).toLocaleTimeString('pl-PL', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                    })}
+                  </span>
+                )}
+                {data?.updated_matches !== undefined && (
+                  <span className="sync-meta-chip matches">
+                    ✓ Zsynchronizowano {data.updated_matches} meczów
+                  </span>
+                )}
+              </div>
             </div>
-          </div>
+          </>
         ) : activeTab === 'worlds' ? (
           <div className="tournament-controls">
             <div className="sim-config">
@@ -477,6 +591,55 @@ export default function TournamentSimulation() {
           </div>
         )}
       </header>
+      {syncSuccessMessage && (
+        <div className="sync-success-banner">
+          <div className="banner-content">
+            <span className="banner-icon">✓</span>
+            <span>{syncSuccessMessage}</span>
+          </div>
+          <button className="banner-close-btn" onClick={() => setSyncSuccessMessage(null)}>
+            ✕
+          </button>
+        </div>
+      )}
+
+      {manualModalOpen && (
+        <div className="modal-backdrop" onClick={() => setManualModalOpen(false)}>
+          <div className="modal-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>📋 Ręczny import stanu drabinki (Liquipedia / LoL Fandom)</h3>
+              <button className="modal-close" onClick={() => setManualModalOpen(false)}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <p className="modal-hint">
+                Wklej kod źródłowy szablonu drabinki (np. <code>{'{{Bracket|r1m1team1=...}}'}</code>) lub tabelę
+                HTML skopiowaną ze strony Liquipedii.
+              </p>
+              <textarea
+                className="manual-textarea"
+                placeholder="Wklej kod wikitext lub HTML tutaj..."
+                value={manualText}
+                onChange={(e) => setManualText(e.target.value)}
+                rows={10}
+              />
+            </div>
+            <div className="modal-footer">
+              <button className="btn-secondary" onClick={() => setManualModalOpen(false)}>
+                Anuluj
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleManualImport}
+                disabled={syncing || !manualText.trim()}
+              >
+                {syncing ? 'Przetwarzanie...' : 'Zastosuj do drabinki'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && <div className="error-banner">{error}</div>}
 

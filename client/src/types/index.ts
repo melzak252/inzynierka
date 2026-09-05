@@ -509,6 +509,11 @@ export interface TournamentSimulationResponse {
   simulations: number;
   standings: TournamentStanding[];
   bracket: Record<string, BracketMatch>;
+  source?: string;
+  status?: string;
+  synced_at?: string | null;
+  sync_message?: string | null;
+  updated_matches?: number;
 }
 
 export interface TournamentSummary {

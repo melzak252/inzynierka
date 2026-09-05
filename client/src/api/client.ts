@@ -462,6 +462,20 @@ export async function fetchTournamentBracket(id: string): Promise<TournamentSimu
   if (!response.ok) throw new Error('Failed to fetch tournament bracket');
   return response.json();
 }
+export async function syncTournamentBracket(
+  id: string,
+  source: string = 'auto',
+  force: boolean = true,
+  rawContent?: string,
+): Promise<TournamentSimulationResponse> {
+  const response = await fetch(`${API_BASE}/tournaments/${id}/sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source, force, raw_content: rawContent }),
+  });
+  if (!response.ok) throw new Error('Nie udało się zsynchronizować drabinki turniejowej');
+  return response.json();
+}
 
 export async function simulateTournament(
   id: string,
