@@ -240,6 +240,47 @@ CREATE INDEX IF NOT EXISTS idx_odds_bookmaker ON odds_snapshots(bookmaker_id, sc
 CREATE INDEX IF NOT EXISTS idx_odds_canonical ON odds_snapshots(canonical_match_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_odds_unique_snapshot ON odds_snapshots(canonical_match_id, bookmaker_id, scraped_at) WHERE market_type = 'match_winner';
 
+CREATE TABLE IF NOT EXISTS prop_odds_snapshots (
+    id                  SERIAL PRIMARY KEY,
+    bookmaker_id        INTEGER NOT NULL REFERENCES bookmakers(id),
+    canonical_match_id  INTEGER REFERENCES canonical_matches(id),
+    market_type         VARCHAR(50) NOT NULL,
+    map_number          INTEGER DEFAULT 1,
+    line                REAL NOT NULL,
+    target_team         VARCHAR(200),
+    raw_team_a          VARCHAR(200),
+    raw_team_b          VARCHAR(200),
+    odds_over           REAL,
+    odds_under          REAL,
+    prob_over_novig     REAL,
+    prob_under_novig    REAL,
+    margin              REAL,
+    raw_market_name     VARCHAR(255),
+    scraped_at          TIMESTAMPTZ DEFAULT NOW(),
+    is_live             INTEGER DEFAULT 0,
+    source_url          VARCHAR(500)
+);
+CREATE INDEX IF NOT EXISTS ix_prop_odds_match_market_time ON prop_odds_snapshots(canonical_match_id, market_type, scraped_at);
+CREATE INDEX IF NOT EXISTS ix_prop_odds_line_search ON prop_odds_snapshots(canonical_match_id, market_type, line, scraped_at);
+
+CREATE TABLE IF NOT EXISTS model_prop_predictions (
+    id                      SERIAL PRIMARY KEY,
+    canonical_match_id      INTEGER NOT NULL REFERENCES canonical_matches(id),
+    map_number              INTEGER DEFAULT 1,
+    model_name              VARCHAR(100) DEFAULT 'kill_spread_distribution',
+    model_version           VARCHAR(50) DEFAULT 'prop-v1.0' NOT NULL,
+    predicted_at            TIMESTAMPTZ DEFAULT NOW(),
+    expected_total_kills    REAL NOT NULL,
+    mu_team_a               REAL NOT NULL,
+    mu_team_b               REAL NOT NULL,
+    expected_spread         REAL NOT NULL,
+    league_avg_kills        REAL,
+    pace_category           VARCHAR(50),
+    distribution_json       TEXT,
+    signals_json            TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_model_prop_preds_match ON model_prop_predictions(canonical_match_id, map_number, predicted_at DESC);
+
 CREATE TABLE IF NOT EXISTS scrape_runs (
     id              SERIAL PRIMARY KEY,
     bookmaker_id    INTEGER REFERENCES bookmakers(id),

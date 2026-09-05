@@ -192,6 +192,28 @@
   cursor: wait;
 }
 
+.props-quicklink-btn {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 6px;
+  padding: 4px 10px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s ease;
+}
+
+.props-quicklink-btn:hover {
+  background: rgba(99, 102, 241, 0.28);
+  border-color: #818cf8;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
 .status {
   font-size: 0.8rem;
   color: #888;

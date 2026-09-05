@@ -1016,3 +1016,91 @@ class AlertCheckResponse(BaseModel):
 class AlertTestResponse(BaseModel):
     results: dict[str, Any]
 
+
+# ── Proposition Markets (IDEA-018) ──────────────────────────────────────────
+
+
+class PropOddsSnapshotItem(BaseModel):
+    id: int
+    bookmaker: str
+    canonical_match_id: int | None = None
+    market_type: str
+    map_number: int = 1
+    line: float
+    target_team: str | None = None
+    raw_team_a: str | None = None
+    raw_team_b: str | None = None
+    odds_over: float | None = None
+    odds_under: float | None = None
+    prob_over_novig: float | None = None
+    prob_under_novig: float | None = None
+    margin: float | None = None
+    raw_market_name: str | None = None
+    scraped_at: str | None = None
+
+
+class PropOddsTimelineResponse(BaseModel):
+    canonical_match_id: int
+    market_type: str | None = None
+    line: float | None = None
+    total_snapshots: int
+    timeline: list[PropOddsSnapshotItem]
+
+
+class PropOddsLatestResponse(BaseModel):
+    canonical_match_id: int
+    map_number: int = 1
+    total_lines: int
+    lines: list[PropOddsSnapshotItem]
+
+
+class PropSignalItem(BaseModel):
+    bookmaker: str
+    market_type: str
+    selection: str
+    odds: float
+    model_prob: float
+    fair_odds: float
+    net_ev_tax12: float
+    target_team: str | None = None
+
+
+class PropEvaluatedLineItem(PropOddsSnapshotItem):
+    model_prob_over: float | None = None
+    model_prob_under: float | None = None
+    ev_over_net: float | None = None
+    ev_under_net: float | None = None
+
+
+class PropModelExpectations(BaseModel):
+    expected_total_kills: float
+    mu_team_a: float
+    mu_team_b: float
+    expected_spread_a_minus_b: float
+    league_avg_kills: float | None = None
+    league_pace_category: str | None = None
+    distribution: dict[str, Any] | None = None
+
+
+class MatchPropAnalysisResponse(BaseModel):
+    canonical_match_id: int
+    saved_prediction_id: int | None = None
+    team_a: str
+    team_b: str
+    league: str | None = None
+    map_number: int = 1
+    model_expectations: PropModelExpectations
+    evaluated_lines: list[PropEvaluatedLineItem]
+    signals: list[PropSignalItem]
+
+
+class IngestPropOddsRequest(BaseModel):
+    bookmaker: str
+    raw_team_a: str
+    raw_team_b: str
+    map_number: int = 1
+    league: str | None = None
+    match_start_time: str | None = None
+    source_url: str | None = None
+    lines: list[dict[str, Any]]
+

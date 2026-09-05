@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { fetchMatchDetail, fetchPredictionHistory, updateMatchBestOf, updateMatchRoster, resetMatchRoster, predictMatch, createTeamAlias, deleteTeamAlias, unblockTeamAlias, searchGolggTeams, searchRosterPlayers } from '../api/client';
 import type { MatchDetailResponse, PredictionHistoryPoint, RosterOverridePlayerInput, RosterPlayerCandidate } from '../types';
+import MatchPropsAnalysis from '../components/MatchPropsAnalysis';
 import './MatchDetail.css';
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -561,6 +562,17 @@ export default function MatchDetail() {
       });
   }, [id]);
 
+  useEffect(() => {
+    if (!loading && match) {
+      if (window.location.hash === '#in-game-props' || window.location.pathname.endsWith('/props')) {
+        const el = document.getElementById('in-game-props');
+        if (el) {
+          setTimeout(() => el.scrollIntoView({ behavior: 'smooth' }), 100);
+        }
+      }
+    }
+  }, [loading, match]);
+
   if (loading) {
     return <div className="loading">Ładowanie szczegółów meczu...</div>;
   }
@@ -883,6 +895,13 @@ export default function MatchDetail() {
           >
             {predicting ? '⏳ Predykcja...' : '🔮 Predykcja'}
           </button>
+          <a
+            href="#in-game-props"
+            className="props-quicklink-btn"
+            title="Przejdź do analizy rynków in-game i modeli statystycznych"
+          >
+            🎯 Analiza In-Game (Props)
+          </a>
         </div>
         <h1>
           {match.team_a_name || '?'} vs {match.team_b_name || '?'}
@@ -1477,6 +1496,14 @@ export default function MatchDetail() {
           </div>
         </section>
       )}
+
+      {/* ── Analiza In-Game / Rynki Poboczne & Modele Statystyczne (IDEA-018) ── */}
+      <MatchPropsAnalysis
+        canonicalMatchId={parseInt(id!)}
+        teamAName={match.team_a_name || 'Team A'}
+        teamBName={match.team_b_name || 'Team B'}
+        league={match.league}
+      />
     </div>
   );
 }

@@ -1409,3 +1409,104 @@ export interface AlertChannelTestResult {
 export interface AlertTestResponse {
   results: Record<string, AlertChannelTestResult>;
 }
+
+// --- Proposition Odds & In-Game Models (IDEA-018) --------------------------
+
+export interface PropOddsSnapshotItem {
+  id: number;
+  bookmaker: string;
+  canonical_match_id: number;
+  market_type: string;
+  map_number: number;
+  line: number;
+  target_team: string | null;
+  odds_over: number | null;
+  odds_under: number | null;
+  margin: number | null;
+  prob_over_novig: number | null;
+  prob_under_novig: number | null;
+  is_live: boolean;
+  scraped_at: string | null;
+  source_url: string | null;
+  raw_market_name: string | null;
+}
+
+export interface PropSignalItem {
+  bookmaker: string;
+  market_type: string;
+  selection: string;
+  odds: number;
+  model_prob: number;
+  fair_odds: number;
+  net_ev_tax12: number;
+  target_team: string | null;
+}
+
+export interface PropEvaluatedLineItem extends PropOddsSnapshotItem {
+  model_prob_over: number | null;
+  model_prob_under: number | null;
+  ev_over_net: number | null;
+  ev_under_net: number | null;
+}
+
+export interface PropDistributionLine {
+  line: number;
+  prob_over: number;
+  prob_under: number;
+  fair_odds_over: number | null;
+  fair_odds_under: number | null;
+}
+
+export interface PropDensityPoint {
+  kills: number;
+  prob: number;
+}
+
+export interface PropDistributionData {
+  total_lines?: PropDistributionLine[];
+  density_curve?: PropDensityPoint[];
+  quantiles?: {
+    p10?: number;
+    p25?: number;
+    p50?: number;
+    p75?: number;
+    p90?: number;
+  };
+}
+
+export interface PropModelExpectations {
+  expected_total_kills: number;
+  mu_team_a: number;
+  mu_team_b: number;
+  expected_spread_a_minus_b: number;
+  league_avg_kills?: number | null;
+  league_pace_category?: string | null;
+  distribution?: PropDistributionData | null;
+}
+
+export interface MatchPropAnalysisResponse {
+  canonical_match_id: number;
+  saved_prediction_id?: number | null;
+  team_a: string;
+  team_b: string;
+  league?: string | null;
+  map_number: number;
+  model_expectations: PropModelExpectations;
+  evaluated_lines: PropEvaluatedLineItem[];
+  signals: PropSignalItem[];
+}
+
+export interface PropOddsTimelineResponse {
+  canonical_match_id: number;
+  market_type: string;
+  map_number: number;
+  total_snapshots: number;
+  timeline: PropOddsSnapshotItem[];
+}
+
+export interface PropOddsLatestResponse {
+  canonical_match_id: number;
+  map_number: number;
+  total_lines: number;
+  lines: PropOddsSnapshotItem[];
+}

@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -110,3 +111,33 @@ class OddsOutcomeSnapshot(Base):
     raw_payload: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (UniqueConstraint("scrape_run_id", "outcome_key"),)
+
+
+class PropOddsSnapshot(Base):
+    """Snapshot of a bookmaker proposition market line (kills, handicap, duration, etc.)."""
+
+    __tablename__ = "prop_odds_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    bookmaker_id: Mapped[int] = mapped_column(ForeignKey("bookmakers.id"), nullable=False, index=True)
+    canonical_match_id: Mapped[int | None] = mapped_column(ForeignKey("canonical_matches.id"), index=True)
+    market_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    map_number: Mapped[int] = mapped_column(Integer, server_default="1", index=True)
+    line: Mapped[float] = mapped_column(Float, nullable=False, index=True)
+    target_team: Mapped[str | None] = mapped_column(String(200), index=True)
+    raw_team_a: Mapped[str | None] = mapped_column(String(200))
+    raw_team_b: Mapped[str | None] = mapped_column(String(200))
+    odds_over: Mapped[float | None] = mapped_column(Float)
+    odds_under: Mapped[float | None] = mapped_column(Float)
+    prob_over_novig: Mapped[float | None] = mapped_column(Float)
+    prob_under_novig: Mapped[float | None] = mapped_column(Float)
+    margin: Mapped[float | None] = mapped_column(Float)
+    raw_market_name: Mapped[str | None] = mapped_column(String(255))
+    scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, server_default=sa_text("NOW()"))
+    is_live: Mapped[int | None] = mapped_column(Integer, server_default="0")
+    source_url: Mapped[str | None] = mapped_column(String(500))
+
+    __table_args__ = (
+        Index("ix_prop_odds_match_market_time", "canonical_match_id", "market_type", "scraped_at"),
+        Index("ix_prop_odds_line_search", "canonical_match_id", "market_type", "line", "scraped_at"),
+    )

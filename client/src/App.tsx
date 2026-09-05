@@ -207,6 +207,7 @@ function App() {
         <Routes>
           <Route path="/" element={<MatchList />} />
           <Route path="/matches/:id" element={<MatchDetail />} />
+          <Route path="/matches/:id/props" element={<MatchDetail />} />
           <Route path="/results" element={<MatchResults />} />
           <Route path="/financial" element={<FinancialAnalysis />} />
           <Route path="/matchup" element={<MatchupSimulator />} />

@@ -37,12 +37,15 @@ import type {
   PlayerProfileDetail,
   RatingTimelinePoint,
   PlayerComparisonResponse,
-  ParlayRecommendationsResponse,
   AlertConfigResponse,
   AlertConfigUpdateRequest,
   AlertHistoryResponse,
   AlertCheckResponse,
   AlertTestResponse,
+  MatchPropAnalysisResponse,
+  PropOddsTimelineResponse,
+  PropOddsLatestResponse,
+  ParlayRecommendationsResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -625,5 +628,66 @@ export async function triggerAlertTest(channel: string = 'both'): Promise<AlertT
     method: 'POST',
   });
   if (!response.ok) throw new Error(`Failed to send test alert: ${response.statusText}`);
+  return response.json();
+}
+
+// ─── Proposition Odds & In-Game Models (IDEA-018) ──────────────
+
+export async function fetchMatchPropAnalysis(
+  canonicalMatchId: number,
+  options?: { mapNumber?: number; taxRate?: number; recalculate?: boolean }
+): Promise<MatchPropAnalysisResponse> {
+  const params = new URLSearchParams();
+  if (options?.mapNumber != null) params.set('map_number', options.mapNumber.toString());
+  if (options?.taxRate != null) params.set('tax_rate', options.taxRate.toString());
+  const response = await fetch(`${API_BASE}/matches/${canonicalMatchId}/props/analysis?${params}`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch match prop analysis: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function triggerMatchPropPrediction(
+  canonicalMatchId: number,
+  mapNumber: number = 1,
+  taxRate: number = 0.12
+): Promise<MatchPropAnalysisResponse> {
+  const params = new URLSearchParams({
+    map_number: mapNumber.toString(),
+    tax_rate: taxRate.toString(),
+  });
+  const response = await fetch(`${API_BASE}/matches/${canonicalMatchId}/props/predict?${params}`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to trigger prop prediction: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function fetchPropOddsTimeline(
+  canonicalMatchId: number,
+  options?: { marketType?: string; line?: number; mapNumber?: number }
+): Promise<PropOddsTimelineResponse> {
+  const params = new URLSearchParams();
+  if (options?.marketType) params.set('market_type', options.marketType);
+  if (options?.line != null) params.set('line', options.line.toString());
+  if (options?.mapNumber != null) params.set('map_number', options.mapNumber.toString());
+  const response = await fetch(`${API_BASE}/matches/${canonicalMatchId}/props/timeline?${params}`);
+  if (!response.ok) throw new Error(`Failed to fetch prop timeline: ${response.statusText}`);
+  return response.json();
+}
+
+export async function fetchPropOddsLatest(
+  canonicalMatchId: number,
+  options?: { marketType?: string; mapNumber?: number }
+): Promise<PropOddsLatestResponse> {
+  const params = new URLSearchParams();
+  if (options?.marketType) params.set('market_type', options.marketType);
+  if (options?.mapNumber != null) params.set('map_number', options.mapNumber.toString());
+  const response = await fetch(`${API_BASE}/matches/${canonicalMatchId}/props/latest?${params}`);
+  if (!response.ok) throw new Error(`Failed to fetch latest prop odds: ${response.statusText}`);
   return response.json();
 }

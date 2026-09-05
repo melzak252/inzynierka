@@ -1,14 +1,16 @@
 """Prediction / rating / feature models."""
 
 from __future__ import annotations
-
+from datetime import UTC, datetime
 from sqlalchemy import (
+    DateTime,
     Float,
     ForeignKey,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -198,3 +200,29 @@ class ModelEvSignal(Base):
     tax_rate: Mapped[float] = mapped_column(Float, server_default="0.12")
     stake_suggestion: Mapped[float | None] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(50), server_default='new')
+
+
+class ModelPropPrediction(Base):
+    """Statistical pace, kill spread, and distribution model predictions for a match map (IDEA-018)."""
+
+    __tablename__ = "model_prop_predictions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    canonical_match_id: Mapped[int] = mapped_column(ForeignKey("canonical_matches.id"), nullable=False, index=True)
+    map_number: Mapped[int] = mapped_column(Integer, server_default="1", index=True)
+    model_name: Mapped[str] = mapped_column(String(100), server_default="kill_spread_distribution")
+    model_version: Mapped[str] = mapped_column(String(50), nullable=False, server_default="prop-v1.0")
+    predicted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+        index=True,
+    )
+    expected_total_kills: Mapped[float] = mapped_column(Float, nullable=False)
+    mu_team_a: Mapped[float] = mapped_column(Float, nullable=False)
+    mu_team_b: Mapped[float] = mapped_column(Float, nullable=False)
+    expected_spread: Mapped[float] = mapped_column(Float, nullable=False)
+    league_avg_kills: Mapped[float | None] = mapped_column(Float)
+    pace_category: Mapped[str | None] = mapped_column(String(50))
+    distribution_json: Mapped[str | None] = mapped_column(Text)
+    signals_json: Mapped[str | None] = mapped_column(Text)

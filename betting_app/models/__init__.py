@@ -18,6 +18,7 @@ from betting_app.models.odds import (
     BookmakerEvent,
     BookmakerMarket,
     OddsOutcomeSnapshot,
+    PropOddsSnapshot,
 )
 from betting_app.models.prediction import (
     ModelArtifact,
@@ -29,6 +30,7 @@ from betting_app.models.prediction import (
     TeamCurrentRosterPlayer,
     CanonicalPrediction,
     ModelEvSignal,
+    ModelPropPrediction,
 )
 from betting_app.models.automation import AutomationRun, AutomationCommand
 from betting_app.models.identity import (
@@ -74,15 +76,16 @@ __all__ = [
     "BookmakerEvent",
     "BookmakerMarket",
     "OddsOutcomeSnapshot",
+    "PropOddsSnapshot",
     "ModelArtifact",
     "RatingRun",
     "EntityRating",
     "TeamRollingFeature",
     "UpcomingMatchFeature",
     "MatchRosterOverride",
-    "TeamCurrentRosterPlayer",
     "CanonicalPrediction",
     "ModelEvSignal",
+    "ModelPropPrediction",
     "AutomationRun",
     "AutomationCommand",
     "OddspapiFixtureMapping",
