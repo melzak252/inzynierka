@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import (
     BettingRecommendation,
+    ParlayRecommendationsResponse,
     AliasBlockRequest,
     AliasCreateRequest,
     AliasCreateResponse,
@@ -61,6 +62,7 @@ from betting_app.api.schemas import (
     RosterVerificationRequest,
     RosterStatusResponse,
 )
+from betting_app.services.parlay_service import find_parlay_recommendations
 from betting_app.services.roster_verification_service import RosterVerificationService
 from betting_app.services.canonical_match_service import align_snapshot_odds, competition_family
 from betting_app.core.ev import fair_market_probabilities
@@ -1754,6 +1756,29 @@ def _build_match_recommendation(
         reasons=reasons,
         threshold_info=f"Próg opłacalności kursu: ≥ {min_odds:.2f} | Najlepsza oferta: {odds_val:.2f} ({bm_row.bookmaker})",
     )
+
+# ── GET /matches/recommendations/parlays (IDEA-019) ─────────────────────────
+
+
+@router.get("/recommendations/parlays", response_model=ParlayRecommendationsResponse)
+def get_parlay_recommendations(
+    bookmaker: str | None = None,
+    max_odds: float = 2.20,
+    min_prob: float = 0.50,
+    min_ev: float = 0.0,
+    limit: int = 5,
+    db=Depends(get_db),
+) -> ParlayRecommendationsResponse:
+    """Recommend tax-amortized 2-leg favorite accumulator bets (AKO / Dubel)."""
+    return find_parlay_recommendations(
+        db=db,
+        bookmaker=bookmaker,
+        max_odds_per_leg=max_odds,
+        min_prob_per_leg=min_prob,
+        min_parlay_ev=min_ev,
+        limit=limit,
+    )
+
 # ── GET /matches/{id} ───────────────────────────────────────────────────────
 
 

@@ -484,9 +484,10 @@ In contrast, secondary in-game prop markets—such as **Over/Under Total Kills**
 
 ## IDEA-019 — Tax-amortized two-leg favorite parlay recommender (Safe Dubel)
 
-- **Status:** proposed
+- **Status:** completed
 - **Created:** 2026-09-05
 - **Updated:** 2026-09-05
+- **Delivered:** `betting_app/services/parlay_service.py`, `betting_app/api/routers/matches.py`, `client/src/pages/MatchList.tsx`, `betting_app/tests/test_parlay_recommendations.py`
 
 ### Problem
 

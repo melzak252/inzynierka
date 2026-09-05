@@ -185,6 +185,41 @@ export interface BettingRecommendation {
   threshold_info: string | null;
 }
 
+export interface ParlayLeg {
+  canonical_match_id: number;
+  match_name: string;
+  league?: string | null;
+  start_time?: string | null;
+  side: 'a' | 'b';
+  team_name: string;
+  opponent_name: string;
+  odds: number;
+  model_prob: number;
+  single_ev: number;
+}
+
+export interface ParlayRecommendation {
+  bookmaker: string;
+  legs: [ParlayLeg, ParlayLeg];
+  combined_odds: number;
+  effective_odds: number;
+  joint_prob: number;
+  ev: number;
+  tax_amortization_gain: number;
+  quarter_kelly: number;
+  suggested_stake: number;
+  confidence_badge: string;
+  analysis_text: string;
+}
+
+export interface ParlayRecommendationsResponse {
+  count: number;
+  top_parlay: ParlayRecommendation | null;
+  parlays: ParlayRecommendation[];
+  tax_rate: number;
+  explanation: string;
+}
+
 export interface MatchDetailResponse {
   canonical_match_id: number;
   team_a_name: string | null;

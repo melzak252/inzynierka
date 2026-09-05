@@ -37,6 +37,7 @@ import type {
   PlayerProfileDetail,
   RatingTimelinePoint,
   PlayerComparisonResponse,
+  ParlayRecommendationsResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -61,6 +62,17 @@ export async function fetchMatches(
 export async function fetchMatchDetail(matchId: number): Promise<MatchDetailResponse> {
   const response = await fetch(`${API_BASE}/matches/${matchId}`);
   if (!response.ok) throw new Error(`Failed to fetch match ${matchId}: ${response.statusText}`);
+  return response.json();
+}
+
+export async function fetchParlayRecommendations(
+  bookmaker?: string,
+  signal?: AbortSignal
+): Promise<ParlayRecommendationsResponse> {
+  const params = new URLSearchParams();
+  if (bookmaker) params.set('bookmaker', bookmaker);
+  const response = await fetch(`${API_BASE}/matches/recommendations/parlays?${params}`, { signal });
+  if (!response.ok) throw new Error(`Failed to fetch parlay recommendations: ${response.statusText}`);
   return response.json();
 }
 

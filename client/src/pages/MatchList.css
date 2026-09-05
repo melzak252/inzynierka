@@ -470,3 +470,253 @@
   border-radius: 12px;
   font-size: 0.78rem;
 }
+
+/* ── Tax-Amortized Parlay Recommendation (IDEA-019) ───────── */
+
+.parlay-recommendation-card {
+  background: linear-gradient(135deg, rgba(14, 30, 54, 0.95), rgba(10, 18, 34, 0.98));
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.4rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+  position: relative;
+  overflow: hidden;
+}
+
+.parlay-recommendation-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #38bdf8, #22c55e, #eab308);
+}
+
+.parlay-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.parlay-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.parlay-icon {
+  font-size: 1.4rem;
+}
+
+.parlay-heading {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: var(--text);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.parlay-subheading {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0.15rem 0 0 0;
+}
+
+.parlay-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.parlay-bm-badge {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  font-weight: 800;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.parlay-confidence-badge {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+}
+
+.parlay-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+}
+
+.parlay-metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.parlay-metric-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.parlay-metric-val {
+  font-size: 1.12rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.parlay-metric-val.highlight-gold {
+  color: #facc15;
+}
+
+.parlay-metric-val.highlight-green {
+  color: #22c55e;
+}
+
+.parlay-metric-val.highlight-cyan {
+  color: #38bdf8;
+}
+
+.parlay-metric-sub {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.parlay-legs-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+@media (max-width: 768px) {
+  .parlay-legs-wrapper {
+    flex-direction: column;
+  }
+}
+
+.parlay-leg-card {
+  flex: 1;
+  background: rgba(18, 28, 48, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.18s, transform 0.18s, background 0.18s;
+  display: block;
+}
+
+.parlay-leg-card:hover {
+  border-color: rgba(56, 189, 248, 0.5);
+  background: rgba(22, 36, 62, 0.9);
+  transform: translateY(-1px);
+}
+
+.parlay-leg-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+
+.parlay-leg-league {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #38bdf8;
+  text-transform: uppercase;
+}
+
+.parlay-leg-time {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.parlay-leg-pick {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.35rem;
+}
+
+.parlay-leg-team {
+  font-size: 0.98rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.parlay-leg-odds {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #22c55e;
+}
+
+.parlay-leg-opp {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-bottom: 0.4rem;
+}
+
+.parlay-leg-stats {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  padding-top: 0.35rem;
+}
+
+.parlay-leg-stat strong {
+  color: var(--text);
+}
+
+.parlay-multiply-sign {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  color: #38bdf8;
+  font-weight: 800;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.parlay-rationale-box {
+  background: rgba(34, 197, 94, 0.06);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 0.9rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #cbd5e1;
+}
+
+.parlay-rationale-box strong {
+  color: #86efac;
+}

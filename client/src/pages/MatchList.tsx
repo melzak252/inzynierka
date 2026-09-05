@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { fetchMatches, updateMatchBestOf, fetchBookmakers } from '../api/client';
-import type { MatchBoardItem, BookmakerStatus } from '../types';
+import { fetchMatches, updateMatchBestOf, fetchBookmakers, fetchParlayRecommendations } from '../api/client';
+import type { MatchBoardItem, BookmakerStatus, ParlayRecommendationsResponse } from '../types';
 import './MatchList.css';
 
 export default function MatchList() {
@@ -12,6 +12,7 @@ export default function MatchList() {
   const [savingBo, setSavingBo] = useState(false);
   const [bookmakers, setBookmakers] = useState<BookmakerStatus[]>([]);
   const [selectedBookmaker, setSelectedBookmaker] = useState<string>('');
+  const [parlays, setParlays] = useState<ParlayRecommendationsResponse | null>(null);
 
   useEffect(() => {
     fetchBookmakers().then(setBookmakers).catch(() => {});
@@ -27,6 +28,24 @@ export default function MatchList() {
         setError(err.message);
         setLoading(false);
       });
+  }, [selectedBookmaker]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    fetchParlayRecommendations(selectedBookmaker || undefined, controller.signal)
+      .then((data) => {
+        if (!cancelled) setParlays(data);
+      })
+      .catch((err) => {
+        if (!cancelled && err.name !== 'AbortError') {
+          setParlays(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [selectedBookmaker]);
 
   if (loading) {
@@ -78,6 +97,94 @@ export default function MatchList() {
           </select>
         </label>
       </div>
+
+      {parlays?.top_parlay && (
+        <section className="parlay-recommendation-card">
+          <div className="parlay-header">
+            <div className="parlay-title-wrap">
+              <span className="parlay-icon">🛡️</span>
+              <div>
+                <h2 className="parlay-heading">Rekomendowany Dubel Dnia (Safe AKO)</h2>
+                <p className="parlay-subheading">Optymalizacja podatku obrotowego 12% przez łączenie faworytów o wysokim prawdopodobieństwie</p>
+              </div>
+            </div>
+            <div className="parlay-badges">
+              <span className="parlay-bm-badge">{parlays.top_parlay.bookmaker}</span>
+              <span className="parlay-confidence-badge">{parlays.top_parlay.confidence_badge}</span>
+            </div>
+          </div>
+
+          <div className="parlay-metrics-grid">
+            <div className="parlay-metric-item">
+              <span className="parlay-metric-label">Kurs łączny</span>
+              <span className="parlay-metric-val highlight-cyan">{parlays.top_parlay.combined_odds.toFixed(2)}</span>
+              <span className="parlay-metric-sub">efekt. {parlays.top_parlay.effective_odds.toFixed(2)} po pod.</span>
+            </div>
+            <div className="parlay-metric-item">
+              <span className="parlay-metric-label">P(Wygranej AKO)</span>
+              <span className="parlay-metric-val highlight-gold">{(parlays.top_parlay.joint_prob * 100).toFixed(1)}%</span>
+              <span className="parlay-metric-sub">łączny model</span>
+            </div>
+            <div className="parlay-metric-item">
+              <span className="parlay-metric-label">Oczekiwana Wartość (EV)</span>
+              <span className="parlay-metric-val highlight-green">+{(parlays.top_parlay.ev * 100).toFixed(1)}%</span>
+              <span className="parlay-metric-sub">po odliczeniu 12%</span>
+            </div>
+            <div className="parlay-metric-item">
+              <span className="parlay-metric-label">Amortyzacja Podatku</span>
+              <span className="parlay-metric-val highlight-green">+{(parlays.top_parlay.tax_amortization_gain * 100).toFixed(1)} p.p.</span>
+              <span className="parlay-metric-sub">względem 2 singli</span>
+            </div>
+            <div className="parlay-metric-item">
+              <span className="parlay-metric-label">Sugerowana Stawka</span>
+              <span className="parlay-metric-val">{parlays.top_parlay.suggested_stake} PLN</span>
+              <span className="parlay-metric-sub">{(parlays.top_parlay.quarter_kelly * 100).toFixed(1)}% Quarter-Kelly</span>
+            </div>
+          </div>
+
+          <div className="parlay-legs-wrapper">
+            <Link to={`/matches/${parlays.top_parlay.legs[0].canonical_match_id}`} className="parlay-leg-card">
+              <div className="parlay-leg-top">
+                <span className="parlay-leg-league">{parlays.top_parlay.legs[0].league || 'Mecz 1'}</span>
+                <span className="parlay-leg-time">{formatDateTime(parlays.top_parlay.legs[0].start_time || null)}</span>
+              </div>
+              <div className="parlay-leg-pick">
+                <span className="parlay-leg-team">{parlays.top_parlay.legs[0].team_name}</span>
+                <span className="parlay-leg-odds">@ {parlays.top_parlay.legs[0].odds.toFixed(2)}</span>
+              </div>
+              <div className="parlay-leg-opp">vs {parlays.top_parlay.legs[0].opponent_name}</div>
+              <div className="parlay-leg-stats">
+                <span className="parlay-leg-stat">Model: <strong>{(parlays.top_parlay.legs[0].model_prob * 100).toFixed(0)}%</strong></span>
+                <span className="parlay-leg-stat">Single EV: <strong>{(parlays.top_parlay.legs[0].single_ev * 100).toFixed(1)}%</strong></span>
+              </div>
+            </Link>
+
+            <div className="parlay-multiply-sign" title="Kupon AKO: iloczyn kursów faworytów">×</div>
+
+            <Link to={`/matches/${parlays.top_parlay.legs[1].canonical_match_id}`} className="parlay-leg-card">
+              <div className="parlay-leg-top">
+                <span className="parlay-leg-league">{parlays.top_parlay.legs[1].league || 'Mecz 2'}</span>
+                <span className="parlay-leg-time">{formatDateTime(parlays.top_parlay.legs[1].start_time || null)}</span>
+              </div>
+              <div className="parlay-leg-pick">
+                <span className="parlay-leg-team">{parlays.top_parlay.legs[1].team_name}</span>
+                <span className="parlay-leg-odds">@ {parlays.top_parlay.legs[1].odds.toFixed(2)}</span>
+              </div>
+              <div className="parlay-leg-opp">vs {parlays.top_parlay.legs[1].opponent_name}</div>
+              <div className="parlay-leg-stats">
+                <span className="parlay-leg-stat">Model: <strong>{(parlays.top_parlay.legs[1].model_prob * 100).toFixed(0)}%</strong></span>
+                <span className="parlay-leg-stat">Single EV: <strong>{(parlays.top_parlay.legs[1].single_ev * 100).toFixed(1)}%</strong></span>
+              </div>
+            </Link>
+          </div>
+
+          <div className="parlay-rationale-box">
+            <strong>💡 Przewaga podatkowa:</strong> W polskim prawie bukmacherskim 12% podatku potrącane jest jednorazowo z wygranej kuponu.
+            Skumulowany kurs brutto <strong>{parlays.top_parlay.combined_odds.toFixed(2)}</strong> obniża relatywny narzut podatku do <strong>{((0.12 / parlays.top_parlay.combined_odds) * 100).toFixed(1)}%</strong> (vs <strong>{((0.12 / parlays.top_parlay.legs[0].odds) * 100).toFixed(1)}%</strong> w singlu),
+            przekształcając zakłady na faworytów w kupon o wysokiej wartości oczekiwanej (+{(parlays.top_parlay.ev * 100).toFixed(1)}% EV).
+          </div>
+        </section>
+      )}
 
       <div className="matches-grid">
         {matches.map((m) => {

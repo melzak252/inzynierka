@@ -630,6 +630,46 @@ class PlayerComparisonResponse(BaseModel):
     timeline_b: list[RatingTimelinePoint] = []
     available_rating_systems: list[str] = []
 
+
+# ── Tax-amortized parlay recommendations (IDEA-019) ──────────────────────────
+
+
+class ParlayLeg(BaseModel):
+    canonical_match_id: int
+    match_name: str
+    league: str | None = None
+    start_time: str | None = None
+    side: Literal["a", "b"]
+    team_name: str
+    opponent_name: str
+    odds: float
+    model_prob: float
+    single_ev: float
+    is_favorite: bool = True
+
+
+class ParlayRecommendation(BaseModel):
+    id: str
+    bookmaker: str
+    legs: list[ParlayLeg]
+    combined_odds: float
+    effective_odds: float
+    joint_prob: float
+    breakeven_prob: float
+    ev: float
+    tax_amortization_gain: float
+    suggested_stake: float
+    quarter_kelly: float
+    confidence_badge: str
+    summary_pl: str
+
+
+class ParlayRecommendationsResponse(BaseModel):
+    count: int
+    top_parlay: ParlayRecommendation | None = None
+    parlays: list[ParlayRecommendation] = []
+    tax_rate: float = 0.12
+    explanation: str
 # ── System status ───────────────────────────────────────────────────────────
 
 
