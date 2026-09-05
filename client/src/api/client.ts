@@ -33,6 +33,10 @@ import type {
   TournamentSummary,
   WorldsSimulationResponse,
   WorldsTeamInput,
+  PlayerSearchItem,
+  PlayerProfileDetail,
+  RatingTimelinePoint,
+  PlayerComparisonResponse,
 } from '../types';
 
 const API_BASE = '/api';
@@ -493,5 +497,46 @@ export async function simulateEnc(simulations: number = 5000): Promise<EncSimula
     body: JSON.stringify({ simulations }),
   });
   if (!response.ok) throw new Error(`Failed to run ENC simulation: ${await response.text()}`);
+  return response.json();
+}
+
+// ─── Player Comparison ───────────────────────────────────────
+
+export async function searchPlayers(query: string, limit: number = 15): Promise<PlayerSearchItem[]> {
+  const clean = query.trim();
+  if (!clean) return [];
+  const params = new URLSearchParams({ query: clean, limit: limit.toString() });
+  const response = await fetch(`${API_BASE}/players/search?${params}`);
+  if (!response.ok) throw new Error(`Failed to search players: ${response.statusText}`);
+  return response.json();
+}
+
+export async function fetchPlayerProfile(playerId: string): Promise<PlayerProfileDetail> {
+  const response = await fetch(`${API_BASE}/players/${encodeURIComponent(playerId)}`);
+  if (!response.ok) throw new Error(`Failed to fetch player profile: ${response.statusText}`);
+  return response.json();
+}
+
+export async function fetchPlayerHistory(playerId: string, limit: number = 250): Promise<RatingTimelinePoint[]> {
+  const response = await fetch(`${API_BASE}/players/${encodeURIComponent(playerId)}/history?limit=${limit}`);
+  if (!response.ok) throw new Error(`Failed to fetch player history: ${response.statusText}`);
+  return response.json();
+}
+
+export async function fetchPlayerComparison(
+  playerA: string,
+  playerB: string,
+  ratingSystem: string = 'unified'
+): Promise<PlayerComparisonResponse> {
+  const params = new URLSearchParams({
+    player_a: playerA,
+    player_b: playerB,
+    rating_system: ratingSystem,
+  });
+  const response = await fetch(`${API_BASE}/players/compare?${params}`);
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to compare players: ${response.statusText}`);
+  }
   return response.json();
 }

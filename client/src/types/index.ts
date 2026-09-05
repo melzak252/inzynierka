@@ -1051,3 +1051,124 @@ export interface ChampionEmbeddingProjectionResponse {
   };
   points: ChampionEmbeddingPoint[];
 }
+
+// ─── Player Comparison & Rating Trajectory ──────────────────────────────
+
+export interface PlayerSearchItem {
+  player_id: string;
+  player_name: string;
+  team_name: string | null;
+  role: string | null;
+  games_played: number;
+  current_elo: number | null;
+  current_gl: number | null;
+  last_match_at: string | null;
+}
+
+export interface TopChampionItem {
+  champion_name: string;
+  games: number;
+  wins: number;
+  win_rate: number;
+}
+
+export interface PlayerSystemRating {
+  system: string;
+  rating_value: number;
+  rd: number | null;
+  sigma: number | null;
+  rank: number | null;
+  percentile: number | null;
+}
+
+export interface PlayerProfileDetail {
+  player_id: string;
+  player_name: string;
+  team_name: string | null;
+  role: string | null;
+  games_played: number;
+  career_wins: number;
+  career_losses: number;
+  career_win_rate: number;
+  career_first_date: string | null;
+  career_last_date: string | null;
+  career_years: number | null;
+  teams: string[];
+  top_champions: TopChampionItem[];
+  ratings: Record<string, PlayerSystemRating>;
+  peak_elo: number | null;
+  peak_elo_date: string | null;
+  peak_gl: number | null;
+  peak_gl_date: string | null;
+}
+
+export interface H2HGameItem {
+  game_id: string;
+  match_id: string;
+  date: string | null;
+  tournament_name: string | null;
+  team_a: string | null;
+  champ_a: string | null;
+  team_b: string | null;
+  champ_b: string | null;
+  winner: 'a' | 'b';
+}
+
+export interface H2HSummary {
+  total_games: number;
+  wins_a: number;
+  wins_b: number;
+  win_rate_a: number;
+  win_rate_b: number;
+  recent_games: H2HGameItem[];
+}
+
+export interface SystemAdvantage {
+  system: string;
+  system_label: string;
+  value_a: number;
+  value_b: number;
+  difference: number;
+  favors: 'a' | 'b' | 'tied';
+  win_prob_a: number;
+}
+
+export interface ModelVerdict {
+  better_player: 'a' | 'b' | 'tied';
+  better_player_id: string | null;
+  better_player_name: string | null;
+  win_probability_a: number;
+  win_probability_b: number;
+  systems_favor_a: number;
+  systems_favor_b: number;
+  systems_tied: number;
+  total_systems: number;
+  advantage_summary: string;
+  system_advantages: SystemAdvantage[];
+  h2h_winner: 'a' | 'b' | 'tied';
+  summary_pl: string;
+}
+
+export interface RatingTimelinePoint {
+  date: string;
+  match_id: string | null;
+  team_name: string | null;
+  games_count: number;
+  elo: number;
+  gl: number;
+  gl_rd: number | null;
+  ts_mu: number | null;
+  os_mu: number | null;
+  pl_mu: number | null;
+  tm_mu: number | null;
+}
+
+export interface PlayerComparisonResponse {
+  player_a: PlayerProfileDetail;
+  player_b: PlayerProfileDetail;
+  verdict: ModelVerdict;
+  h2h: H2HSummary;
+  timeline_a: RatingTimelinePoint[];
+  timeline_b: RatingTimelinePoint[];
+  available_rating_systems: string[];
+}

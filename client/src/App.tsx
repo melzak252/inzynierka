@@ -11,6 +11,7 @@ import FinancialAnalysis from './pages/FinancialAnalysis'
 import Rankings from './pages/Rankings'
 import TournamentSimulation from './pages/TournamentSimulation'
 import MatchupSimulator from './pages/MatchupSimulator'
+import PlayerComparison from './pages/PlayerComparison'
 import './App.css'
 
 interface NavSingle {
@@ -53,6 +54,7 @@ const NAV_ENTRIES: NavEntry[] = [
     items: [
       { to: '/tournaments', label: 'Drabinka / Turnieje', desc: 'Symulacje Monte Carlo Worlds 2026 i ENC' },
       { to: '/matchup', label: 'Matchup (H2H)', desc: 'Symulator bezpośrednich pojedynków' },
+      { to: '/players/compare', label: 'Porównanie Graczy', desc: 'Ewolucja ratingów w czasie, werdykt modelu i H2H' },
       { to: '/rankings', label: 'Rankingi', desc: 'Glicko-2, Elo drużyn oraz graczy' },
       { to: '/embeddings/champions', label: 'Champion Embeddings', desc: 'Reprezentacje wektorowe ról i postaci' },
     ],
@@ -208,6 +210,8 @@ function App() {
           <Route path="/matchup" element={<MatchupSimulator />} />
           <Route path="/tournaments" element={<TournamentSimulation />} />
           <Route path="/rankings" element={<Rankings />} />
+          <Route path="/players/compare" element={<PlayerComparison />} />
+          <Route path="/players" element={<PlayerComparison />} />
           <Route path="/mapping" element={<ManualMapping />} />
           <Route path="/embeddings/champions" element={<ChampionEmbeddings />} />
           <Route path="/system" element={<SystemPage />} />

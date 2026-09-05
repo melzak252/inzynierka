@@ -508,6 +508,128 @@ class RankingsResponse(BaseModel):
     rankings: list[RankingEntry] = []
 
 
+
+# ── Player comparison and rating history ─────────────────────────────────────
+
+
+class PlayerSearchItem(BaseModel):
+    player_id: str
+    player_name: str
+    team_name: str | None = None
+    role: str | None = None
+    games_played: int
+    current_elo: float | None = None
+    current_gl: float | None = None
+    last_match_at: str | None = None
+
+
+class TopChampionItem(BaseModel):
+    champion_name: str
+    games: int
+    wins: int
+    win_rate: float
+
+
+class PlayerSystemRating(BaseModel):
+    system: str
+    rating_value: float
+    rd: float | None = None
+    sigma: float | None = None
+    rank: int | None = None
+    percentile: float | None = None
+
+
+class PlayerProfileDetail(BaseModel):
+    player_id: str
+    player_name: str
+    team_name: str | None = None
+    role: str | None = None
+    games_played: int
+    career_wins: int
+    career_losses: int
+    career_win_rate: float
+    career_first_date: str | None = None
+    career_last_date: str | None = None
+    career_years: float | None = None
+    teams: list[str] = []
+    top_champions: list[TopChampionItem] = []
+    ratings: dict[str, PlayerSystemRating] = {}
+    peak_elo: float | None = None
+    peak_elo_date: str | None = None
+    peak_gl: float | None = None
+    peak_gl_date: str | None = None
+
+
+class H2HGameItem(BaseModel):
+    game_id: str
+    match_id: str
+    date: str | None = None
+    tournament_name: str | None = None
+    team_a: str | None = None
+    champ_a: str | None = None
+    team_b: str | None = None
+    champ_b: str | None = None
+    winner: Literal["a", "b"]
+
+
+class H2HSummary(BaseModel):
+    total_games: int
+    wins_a: int
+    wins_b: int
+    win_rate_a: float
+    win_rate_b: float
+    recent_games: list[H2HGameItem] = []
+
+
+class SystemAdvantage(BaseModel):
+    system: str
+    system_label: str
+    value_a: float
+    value_b: float
+    difference: float
+    favors: Literal["a", "b", "tied"]
+    win_prob_a: float
+
+
+class ModelVerdict(BaseModel):
+    better_player: Literal["a", "b", "tied"]
+    better_player_id: str | None = None
+    better_player_name: str | None = None
+    win_probability_a: float
+    win_probability_b: float
+    systems_favor_a: int
+    systems_favor_b: int
+    systems_tied: int
+    total_systems: int
+    advantage_summary: str
+    system_advantages: list[SystemAdvantage] = []
+    h2h_winner: Literal["a", "b", "tied"]
+    summary_pl: str
+
+
+class RatingTimelinePoint(BaseModel):
+    date: str
+    match_id: str | None = None
+    team_name: str | None = None
+    games_count: int
+    elo: float
+    gl: float
+    gl_rd: float | None = None
+    ts_mu: float | None = None
+    os_mu: float | None = None
+    pl_mu: float | None = None
+    tm_mu: float | None = None
+
+
+class PlayerComparisonResponse(BaseModel):
+    player_a: PlayerProfileDetail
+    player_b: PlayerProfileDetail
+    verdict: ModelVerdict
+    h2h: H2HSummary
+    timeline_a: list[RatingTimelinePoint] = []
+    timeline_b: list[RatingTimelinePoint] = []
+    available_rating_systems: list[str] = []
+
 # ── System status ───────────────────────────────────────────────────────────
 
 
