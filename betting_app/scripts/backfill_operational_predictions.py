@@ -16,6 +16,7 @@ from itertools import groupby
 from typing import Any, Sequence
 
 from betting_app.core.db import connect, transaction
+from betting_app.core.matching import normalize_team_name, similarity
 from betting_app.scripts import rebuild_calibrated_ratings as calibrated
 from betting_app.scripts import rebuild_regional_ratings as regional
 from betting_app.scripts import rebuild_w20_features as w20
@@ -55,7 +56,8 @@ def _canonical_targets() -> dict[str, dict[str, Any]]:
         rows = connection.execute(
             """
             SELECT gmm.golgg_match_id, cm.id AS canonical_match_id,
-                   cm.start_time_normalized, cm.best_of, cm.winner_side
+                   cm.start_time_normalized, cm.best_of, cm.winner_side,
+                   cm.team_a_name, cm.team_b_name
             FROM golgg_match_mappings gmm
             JOIN canonical_matches cm ON cm.id = gmm.canonical_match_id
             WHERE cm.status IN ('finished', 'completed')
@@ -71,6 +73,24 @@ def _canonical_targets() -> dict[str, dict[str, Any]]:
             raise ValueError(f"multiple canonical matches map to GOL.GG match {key}")
         targets[key] = dict(row)
     return targets
+
+def _is_reversed_mapping(
+    canonical_a: str, canonical_b: str, golgg_a: str, golgg_b: str
+) -> bool:
+    """Check whether canonical match sides are reversed relative to GOL.GG order."""
+    norm_ca = normalize_team_name(canonical_a)
+    norm_cb = normalize_team_name(canonical_b)
+    norm_ga = normalize_team_name(golgg_a)
+    norm_gb = normalize_team_name(golgg_b)
+
+    if norm_ca == norm_ga or norm_cb == norm_gb:
+        return False
+    if norm_ca == norm_gb or norm_cb == norm_ga:
+        return True
+
+    sim_direct = similarity(canonical_a, golgg_a) + similarity(canonical_b, golgg_b)
+    sim_reversed = similarity(canonical_a, golgg_b) + similarity(canonical_b, golgg_a)
+    return sim_reversed > sim_direct
 
 
 def _event_affiliations(
@@ -262,12 +282,19 @@ def backfill_operational_predictions(*, apply: bool, limit: int | None = None) -
             map_probability, components = predict_probability_from_features(feature_payload)
             best_of = _normalized_best_of(target.get("best_of"))
             probability = series_probability(map_probability, best_of)
+            is_reversed = _is_reversed_mapping(
+                str(target.get("team_a_name") or ""),
+                str(target.get("team_b_name") or ""),
+                match.team_a_name,
+                match.team_b_name,
+            )
+            canonical_prob_a = 1.0 - probability if is_reversed else probability
             prepared.append(
                 {
                     "canonical_match_id": int(target["canonical_match_id"]),
                     "predicted_at": predicted_at.isoformat(),
                     "data_cutoff_at": cutoff_at.isoformat(),
-                    "prob_a": probability,
+                    "prob_a": canonical_prob_a,
                     "diagnostics_json": json.dumps(
                         {
                             **components,
@@ -275,8 +302,9 @@ def backfill_operational_predictions(*, apply: bool, limit: int | None = None) -
                             "golgg_match_id": match.event_id,
                             "event_date": match.event_date.isoformat(),
                             "best_of": best_of,
-                            "map_win_probability": map_probability,
-                            "series_win_probability": probability,
+                            "is_reversed_side": is_reversed,
+                            "map_win_probability": 1.0 - map_probability if is_reversed else map_probability,
+                            "series_win_probability": canonical_prob_a,
                             "regional_adjustment": {"mean": adjustment.mean, "variance": adjustment.variance},
                             "team_probabilities": team_probs,
                             "player_probabilities": player_probs,

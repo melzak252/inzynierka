@@ -486,6 +486,15 @@ export interface HistoricalModelComparison {
     n_matches: number;
     exp039: MetricSummary | null;
     operational_regional: MetricSummary | null;
+    market_closing?: MetricSummary | null;
+    disagreement?: {
+      n_matches: number;
+      disagreement_rate: number;
+      model_wins: number;
+      market_wins: number;
+      model_win_rate: number;
+      market_win_rate: number;
+    } | null;
     naive_50_50?: MetricSummary | null;
     operational_minus_exp039_logloss: number | null;
     operational_minus_exp039_brier: number | null;

@@ -744,6 +744,14 @@ function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComp
 
 function ModelLeaderboardSection({ comparison }: { comparison: HistoricalModelComparison }) {
   const common = comparison.common_cohort
+  const isOpBetter = (common.operational_minus_exp039_logloss ?? 0) <= 0
+  const marketDelta =
+    common.market_closing?.avg_logloss !== undefined &&
+    common.operational_regional?.avg_logloss !== undefined &&
+    common.market_closing?.avg_logloss !== null &&
+    common.operational_regional?.avg_logloss !== null
+      ? common.operational_regional.avg_logloss - common.market_closing.avg_logloss
+      : null
 
   return (
     <div className="ma-leaderboard-section">
@@ -755,7 +763,7 @@ function ModelLeaderboardSection({ comparison }: { comparison: HistoricalModelCo
               <span>⚔️</span> Head-to-Head: Wspólna Próba Temporalna
             </h3>
             <p>
-              Bezpośrednie porównanie na identycznym zbiorze {common.n_matches} meczów, gdzie oba modele spełniły
+              Bezpośrednie porównanie na identycznym zbiorze {common.n_matches} meczów, gdzie modele spełniły
               rygorystyczną regułę temporalną (data_cutoff &le; predicted_at &lt; match_start).
             </p>
           </div>
@@ -763,45 +771,23 @@ function ModelLeaderboardSection({ comparison }: { comparison: HistoricalModelCo
         </div>
 
         <div className="ma-cohort-grid">
-          {/* EXP-039 Card */}
-          <div className="ma-cohort-card champion">
-            <div className="ma-card-top">
-              <strong>EXP-039 Thesis</strong>
-              <span className="ma-card-pill green">Skalibrowany</span>
-            </div>
-            <div className="ma-metric-row">
-              <span>LogLoss</span>
-              <strong className="positive">{fmt(common.exp039?.avg_logloss, 4)}</strong>
-            </div>
-            <div className="ma-metric-row">
-              <span>Brier Score</span>
-              <strong className="positive">{fmt(common.exp039?.avg_brier, 4)}</strong>
-            </div>
-            <div className="ma-metric-row">
-              <span>AUC</span>
-              <strong>{fmt(common.exp039?.avg_auc, 3)}</strong>
-            </div>
-            <div className="ma-metric-row">
-              <span>Accuracy</span>
-              <strong>{fmtPctRate(common.exp039?.accuracy)}</strong>
-            </div>
-          </div>
-
           {/* Operational Regional Card */}
-          <div className="ma-cohort-card overconfident">
+          <div className={`ma-cohort-card ${isOpBetter ? 'champion' : 'overconfident'}`}>
             <div className="ma-card-top">
               <strong>Regional BoN Replay</strong>
-              <span className="ma-card-pill red">Overconfident</span>
+              <span className={`ma-card-pill ${isOpBetter ? 'green' : 'red'}`}>
+                {isOpBetter ? 'Lepszy od EXP-039' : 'Overconfident'}
+              </span>
             </div>
             <div className="ma-metric-row">
               <span>LogLoss</span>
-              <strong className={(common.operational_minus_exp039_logloss ?? 0) > 0 ? 'negative' : 'positive'}>
+              <strong className={isOpBetter ? 'positive' : 'negative'}>
                 {fmt(common.operational_regional?.avg_logloss, 4)}
               </strong>
             </div>
             <div className="ma-metric-row">
               <span>Brier Score</span>
-              <strong className={(common.operational_minus_exp039_brier ?? 0) > 0 ? 'negative' : 'positive'}>
+              <strong className={(common.operational_minus_exp039_brier ?? 0) <= 0 ? 'positive' : 'negative'}>
                 {fmt(common.operational_regional?.avg_brier, 4)}
               </strong>
             </div>
@@ -813,7 +799,71 @@ function ModelLeaderboardSection({ comparison }: { comparison: HistoricalModelCo
               <span>Accuracy</span>
               <strong>{fmtPctRate(common.operational_regional?.accuracy)}</strong>
             </div>
+            <div className="ma-metric-row">
+              <span>ECE</span>
+              <strong>{fmt(common.operational_regional?.ece, 3)}</strong>
+            </div>
           </div>
+
+          {/* EXP-039 Card */}
+          <div className={`ma-cohort-card ${!isOpBetter ? 'champion' : 'baseline'}`}>
+            <div className="ma-card-top">
+              <strong>EXP-039 Thesis</strong>
+              <span className={`ma-card-pill ${!isOpBetter ? 'green' : 'blue'}`}>
+                {!isOpBetter ? 'Wygrywa (Referencyjny)' : 'Baza referencyjna'}
+              </span>
+            </div>
+            <div className="ma-metric-row">
+              <span>LogLoss</span>
+              <strong className={!isOpBetter ? 'positive' : ''}>{fmt(common.exp039?.avg_logloss, 4)}</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>Brier Score</span>
+              <strong className={!isOpBetter ? 'positive' : ''}>{fmt(common.exp039?.avg_brier, 4)}</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>AUC</span>
+              <strong>{fmt(common.exp039?.avg_auc, 3)}</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>Accuracy</span>
+              <strong>{fmtPctRate(common.exp039?.accuracy)}</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>ECE</span>
+              <strong>{fmt(common.exp039?.ece, 3)}</strong>
+            </div>
+          </div>
+
+          {/* Market Closing (No-Vig) Card */}
+          {common.market_closing && (
+            <div className="ma-cohort-card market">
+              <div className="ma-card-top">
+                <strong>Rynek Zamykający (No-Vig)</strong>
+                <span className="ma-card-pill blue">Benchmark Rynku</span>
+              </div>
+              <div className="ma-metric-row">
+                <span>LogLoss</span>
+                <strong>{fmt(common.market_closing?.avg_logloss, 4)}</strong>
+              </div>
+              <div className="ma-metric-row">
+                <span>Brier Score</span>
+                <strong>{fmt(common.market_closing?.avg_brier, 4)}</strong>
+              </div>
+              <div className="ma-metric-row">
+                <span>AUC</span>
+                <strong>{fmt(common.market_closing?.avg_auc, 3)}</strong>
+              </div>
+              <div className="ma-metric-row">
+                <span>Accuracy</span>
+                <strong>{fmtPctRate(common.market_closing?.accuracy)}</strong>
+              </div>
+              <div className="ma-metric-row">
+                <span>ECE</span>
+                <strong>{fmt(common.market_closing?.ece, 3)}</strong>
+              </div>
+            </div>
+          )}
 
           {/* Naive Baseline Card */}
           <div className="ma-cohort-card baseline">
@@ -837,21 +887,44 @@ function ModelLeaderboardSection({ comparison }: { comparison: HistoricalModelCo
               <span>Accuracy</span>
               <strong>50.0%</strong>
             </div>
+            <div className="ma-metric-row">
+              <span>ECE</span>
+              <strong>0.000</strong>
+            </div>
           </div>
         </div>
 
         {/* Delta Callout Box */}
-        <div className="ma-delta-summary-box">
+        <div className="ma-delta-summary-box" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {common.operational_minus_exp039_logloss !== null && (
-            <span>
+            <div>
               <strong>Różnica LogLoss (Regionalny − EXP-039):</strong>{' '}
               <span className={common.operational_minus_exp039_logloss > 0 ? 'negative' : 'positive'}>
                 {signed(common.operational_minus_exp039_logloss, 4)}
               </span>
-              . {common.operational_minus_exp039_logloss > 0
-                ? 'Model regionalny z ogonem dwumianowym generuje wyższy błąd LogLoss ze względu na nadmierną pewność w seriach Bo3/Bo5. W przypadku upsetów ponosi drastyczną karę prawdopodobieństwa.'
-                : 'Model regionalny przewyższa bazę EXP-039.'}
-            </span>
+              . {common.operational_minus_exp039_logloss <= 0
+                ? 'Model regionalny z hierarchicznymi ratingami i oknem W20 osiąga niższy błąd predykcji niż praca dyplomowa EXP-039.'
+                : 'Model regionalny generuje wyższy błąd LogLoss ze względu na nadmierną pewność w seriach Bo3/Bo5.'}
+            </div>
+          )}
+
+          {marketDelta !== null && common.operational_regional?.avg_logloss !== undefined && common.market_closing?.avg_logloss !== undefined && (
+            <div>
+              <strong>Delta względem Rynku Zamykającego (No-Vig):</strong>{' '}
+              <span className={marketDelta <= 0 ? 'positive' : 'negative'}>
+                {signed(marketDelta, 4)}
+              </span>{' '}
+              LogLoss (Model: {fmt(common.operational_regional.avg_logloss, 4)} vs Rynek: {fmt(common.market_closing.avg_logloss, 4)}).
+            </div>
+          )}
+
+          {common.disagreement && (
+            <div style={{ marginTop: '4px', padding: '8px 12px', background: 'rgba(56, 189, 248, 0.08)', borderRadius: '6px', border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+              <strong>Rozbieżność z Rynkiem ({common.disagreement.n_matches} meczów, {fmtPctRate(common.disagreement.disagreement_rate)}):</strong>{' '}
+              W meczach, gdzie model wskazał innego faworyta niż bukmacher —{' '}
+              Model wygrał <strong>{common.disagreement.model_wins} ({fmtPctRate(common.disagreement.model_win_rate)})</strong>,{' '}
+              Rynek wygrał <strong>{common.disagreement.market_wins} ({fmtPctRate(common.disagreement.market_win_rate)})</strong>.
+            </div>
           )}
         </div>
       </div>

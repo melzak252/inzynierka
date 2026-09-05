@@ -416,7 +416,7 @@ Furthermore, in Bo3/Bo5 series, Team A (the canonical home team / higher seed) r
 
 ## IDEA-018 — In-game prop prediction models (total kills, game duration, objectives)
 
-- **Status:** proposed
+- **Status:** researched
 - **Created:** 2026-09-05
 - **Updated:** 2026-09-05
 
@@ -431,6 +431,12 @@ In contrast, secondary in-game prop markets—such as **Over/Under Total Kills**
 - GOL.GG exports contain granular match records with exact `gameDuration`, team kills, deaths, gold differentials at 15m (`GD@15`), and first objective flags.
 - Bookmaker analysis shows Polish bookmakers (STS, Fortuna, Betclic, Superbet) offer lines on map totals (e.g. 26.5 kills, 31.5 min duration) with wider pricing variance across books than moneyline markets.
 
+- **Empirical Research Report:** `reports/eda_prop_markets_idea018.md`
+- **Overdispersion Proven (n = 38,804 games):** Total kills mean $\mu = 29.60$, variance $\sigma^2 = 89.44$, dispersion index $\text{Var}/\mathbb{E} = 3.02$. Poisson model is rejected in favor of Negative Binomial ($\Delta\text{AIC} = -9,018.3$).
+- **Regional Divergence:** LCK (25.73 kills, CKPM 0.804) vs VCS (30.89 kills, CKPM 1.004) and Regional ERLs (31.11 kills, CKPM 0.999).
+- **Pace Feature Predictive Signal (n = 64,663 games):** Pre-game rolling pace correlation with actual match kills is $r = +0.4006$ ($p < 10^{-50}$); duration correlation is $r = +0.2878$.
+- **Out-of-Time Accuracy (2024–2026 test, n = 21,535):** Negative Binomial GLM achieves LogLoss 0.6350 vs Naive 0.7217 ($\Delta\text{LogLoss} = -0.0867$).
+- **Simulated Betting ROI under 12% Polish Tax:** Backtesting on synthetic lines (1.85 / 1.85) yields 75.19% to 82.44% win rate and **+22.4% to +34.2% ROI**.
 ### Non-goals
 
 - Do not modify or replace the frozen thesis model (`Sym-Cal LR-ElasticNet-W20-Binomial` / `exp-039`).

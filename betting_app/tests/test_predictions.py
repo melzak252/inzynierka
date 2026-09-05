@@ -162,3 +162,13 @@ def test_match_predict_route_uses_operational_model(monkeypatch: pytest.MonkeyPa
     assert response.model_name == DEFAULT_MODEL_NAME
     assert response.model_version == DEFAULT_MODEL_VERSION
     assert response.prob_a == pytest.approx(0.648)
+
+
+def test_backfill_detects_reversed_team_alignment() -> None:
+    from betting_app.scripts.backfill_operational_predictions import _is_reversed_mapping
+
+    assert not _is_reversed_mapping("Dplus", "DRX", "Dplus KIA", "Kiwoom DRX")
+    assert _is_reversed_mapping("GIANTX", "Vitality", "Team Vitality", "GIANTX")
+    assert _is_reversed_mapping("BRION", "Hanwha Life", "Hanwha Life Esports", "HANJIN BRION")
+    assert not _is_reversed_mapping("Gen.G", "T1", "Gen.G", "T1")
+    assert _is_reversed_mapping("T1", "Gen.G", "Gen.G", "T1")

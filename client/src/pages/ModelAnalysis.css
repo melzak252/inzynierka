@@ -1030,6 +1030,10 @@
   border-color: rgba(239, 68, 68, 0.4);
   background: linear-gradient(180deg, rgba(239, 68, 68, 0.08) 0%, rgba(15, 23, 42, 0.6) 100%);
 }
+.ma-cohort-card.market {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.08) 0%, rgba(15, 23, 42, 0.6) 100%);
+}
 
 .ma-cohort-card.baseline {
   border-color: rgba(148, 163, 184, 0.3);
@@ -1068,6 +1072,15 @@
 .ma-card-pill.gray {
   background: rgba(148, 163, 184, 0.2);
   color: #94a3b8;
+}
+.ma-card-pill.blue {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+}
+
+.ma-card-pill.purple {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
 }
 
 .ma-metric-row {
