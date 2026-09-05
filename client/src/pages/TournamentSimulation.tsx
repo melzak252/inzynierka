@@ -55,7 +55,6 @@ const PLAY_IN_SLOT_LABELS = ['LCS #3', 'LEC #3', 'LCP #3', 'CBLOL #2'];
 export default function TournamentSimulation() {
   const [activeTab, setActiveTab] = useState<'regional' | 'worlds' | 'enc'>('regional');
   // Layout states for spacious tables and flexible views
-  const [regionalLayout, setRegionalLayout] = useState<'split' | 'stacked'>('split');
   const [worldsView, setWorldsView] = useState<'results' | 'editor' | 'split'>('results');
   const [encView, setEncView] = useState<'results' | 'rosters' | 'split'>('results');
 
@@ -300,10 +299,12 @@ export default function TournamentSimulation() {
     const manualWinner = overrides[m.id];
     const effectiveWinner = manualWinner || m.winner;
 
+    const isGrandFinal = m.bracket_section === 'final';
+
     return (
-      <div key={m.id} className={`bracket-match-card ${isCompleted ? 'completed' : ''} ${manualWinner ? 'overridden' : ''}`}>
+      <div key={m.id} className={`bracket-match-card ${isCompleted ? 'completed' : ''} ${isGrandFinal ? 'grand-final-card' : ''} ${manualWinner ? 'overridden' : ''}`}>
         <div className="match-card-header">
-          <span className="round-badge">{m.round_name}</span>
+          <span className="round-badge">{isGrandFinal ? '👑 Mecz o Mistrzostwo' : m.round_name}</span>
           <span className="bo-badge">Bo{m.best_of}</span>
         </div>
         <div className="match-card-teams">
@@ -400,24 +401,6 @@ export default function TournamentSimulation() {
                   Reset scenariuszy ({Object.keys(overrides).length})
                 </button>
               )}
-              <div className="layout-toggle-group" role="group" aria-label="Układ widoku regionalnego">
-                <button
-                  type="button"
-                  className={`layout-toggle-btn ${regionalLayout === 'split' ? 'active' : ''}`}
-                  onClick={() => setRegionalLayout('split')}
-                  title="Widok obok siebie (Szeroka tabela + Drabinka)"
-                >
-                  ⊞ Obok siebie
-                </button>
-                <button
-                  type="button"
-                  className={`layout-toggle-btn ${regionalLayout === 'stacked' ? 'active' : ''}`}
-                  onClick={() => setRegionalLayout('stacked')}
-                  title="Widok pełnej szerokości (Tabela na górze, Drabinka pod spodem)"
-                >
-                  ☰ Tabela na górze
-                </button>
-              </div>
             </div>
 
             <div className="sync-toolbar">
@@ -591,6 +574,17 @@ export default function TournamentSimulation() {
           </div>
         )}
       </header>
+      {error && (
+        <div className="error-banner">
+          <div className="banner-content">
+            <span className="banner-icon">⚠️</span>
+            <span>{error}</span>
+          </div>
+          <button className="banner-close-btn" onClick={() => setError(null)}>
+            ✕
+          </button>
+        </div>
+      )}
       {syncSuccessMessage && (
         <div className="sync-success-banner">
           <div className="banner-content">
@@ -632,20 +626,18 @@ export default function TournamentSimulation() {
               <button
                 className="btn-primary"
                 onClick={handleManualImport}
-                disabled={syncing || !manualText.trim()}
+                disabled={!manualText.trim() || syncing}
               >
-                {syncing ? 'Przetwarzanie...' : 'Zastosuj do drabinki'}
+                {syncing ? 'Importowanie...' : 'Zastosuj import'}
               </button>
             </div>
           </div>
         </div>
       )}
-
-      {error && <div className="error-banner">{error}</div>}
-
       {activeTab === 'regional' ? (
-        <div className={`simulation-layout ${regionalLayout}`}>
-          <section className={`standings-panel ${regionalLayout === 'stacked' ? 'full-width' : ''}`}>
+        <div className="regional-stacked-layout">
+          {/* 1. STANDINGS TABLE ALWAYS AT THE TOP */}
+          <section className="standings-panel full-width">
             <div className="standings-panel-header">
               <h2>📊 Szanse na końcowy wynik ({data?.simulations.toLocaleString('pl-PL')} symulacji)</h2>
             </div>
@@ -687,71 +679,109 @@ export default function TournamentSimulation() {
             </p>
           </section>
 
-          <section className={`bracket-panel ${regionalLayout === 'stacked' ? 'full-width' : ''}`}>
-            <h2>Drzewo Turniejowe (Chronologiczny układ rund)</h2>
-
-            <div className="bracket-section-group">
-              <h3 className="section-heading">Upper Bracket</h3>
-              <div className="bracket-stages-flow">
-                {upperR1.length > 0 && (
-                  <div className="stage-column">
-                    <div className="stage-title">Runda 1 (Ćwierćfinały)</div>
-                    <div className="stage-matches">{upperR1.map(renderMatchCard)}</div>
-                  </div>
-                )}
-                {upperR2.length > 0 && (
-                  <div className="stage-column">
-                    <div className="stage-title">Półfinały Upper</div>
-                    <div className="stage-matches">{upperR2.map(renderMatchCard)}</div>
-                  </div>
-                )}
-                {upperFinal.length > 0 && (
-                  <div className="stage-column">
-                    <div className="stage-title">Finał Upper Bracket</div>
-                    <div className="stage-matches">{upperFinal.map(renderMatchCard)}</div>
-                  </div>
-                )}
-              </div>
+          {/* 2. LOL FANDOM BRACKET TREE: UPPER & LOWER HORIZONTAL STREAMS TO GRAND FINAL ON THE RIGHT */}
+          <section className="bracket-panel full-width">
+            <div className="bracket-panel-header">
+              <h2>🎮 Drzewo Turniejowe (LoL Fandom Double Elimination)</h2>
+              <span className="bracket-hint">Przepływ Upper & Lower Bracket $\rightarrow$ Wielki Finał</span>
             </div>
 
-            <div className="bracket-section-group">
-              <h3 className="section-heading">Lower Bracket</h3>
-              <div className="bracket-stages-flow">
-                {lowerR1.length > 0 && (
-                  <div className="stage-column">
-                    <div className="stage-title">Lower Runda 1</div>
-                    <div className="stage-matches">{lowerR1.map(renderMatchCard)}</div>
-                  </div>
-                )}
-                {lowerR2.length > 0 && (
-                  <div className="stage-column">
-                    <div className="stage-title">Lower Runda 2</div>
-                    <div className="stage-matches">{lowerR2.map(renderMatchCard)}</div>
-                  </div>
-                )}
-                {lowerSemi.length > 0 && (
-                  <div className="stage-column">
-                    <div className="stage-title">Półfinał Lower</div>
-                    <div className="stage-matches">{lowerSemi.map(renderMatchCard)}</div>
-                  </div>
-                )}
-                {lowerFinal.length > 0 && (
-                  <div className="stage-column">
-                    <div className="stage-title">Finał Lower Bracket</div>
-                    <div className="stage-matches">{lowerFinal.map(renderMatchCard)}</div>
-                  </div>
-                )}
-              </div>
-            </div>
+            <div className="fandom-bracket-board">
+              {/* Left side: Upper and Lower branches */}
+              <div className="fandom-branches-col">
 
-            <div className="bracket-section-group final-group">
-              <h3 className="section-heading">Wielki Finał</h3>
-              <div className="bracket-stages-flow">
-                <div className="stage-column">
-                  <div className="stage-title">Mecz o Mistrzostwo</div>
-                  <div className="stage-matches">{grandFinal.map(renderMatchCard)}</div>
+                {/* UPPER BRACKET ROW */}
+                <div className="fandom-bracket-branch upper-branch">
+                  <div className="fandom-branch-header">
+                    <div className="branch-title-wrap">
+                      <span className="branch-indicator upper">▲ UPPER BRACKET</span>
+                      <span className="branch-sub">Drabinka wygranych</span>
+                    </div>
+                  </div>
+                  <div className="fandom-stages-row">
+                    {upperR1.length > 0 && (
+                      <div className="fandom-stage-col">
+                        <div className="fandom-stage-title">Upper Runda 1</div>
+                        <div className="fandom-stage-matches">{upperR1.map(renderMatchCard)}</div>
+                      </div>
+                    )}
+                    {upperR2.length > 0 && (
+                      <div className="fandom-stage-col">
+                        <div className="fandom-stage-title">Półfinały Upper</div>
+                        <div className="fandom-stage-matches">{upperR2.map(renderMatchCard)}</div>
+                      </div>
+                    )}
+                    {upperFinal.length > 0 && (
+                      <div className="fandom-stage-col upper-final-stage">
+                        <div className="fandom-stage-title highlight-upper">Finał Upper</div>
+                        <div className="fandom-stage-matches">{upperFinal.map(renderMatchCard)}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* LOWER BRACKET ROW */}
+                <div className="fandom-bracket-branch lower-branch">
+                  <div className="fandom-branch-header">
+                    <div className="branch-title-wrap">
+                      <span className="branch-indicator lower">▼ LOWER BRACKET</span>
+                      <span className="branch-sub">Drabinka eliminacji (ostatnia szansa)</span>
+                    </div>
+                  </div>
+                  <div className="fandom-stages-row">
+                    {lowerR1.length > 0 && (
+                      <div className="fandom-stage-col">
+                        <div className="fandom-stage-title">Lower Runda 1</div>
+                        <div className="fandom-stage-matches">{lowerR1.map(renderMatchCard)}</div>
+                      </div>
+                    )}
+                    {lowerR2.length > 0 && (
+                      <div className="fandom-stage-col">
+                        <div className="fandom-stage-title">Lower Runda 2</div>
+                        <div className="fandom-stage-matches">{lowerR2.map(renderMatchCard)}</div>
+                      </div>
+                    )}
+                    {lowerSemi.length > 0 && (
+                      <div className="fandom-stage-col">
+                        <div className="fandom-stage-title">Półfinał Lower</div>
+                        <div className="fandom-stage-matches">{lowerSemi.map(renderMatchCard)}</div>
+                      </div>
+                    )}
+                    {lowerFinal.length > 0 && (
+                      <div className="fandom-stage-col lower-final-stage">
+                        <div className="fandom-stage-title highlight-lower">Finał Lower</div>
+                        <div className="fandom-stage-matches">{lowerFinal.map(renderMatchCard)}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+
+              {/* CONNECTING BRIDGE TO GRAND FINAL */}
+              <div className="fandom-connector-zone">
+                <div className="connector-bracket-bracket">
+                  <div className="connector-tag">FINAŁ</div>
                 </div>
               </div>
+
+              {/* RIGHT SIDE: GRAND FINAL (WIELKI FINAŁ) */}
+              <div className="fandom-grand-final-stage">
+                <div className="fandom-branch-header grand-final">
+                  <span className="branch-indicator gold">🏆 WIELKI FINAŁ</span>
+                  <span className="branch-sub">Mecz o Mistrzostwo</span>
+                </div>
+                <div className="grand-final-card-wrapper">
+                  <div className="trophy-crest">
+                    <span className="trophy-crest-icon">🏆</span>
+                    <span className="trophy-crest-text">PUCHAR MISTRZA</span>
+                  </div>
+                  <div className="grand-final-match-box">
+                    {grandFinal.map(renderMatchCard)}
+                  </div>
+                </div>
+              </div>
+
             </div>
           </section>
         </div>
