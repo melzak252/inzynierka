@@ -67,6 +67,8 @@ from betting_app.services.market_service import (
     safe_json_get,
 )
 from betting_app.ml.calibration.conformal_contract import conformal_bounds_for_side
+from betting_app.ml.model_lifecycle import RETIRED_PUBLIC_MODEL_NAME
+
 from betting_app.services.mapping_service import suggest_mapping
 from betting_app.services.current_roster_service import upsert_current_roster
 from betting_app.core.db import is_sqlite
@@ -1979,10 +1981,11 @@ def prediction_history(match_id: int, db=Depends(get_db)):
         SELECT predicted_at, model_name, model_version, prob_a, prob_b
         FROM canonical_predictions
         WHERE canonical_match_id=:mid
+          AND model_name <> :retired_model_name
           AND prob_a IS NOT NULL AND prob_b IS NOT NULL
         ORDER BY predicted_at
         """,
-        {"mid": match_id},
+        {"mid": match_id, "retired_model_name": RETIRED_PUBLIC_MODEL_NAME},
     )
 
     if not preds:

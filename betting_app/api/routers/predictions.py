@@ -8,6 +8,8 @@ from betting_app.api.deps import get_db, query_df
 from betting_app.api.schemas import EVSignal, EVSignalResponse
 from betting_app.services.market_service import expected_value, kelly_fraction, none_or_float
 from betting_app.services.upcoming_inference_service import DEFAULT_HYBRID_MODEL_NAME
+from betting_app.ml.model_lifecycle import RETIRED_PUBLIC_MODEL_NAME
+
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
 
@@ -28,8 +30,13 @@ def list_predictions(
         "mes.status='new'",
         "mes.ev >= :min_ev",
         "mes.side IN ('a', 'b')",
+        "cp.model_name <> :retired_model_name",
     ]
-    params = {"min_ev": min_ev, "lim": limit}
+    params = {
+        "min_ev": min_ev,
+        "lim": limit,
+        "retired_model_name": RETIRED_PUBLIC_MODEL_NAME,
+    }
     
     if model_name:
         where_clauses.append("cp.model_name = :model_name")

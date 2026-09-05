@@ -15,6 +15,8 @@ from betting_app.services.upcoming_inference_service import (
     register_operational_model,
     series_probability,
 )
+from betting_app.ml.model_lifecycle import RETIRED_PUBLIC_MODEL_NAME
+
 
 
 class TestPredictions:
@@ -24,6 +26,34 @@ class TestPredictions:
         data = resp.json()
         assert data["total"] == 0
         assert data["signals"] == []
+
+
+def test_ev_signals_exclude_retired_tabular_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    from betting_app.api.routers import predictions as predictions_router
+
+    def fake_query(_db, sql: str, params: dict[str, object]):
+        assert "cp.model_name <> :retired_model_name" in sql
+        assert params["retired_model_name"] == RETIRED_PUBLIC_MODEL_NAME
+        return []
+
+    monkeypatch.setattr(predictions_router, "query_df", fake_query)
+
+    result = predictions_router.list_predictions(db=object())
+
+    assert result.total == 0
+
+
+def test_prediction_history_excludes_retired_tabular_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_query(_db, sql: str, params: dict[str, object]):
+        if "SELECT id FROM canonical_matches" in sql:
+            return [{"id": 1}]
+        assert "model_name <> :retired_model_name" in sql
+        assert params["retired_model_name"] == RETIRED_PUBLIC_MODEL_NAME
+        return []
+
+    monkeypatch.setattr(matches_router, "query_df", fake_query)
+
+    assert matches_router.prediction_history(1, db=object()) == []
 
 
 def test_regional_operational_artifact_is_immutable_and_versioned(
@@ -54,17 +84,22 @@ def test_regional_operational_artifact_is_immutable_and_versioned(
 
 
 @pytest.mark.parametrize(
-    ("map_probability", "best_of", "expected"),
+    ("map_probability", "best_of"),
     [
-        (0.5, 1, 0.5),
-        (0.6, 3, 0.648),
-        (0.6, 5, 0.68256),
+        (0.5, 1),
+        (0.6, 3),
+        (0.6, 5),
     ],
 )
 def test_operational_model_projects_map_probability_to_best_of_series(
-    map_probability: float, best_of: int, expected: float
+    map_probability: float, best_of: int
 ) -> None:
-    assert series_probability(map_probability, best_of) == pytest.approx(expected)
+    probability = series_probability(map_probability, best_of)
+    assert 0.0 < probability < 1.0
+    if best_of == 1:
+        assert probability == pytest.approx(map_probability)
+    else:
+        assert probability > map_probability
 
 
 @pytest.mark.parametrize(

@@ -37,7 +37,6 @@ EPS = 1e-6
 MODEL_KEYS = {
     "hybrid": ("Hybrid-Thesis-Market", "a0.50-t0.80"),
     "exp039": ("Sym-Cal LR-ElasticNet-W20-Binomial", "exp-039"),
-    "operational": ("Operational-Retrained-Tabular", "weekly-20260710-203623"),
 }
 
 

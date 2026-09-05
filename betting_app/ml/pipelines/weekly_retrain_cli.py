@@ -11,8 +11,8 @@ from betting_app.ml.pipelines.weekly_retrain import WeeklyRetrainConfig, run_wee
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Train and register a new weekly model candidate")
-    parser.add_argument("--model-name", default="Operational-Retrained-Tabular")
+    parser = argparse.ArgumentParser(description="Train and register an explicitly named tabular candidate")
+    parser.add_argument("--model-name", required=True)
     parser.add_argument("--model-version")
     parser.add_argument("--feature-version")
     parser.add_argument("--ratings-version")

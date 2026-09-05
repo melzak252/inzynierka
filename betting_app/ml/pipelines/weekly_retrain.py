@@ -25,7 +25,7 @@ from betting_app.ml.training.walk_forward import evaluate_candidate_walk_forward
 
 @dataclass(frozen=True)
 class WeeklyRetrainConfig:
-    model_name: str = "Operational-Retrained-Tabular"
+    model_name: str | None = None
     model_version: str | None = None
     feature_version: str | None = None
     ratings_version: str | None = None
@@ -107,6 +107,8 @@ def run_weekly_retrain_pipeline(
 ) -> WeeklyRetrainResult:
     """Train candidate models, pick best walk-forward result and save artifact."""
     cfg = config or WeeklyRetrainConfig()
+    if not cfg.model_name:
+        raise ValueError("model_name must be provided explicitly")
     model_version = cfg.model_version or _default_model_version()
     own_session = session is None
     sess = session or get_session()
