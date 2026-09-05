@@ -32,8 +32,11 @@ _sync_engine = None
 _SyncSession: sessionmaker | None = None
 
 
+DEFAULT_PG_URL = "postgresql://betting:betting_local_password@localhost:5432/betting"
+
+
 def database_url() -> str:
-    """Return the active database URL (PostgreSQL via env or SQLite fallback)."""
+    """Return the active PostgreSQL database URL."""
     global _DATABASE_URL
     if _DATABASE_URL is not None:
         return _DATABASE_URL
@@ -43,24 +46,20 @@ def database_url() -> str:
         _DATABASE_URL = url
         return url
 
-    # SQLite fallback
-    db_path = load_config().db_path
-    path = Path(db_path).resolve()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _DATABASE_URL = f"sqlite:///{path}"
+    _DATABASE_URL = DEFAULT_PG_URL
     return _DATABASE_URL
 
 
 def is_pg() -> bool:
-    return database_url().startswith("postgresql")
+    return True
 
 
 def is_sqlite() -> bool:
-    return not is_pg()
+    return False
 
 
 def get_db_path(db_path: str | Path | None = None) -> Path:
-    """Return the SQLite path (for informational purposes / migrations)."""
+    """Return the database path placeholder for backward compatibility."""
     if db_path:
         return Path(db_path)
     return Path(load_config().db_path)
@@ -70,16 +69,8 @@ def _get_engine():
     global _sync_engine
     if _sync_engine is None:
         url = database_url()
-        if is_sqlite():
-            _sync_engine = create_engine(
-                url,
-                connect_args={"check_same_thread": False},
-                poolclass=pool.NullPool,
-            )
-            # Optimise for test isolation: avoid WAL/journal locks
-            with _sync_engine.connect() as c:
-                c.execute(text("PRAGMA journal_mode=MEMORY"))
-                c.execute(text("PRAGMA synchronous=OFF"))
+        if "_test" in url or os.getenv("PYTEST_CURRENT_TEST"):
+            _sync_engine = create_engine(url, poolclass=pool.NullPool)
         else:
             _sync_engine = create_engine(url, pool_pre_ping=True)
     return _sync_engine
@@ -93,20 +84,14 @@ def get_session() -> Session:
     return _SyncSession()
 
 
-def init_db() -> Path | None:
-    """Create all tables from SQLAlchemy models and seed static data.
-    
-    Returns the database path for SQLite, None for PostgreSQL (backward-compatible).
-    """
+def init_db() -> str:
+    """Create all tables from SQLAlchemy models and seed static data."""
     from betting_app.models.base import Base
     Base.metadata.create_all(_get_engine())
 
     # Seed bookmakers (idempotent)
     _seed_bookmakers()
-    
-    # Return path for SQLite, None for PostgreSQL
-    return get_db_path() if is_sqlite() else None
-
+    return database_url()
 
 def _seed_bookmakers() -> None:
     """Insert default bookmakers if they don't exist yet."""

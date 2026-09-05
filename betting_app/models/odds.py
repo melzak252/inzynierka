@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import (
+    DateTime,
     Float,
     ForeignKey,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text as sa_text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,7 +32,7 @@ class OddsSnapshot(Base):
     odds_a: Mapped[float | None] = mapped_column(Float)
     odds_b: Mapped[float | None] = mapped_column(Float)
     is_live: Mapped[bool | None] = mapped_column(Integer, server_default="0")
-    scraped_at: Mapped[str | None] = mapped_column(String(50), index=True)
+    scraped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, server_default=sa_text("NOW()"))
     source_url: Mapped[str | None] = mapped_column(String(500))
     offer_url: Mapped[str | None] = mapped_column(String(500))
     raw_payload: Mapped[str | None] = mapped_column(Text)
@@ -41,8 +45,8 @@ class ScrapeRun(Base):
     bookmaker_id: Mapped[int] = mapped_column(ForeignKey("bookmakers.id"))
     scraper_name: Mapped[str] = mapped_column(String(100))
     scraper_version: Mapped[str | None] = mapped_column(String(50))
-    started_at: Mapped[str | None] = mapped_column(String(50))
-    finished_at: Mapped[str | None] = mapped_column(String(50))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=sa_text("NOW()"))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(50), server_default='running')
     source_url: Mapped[str | None] = mapped_column(String(500))
     request_url: Mapped[str | None] = mapped_column(String(500))
@@ -97,7 +101,7 @@ class OddsOutcomeSnapshot(Base):
     bookmaker_event_id: Mapped[str] = mapped_column(String(100), index=True)
     bookmaker_market_key: Mapped[str] = mapped_column(String(200), index=True)
     outcome_key: Mapped[str] = mapped_column(String(200))
-    scraped_at: Mapped[str | None] = mapped_column(String(50), index=True)
+    scraped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, server_default=sa_text("NOW()"))
     source_url: Mapped[str | None] = mapped_column(String(500))
     offer_url: Mapped[str | None] = mapped_column(String(500))
     outcome_name: Mapped[str | None] = mapped_column(String(200))

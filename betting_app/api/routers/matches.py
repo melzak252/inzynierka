@@ -78,7 +78,6 @@ from betting_app.ml.model_lifecycle import RETIRED_PUBLIC_MODEL_NAME
 
 from betting_app.services.mapping_service import suggest_mapping
 from betting_app.services.current_roster_service import upsert_current_roster
-from betting_app.core.db import is_sqlite
 from betting_app.services.thesis_inference_service import EPSILON, _load_roster_overrides
 from betting_app.services.upcoming_inference_service import (
     DEFAULT_HYBRID_ALPHA,
@@ -214,7 +213,7 @@ def list_matches(
     stale_cutoff = now - timedelta(hours=stale_hours)
     odds_cutoff = now - timedelta(hours=max_odds_age_hours)
 
-    seen_cte = "" if is_sqlite() else """
+    seen_cte = """
         WITH seen_matches AS (
             SELECT DISTINCT canonical_match_id
             FROM upcoming_matches
@@ -222,12 +221,7 @@ def list_matches(
               AND (last_seen_at IS NULL OR last_seen_at > :stale_cutoff)
         ),
         """
-    if is_sqlite():
-        seen_cte = "WITH "
-        seen_join = ""
-    else:
-        seen_join = "JOIN seen_matches sm ON sm.canonical_match_id=cm.id"
-
+    seen_join = "JOIN seen_matches sm ON sm.canonical_match_id=cm.id"
     odds = query_df(
         db,
         f"""
@@ -895,7 +889,7 @@ def decide_mapping_review(
         raise HTTPException(status_code=503, detail="Identity review mutations are disabled")
     if review_token is None or not secrets.compare_digest(review_token, expected_token):
         raise HTTPException(status_code=401, detail="Invalid identity review token")
-    lock_suffix = "" if is_sqlite() else " FOR UPDATE OF cm"
+    lock_suffix = " FOR UPDATE OF cm"
     current = db.execute(
         text(
             """
@@ -1810,10 +1804,6 @@ def match_detail(
         ),
         """
     seen_join = "JOIN seen_matches sm ON sm.canonical_match_id=l.canonical_match_id"
-    if is_sqlite():
-        seen_cte = "WITH "
-        seen_join = ""
-
     odds = query_df(
         db,
         f"""

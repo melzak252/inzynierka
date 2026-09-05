@@ -29,6 +29,7 @@ def _seed_completed_rankings() -> None:
                     '2026-09-02T00:00:00+00:00', NULL,
                     'running', 0, 0, 0
                 )
+                ON CONFLICT (id) DO NOTHING
                 """
             )
         )

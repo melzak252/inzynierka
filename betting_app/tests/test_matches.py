@@ -24,13 +24,24 @@ def _seed_single_match() -> int:
                                        start_time_normalized, league, status, match_confidence)
         VALUES (1, 'test-key-1', 'TeamA', 'TeamB',
                 'team-a', 'team-b', '2026-12-31T12:00:00+00:00', 'TEST', 'upcoming', 1.0)
+        ON CONFLICT (id) DO NOTHING
         """),
     )
     session.execute(
         text("""
         INSERT INTO odds_snapshots (bookmaker_id, market_type, is_live, canonical_match_id,
                                     raw_team_a, raw_team_b, odds_a, odds_b, scraped_at, source_url)
-        VALUES (:bm, 'match_winner', 0, 1, 'TeamA', 'TeamB', 2.0, 1.8, datetime('now'), 'https://x.pl/')
+        VALUES (:bm, 'match_winner', 0, 1, 'TeamA', 'TeamB', 2.0, 1.8, NOW(), 'https://x.pl/')
+        """),
+        {"bm": bm_id},
+    )
+    session.execute(
+        text("""
+        INSERT INTO upcoming_matches (bookmaker_id, bookmaker_match_key, canonical_match_id,
+                                      raw_team_a, raw_team_b, normalized_team_a, normalized_team_b,
+                                      last_seen_at)
+        VALUES (:bm, 'test-bm-key-1', 1, 'TeamA', 'TeamB', 'team-a', 'team-b', NOW())
+        ON CONFLICT (bookmaker_match_key) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
         """),
         {"bm": bm_id},
     )
@@ -52,13 +63,14 @@ def _seed_match_with_stale_best_odds() -> int:
                                        start_time_normalized, league, status, match_confidence)
         VALUES (1, 'test-key-1', 'TeamA', 'TeamB',
                 'team-a', 'team-b', '2026-12-31T12:00:00+00:00', 'TEST', 'upcoming', 1.0)
+        ON CONFLICT (id) DO NOTHING
         """),
     )
     session.execute(
         text("""
         INSERT INTO odds_snapshots (bookmaker_id, market_type, is_live, canonical_match_id,
                                     raw_team_a, raw_team_b, odds_a, odds_b, scraped_at, source_url)
-        VALUES (:bm, 'match_winner', 0, 1, 'TeamA', 'TeamB', 2.0, 1.8, datetime('now'), 'https://fresh.pl/')
+        VALUES (:bm, 'match_winner', 0, 1, 'TeamA', 'TeamB', 2.0, 1.8, NOW(), 'https://fresh.pl/')
         """),
         {"bm": manual_id},
     )
@@ -66,9 +78,19 @@ def _seed_match_with_stale_best_odds() -> int:
         text("""
         INSERT INTO odds_snapshots (bookmaker_id, market_type, is_live, canonical_match_id,
                                     raw_team_a, raw_team_b, odds_a, odds_b, scraped_at, source_url)
-        VALUES (:bm, 'match_winner', 0, 1, 'TeamA', 'TeamB', 9.0, 9.0, datetime('now', '-25 hours'), 'https://stale.pl/')
+        VALUES (:bm, 'match_winner', 0, 1, 'TeamA', 'TeamB', 9.0, 9.0, NOW() - INTERVAL '25 hours', 'https://stale.pl/')
         """),
         {"bm": sts_id},
+    )
+    session.execute(
+        text("""
+        INSERT INTO upcoming_matches (bookmaker_id, bookmaker_match_key, canonical_match_id,
+                                      raw_team_a, raw_team_b, normalized_team_a, normalized_team_b,
+                                      last_seen_at)
+        VALUES (:bm, 'test-bm-key-manual', 1, 'TeamA', 'TeamB', 'team-a', 'team-b', NOW())
+        ON CONFLICT (bookmaker_match_key) DO UPDATE SET last_seen_at = EXCLUDED.last_seen_at
+        """),
+        {"bm": manual_id},
     )
     session.commit()
     session.close()

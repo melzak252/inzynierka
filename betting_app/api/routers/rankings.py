@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, Query
 
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import RankingEntry, RankingsResponse
-from betting_app.core.db import is_sqlite
 from betting_app.services.rating_contract import OPERATIONAL_RATINGS_VERSION
 
 router = APIRouter(tags=["rankings"])
@@ -23,45 +22,17 @@ SquadScope = Literal["major", "regional_academy", "regional", "development", "al
 
 
 def _tier_sql_expr(db, col: str = "state_json") -> str:
-    bind = getattr(db, "bind", None)
-    if bind is None and hasattr(db, "get_bind"):
-        try:
-            bind = db.get_bind()
-        except Exception:
-            bind = None
-    dialect = getattr(bind, "dialect", None)
-    dialect_name = getattr(dialect, "name", None) or ("sqlite" if is_sqlite() else "postgresql")
-    if dialect_name == "sqlite":
-        return f"json_extract({col}, '$.tier')"
     return f"({col}::json->>'tier')"
 
 
 def _offset_sql_expr(db, col: str = "ro.state_json") -> str:
-    bind = getattr(db, "bind", None)
-    if bind is None and hasattr(db, "get_bind"):
-        try:
-            bind = db.get_bind()
-        except Exception:
-            bind = None
-    dialect = getattr(bind, "dialect", None)
-    dialect_name = getattr(dialect, "name", None) or ("sqlite" if is_sqlite() else "postgresql")
-    if dialect_name == "sqlite":
-        return f"CAST(COALESCE(json_extract({col}, '$.offset'), 0.0) AS REAL)"
     return f"COALESCE(({col}::json->>'offset')::float, 0.0)"
 
 
 def _loc_sigma_sql_expr(db, col: str = "ro.state_json") -> str:
-    bind = getattr(db, "bind", None)
-    if bind is None and hasattr(db, "get_bind"):
-        try:
-            bind = db.get_bind()
-        except Exception:
-            bind = None
-    dialect = getattr(bind, "dialect", None)
-    dialect_name = getattr(dialect, "name", None) or ("sqlite" if is_sqlite() else "postgresql")
-    if dialect_name == "sqlite":
-        return f"SQRT(MAX(0.0, CAST(COALESCE(json_extract({col}, '$.location_variance'), 0.0) AS REAL)))"
     return f"SQRT(GREATEST(0.0, COALESCE(({col}::json->>'location_variance')::float, 0.0)))"
+
+
 def _subtract_months(value: date, months: int) -> date:
     target_index = value.year * 12 + value.month - 1 - months
     year, zero_based_month = divmod(target_index, 12)

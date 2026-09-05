@@ -23,16 +23,17 @@ def seed_test_player_data(client: TestClient):
         session.execute(
             text(
                 """
-                INSERT OR IGNORE INTO rating_runs (
+                INSERT INTO rating_runs (
                     id, ratings_version, status, games_processed, players_processed
-                ) VALUES (999, 'test-player-version', 'completed', 50, 10);
+                ) VALUES (999, 'test-player-version', 'completed', 50, 10)
+                ON CONFLICT (id) DO NOTHING;
                 """
             )
         )
         session.execute(
             text(
                 """
-                INSERT OR IGNORE INTO entity_ratings (
+                INSERT INTO entity_ratings (
                     ratings_version, entity_type, entity_name, normalized_entity_name,
                     team_name, role, rating_system, rating_value, rd, sigma, games_played, last_match_at
                 ) VALUES
@@ -41,37 +42,41 @@ def seed_test_player_data(client: TestClient):
                 ('test-player-version', 'player', 'AlphaPlayer', '101', 'Team One', 'MID', 'ts', 32.0, NULL, 3.5, 50, '2026-08-01'),
                 ('test-player-version', 'player', 'BetaPlayer', '102', 'Team Two', 'MID', 'elo', 1900.0, NULL, NULL, 40, '2026-08-01'),
                 ('test-player-version', 'player', 'BetaPlayer', '102', 'Team Two', 'MID', 'gl', 1700.0, 65.0, NULL, 40, '2026-08-01'),
-                ('test-player-version', 'player', 'BetaPlayer', '102', 'Team Two', 'MID', 'ts', 28.0, NULL, 4.0, 40, '2026-08-01');
+                ('test-player-version', 'player', 'BetaPlayer', '102', 'Team Two', 'MID', 'ts', 28.0, NULL, 4.0, 40, '2026-08-01')
+                ON CONFLICT DO NOTHING;
                 """
             )
         )
         session.execute(
             text(
                 """
-                INSERT OR IGNORE INTO golgg_matches (match_id, date, team1_name, team2_name)
-                VALUES ('test-match-1', '2026-07-20', 'Team One', 'Team Two');
+                INSERT INTO golgg_matches (match_id, date, team1_name, team2_name)
+                VALUES ('test-match-1', '2026-07-20', 'Team One', 'Team Two')
+                ON CONFLICT DO NOTHING;
                 """
             )
         )
         session.execute(
             text(
                 """
-                INSERT OR IGNORE INTO golgg_games (game_id, match_id, date, team1_win, team2_win)
+                INSERT INTO golgg_games (game_id, match_id, date, team1_win, team2_win)
                 VALUES
                 ('test-game-1', 'test-match-1', '2026-07-20', 1, 0),
-                ('test-game-2', 'test-match-1', '2026-07-20', 0, 1);
+                ('test-game-2', 'test-match-1', '2026-07-20', 0, 1)
+                ON CONFLICT DO NOTHING;
                 """
             )
         )
         session.execute(
             text(
                 """
-                INSERT OR IGNORE INTO golgg_game_players (game_id, match_id, player_id, player_name, team_name, side, champion_name, role)
+                INSERT INTO golgg_game_players (game_id, match_id, player_id, player_name, team_name, side, champion_name, role)
                 VALUES
                 ('test-game-1', 'test-match-1', '101', 'AlphaPlayer', 'Team One', 't1', 'Ahri', 'MID'),
                 ('test-game-1', 'test-match-1', '102', 'BetaPlayer', 'Team Two', 't2', 'Azir', 'MID'),
                 ('test-game-2', 'test-match-1', '101', 'AlphaPlayer', 'Team One', 't1', 'Orianna', 'MID'),
-                ('test-game-2', 'test-match-1', '102', 'BetaPlayer', 'Team Two', 't2', 'Syndra', 'MID');
+                ('test-game-2', 'test-match-1', '102', 'BetaPlayer', 'Team Two', 't2', 'Syndra', 'MID')
+                ON CONFLICT DO NOTHING;
                 """
             )
         )

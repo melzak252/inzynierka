@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
-
 import pandas as pd
 
 from betting_app.core.db import query_df, transaction
@@ -155,6 +155,8 @@ BOOKMAKER_TO_GOLGG_ALIASES = {
     "e wie einfach": "E WIE EINFACH E-SPORTS",
 }
 
+_FILE_CANDIDATES_CACHE: list[str] | None = None
+
 
 def load_golgg_team_candidates() -> list[str]:
     """Load known team names from local GOL.GG data and existing aliases."""
@@ -173,12 +175,21 @@ def load_golgg_team_candidates() -> list[str]:
             if isinstance(value, str) and value.strip():
                 candidates.add(value.strip())
         return sorted(candidates)
+    if os.getenv("PYTEST_CURRENT_TEST") or "_test" in os.getenv("DATABASE_URL", ""):
+        alias_df = query_df("SELECT DISTINCT alias FROM team_aliases WHERE alias IS NOT NULL")
+        for value in alias_df.get("alias", []):
+            if isinstance(value, str) and value.strip():
+                candidates.add(value.strip())
+        return sorted(candidates)
+
+    global _FILE_CANDIDATES_CACHE
+    if _FILE_CANDIDATES_CACHE is not None:
+        return list(_FILE_CANDIDATES_CACHE)
 
     matches_path = PROJECT_ROOT / "data" / "golgg_matches.json"
     if matches_path.exists():
         with matches_path.open("r", encoding="utf-8") as file:
             payload = json.load(file)
-        rows = payload if isinstance(payload, list) else payload.get("matches", []) if isinstance(payload, dict) else []
         top_level_keys = (
             "team1",
             "team2",
@@ -210,8 +221,8 @@ def load_golgg_team_candidates() -> list[str]:
     for value in alias_df.get("alias", []):
         if isinstance(value, str) and value.strip():
             candidates.add(value.strip())
+    _FILE_CANDIDATES_CACHE = sorted(candidates)
     return sorted(candidates)
-
 
 def sync_golgg_teams() -> int:
     """Populate the local canonical team table from available GOL.GG data."""

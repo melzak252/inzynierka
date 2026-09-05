@@ -1,59 +1,61 @@
-"""pytest: fresh temp SQLite DB per test. Sleep between tests to avoid locking."""
+"""pytest: isolated PostgreSQL test DB per test."""
 
 from __future__ import annotations
 
-import gc
 import os
-import tempfile
-import time
+
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql://betting:betting_local_password@localhost:5432/betting_test",
+)
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+
 from typing import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, pool, text
+from sqlalchemy.orm import Session
 
-from betting_app.models.base import Base
 from betting_app.core.db import dispose_engine
+from betting_app.models.base import Base
+import betting_app.models  # ensure all models are registered
 from betting_app.api.main import app
 
+_test_engine = None
+
+def _get_test_engine():
+    global _test_engine
+    if _test_engine is None:
+        _test_engine = create_engine(TEST_DATABASE_URL, poolclass=pool.NullPool)
+        Base.metadata.create_all(_test_engine)
+    return _test_engine
 
 @pytest.fixture(scope="function")
 def client() -> Generator[TestClient, None, None]:
-    tmp = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
-    tmp.close()
-    path = tmp.name
-    uri = f"sqlite:///{path}?timeout=5000"
+    engine = _get_test_engine()
 
-    engine = create_engine(uri, connect_args={"check_same_thread": False})
-    Base.metadata.create_all(engine)
-    from sqlalchemy.orm import Session
-    with Session(engine) as s:
-        s.execute(
-            __import__("sqlalchemy").text(
-                "INSERT OR IGNORE INTO bookmakers(name, base_url) VALUES "
-                "('manual',NULL),('sts','https://www.sts.pl/'),('betclic','https://www.betclic.pl/'),"
-                "('superbet','https://superbet.pl/'),('efortuna','https://www.efortuna.pl/'),"
-                "('fortuna','https://www.efortuna.pl/'),('betfan','https://betfan.pl/'),"
-                "('totalbet','https://totalbet.pl/'),('lebull','https://www.lebull.pl/'),"
-                "('pinnacle','https://www.pinnacle.com/'),('kalshi','https://kalshi.com/')"
+    table_names = [f'"{table.name}"' for table in Base.metadata.sorted_tables]
+    truncate_sql = f"TRUNCATE TABLE {', '.join(table_names)} RESTART IDENTITY CASCADE;"
+
+    with engine.begin() as conn:
+        conn.execute(text(truncate_sql))
+        conn.execute(
+            text(
+                "INSERT INTO bookmakers(id, name, base_url) VALUES "
+                "(1,'manual',NULL),(2,'sts','https://www.sts.pl/'),(3,'betclic','https://www.betclic.pl/'),"
+                "(4,'superbet','https://superbet.pl/'),(5,'efortuna','https://www.efortuna.pl/'),"
+                "(6,'fortuna','https://www.efortuna.pl/'),(7,'betfan','https://betfan.pl/'),"
+                "(8,'totalbet','https://totalbet.pl/'),(9,'lebull','https://www.lebull.pl/'),"
+                "(10,'pinnacle','https://www.pinnacle.com/'),(11,'kalshi','https://kalshi.com/') "
+                "ON CONFLICT (id) DO NOTHING"
             )
         )
-        s.commit()
-    engine.dispose()
-    gc.collect()
-    time.sleep(0.05)
 
-    os.environ["DATABASE_URL"] = uri
+    os.environ["DATABASE_URL"] = TEST_DATABASE_URL
     dispose_engine()
 
     with TestClient(app) as c:
         yield c
 
-    os.environ.pop("DATABASE_URL", None)
     dispose_engine()
-    gc.collect()
-    time.sleep(0.05)
-    try:
-        os.unlink(path)
-    except OSError:
-        pass

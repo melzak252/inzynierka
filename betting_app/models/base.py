@@ -19,13 +19,11 @@ USE_ASYNC = DB_URL.startswith("postgresql+asyncpg")
 
 
 def is_timescale() -> bool:
-    """Are we pointing at a TimescaleDB / PostgreSQL instance?"""
-    return "postgresql" in DB_URL
+    return True
 
 
 def is_sqlite() -> bool:
-    """Are we using the local SQLite fallback?"""
-    return not is_timescale()
+    return False
 
 
 # ── Base ─────────────────────────────────────────────────────────────────────
@@ -44,18 +42,13 @@ _SyncSession = None
 def _get_sync_engine():
     global _sync_engine
     if _sync_engine is None:
-        if is_timescale():
-            _sync_engine = create_engine(
-                DB_URL.replace("+asyncpg", "+psycopg2"),
-                pool_pre_ping=True,
-            )
-        else:
-            from betting_app.core.db import get_db_path
+        from betting_app.core.db import database_url
 
-            _sync_engine = create_engine(
-                f"sqlite:///{get_db_path()}",
-                connect_args={"check_same_thread": False},
-            )
+        url = database_url()
+        _sync_engine = create_engine(
+            url.replace("+asyncpg", "+psycopg2"),
+            pool_pre_ping=True,
+        )
     return _sync_engine
 
 
@@ -74,8 +67,11 @@ def get_async_engine():
     global _async_engine
     if _async_engine is None:
         from sqlalchemy.ext.asyncio import create_async_engine
+        from betting_app.core.db import database_url
 
-        url = DB_URL if USE_ASYNC else "sqlite+aiosqlite://"
+        url = database_url()
+        if "postgresql" in url and not url.startswith("postgresql+asyncpg"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://").replace("postgresql+psycopg2://", "postgresql+asyncpg://")
         _async_engine = create_async_engine(url, pool_pre_ping=True)
     return _async_engine
 
