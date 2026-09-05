@@ -38,6 +38,7 @@ router = APIRouter(prefix="/timing", tags=["timing"])
 THESIS_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
 THESIS_MODEL_VERSION = "exp-039"
 THESIS_HYBRID_MODEL_NAME = "Hybrid-Thesis-Market"
+OPERATIONAL_HYBRID_MODEL_NAME = "Hybrid-Operational-Market"
 # The Horizon page is a retrospective EXP-060 evaluation.  Do not silently
 # mix its reproducible, point-in-time backfill with opportunistic scheduler
 # predictions left over from earlier deployments (some were written after the
@@ -1523,10 +1524,12 @@ def model_clv_by_horizon(
                cm.status
         FROM canonical_predictions cp
         JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
-        WHERE cp.model_name IN (:thesis_model, :hybrid_model)
+        WHERE cp.model_name IN (:thesis_model, :hybrid_model, :op_model, :op_hybrid_model)
           AND (
-              (cp.model_name = :thesis_model AND cp.features_version = :features_version)
-              OR (cp.model_name = :hybrid_model AND cp.model_version = :hybrid_version)
+              (cp.model_name = :thesis_model AND (cp.features_version != :retrospective_version OR cp.features_version IS NULL))
+              OR (cp.model_name = :hybrid_model AND (cp.model_version LIKE 'a0.50%' OR cp.model_version = :hybrid_version))
+              OR (cp.model_name = :op_model)
+              OR (cp.model_name = :op_hybrid_model)
           )
           AND cp.predicted_at IS NOT NULL
           AND cp.prob_a IS NOT NULL
@@ -1538,7 +1541,9 @@ def model_clv_by_horizon(
         {
             "thesis_model": THESIS_MODEL_NAME,
             "hybrid_model": THESIS_HYBRID_MODEL_NAME,
-            "features_version": LIVE_THESIS_FEATURES_VERSION,
+            "op_model": OPERATIONAL_MODEL_NAME,
+            "op_hybrid_model": OPERATIONAL_HYBRID_MODEL_NAME,
+            "retrospective_version": ANALYSIS_FEATURES_VERSION,
             "hybrid_version": f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}",
             "cutoff": cutoff,
         },
@@ -1627,8 +1632,19 @@ def model_clv_by_horizon(
             continue
 
         prob_a = float(pred["prob_a"])
-        model_key = "hybrid" if pred["model_name"] == THESIS_HYBRID_MODEL_NAME else "thesis"
-        model_label = "Hybrid model" if model_key == "hybrid" else "Thesis model"
+        pred_mname = pred.get("model_name")
+        if pred_mname == OPERATIONAL_HYBRID_MODEL_NAME:
+            model_key = "operational_hybrid"
+            model_label = "Hybryda Operacyjna (Regional BoN + Rynek)"
+        elif pred_mname == OPERATIONAL_MODEL_NAME:
+            model_key = "operational"
+            model_label = "Model Operacyjny (Regional BoN)"
+        elif pred_mname == THESIS_HYBRID_MODEL_NAME:
+            model_key = "hybrid"
+            model_label = "Hybrid model (EXP-039 + Rynek)"
+        else:
+            model_key = "thesis"
+            model_label = "Thesis model (EXP-039)"
         books_for_match = [key for key in odds_by_match_book.keys() if key[0] == match_id]
         if not books_for_match:
             skips["no_odds_for_match"] += 1
@@ -1706,7 +1722,13 @@ def model_clv_by_horizon(
     bins = _aggregate_clv_entries_match_oriented(entries)
 
     model_summaries = []
-    for key in ("thesis", "hybrid"):
+    clv_model_labels = {
+        "operational_hybrid": "Hybryda Operacyjna (Regional BoN + Rynek)",
+        "operational": "Model Operacyjny (Regional BoN)",
+        "hybrid": "Hybrid model (EXP-039 + Rynek)",
+        "thesis": "Thesis model (EXP-039)",
+    }
+    for key in ("operational_hybrid", "operational", "hybrid", "thesis"):
         model_entries = [e for e in entries if e["model_key"] == key]
         model_bins = [b for b in bins if b["model_key"] == key]
         books = _aggregate_clv_by_bookmaker(model_entries)
@@ -1714,7 +1736,7 @@ def model_clv_by_horizon(
         summary = _build_conditions_summary(model_bins, books, tiers, model_entries)
         model_summaries.append({
             "model_key": key,
-            "model_label": "Hybrid model" if key == "hybrid" else "Thesis model",
+            "model_label": clv_model_labels.get(key, key),
             "bins": model_bins,
             "bookmaker_breakdown": books,
             "odds_tier_breakdown": tiers,

@@ -66,3 +66,11 @@ def test_horizon_model_defs_include_operational_and_exclude_polluted_features() 
     # Ensure the polluted features version string is never used as a query filter
     assert "cp.features_version = 'thesis-exp039'" not in src
     assert "cp.features_version = :features_version OR" not in src
+
+
+def test_model_clv_supports_operational_models() -> None:
+    from betting_app.api.routers import timing
+
+    assert hasattr(timing, "OPERATIONAL_HYBRID_MODEL_NAME")
+    assert timing.OPERATIONAL_HYBRID_MODEL_NAME == "Hybrid-Operational-Market"
+    assert timing.OPERATIONAL_MODEL_NAME == "Operational-PlayerTeamRatings-W20"

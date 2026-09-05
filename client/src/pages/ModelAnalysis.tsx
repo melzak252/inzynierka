@@ -220,6 +220,19 @@ function LogLossLineChart({ points, modelName }: { points: SeriesPoint[]; modelN
 
 function ClvChart({ bins }: { bins: ModelClvBin[] }) {
   const sorted = binSort(bins)
+  if (!sorted.length) {
+    return (
+      <div className="ma-chart-card clv">
+        <div className="ma-chart-head">
+          <h3>CLV by horizon</h3>
+          <p>CLV = entry odds / closing odds − 1. Dodatni CLV oznacza, że model złapał lepszy kurs niż zamknięcie.</p>
+        </div>
+        <div className="ma-state" style={{ minHeight: '160px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          Brak wystarczającej liczby pozycji EV dla wybranego modelu w tym oknie czasowym.
+        </div>
+      </div>
+    )
+  }
   const values = sorted.map((b) => b.avg_clv_odds_pct ?? 0)
   const maxAbs = Math.max(1, ...values.map((v) => Math.abs(v)))
   return (
