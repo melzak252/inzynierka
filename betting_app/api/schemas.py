@@ -273,6 +273,7 @@ class FinancialLedgerEntry(BaseModel):
     hours_before: float | None = None
     horizon: str
     model_prob: float
+    target_prob: float | None = None
     market_prob: float
     ev: float
     stake: float

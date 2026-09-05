@@ -84,13 +84,26 @@ def load_registered_model_artifacts(
             sess.close()
 
 
-def _load_model_bundle(artifact_path: str) -> tuple[Any, list[str]]:
+def _load_model_bundle(
+    artifact_path: str,
+) -> tuple[Any, list[str], Any | None, Any | None]:
+    """Load a registry artifact and optional calibration components.
+
+    Legacy artifacts contain only an estimator and feature names. EXP-040 adds
+    temperature and Venn-Abers calibrators without changing that base contract.
+    """
+
     path = _resolve_artifact_path(artifact_path)
     if not path.exists():
         raise FileNotFoundError(f"Model artifact not found: {path}")
     bundle = joblib.load(path)
     if isinstance(bundle, dict) and "estimator" in bundle and "feature_names" in bundle:
-        return bundle["estimator"], list(bundle["feature_names"])
+        return (
+            bundle["estimator"],
+            list(bundle["feature_names"]),
+            bundle.get("temperature_calibrator"),
+            bundle.get("venn_abers_calibrator"),
+        )
     raise ValueError(f"Unsupported model artifact format: {path}")
 
 
@@ -140,9 +153,40 @@ def _matrix_row(features_json: Any, feature_names: list[str]) -> tuple[np.ndarra
     return np.asarray([values], dtype=float), missing
 
 
-def predict_feature_row(model: RegisteredModelArtifact, estimator: Any, feature_names: list[str], row: dict[str, Any]) -> InferencePrediction:
+def predict_feature_row(
+    model: RegisteredModelArtifact,
+    estimator: Any,
+    feature_names: list[str],
+    row: dict[str, Any],
+    *,
+    temperature_calibrator: Any | None = None,
+    venn_abers_calibrator: Any | None = None,
+) -> InferencePrediction:
     x, missing_count = _matrix_row(row.get("features_json"), feature_names)
     prob_a = float(estimator.predict_proba(x)[0, 1])
+    prob_a = min(max(prob_a, 1e-6), 1.0 - 1e-6)
+    diagnostics: dict[str, Any] = {
+        "source": "ml_registry",
+        "registry_status": model.status,
+        "artifact_path": model.artifact_path,
+        "feature_count": len(feature_names),
+        "missing_feature_count": missing_count,
+    }
+    if temperature_calibrator is not None:
+        logit = np.log(prob_a / (1.0 - prob_a))
+        prob_a = float(temperature_calibrator.transform(np.asarray([logit]))[0])
+        diagnostics["temperature_calibrated"] = True
+    if venn_abers_calibrator is not None:
+        intervals = venn_abers_calibrator.predict_intervals(np.asarray([prob_a]))
+        prob_a = float(np.asarray(intervals.p).item())
+        lower_a = float(np.asarray(intervals.p_lower).item())
+        upper_a = float(np.asarray(intervals.p_upper).item())
+        diagnostics["conformal"] = {
+            "method": "venn_abers",
+            "p_lower_a": lower_a,
+            "p_upper_a": upper_a,
+            "uncertainty": upper_a - lower_a,
+        }
     prob_a = min(max(prob_a, 1e-6), 1.0 - 1e-6)
     prob_b = 1.0 - prob_a
     return InferencePrediction(
@@ -154,13 +198,7 @@ def predict_feature_row(model: RegisteredModelArtifact, estimator: Any, feature_
         features_version=row.get("feature_version"),
         ratings_version=row.get("ratings_version"),
         data_cutoff_at=str(row.get("data_cutoff_at")) if row.get("data_cutoff_at") is not None else None,
-        diagnostics={
-            "source": "ml_registry",
-            "registry_status": model.status,
-            "artifact_path": model.artifact_path,
-            "feature_count": len(feature_names),
-            "missing_feature_count": missing_count,
-        },
+        diagnostics=diagnostics,
     )
 
 
@@ -225,13 +263,29 @@ def run_registry_shadow_inference(
         loaded_models = 0
         model_versions: list[str] = []
         for model in models:
-            estimator, feature_names = _load_model_bundle(model.artifact_path)
+            (
+                estimator,
+                feature_names,
+                temperature_calibrator,
+                venn_abers_calibrator,
+            ) = _load_model_bundle(model.artifact_path)
             loaded_models += 1
             model_versions.append(f"{model.model_name}:{model.model_version}")
-            rows = _latest_feature_rows(feature_version=model.feature_version, limit=limit, session=sess)
+            rows = _latest_feature_rows(
+                feature_version=model.feature_version,
+                limit=limit,
+                session=sess,
+            )
             feature_rows_seen += len(rows)
             for row in rows:
-                prediction = predict_feature_row(model, estimator, feature_names, row)
+                prediction = predict_feature_row(
+                    model,
+                    estimator,
+                    feature_names,
+                    row,
+                    temperature_calibrator=temperature_calibrator,
+                    venn_abers_calibrator=venn_abers_calibrator,
+                )
                 write_prediction(prediction, session=sess)
                 predictions_written += 1
         sess.commit()

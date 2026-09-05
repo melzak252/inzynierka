@@ -512,15 +512,37 @@ class TournamentSimulator:
         k2 = canonical_team_key(team2)
         r1 = self.team_ratings.get(k1, 1750.0)
         r2 = self.team_ratings.get(k2, 1750.0)
+        # Bradley-Terry / Elo logistic map win probability.
+        p_map = 1.0 / (1.0 + 10.0 ** (-(r1 - r2) / 400.0))
 
-        # Bradley-Terry / Elo logistic map win probability
-        diff = r1 - r2
-        p_map = 1.0 / (1.0 + 10.0 ** (-diff / 400.0))
-        # Series projection
+        # Brackets do not contain verified game-one side selection. Keep the
+        # forecast side-neutral rather than inferring a priority from ratings.
         p_series = series_probability(p_map, best_of)
         self._prob_cache[cache_key] = p_series
         return p_series
 
+    def estimate_score_distribution(self, team1: str, team2: str, best_of: int = 5) -> dict[str, float]:
+        """Estimate exact series score distribution (e.g. 3-0, 3-1, 3-2) using Markov simulation."""
+        k1 = canonical_team_key(team1)
+        k2 = canonical_team_key(team2)
+        r1 = self.team_ratings.get(k1, 1750.0)
+        r2 = self.team_ratings.get(k2, 1750.0)
+        p_map = 1.0 / (1.0 + 10.0 ** (-(r1 - r2) / 400.0))
+        from betting_app.ml.models.markov_series import predict_score_distribution
+
+        def predict(priority: bool) -> dict[str, float]:
+            return predict_score_distribution(
+                p_map,
+                team_a_has_game1_priority=priority,
+                best_of=best_of,
+            )
+
+        priority_a = predict(True)
+        priority_b = predict(False)
+        return {
+            score: (float(priority_a.get(score, 0.0)) + float(priority_b.get(score, 0.0))) / 2.0
+            for score in set(priority_a) | set(priority_b)
+        }
     def simulate(
         self,
         bracket: TournamentBracket,

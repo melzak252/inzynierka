@@ -20,6 +20,7 @@ from betting_app.core.db import query_df, transaction
 from betting_app.core.ev import expected_value, fair_market_probabilities
 from betting_app.core.matching import normalize_team_name
 from betting_app.core.staking import fractional_kelly_stake
+from betting_app.ml.calibration.conformal_contract import conformal_bounds_for_side
 from betting_app.services.canonical_match_service import (
     align_snapshot_odds,
     canonical_team_key,
@@ -1040,18 +1041,40 @@ def _normalized_best_of(best_of: Any) -> int:
     return value
 
 
-def series_probability(map_probability: float, best_of: Any) -> float:
-    """Convert a per-map probability to a BoN series probability."""
+def series_probability(
+    map_probability: float,
+    best_of: Any,
+    *,
+    team_a_has_priority: bool | None = None,
+    blue_side_bonus: float = 0.22,
+) -> float:
+    """Convert a per-map probability to a BoN series probability.
+
+    A bracket forecast normally has no verified game-one side-selection data.
+    In that case average both possible priority assignments; this preserves
+    team-side symmetry instead of granting an arbitrary advantage to team A.
+    """
+
     maps = _normalized_best_of(best_of)
     probability = max(1e-6, min(1.0 - 1e-6, float(map_probability)))
-    wins_required = maps // 2 + 1
-    return sum(
-        math.comb(maps, wins)
-        * probability**wins
-        * (1.0 - probability) ** (maps - wins)
-        for wins in range(wins_required, maps + 1)
-    )
+    if maps == 1:
+        return probability
 
+    from betting_app.ml.models.markov_series import predict_series_proba
+
+    def predict(priority: bool) -> float:
+        return float(
+            predict_series_proba(
+                probability,
+                priority,
+                best_of=maps,
+                blue_side_bonus=blue_side_bonus,
+            )
+        )
+
+    if team_a_has_priority is not None:
+        return predict(team_a_has_priority)
+    return (predict(True) + predict(False)) / 2.0
 
 def predict_operational_match(
     match: dict[str, Any],
@@ -1402,6 +1425,7 @@ def generate_model_ev_signals(
                  AND lo.scraped_at = os.scraped_at
         )
         SELECT lp.id AS prediction_id, lp.canonical_match_id, lp.prob_a, lp.prob_b,
+               lp.diagnostics_json,
                cm.team_a_name, cm.team_b_name, cm.normalized_team_a, cm.normalized_team_b,
                os.id AS odds_snapshot_id, os.bookmaker_id, b.name AS bookmaker,
                os.raw_team_a, os.raw_team_b, os.odds_a, os.odds_b, os.offer_url, os.scraped_at
@@ -1449,15 +1473,28 @@ def generate_model_ev_signals(
                 ("b", float(row["prob_b"]), odds_b, market_b),
             ]
             for side, prob, odds, market_prob in candidates:
-                # Conformal lower probability bound for robust risk assessment
-                p_low = max(0.01, prob - 0.035)
-                ev_conformal = expected_value(p_low, odds, tax_rate)
-                ev = expected_value(prob, odds, tax_rate)
-                if ev < min_ev:
+                bounds = conformal_bounds_for_side(
+                    row.get("diagnostics_json"), side
+                )
+                if bounds is None:
                     continue
-                # Conservative 1/4 Kelly stake based on p_low if conformal EV is positive
-                target_prob = p_low if ev_conformal > 0.0 else prob
-                stake = fractional_kelly_stake(bankroll, target_prob, odds, fraction=0.25, tax_rate=tax_rate)
+                p_low, p_upper = bounds
+                # The contract's uncertainty threshold matches
+                # ConformalRiskGater; heuristic probability haircuts are not
+                # a substitute for a calibrated interval.
+                if p_upper - p_low > 0.08:
+                    continue
+                ev = expected_value(prob, odds, tax_rate)
+                ev_conformal = expected_value(p_low, odds, tax_rate)
+                if ev_conformal < min_ev:
+                    continue
+                stake = fractional_kelly_stake(
+                    bankroll,
+                    p_low,
+                    odds,
+                    fraction=0.25,
+                    tax_rate=tax_rate,
+                )
                 cursor = connection.execute(
                     """
                     INSERT INTO model_ev_signals(
@@ -1474,7 +1511,7 @@ def generate_model_ev_signals(
                         odds,
                         prob,
                         market_prob,
-                        ev,
+                        ev_conformal,
                         tax_rate,
                         stake,
                     ),
@@ -1489,7 +1526,7 @@ def generate_model_ev_signals(
                         "odds": odds,
                         "model_prob": prob,
                         "market_prob": market_prob,
-                        "ev": ev,
+                        "ev": ev_conformal,
                         "stake_suggestion": stake,
                         "offer_url": row.get("offer_url"),
                     }

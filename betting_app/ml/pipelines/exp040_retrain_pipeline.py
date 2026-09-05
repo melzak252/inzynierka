@@ -1,12 +1,14 @@
 """Retrain pipeline for the EXP-040 model family (Markov Series + Venn-Abers Conformal Calibration).
 
-Key Improvements over EXP-039:
-1. Hierarchical Markov Series Simulator replaces naive binomial series approximation,
-   modeling dynamic rotating side selection (Game 1 higher-seed priority, Game 2 loser pick).
-2. Out-of-fold Temperature Scaling and Venn-Abers calibration fitted strictly on past
-   chronological folds, eliminating calibration leakage (fixes IDEA-009).
-3. Evaluates ECE (Expected Calibration Error) and reliability penalty alongside log-loss.
-4. Registers candidate as status='shadow' so scheduler automatically runs live parallel inference.
+Key properties:
+1. Hierarchical Markov Series Simulator replaces the naive binomial series
+   approximation and averages unknown game-one priority assignments.
+2. Temperature calibration and Venn-Abers fitting consume chronological
+   out-of-fold scores; their metrics are not presented as held-out Venn-Abers
+   performance.
+3. Registers the artifact as ``candidate``. EXP-040 has no compatible
+   upcoming-feature producer yet, so it must not be marked ``shadow`` and
+   scheduled for inference before that source contract exists.
 
 Never modifies or overwrites frozen exp-039 artifacts.
 """
@@ -88,7 +90,7 @@ class Exp040RetrainConfig:
     update_interval: int = 1000
     artifact_root: str = str(DEFAULT_ARTIFACT_ROOT)
     register_model: bool = True
-    status_on_success: str = "shadow"
+    status_on_success: str = "candidate"
     min_shadow_log_loss: float = 0.62
     min_shadow_auc: float = 0.72
 
@@ -158,17 +160,24 @@ def build_candidate_dataset(min_date: str, limit: int | None = None) -> pd.DataF
             features[f"t2_rolling_{stat}"] = float(t2_hist[stat])
 
         best_of = best_of_map.get(match.match_id, 1)
-
-        # Hierarchical Markov series simulation replacing naive independent binomial
+        # Historical rows lack a trustworthy Game-1 side-selection label.
+        # Averaging both assignments preserves team-order symmetry.
         for i, rank_feat in enumerate(RANK_PROB_FEATURES):
             p_neutral = float(features[rank_feat])
             binom_feat = BINOMIAL_FEATURES[i]
-            features[binom_feat] = markov_sim.predict_series_proba(
+            with_priority = markov_sim.predict_series_proba(
                 p_neutral_a=p_neutral,
                 team_a_has_game1_priority=True,
                 best_of=int(best_of),
                 blue_side_bonus=0.22,
             )
+            without_priority = markov_sim.predict_series_proba(
+                p_neutral_a=p_neutral,
+                team_a_has_game1_priority=False,
+                best_of=int(best_of),
+                blue_side_bonus=0.22,
+            )
+            features[binom_feat] = (with_priority + without_priority) / 2.0
 
         scores = [game_score_for_match_team1(match, g) for g in match.games]
         y_true = int(sum(scores) > len(scores) / 2)
@@ -203,7 +212,7 @@ def train_oof_and_final(
     *,
     initial_train_before: str,
     update_interval: int,
-) -> tuple[Any, Any, dict[str, Any]]:
+) -> tuple[Any, TemperatureScalingCalibrator, VennAbersCalibrator, dict[str, Any]]:
     """Walk-forward training with strictly nested out-of-fold calibration."""
     oof_predictions: list[float] = []
     oof_actuals: list[int] = []
@@ -242,6 +251,10 @@ def train_oof_and_final(
     final_pipeline = LogisticRegression(C=0.1, penalty="l2", solver="lbfgs", max_iter=1000)
     final_pipeline.fit(frame[ALL_FEATURES], frame["y_true"].astype(int))
 
+    # Fit the Venn-Abers layer only on chronological OOF scores. It is an
+    # inference component, not an in-sample performance claim.
+    venn_abers = VennAbersCalibrator().fit(calibrated_oof, oof_y)
+
     def _eval(y: np.ndarray, p: np.ndarray) -> dict[str, float]:
         p = np.clip(p, 1e-15, 1.0 - 1e-15)
         return {
@@ -256,13 +269,14 @@ def train_oof_and_final(
 
     metrics = {
         "oof_uncalibrated": _eval(oof_y, oof_p),
-        "oof_calibrated": _eval(oof_y, calibrated_oof),
+        "oof_temperature_calibrated": _eval(oof_y, calibrated_oof),
         "calibrator_temperature": float(calibrator.temperature_),
+        "venn_abers_calibration_examples": int(len(oof_y)),
         "dataset_size": int(len(frame)),
         "feature_count": len(ALL_FEATURES),
     }
 
-    return final_pipeline, calibrator, metrics
+    return final_pipeline, calibrator, venn_abers, metrics
 
 
 def run_exp040_retrain(config: Exp040RetrainConfig | None = None) -> Exp040RetrainResult:
@@ -274,7 +288,7 @@ def run_exp040_retrain(config: Exp040RetrainConfig | None = None) -> Exp040Retra
     frame = build_candidate_dataset(min_date=cfg.min_date, limit=cfg.limit)
     dataset_hash = _dataset_hash(frame)
 
-    pipeline, calibrator, metrics = train_oof_and_final(
+    pipeline, calibrator, venn_abers, metrics = train_oof_and_final(
         frame,
         initial_train_before=cfg.initial_train_before,
         update_interval=cfg.update_interval,
@@ -288,11 +302,21 @@ def run_exp040_retrain(config: Exp040RetrainConfig | None = None) -> Exp040Retra
     metadata_path = artifact_dir / "metadata.json"
     dataset_path = artifact_dir / "training_dataset.parquet"
 
-    joblib.dump(pipeline, pipeline_path)
+    joblib.dump(
+        {
+            "estimator": pipeline,
+            "feature_names": ALL_FEATURES,
+            "temperature_calibrator": calibrator,
+            "venn_abers_calibrator": venn_abers,
+        },
+        pipeline_path,
+    )
+    # Retain the temperature artifact for inspection; registry inference uses
+    # the self-contained pipeline bundle above.
     joblib.dump(calibrator, calibrator_path)
     frame.to_parquet(dataset_path, index=False)
 
-    oof_cal = metrics["oof_calibrated"]
+    oof_cal = metrics["oof_temperature_calibrated"]
     status = (
         cfg.status_on_success
         if oof_cal["log_loss"] <= cfg.min_shadow_log_loss and oof_cal["auc"] >= cfg.min_shadow_auc
@@ -314,7 +338,7 @@ def run_exp040_retrain(config: Exp040RetrainConfig | None = None) -> Exp040Retra
         "git_commit": _git_commit(),
         "config": asdict(cfg),
         "metrics": metrics,
-        "notes": "EXP-040 candidate artifact with Markov Series simulation and nested calibration; frozen exp-039 is preserved.",
+        "notes": "EXP-040 candidate artifact with Markov Series simulation, chronological OOF temperature calibration, and Venn-Abers inference bounds; frozen exp-039 is preserved.",
     }
     metadata_path.write_text(json.dumps(metadata, indent=2, sort_keys=True), encoding="utf-8")
 
@@ -330,7 +354,7 @@ def run_exp040_retrain(config: Exp040RetrainConfig | None = None) -> Exp040Retra
             dataset_hash=dataset_hash,
             git_commit=metadata["git_commit"],
             metrics=metrics,
-            notes="EXP-040 candidate with hierarchical Markov simulation and nested calibration; candidate/shadow without replacing exp-039.",
+            notes="EXP-040 candidate with hierarchical Markov simulation and calibrated Venn-Abers bounds; not inference-eligible until an upcoming-feature producer is added.",
         ))
         record_evaluation_run(EvaluationRunRecord(
             model_name=cfg.model_name,
@@ -386,8 +410,8 @@ def main() -> None:
     print(f"  Model Version:      {result.model_version}")
     print(f"  Registered Status:  {result.registered_status}")
     print(f"  Artifact Directory: {result.artifact_dir}")
-    print(f"  OOF Log Loss:       {result.metrics['oof_calibrated']['log_loss']:.4f}")
-    print(f"  OOF ECE:            {result.metrics['oof_calibrated']['ece']:.4f}")
+    print(f"  OOF Log Loss:       {result.metrics['oof_temperature_calibrated']['log_loss']:.4f}")
+    print(f"  OOF ECE:            {result.metrics['oof_temperature_calibrated']['ece']:.4f}")
     print(f"  Calibrator Temp T:  {result.metrics['calibrator_temperature']:.3f}")
 
 

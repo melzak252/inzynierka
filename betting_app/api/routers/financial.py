@@ -16,6 +16,8 @@ from betting_app.api.deps import get_db, query_df
 from betting_app.api.schemas import FinancialAnalysisResponse, FinancialBucket, FinancialLedgerEntry
 from betting_app.core.ev import expected_value, fair_market_probabilities
 from betting_app.services.canonical_match_service import align_snapshot_odds
+from betting_app.ml.calibration.conformal_contract import conformal_bounds_for_side
+
 from betting_app.services.market_service import kelly_fraction, none_or_float
 from betting_app.services import thesis_inference_service as thesis_inference
 
@@ -56,6 +58,7 @@ HORIZONS: list[tuple[str, str, float, float | None]] = [
     ("24-48", "24–48 h", 24, 48),
     ("48+", "48 h+", 48, None),
 ]
+EXP040_FEATURES_VERSION = "exp040-markov-va-v1"
 
 
 def _parse_hybrid_version(version: str) -> tuple[float, float]:
@@ -118,6 +121,8 @@ def _bucket(key: str, label: str, rows: list[dict[str, Any]]) -> FinancialBucket
         avg_clv_odds_pct=sum(clv) / len(clv) if clv else None,
         median_clv_odds_pct=median(clv) if clv else None,
     )
+
+
 @router.get("/analysis", response_model=FinancialAnalysisResponse)
 def financial_analysis(
     days_back: int = 90,
@@ -131,9 +136,11 @@ def financial_analysis(
     kelly_fraction_multiplier: float = 0.25,
     max_stake_pct: float = 0.05,
     data_scope: str = "historical",
+    use_conformal_gating: bool = True,
+    max_conformal_width: float = 0.08,
     db=Depends(get_db),
 ):
-    """Simulate one globally highest-EV side per match.
+    """Simulate event-time settlement from auditable prediction and quote rows.
 
     ``live`` requires a timestamped prediction data cutoff, a quote observed
     after prediction and before start, and a result recorded after start.
@@ -153,6 +160,7 @@ def financial_analysis(
         )
     if not (
         0 <= min_ev < 2
+        and 0 < max_conformal_width <= 1
         and initial_bankroll > 0
         and fixed_stake > 0
         and 0 < kelly_fraction_multiplier <= 1
@@ -161,18 +169,32 @@ def financial_analysis(
         raise HTTPException(400, "Invalid financial simulation parameters")
 
     use_hybrid = model_name == HYBRID_MODEL_NAME
-    supported_direct_versions = {THESIS_BASE_ARTIFACT_VERSION, THESIS_MODEL_VERSION}
+    exp040_names = {"Hierarchical-Markov-VennAbers-EXP040", "EXP-040", "exp-040"}
+    supported_direct_versions = {
+        THESIS_BASE_ARTIFACT_VERSION,
+        THESIS_MODEL_VERSION,
+    }
     if not use_hybrid and (
-        model_name != THESIS_MODEL_NAME or model_version not in supported_direct_versions
+        (model_name not in {THESIS_MODEL_NAME, *exp040_names})
+        or (
+            model_name == THESIS_MODEL_NAME
+            and model_version not in supported_direct_versions
+        )
     ):
         raise HTTPException(
             400,
-            "Unsupported model/version; use the frozen EXP-039 or current parity contract",
+            "Unsupported model/version; use the frozen EXP-039, EXP-040 candidate, or current parity contract",
         )
     alpha, temperature = _parse_hybrid_version(model_version)
     min_start_at = datetime.now(UTC) - timedelta(days=min(days_back, 730))
 
     if data_scope == "retrospective":
+        if not use_hybrid and model_name != THESIS_MODEL_NAME:
+            raise HTTPException(
+                400,
+                "retrospective scope is limited to the reproducible EXP-039 backfill",
+            )
+        query_model_name = THESIS_MODEL_NAME
         query_model_version = THESIS_BASE_ARTIFACT_VERSION
         features_version = BACKTEST_FEATURES_VERSION
         effective_model_version = (
@@ -181,17 +203,24 @@ def financial_analysis(
             else THESIS_BASE_ARTIFACT_VERSION
         )
     elif use_hybrid and model_version.endswith(f"-{THESIS_HYBRID_VERSION_SUFFIX}"):
+        query_model_name = THESIS_MODEL_NAME
         query_model_version = THESIS_MODEL_VERSION
         features_version = THESIS_FEATURES_VERSION
     elif use_hybrid:
+        query_model_name = THESIS_MODEL_NAME
         query_model_version = THESIS_BASE_ARTIFACT_VERSION
         features_version = LEGACY_FEATURES_VERSION
     else:
+        query_model_name = model_name
         query_model_version = model_version
         features_version = (
-            THESIS_FEATURES_VERSION
-            if model_version == THESIS_MODEL_VERSION
-            else LEGACY_FEATURES_VERSION
+            EXP040_FEATURES_VERSION
+            if model_name in exp040_names
+            else (
+                THESIS_FEATURES_VERSION
+                if model_version == THESIS_MODEL_VERSION
+                else LEGACY_FEATURES_VERSION
+            )
         )
     if data_scope != "retrospective":
         effective_model_version = model_version
@@ -199,7 +228,8 @@ def financial_analysis(
     prediction_rows = query_df(db, """
         SELECT cm.id AS canonical_match_id, cm.team_a_name, cm.team_b_name, cm.league,
                cm.start_time_normalized, cm.result_recorded_at, cm.winner_side,
-               p.prob_a, p.prob_b, p.predicted_at, p.data_cutoff_at, p.id AS prediction_id
+               p.prob_a, p.prob_b, p.predicted_at, p.data_cutoff_at,
+               p.diagnostics_json, p.id AS prediction_id
         FROM canonical_matches cm
         JOIN canonical_predictions p ON p.canonical_match_id = cm.id
         WHERE cm.status = 'finished'
@@ -208,7 +238,7 @@ def financial_analysis(
           AND p.features_version = :features_version
         ORDER BY cm.start_time_normalized, cm.id, p.predicted_at, p.id
     """, {
-        "thesis_name": THESIS_MODEL_NAME,
+        "thesis_name": query_model_name,
         "thesis_version": query_model_version,
         "features_version": features_version,
     })
@@ -239,8 +269,9 @@ def financial_analysis(
         "data_cutoff_after_prediction": 0,
         "no_quote_after_prediction": 0,
         "no_quote_before_start": 0,
+        "conformal_bounds_unavailable": 0,
+        "conformal_bounds_too_wide": 0,
         "no_positive_ev": 0,
-        "insufficient_available_balance": 0,
     }
     temporally_eligible_matches: list[dict[str, Any]] = []
     for match in matches:
@@ -296,6 +327,8 @@ def financial_analysis(
     match_by_id = {int(row["canonical_match_id"]): row for row in matches}
     candidates: list[dict[str, Any]] = []
     quote_eligible_match_ids: set[int] = set()
+    missing_conformal_match_ids: set[int] = set()
+    wide_conformal_match_ids: set[int] = set()
     for (match_id, _bookmaker_id), snapshots in odds_by_key.items():
         match = match_by_id[match_id]
         # Live evaluation requires the prediction's recorded input cutoff and
@@ -353,13 +386,53 @@ def financial_analysis(
         if base_a is None:
             continue
         market_a, market_b = fair_market_probabilities(odds_a, odds_b)
-        model_a = alpha * _temperature_probability(base_a, temperature) + (1 - alpha) * market_a if use_hybrid else base_a
+        model_a = (
+            alpha * _temperature_probability(base_a, temperature)
+            + (1 - alpha) * market_a
+            if use_hybrid
+            else base_a
+        )
         model_b = 1 - model_a
-        ev_a, ev_b = expected_value(model_a, odds_a, TAX_RATE), expected_value(model_b, odds_b, TAX_RATE)
-        if max(ev_a, ev_b) <= min_ev:
-            continue
-        side = "a" if ev_a >= ev_b else "b"
-        entry_odds, model_prob, market_prob, ev = (odds_a, model_a, market_a, ev_a) if side == "a" else (odds_b, model_b, market_b, ev_b)
+        ev_a = expected_value(model_a, odds_a, TAX_RATE)
+        ev_b = expected_value(model_b, odds_b, TAX_RATE)
+
+        if use_conformal_gating:
+            # A calibrated interval belongs to the direct model output only.
+            # Blending it with the contemporaneous market destroys the stated
+            # coverage guarantee, so hybrid forecasts cannot pass this gate.
+            bounds_a = (
+                None
+                if use_hybrid
+                else conformal_bounds_for_side(match.get("diagnostics_json"), "a")
+            )
+            bounds_b = (
+                None
+                if use_hybrid
+                else conformal_bounds_for_side(match.get("diagnostics_json"), "b")
+            )
+            if bounds_a is None or bounds_b is None:
+                missing_conformal_match_ids.add(match_id)
+                continue
+            p_low_a, p_up_a = bounds_a
+            p_low_b, p_up_b = bounds_b
+            if max(p_up_a - p_low_a, p_up_b - p_low_b) > max_conformal_width:
+                wide_conformal_match_ids.add(match_id)
+                continue
+            conf_ev_a = expected_value(p_low_a, odds_a, TAX_RATE)
+            conf_ev_b = expected_value(p_low_b, odds_b, TAX_RATE)
+            if max(conf_ev_a, conf_ev_b) <= min_ev:
+                continue
+            side = "a" if conf_ev_a >= conf_ev_b else "b"
+            target_prob = p_low_a if side == "a" else p_low_b
+            ev = conf_ev_a if side == "a" else conf_ev_b
+        else:
+            if max(ev_a, ev_b) <= min_ev:
+                continue
+            side = "a" if ev_a >= ev_b else "b"
+            target_prob = model_a if side == "a" else model_b
+            ev = ev_a if side == "a" else ev_b
+
+        entry_odds, model_prob, market_prob = (odds_a, model_a, market_a) if side == "a" else (odds_b, model_b, market_b)
         close_odds = None
         if close_aligned:
             close_odds = none_or_float(close_aligned[0] if side == "a" else close_aligned[1])
@@ -371,7 +444,7 @@ def financial_analysis(
             "result_available_at": result_available_at, "league": match.get("league") or "Nieznana liga",
             "team_a_name": match.get("team_a_name"), "team_b_name": match.get("team_b_name"), "bookmaker": entry["bookmaker"],
             "side": side, "entry_odds": entry_odds, "close_odds": close_odds, "hours_before": hours_before,
-            "horizon": key, "horizon_label": label, "model_prob": model_prob, "market_prob": market_prob, "ev": ev,
+            "horizon": key, "horizon_label": label, "model_prob": model_prob, "target_prob": target_prob, "market_prob": market_prob, "ev": ev,
             "won": match["winner_side"] == ("team_a" if side == "a" else "team_b"), "entry_scraped_at": entry.get("scraped_at"),
             "close_scraped_at": close.get("scraped_at") if close else None,
             "clv_odds_pct": (entry_odds / close_odds - 1) if close_odds and close_odds > 0 else None,
@@ -384,6 +457,12 @@ def financial_analysis(
     )
     temporal_exclusions[no_quote_key] = len(
         eligible_match_ids - quote_eligible_match_ids
+    )
+    temporal_exclusions["conformal_bounds_unavailable"] = len(
+        missing_conformal_match_ids
+    )
+    temporal_exclusions["conformal_bounds_too_wide"] = len(
+        wide_conformal_match_ids
     )
     candidate_match_ids = {
         int(candidate["canonical_match_id"]) for candidate in candidates
@@ -465,8 +544,9 @@ def financial_analysis(
         if staking_mode == "fixed":
             stake = min(fixed_stake, available)
         else:
+            target_k_prob = float(row.get("target_prob", row["model_prob"]))
             full_kelly = kelly_fraction(
-                float(row["model_prob"]),
+                target_k_prob,
                 float(row["entry_odds"]),
                 TAX_RATE,
             )

@@ -20,6 +20,7 @@ def _prediction(
     start: str,
     result_available_at: str,
     cutoff: str | None = "2026-01-01T10:00:00+00:00",
+    diagnostics_json: str | None = None,
 ) -> dict[str, Any]:
     return {
         "canonical_match_id": match_id,
@@ -34,6 +35,7 @@ def _prediction(
         "predicted_at": "2026-01-01T11:00:00+00:00",
         "data_cutoff_at": cutoff,
         "prediction_id": match_id,
+        "diagnostics_json": diagnostics_json,
     }
 
 
@@ -80,6 +82,7 @@ def test_financial_api_reserves_overlapping_stakes(monkeypatch, client: TestClie
             "initial_bankroll": 1000,
             "days_back": 730,
             "min_ev": 0,
+            "use_conformal_gating": False,
             "data_scope": "live",
         },
     )
@@ -114,6 +117,36 @@ def test_financial_live_scope_excludes_missing_cutoff(monkeypatch):
 
     assert result.total_bets == 0
     assert result.temporal_exclusions["missing_data_cutoff_at"] == 1
+
+
+def test_financial_conformal_gate_uses_persisted_venn_abers_bound(monkeypatch):
+    predictions = [
+        _prediction(
+            1,
+            start="2026-01-01T18:00:00+00:00",
+            result_available_at="2026-01-01T22:00:00+00:00",
+            diagnostics_json=(
+                '{"conformal":{"method":"venn_abers","p_lower_a":0.60,'
+                '"p_upper_a":0.64}}'
+            ),
+        )
+    ]
+    odds = [_snapshot(1, "2026-01-01T12:00:00+00:00")]
+    monkeypatch.setattr(financial, "query_df", _stub_query(predictions, odds))
+
+    result = financial.financial_analysis(
+        model_name="Hierarchical-Markov-VennAbers-EXP040",
+        model_version="candidate-1",
+        data_scope="live",
+        days_back=730,
+        staking_mode="fixed",
+        fixed_stake=10,
+        db=object(),
+    )
+
+    assert result.total_bets == 1
+    assert result.ledger[0].target_prob == 0.60
+    assert result.temporal_exclusions["conformal_bounds_unavailable"] == 0
 
 
 def test_financial_api_empty_sqlite_cohort_is_valid(client: TestClient):

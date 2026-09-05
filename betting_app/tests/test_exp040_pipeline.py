@@ -39,7 +39,7 @@ def _generate_synthetic_training_frame(n_samples: int = 250) -> pd.DataFrame:
 def test_exp040_config_defaults() -> None:
     cfg = Exp040RetrainConfig()
     assert cfg.model_name == "Hierarchical-Markov-VennAbers-EXP040"
-    assert cfg.status_on_success == "shadow"
+    assert cfg.status_on_success == "candidate"
     assert cfg.min_shadow_log_loss == 0.62
     assert cfg.min_shadow_auc == 0.72
 
@@ -54,7 +54,7 @@ def test_dataset_hash_stability() -> None:
 
 def test_train_oof_and_final_synthetic() -> None:
     frame = _generate_synthetic_training_frame(120)
-    pipeline, calibrator, metrics = train_oof_and_final(
+    pipeline, calibrator, venn_abers, metrics = train_oof_and_final(
         frame,
         initial_train_before="2021-02-01",
         update_interval=20,
@@ -64,12 +64,13 @@ def test_train_oof_and_final_synthetic() -> None:
     assert calibrator is not None
     assert hasattr(calibrator, "temperature_")
     assert calibrator.temperature_ > 0.0
+    assert venn_abers.is_fitted_
 
     assert "oof_uncalibrated" in metrics
-    assert "oof_calibrated" in metrics
+    assert "oof_temperature_calibrated" in metrics
     assert "calibrator_temperature" in metrics
 
-    oof_cal = metrics["oof_calibrated"]
+    oof_cal = metrics["oof_temperature_calibrated"]
     assert 0.0 <= oof_cal["log_loss"] <= 2.0
     assert 0.0 <= oof_cal["brier"] <= 1.0
     assert 0.0 <= oof_cal["accuracy"] <= 1.0

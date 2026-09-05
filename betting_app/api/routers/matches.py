@@ -66,7 +66,7 @@ from betting_app.services.market_service import (
     none_or_float,
     safe_json_get,
 )
-from betting_app.core.staking import fractional_kelly_stake
+from betting_app.ml.calibration.conformal_contract import conformal_bounds_for_side
 from betting_app.services.mapping_service import suggest_mapping
 from betting_app.services.current_roster_service import upsert_current_roster
 from betting_app.core.db import is_sqlite
@@ -306,6 +306,7 @@ def list_matches(
         elif p["model_name"] == DEFAULT_MODEL_NAME:
             item["model_prob_a"] = none_or_float(p.get("prob_a"))
             item["model_prob_b"] = none_or_float(p.get("prob_b"))
+            item["model_diagnostics"] = p.get("diagnostics_json")
 
     items: list[MatchBoardItem] = []
     for mid, group in groups.items():
@@ -371,27 +372,37 @@ def list_matches(
             if p.get("fusion_symaug_prob_b") is not None else None
         )
 
-        # Conformal Risk Bounds (p_low) and Conservative 1/4 Kelly sizing
-        p_low_a = max(0.01, float(p["hybrid_prob_a"]) - 0.035) if p.get("hybrid_prob_a") is not None else None
-        p_low_b = max(0.01, float(p["hybrid_prob_b"]) - 0.035) if p.get("hybrid_prob_b") is not None else None
+        # Only a direct model prediction with persisted Venn-Abers bounds can
+        # be marked conformal. Hybrid probabilities mix a market quote after
+        # calibration and therefore have no retained coverage guarantee.
+        bounds_a = conformal_bounds_for_side(p.get("model_diagnostics"), "a")
+        bounds_b = conformal_bounds_for_side(p.get("model_diagnostics"), "b")
+        p_low_a = bounds_a[0] if bounds_a is not None else None
+        p_low_b = bounds_b[0] if bounds_b is not None else None
         conf_ev_a = (
-            round(p_low_a * float(record["best_odds_a"]) * (1.0 - tax_rate) - 1.0, 4)
+            round(expected_value(p_low_a, float(record["best_odds_a"]), tax_rate), 4)
             if p_low_a is not None and record.get("best_odds_a") is not None else None
         )
         conf_ev_b = (
-            round(p_low_b * float(record["best_odds_b"]) * (1.0 - tax_rate) - 1.0, 4)
+            round(expected_value(p_low_b, float(record["best_odds_b"]), tax_rate), 4)
             if p_low_b is not None and record.get("best_odds_b") is not None else None
         )
-        is_conf_a = bool(conf_ev_a is not None and conf_ev_a > 0.0)
-        is_conf_b = bool(conf_ev_b is not None and conf_ev_b > 0.0)
-        stake_a = (
-            round(fractional_kelly_stake(100.0, p_low_a, float(record["best_odds_a"]), fraction=0.25, tax_rate=tax_rate), 2)
-            if is_conf_a and record.get("best_odds_a") is not None else None
+        is_conf_a = bool(
+            conf_ev_a is not None
+            and bounds_a is not None
+            and bounds_a[1] - bounds_a[0] <= 0.08
+            and conf_ev_a > 0.0
         )
-        stake_b = (
-            round(fractional_kelly_stake(100.0, p_low_b, float(record["best_odds_b"]), fraction=0.25, tax_rate=tax_rate), 2)
-            if is_conf_b and record.get("best_odds_b") is not None else None
+        is_conf_b = bool(
+            conf_ev_b is not None
+            and bounds_b is not None
+            and bounds_b[1] - bounds_b[0] <= 0.08
+            and conf_ev_b > 0.0
         )
+        # A board has no account balance. Sizing belongs to the financial
+        # ledger, where available capital and overlapping reservations exist.
+        stake_a = None
+        stake_b = None
         items.append(MatchBoardItem(
             canonical_match_id=mid,
             match=f"{team_a_name or '?'} vs {team_b_name or '?'}",

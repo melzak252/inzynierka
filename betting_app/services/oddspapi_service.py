@@ -14,6 +14,8 @@ from urllib.request import Request, urlopen
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+from betting_app.ml.calibration.conformal_contract import conformal_bounds_for_side
+
 
 from betting_app.core.db import get_session
 from betting_app.core.matching import normalize_team_name
@@ -629,6 +631,16 @@ def compare_match_market(
         ).first()
 
         model_prob_a = float(pred.prob_a) if pred and pred.prob_a is not None else None
+        conformal_a = (
+            conformal_bounds_for_side(pred.diagnostics_json, "a")
+            if pred is not None
+            else None
+        )
+        conformal_b = (
+            conformal_bounds_for_side(pred.diagnostics_json, "b")
+            if pred is not None
+            else None
+        )
 
         bookmakers_comparison: list[dict[str, Any]] = []
         for name, snap in sorted(latest_by_bookmaker.items()):
@@ -653,15 +665,20 @@ def compare_match_market(
                 ev_a = round(model_prob_a * (odds_a * 0.88) - 1.0, 4)
                 ev_b = round((1.0 - model_prob_a) * (odds_b * 0.88) - 1.0, 4)
 
-                # Conformal lower bound (conservative pessimistic bound with delta=0.035)
-                p_low_a = max(0.01, model_prob_a - 0.035)
-                p_low_b = max(0.01, (1.0 - model_prob_a) - 0.035)
-
-                ev_conf_a = round(p_low_a * (odds_a * 0.88) - 1.0, 4)
-                ev_conf_b = round(p_low_b * (odds_b * 0.88) - 1.0, 4)
-
-                is_conf_a = bool(ev_conf_a > 0.0)
-                is_conf_b = bool(ev_conf_b > 0.0)
+                if (
+                    conformal_a is not None
+                    and conformal_b is not None
+                    and conformal_a[1] - conformal_a[0] <= 0.08
+                    and conformal_b[1] - conformal_b[0] <= 0.08
+                ):
+                    ev_conf_a = round(
+                        conformal_a[0] * (odds_a * 0.88) - 1.0, 4
+                    )
+                    ev_conf_b = round(
+                        conformal_b[0] * (odds_b * 0.88) - 1.0, 4
+                    )
+                    is_conf_a = ev_conf_a > 0.0
+                    is_conf_b = ev_conf_b > 0.0
 
             bookmakers_comparison.append(
                 {
