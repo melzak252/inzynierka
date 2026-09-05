@@ -485,7 +485,8 @@ In contrast, secondary in-game prop markets—such as **Over/Under Total Kills**
 
 - `data/golgg_matches.json`
 - `ideas/IDEA-018_in_game_prop_prediction_models.md`
-
+- `docs/plan_modelowania_props_zabojstwa_i_kursy.md`
+- `reports/eda_prop_markets_idea018.md`
 ---
 
 ## IDEA-019 — Tax-amortized two-leg favorite parlay recommender (Safe Dubel)
