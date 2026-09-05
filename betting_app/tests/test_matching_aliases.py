@@ -111,3 +111,40 @@ def test_canonical_score_rejects_unrelated_challenger_teams_at_same_time() -> No
         },
     )
     assert score < 0.78
+
+
+def test_lck_cl_academy_aliases_and_mappings() -> None:
+    from betting_app.services.canonical_match_service import canonical_team_key
+    from betting_app.services.mapping_service import BOOKMAKER_TO_GOLGG_ALIASES
+
+    # Canonical keys must align variants to the active 2026 academy identity
+    assert canonical_team_key("T1 Challengers") == "t1 academy"
+    assert canonical_team_key("T1 Esports Academy") == "t1 academy"
+    assert canonical_team_key("T1 Academy") == "t1 academy"
+
+    assert canonical_team_key("Drx Challengers") == "krx challengers"
+    assert canonical_team_key("Kiwoom DRX Challengers") == "krx challengers"
+    assert canonical_team_key("KRX Challengers") == "krx challengers"
+
+    assert canonical_team_key("NS Challengers") == "nongshim academy"
+    assert canonical_team_key("Nongshim Redforce Challengers") == "nongshim academy"
+
+    assert canonical_team_key("Gen.G Challengers") == "geng global academy"
+    # Main team Gen.G must stay distinct
+    assert canonical_team_key("Gen.G") == "gen g"
+    assert canonical_team_key("T1") == "t1"
+    assert canonical_team_key("DRX") == "drx"
+
+    # Mapping service aliases must point to active 2026 GOL.GG team names
+    assert BOOKMAKER_TO_GOLGG_ALIASES["t1 challengers"] == "T1 Esports Academy"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["drx challengers"] == "KRX Challengers"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["kiwoom drx challengers"] == "KRX Challengers"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["kt challengers"] == "KT Rolster Challengers"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["kt rolster challengers"] == "KT Rolster Challengers"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["ns challengers"] == "Nongshim Esports Academy"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["fearx challengers"] == "BNK FEARX Youth"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["brion challengers"] == "HANJIN BRION Challengers"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["gen g challengers"] == "Gen.G Global Academy"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["hanwha life challengers"] == "Hanwha Life Esports Challengers"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["dplus challengers"] == "Dplus KIA Challengers"
+    assert BOOKMAKER_TO_GOLGG_ALIASES["soopers challengers"] == "DN SOOPers Challengers"
