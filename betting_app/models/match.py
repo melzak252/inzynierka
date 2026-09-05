@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    DateTime,
+    Float,
     ForeignKey,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
-    DateTime,
     text as sa_text,
-    SmallInteger,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,7 +29,7 @@ class CanonicalMatch(Base):
     normalized_team_b: Mapped[str] = mapped_column(String(200), nullable=False)
     start_time_normalized: Mapped[str | None] = mapped_column(String(50))
     league: Mapped[str | None] = mapped_column(String(100))
-    status: Mapped[str] = mapped_column(String(50), server_default="'upcoming'")
+    status: Mapped[str] = mapped_column(String(50), server_default="upcoming")
     winner_name: Mapped[str | None] = mapped_column(String(200))
     loser_name: Mapped[str | None] = mapped_column(String(200))
     winner_normalized: Mapped[str | None] = mapped_column(String(200))
@@ -36,7 +37,7 @@ class CanonicalMatch(Base):
     result_source: Mapped[str | None] = mapped_column(String(50))
     result_source_match_id: Mapped[str | None] = mapped_column(String(50))
     result_recorded_at: Mapped[str | None] = mapped_column(DateTime(timezone=True))
-    match_confidence: Mapped[float] = mapped_column(Integer, server_default="1")
+    match_confidence: Mapped[float] = mapped_column(Float, server_default="1.0")
     best_of: Mapped[int | None] = mapped_column(SmallInteger, server_default="1")
 
 

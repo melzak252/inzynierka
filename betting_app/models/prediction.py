@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    Float,
     ForeignKey,
     Integer,
     String,
     Text,
     UniqueConstraint,
-    
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -61,9 +61,9 @@ class EntityRating(Base):
     team_name: Mapped[str | None] = mapped_column(String(200))
     role: Mapped[str | None] = mapped_column(String(20))
     rating_system: Mapped[str] = mapped_column(String(20), index=True)
-    rating_value: Mapped[float | None] = mapped_column(Integer)
-    rd: Mapped[float | None] = mapped_column(Integer)
-    sigma: Mapped[float | None] = mapped_column(Integer)
+    rating_value: Mapped[float | None] = mapped_column(Float)
+    rd: Mapped[float | None] = mapped_column(Float)
+    sigma: Mapped[float | None] = mapped_column(Float)
     games_played: Mapped[int] = mapped_column(Integer, server_default="0")
     last_match_at: Mapped[str | None] = mapped_column(String(50))
     state_json: Mapped[str | None] = mapped_column(Text)
@@ -82,17 +82,17 @@ class TeamRollingFeature(Base):
     data_cutoff_at: Mapped[str | None] = mapped_column(String(50))
     matches_count: Mapped[int] = mapped_column(Integer, server_default="0")
     games_count: Mapped[int] = mapped_column(Integer, server_default="0")
-    win_rate: Mapped[float | None] = mapped_column(Integer)
-    avg_kills: Mapped[float | None] = mapped_column(Integer)
-    avg_deaths: Mapped[float | None] = mapped_column(Integer)
-    avg_gd15: Mapped[float | None] = mapped_column(Integer)
-    avg_dpm: Mapped[float | None] = mapped_column(Integer)
-    avg_vspm: Mapped[float | None] = mapped_column(Integer)
-    avg_gold: Mapped[float | None] = mapped_column(Integer)
-    avg_towers: Mapped[float | None] = mapped_column(Integer)
-    avg_dragons: Mapped[float | None] = mapped_column(Integer)
-    avg_nashors: Mapped[float | None] = mapped_column(Integer)
-    avg_game_duration: Mapped[float | None] = mapped_column(Integer)
+    win_rate: Mapped[float | None] = mapped_column(Float)
+    avg_kills: Mapped[float | None] = mapped_column(Float)
+    avg_deaths: Mapped[float | None] = mapped_column(Float)
+    avg_gd15: Mapped[float | None] = mapped_column(Float)
+    avg_dpm: Mapped[float | None] = mapped_column(Float)
+    avg_vspm: Mapped[float | None] = mapped_column(Float)
+    avg_gold: Mapped[float | None] = mapped_column(Float)
+    avg_towers: Mapped[float | None] = mapped_column(Float)
+    avg_dragons: Mapped[float | None] = mapped_column(Float)
+    avg_nashors: Mapped[float | None] = mapped_column(Float)
+    avg_game_duration: Mapped[float | None] = mapped_column(Float)
     features_json: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (UniqueConstraint("feature_version", "normalized_team_name", "window_size"),)
@@ -173,8 +173,8 @@ class CanonicalPrediction(Base):
     model_name: Mapped[str] = mapped_column(String(200), nullable=False)
     model_version: Mapped[str] = mapped_column(String(50), nullable=False)
     predicted_at: Mapped[str | None] = mapped_column(String(50))
-    prob_a: Mapped[float | None] = mapped_column(Integer)
-    prob_b: Mapped[float | None] = mapped_column(Integer)
+    prob_a: Mapped[float | None] = mapped_column(Float)
+    prob_b: Mapped[float | None] = mapped_column(Float)
     features_version: Mapped[str | None] = mapped_column(String(100))
     ratings_version: Mapped[str | None] = mapped_column(String(100))
     data_cutoff_at: Mapped[str | None] = mapped_column(String(50))
@@ -191,10 +191,10 @@ class ModelEvSignal(Base):
     odds_snapshot_id: Mapped[int | None] = mapped_column(Integer)
     bookmaker_id: Mapped[int] = mapped_column(ForeignKey("bookmakers.id"), nullable=False)
     side: Mapped[str] = mapped_column(String(5), nullable=False)
-    odds: Mapped[float | None] = mapped_column(Integer)
-    model_prob: Mapped[float | None] = mapped_column(Integer)
-    market_prob: Mapped[float | None] = mapped_column(Integer)
-    ev: Mapped[float | None] = mapped_column(Integer)
-    tax_rate: Mapped[float] = mapped_column(Integer, server_default="12")
-    stake_suggestion: Mapped[float | None] = mapped_column(Integer)
+    odds: Mapped[float | None] = mapped_column(Float)
+    model_prob: Mapped[float | None] = mapped_column(Float)
+    market_prob: Mapped[float | None] = mapped_column(Float)
+    ev: Mapped[float | None] = mapped_column(Float)
+    tax_rate: Mapped[float] = mapped_column(Float, server_default="0.12")
+    stake_suggestion: Mapped[float | None] = mapped_column(Float)
     status: Mapped[str] = mapped_column(String(50), server_default='new')

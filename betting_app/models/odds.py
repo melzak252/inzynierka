@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from sqlalchemy import (
+    Float,
     ForeignKey,
     Integer,
     String,
     Text,
     UniqueConstraint,
-    
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,11 +22,11 @@ class OddsSnapshot(Base):
     bookmaker_id: Mapped[int] = mapped_column(ForeignKey("bookmakers.id"), nullable=False, index=True)
     match_id: Mapped[int | None] = mapped_column(Integer)
     canonical_match_id: Mapped[int | None] = mapped_column(ForeignKey("canonical_matches.id"), index=True)
-    market_type: Mapped[str | None] = mapped_column(String(50), server_default="'match_winner'")
+    market_type: Mapped[str | None] = mapped_column(String(50), server_default="match_winner")
     raw_team_a: Mapped[str | None] = mapped_column(String(200))
     raw_team_b: Mapped[str | None] = mapped_column(String(200))
-    odds_a: Mapped[float | None] = mapped_column(Integer)
-    odds_b: Mapped[float | None] = mapped_column(Integer)
+    odds_a: Mapped[float | None] = mapped_column(Float)
+    odds_b: Mapped[float | None] = mapped_column(Float)
     is_live: Mapped[bool | None] = mapped_column(Integer, server_default="0")
     scraped_at: Mapped[str | None] = mapped_column(String(50), index=True)
     source_url: Mapped[str | None] = mapped_column(String(500))
@@ -102,7 +102,7 @@ class OddsOutcomeSnapshot(Base):
     offer_url: Mapped[str | None] = mapped_column(String(500))
     outcome_name: Mapped[str | None] = mapped_column(String(200))
     outcome_side: Mapped[str | None] = mapped_column(String(10))
-    decimal_odds: Mapped[float | None] = mapped_column(Integer)
+    decimal_odds: Mapped[float | None] = mapped_column(Float)
     raw_payload: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (UniqueConstraint("scrape_run_id", "outcome_key"),)

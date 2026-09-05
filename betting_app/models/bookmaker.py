@@ -33,7 +33,7 @@ class BookmakerAccount(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     bookmaker_id: Mapped[int] = mapped_column(ForeignKey("bookmakers.id"), nullable=False)
     account_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    currency: Mapped[str] = mapped_column(String(10), server_default="'PLN'")
+    currency: Mapped[str] = mapped_column(String(10), server_default="PLN")
     opening_balance: Mapped[float] = mapped_column(Numeric(12, 2), server_default="0")
     current_balance: Mapped[float] = mapped_column(Numeric(12, 2), server_default="0")
     is_active: Mapped[bool] = mapped_column(Integer, server_default="1")
@@ -59,7 +59,7 @@ class Bet(Base):
     side: Mapped[str] = mapped_column(String(1), CheckConstraint("side IN ('a','b')"))
     stake: Mapped[float] = mapped_column(Numeric(12, 2))
     taken_odds: Mapped[float] = mapped_column(Numeric(8, 4))
-    status: Mapped[str] = mapped_column(String(20), server_default="'open'")
+    status: Mapped[str] = mapped_column(String(20), server_default="open")
     result: Mapped[str | None] = mapped_column(String(20))
     profit: Mapped[float] = mapped_column(Numeric(12, 2), server_default="0")
     settled_at: Mapped[DateTime | None] = mapped_column(DateTime)
@@ -71,7 +71,7 @@ class Bet(Base):
     ev: Mapped[float | None] = mapped_column(Numeric(10, 4))
     tax_rate: Mapped[float] = mapped_column(Numeric(4, 2), server_default="0.12")
     note: Mapped[str | None] = mapped_column(Text)
-    source: Mapped[str] = mapped_column(String(50), server_default="'manual'")
+    source: Mapped[str] = mapped_column(String(50), server_default="manual")
 
 
 class WalletTransaction(Base):

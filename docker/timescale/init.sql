@@ -210,7 +210,7 @@ CREATE TABLE IF NOT EXISTS bets (
 CREATE INDEX IF NOT EXISTS idx_bets_account ON bets(bookmaker_account_id, status, placed_at DESC);
 
 CREATE TABLE IF NOT EXISTS bookmaker_wallet_transactions (
-    id                    BIGINT,
+    id                    BIGSERIAL,
     bookmaker_account_id  INTEGER NOT NULL REFERENCES bookmaker_accounts(id),
     bet_id                INTEGER REFERENCES bets(id),
     transaction_time      TIMESTAMPTZ DEFAULT NOW() NOT NULL,
@@ -223,7 +223,7 @@ SELECT create_hypertable('bookmaker_wallet_transactions', 'transaction_time', if
 
 /* ── Odds (time-series) ──────────────────────────────────────────────────── */
 CREATE TABLE IF NOT EXISTS odds_snapshots (
-    id                  BIGINT,
+    id                  BIGSERIAL,
     bookmaker_id        INTEGER NOT NULL REFERENCES bookmakers(id),
     match_id            INTEGER,
     canonical_match_id  INTEGER REFERENCES canonical_matches(id),
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS bookmaker_events (
 );
 
 CREATE TABLE IF NOT EXISTS bookmaker_markets (
-    id                    BIGINT,
+    id                    BIGSERIAL PRIMARY KEY,
     bookmaker_event_id    VARCHAR(100) NOT NULL,
     bookmaker_market_key  VARCHAR(200) NOT NULL,
     market_name VARCHAR(200),
@@ -279,7 +279,7 @@ CREATE TABLE IF NOT EXISTS bookmaker_markets (
 );
 
 CREATE TABLE IF NOT EXISTS odds_outcome_snapshots (
-    id                  BIGINT,
+    id                  BIGSERIAL,
     scrape_run_id       INTEGER REFERENCES scrape_runs(id),
     bookmaker_event_id  VARCHAR(100) NOT NULL,
     bookmaker_market_key VARCHAR(200) NOT NULL,
@@ -294,7 +294,7 @@ CREATE INDEX IF NOT EXISTS idx_outcome_event ON odds_outcome_snapshots(bookmaker
 
 /* ── Entity ratings (time-series) ────────────────────────────────────────── */
 CREATE TABLE IF NOT EXISTS entity_ratings (
-    id                    BIGINT,
+    id                    BIGSERIAL,
     rating_run_id         INTEGER REFERENCES rating_runs(id),
     ratings_version       VARCHAR(100) NOT NULL,
     snapshot_at           TIMESTAMPTZ DEFAULT NOW(),
