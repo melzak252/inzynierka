@@ -314,7 +314,11 @@ def run_exp040_retrain(config: Exp040RetrainConfig | None = None) -> Exp040Retra
     # Retain the temperature artifact for inspection; registry inference uses
     # the self-contained pipeline bundle above.
     joblib.dump(calibrator, calibrator_path)
-    frame.to_parquet(dataset_path, index=False)
+    try:
+        frame.to_parquet(dataset_path, index=False)
+    except Exception:
+        dataset_path = artifact_dir / "training_dataset.csv"
+        frame.to_csv(dataset_path, index=False)
 
     oof_cal = metrics["oof_temperature_calibrated"]
     status = (
