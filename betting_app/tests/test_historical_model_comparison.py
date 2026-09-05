@@ -21,10 +21,12 @@ def test_historical_model_comparison_uses_only_temporally_eligible_common_cohort
     ]
 
     def fake_query_df(_db, sql: str, params: dict):
+        if "odds_snapshots" in sql:
+            return []
         queries.append(sql)
-        if params["model_version"] == "exp-039":
+        if params.get("model_version") == "exp-039":
             return old_rows
-        assert params["model_version"] == OPERATIONAL_BACKFILL_MODEL_VERSION
+        assert params.get("model_version") == OPERATIONAL_BACKFILL_MODEL_VERSION
         return new_rows
 
     monkeypatch.setattr(timing, "query_df", fake_query_df)

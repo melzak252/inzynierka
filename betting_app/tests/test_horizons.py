@@ -56,3 +56,13 @@ def test_horizon_selection_rejects_predictions_after_target_horizon() -> None:
         [OddsQuote(1, 1, "book-a", 2.0, 2.0, dt(12), 10)],
         horizon,
     ) == []
+
+
+def test_horizon_model_defs_include_operational_and_exclude_polluted_features() -> None:
+    import inspect
+    from betting_app.api.routers import timing
+
+    src = inspect.getsource(timing)
+    # Ensure the polluted features version string is never used as a query filter
+    assert "cp.features_version = 'thesis-exp039'" not in src
+    assert "cp.features_version = :features_version OR" not in src

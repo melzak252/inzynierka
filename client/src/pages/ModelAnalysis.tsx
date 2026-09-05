@@ -28,17 +28,29 @@ type SeriesPoint = {
   entries?: number
 }
 const MODEL_LABELS: Record<ModelAnalysisKey, { title: string; short: string; description: string; accent: string }> = {
-  thesis: {
-    title: 'Thesis model',
-    short: 'Thesis',
-    description: 'Czysty model predykcyjny bez domieszki prawdopodobieństwa rynkowego.',
-    accent: '#2563eb',
+  operational_hybrid: {
+    title: 'Hybryda Operacyjna (Regional BoN + Rynek)',
+    short: 'Hybrid (Operacyjny)',
+    description: 'Połączenie modelu operacyjnego z rynkiem — najniższy LogLoss we wszystkich horyzontach.',
+    accent: '#0d9488',
+  },
+  operational: {
+    title: 'Model Operacyjny (Regional BoN)',
+    short: 'Operacyjny',
+    description: 'Czysty model operacyjny z ogonem dwumianowym (LogLoss 0.561).',
+    accent: '#059669',
   },
   hybrid: {
-    title: 'Hybrid model',
-    short: 'Hybrid',
-    description: 'Połączenie Twojego modelu z informacją rynkową/kursami.',
+    title: 'Hybrid model (EXP-039 + Rynek)',
+    short: 'Hybrid (EXP-039)',
+    description: 'Połączenie modelu referencyjnego EXP-039 z informacją rynkową/kursami.',
     accent: '#7c3aed',
+  },
+  thesis: {
+    title: 'Thesis model (EXP-039)',
+    short: 'Thesis (EXP-039)',
+    description: 'Czysty model referencyjny pracy (niższy LogLoss niż rynek w 48h+ i 24-48h).',
+    accent: '#2563eb',
   },
 }
 
@@ -70,7 +82,11 @@ function binSort<T extends { label: string }>(rows: T[]): T[] {
 }
 
 function modelKeyFromName(name: string): ModelAnalysisKey {
-  return name.toLowerCase().includes('hybrid') ? 'hybrid' : 'thesis'
+  const lower = name.toLowerCase()
+  if (lower.includes('operational') && lower.includes('hybrid')) return 'operational_hybrid'
+  if (lower.includes('operational') || lower.includes('v0.4-binom')) return 'operational'
+  if (lower.includes('hybrid')) return 'hybrid'
+  return 'thesis'
 }
 
 function bestBinByClv(bins: ModelClvBin[]): ModelClvBin | null {
@@ -1090,7 +1106,7 @@ function SegmentsAndFormatsSection({ comparison }: { comparison: HistoricalModel
 }
 
 function ModelAnalysis() {
-  const [selected, setSelected] = useState<ModelAnalysisKey>('hybrid')
+  const [selected, setSelected] = useState<ModelAnalysisKey>('operational_hybrid')
   const [viewMode, setViewMode] = useState<ViewMode>('all')
   const [daysBack] = useState(90)
   const [maxOddsAge] = useState(4)
@@ -1160,18 +1176,19 @@ function ModelAnalysis() {
 
   const selectedModelBins = useMemo(() => {
     if (!accuracy) return []
-    const binnedModel = accuracy.hybrid_model_bins.find((m) => modelKeyFromName(m.model_name) === selected)
+    const binnedModel = accuracy.hybrid_model_bins?.find((m) => modelKeyFromName(m.model_name) === selected)
     if (binnedModel?.bins?.length) return binSort(binnedModel.bins)
 
-    const ref = accuracy.model_references.find((m) => modelKeyFromName(m.model_name) === 'thesis')
+    const ref = accuracy.model_references?.find((m) => modelKeyFromName(m.model_name) === selected)
+    if (!ref) return []
     return binSort(accuracy.bins.map((b) => ({
       label: b.label,
       hours_start: b.hours_start,
       hours_end: b.hours_end,
       snapshot_count: b.snapshot_count,
-      match_count: ref?.n_matches ?? b.match_count,
-      avg_logloss: ref?.avg_logloss ?? null,
-      avg_auc: ref?.avg_auc ?? null,
+      match_count: ref.n_matches ?? b.match_count,
+      avg_logloss: ref.avg_logloss ?? null,
+      avg_auc: ref.avg_auc ?? null,
     })))
   }, [accuracy, selected])
 
@@ -1403,7 +1420,7 @@ function ModelAnalysis() {
         <>
           <section className="ma-controls" style={{ marginTop: '32px' }}>
             <div className="ma-model-toggle" role="tablist" aria-label="Model selector">
-              {(['thesis', 'hybrid'] as ModelAnalysisKey[]).map((key) => (
+              {(['operational_hybrid', 'operational', 'hybrid', 'thesis'] as ModelAnalysisKey[]).map((key) => (
                 <button key={key} className={selected === key ? 'active' : ''} onClick={() => setSelected(key)}>
                   <strong>{MODEL_LABELS[key].title}</strong>
                   <span>{MODEL_LABELS[key].description}</span>

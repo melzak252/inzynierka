@@ -697,7 +697,7 @@ export interface HorizonAccuracyResponse {
   market_close_comparison: MarketCloseComparison;
 }
 
-export type ModelAnalysisKey = 'thesis' | 'hybrid';
+export type ModelAnalysisKey = 'thesis' | 'hybrid' | 'operational' | 'operational_hybrid';
 
 export interface ModelClvBin {
   model_key: ModelAnalysisKey | string;

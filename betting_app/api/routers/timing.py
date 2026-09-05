@@ -693,7 +693,7 @@ def _compute_model_vs_bookmaker_tests(db, cutoff: str) -> list[dict]:
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :mname
               AND cp.model_version = :mver
-              AND (cp.features_version = :features_version OR cp.features_version = 'thesis-exp039')
+              AND cp.features_version = :features_version
               AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
@@ -2119,6 +2119,20 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
             "model_name": THESIS_HYBRID_MODEL_NAME,
             "model_version": f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}",
             "features_version": ANALYSIS_FEATURES_VERSION,
+            "base_model": THESIS_MODEL_NAME,
+            "base_version": THESIS_MODEL_VERSION,
+        },
+        {
+            "model_name": OPERATIONAL_MODEL_NAME,
+            "model_version": OPERATIONAL_BACKFILL_MODEL_VERSION,
+            "features_version": OPERATIONAL_BACKFILL_FEATURE_VERSION,
+        },
+        {
+            "model_name": "Hybrid-Operational-Market",
+            "model_version": f"a{THESIS_HYBRID_ALPHA:.2f}-t1.00",
+            "features_version": OPERATIONAL_BACKFILL_FEATURE_VERSION,
+            "base_model": OPERATIONAL_MODEL_NAME,
+            "base_version": OPERATIONAL_BACKFILL_MODEL_VERSION,
         },
         *[
             {
@@ -2140,9 +2154,13 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
         
         if is_hybrid:
             # For hybrid models: compute per-bin metrics dynamically
-            # Need: thesis_prob (from canonical_predictions) + market_prob (from odds_snapshots per bin)
+            base_model = md.get("base_model", THESIS_MODEL_NAME)
+            base_version = md.get("base_version", THESIS_MODEL_VERSION)
             hybrid_bin_metrics = _compute_hybrid_bins_dynamic(
-                db, cutoff, model_name, model_version, BIN_DEFS, min_matches
+                db, cutoff, model_name, model_version, BIN_DEFS, min_matches,
+                base_model=base_model,
+                base_version=base_version,
+                features_version=features_version,
             )
             if hybrid_bin_metrics:
                 hybrid_bins.append({
@@ -2170,7 +2188,7 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
                     JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
                     WHERE cp.model_name = :mname
                       AND cp.model_version = :mver
-                      AND (cp.features_version = :features_version OR cp.features_version = 'thesis-exp039')
+                      AND cp.features_version = :features_version
                       AND cp.predicted_at <= cm.start_time_normalized::timestamptz
                       AND cm.status IN ('finished', 'completed')
                       AND cm.winner_side IS NOT NULL
@@ -2268,7 +2286,7 @@ def _compute_pure_model_bins_dynamic(
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :mname
               AND cp.model_version = :mver
-              AND (cp.features_version = :features_version OR cp.features_version = 'thesis-exp039')
+              AND cp.features_version = :features_version
               AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
@@ -2400,7 +2418,9 @@ def _compute_pure_model_bins_dynamic(
 
 
 def _compute_hybrid_bins_dynamic(
-    db, cutoff: str, model_name: str, model_version: str, bin_defs: list, min_matches: int = 10
+    db, cutoff: str, model_name: str, model_version: str, bin_defs: list, min_matches: int = 10,
+    base_model: str = THESIS_MODEL_NAME, base_version: str = THESIS_MODEL_VERSION,
+    features_version: str = ANALYSIS_FEATURES_VERSION,
 ) -> list[dict]:
     """Compute hybrid model metrics per time bin dynamically.
     
@@ -2443,7 +2463,7 @@ def _compute_hybrid_bins_dynamic(
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :base_model
               AND cp.model_version = :base_version
-              AND (cp.features_version = :features_version OR cp.features_version = 'thesis-exp039')
+              AND cp.features_version = :features_version
               AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
@@ -2454,9 +2474,9 @@ def _compute_hybrid_bins_dynamic(
         WHERE rn = 1
         """,
         {
-            "base_model": THESIS_MODEL_NAME,
-            "base_version": THESIS_MODEL_VERSION,
-            "features_version": ANALYSIS_FEATURES_VERSION,
+            "base_model": base_model,
+            "base_version": base_version,
+            "features_version": features_version,
             "cutoff": cutoff,
         },
     )
@@ -2734,7 +2754,7 @@ def _compute_market_close_comparison(db, cutoff: str, min_matches: int) -> dict:
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :mname
               AND cp.model_version = :mver
-              AND (cp.features_version = :features_version OR cp.features_version = 'thesis-exp039')
+              AND cp.features_version = :features_version
               AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
