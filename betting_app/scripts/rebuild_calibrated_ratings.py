@@ -23,7 +23,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from betting_app.core.db import connect, transaction  # noqa: E402
-from betting_app.core.matching import normalize_team_name  # noqa: E402
+from betting_app.core.matching import normalize_team_name, similarity  # noqa: E402
 from src.models.competition_tiers import (  # noqa: E402
     CompetitionIdentity,
     CompetitionScope,
@@ -333,18 +333,40 @@ def load_matches(*, from_date: str | None = None, until_date: str | None = None)
         team_b_id = stable_team_id(row.get("team2_id"), row.get("team2_name"))
         if team_a_id == team_b_id:
             raise ValueError(f"rating match {event_id} has the same team on both sides")
+        team_a_name = str(row.get("team1_name") or team_a_id)
+        team_b_name = str(row.get("team2_name") or team_b_id)
         players_a = _roster_for_side(
-            rosters.get(event_id, ()), team_a_id, str(row.get("team1_name") or "")
+            rosters.get(event_id, ()), team_a_id, team_a_name
         )
         players_b = _roster_for_side(
-            rosters.get(event_id, ()), team_b_id, str(row.get("team2_name") or "")
+            rosters.get(event_id, ()), team_b_id, team_b_name
         )
+        if (not players_a or not players_b) and games_by_match.get(event_id):
+            g0 = games_by_match[event_id][0]
+            gt1_name = str(g0.get("team1_name") or "")
+            gt2_name = str(g0.get("team2_name") or "")
+            gt1_id = str(g0.get("team1_id") or "")
+            gt2_id = str(g0.get("team2_id") or "")
+            if gt1_id and gt2_id:
+                s_same = similarity(team_a_name, gt1_name) + similarity(team_b_name, gt2_name)
+                s_swap = similarity(team_a_name, gt2_name) + similarity(team_b_name, gt1_name)
+                if s_same >= s_swap:
+                    alt_a_id, alt_a_name = stable_team_id(gt1_id, gt1_name), gt1_name
+                    alt_b_id, alt_b_name = stable_team_id(gt2_id, gt2_name), gt2_name
+                else:
+                    alt_a_id, alt_a_name = stable_team_id(gt2_id, gt2_name), gt2_name
+                    alt_b_id, alt_b_name = stable_team_id(gt1_id, gt1_name), gt1_name
+                pa_alt = _roster_for_side(rosters.get(event_id, ()), alt_a_id, alt_a_name)
+                pb_alt = _roster_for_side(rosters.get(event_id, ()), alt_b_id, alt_b_name)
+                if pa_alt and pb_alt:
+                    team_a_id, team_a_name, players_a = alt_a_id, alt_a_name, pa_alt
+                    team_b_id, team_b_name, players_b = alt_b_id, alt_b_name, pb_alt
         if not players_a or not players_b:
             continue
         scores = _scores_for_match(
             event_id,
             team_a_id,
-            str(row.get("team1_name") or team_a_id),
+            team_a_name,
             games_by_match.get(event_id, ()),
         )
         if not scores or sum(scores) * 2 == len(scores):
@@ -357,8 +379,8 @@ def load_matches(*, from_date: str | None = None, until_date: str | None = None)
                 competition=competition,
                 team_a_id=team_a_id,
                 team_b_id=team_b_id,
-                team_a_name=str(row.get("team1_name") or team_a_id),
-                team_b_name=str(row.get("team2_name") or team_b_id),
+                team_a_name=team_a_name,
+                team_b_name=team_b_name,
                 players_a=players_a,
                 players_b=players_b,
                 scores=scores,

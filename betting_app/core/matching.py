@@ -168,6 +168,13 @@ def normalize_team_name(name: str) -> str:
     return " ".join(tokens).strip()
 
 
+
+def stable_team_id(team_id: object, team_name: object) -> str:
+    """Return stable team identifier used by historical ratings and features."""
+    if team_id is not None and str(team_id).strip():
+        return str(team_id).strip()
+    return normalize_team_name(str(team_name or ""))
+
 def similarity(left: str, right: str) -> float:
     """Return normalized fuzzy similarity in [0, 1]."""
 

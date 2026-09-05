@@ -70,6 +70,7 @@
 }
 
 .rankings-entity-tabs,
+.rankings-scope-tabs,
 .rankings-system-list {
   display: flex;
   flex-wrap: wrap;
@@ -77,11 +78,17 @@
 }
 
 .rankings-entity-tabs {
-  padding-bottom: 0.9rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.rankings-scope-tabs {
+  padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--border);
 }
 
 .rankings-entity-tabs button,
+.rankings-scope-tabs button,
 .rankings-system-list button {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -94,22 +101,24 @@
   transition: border-color 0.18s, background 0.18s, color 0.18s, transform 0.18s;
 }
 
-.rankings-entity-tabs button {
+.rankings-entity-tabs button,
+.rankings-scope-tabs button {
   min-width: 120px;
   padding: 0.58rem 0.9rem;
 }
-
 .rankings-system-list button {
   padding: 0.45rem 0.72rem;
 }
 
 .rankings-entity-tabs button:hover,
+.rankings-scope-tabs button:hover,
 .rankings-system-list button:hover {
   color: var(--text);
   border-color: rgba(56, 189, 248, 0.45);
 }
 
 .rankings-entity-tabs button.active,
+.rankings-scope-tabs button.active,
 .rankings-system-list button.active {
   border-color: var(--accent);
   background: var(--accent);
@@ -118,6 +127,7 @@
 }
 
 .rankings-entity-tabs button:active,
+.rankings-scope-tabs button:active,
 .rankings-system-list button:active {
   transform: translateY(1px);
 }

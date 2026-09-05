@@ -83,7 +83,7 @@ def test_rankings_empty_without_completed_run(client: TestClient) -> None:
         "rating_system": "unified",
         "ratings_version": None,
         "active_since": None,
-        "squad_scope": "main",
+        "squad_scope": "major",
         "data_cutoff_at": None,
         "snapshot_at": None,
         "total": 0,
@@ -234,3 +234,74 @@ def test_rankings_prefer_regional_snapshot_and_expose_region(client: TestClient)
     assert data["rankings"][0]["region_tier"] == "major"
     assert data["rankings"][0]["regional_offset"] == 25.0
     assert data["rankings"][0]["regional_uncertainty"] == 10.0
+
+
+def test_rankings_scope_major_vs_regional_academy(client: TestClient) -> None:
+    with get_session() as session:
+        session.execute(
+            text(
+                """
+                INSERT INTO rating_runs(
+                    id, ratings_version, data_cutoff_at, started_at, finished_at,
+                    status, matches_processed, games_processed, players_processed
+                ) VALUES (
+                    10, 'ratings-v2', '2026-09-01T00:00:00+00:00',
+                    '2026-09-01T00:00:00+00:00', '2026-09-01T00:05:00+00:00',
+                    'completed', 50, 100, 250
+                )
+                """
+            )
+        )
+        session.execute(
+            text(
+                """
+                INSERT INTO entity_ratings(
+                    rating_run_id, ratings_version, snapshot_at, entity_type,
+                    entity_name, normalized_entity_name, team_name, role,
+                    rating_system, rating_value, rd, sigma, games_played,
+                    last_match_at, state_json
+                ) VALUES
+                    (10, 'ratings-v2', '2026-09-01T00:05:00+00:00', 'team',
+                     'T1', 't1', 'T1', NULL, 'gl', 1850.0, 70.0, 0.05, 50, '2026-08-30',
+                     '{"family":"LCK","tier":"major","offset": 20.0,"location_variance": 50.0}'),
+                    (10, 'ratings-v2', '2026-09-01T00:05:00+00:00', 'team',
+                     'Gen.G', 'gen g', 'Gen.G', NULL, 'gl', 1880.0, 65.0, 0.05, 45, '2026-08-31',
+                     '{"family":"LCK","tier":"major","offset": 20.0,"location_variance": 50.0}'),
+                    (10, 'ratings-v2', '2026-09-01T00:05:00+00:00', 'team',
+                     'Karmine Corp Blue', 'karmine corp blue', 'Karmine Corp Blue', NULL, 'gl', 1650.0, 75.0, 0.06, 40, '2026-08-25',
+                     '{"family":"LFL","tier":"regional","offset": -10.0,"location_variance": 80.0}'),
+                    (10, 'ratings-v2', '2026-09-01T00:05:00+00:00', 'team',
+                     'T1 Esports Academy', 't1 academy', 'T1 Esports Academy', NULL, 'gl', 1600.0, 80.0, 0.06, 35, '2026-08-20',
+                     '{"family":"LCK CL","tier":"development","offset": -30.0,"location_variance": 100.0}')
+                """
+            )
+        )
+        session.commit()
+
+    # Major (default)
+    major_resp = client.get("/rankings", params={"entity_type": "team", "rating_system": "gl", "squad_scope": "major"})
+    assert major_resp.status_code == 200
+    assert [r["entity_name"] for r in major_resp.json()["rankings"]] == ["Gen.G", "T1"]
+
+    # Regional & Academy
+    reg_acad_resp = client.get("/rankings", params={"entity_type": "team", "rating_system": "gl", "squad_scope": "regional_academy"})
+    assert reg_acad_resp.status_code == 200
+    assert [r["entity_name"] for r in reg_acad_resp.json()["rankings"]] == ["Karmine Corp Blue", "T1 Esports Academy"]
+
+    # Regional only
+    reg_resp = client.get("/rankings", params={"entity_type": "team", "rating_system": "gl", "squad_scope": "regional"})
+    assert reg_resp.status_code == 200
+    assert [r["entity_name"] for r in reg_resp.json()["rankings"]] == ["Karmine Corp Blue"]
+
+    # Development only
+    dev_resp = client.get("/rankings", params={"entity_type": "team", "rating_system": "gl", "squad_scope": "development"})
+    assert dev_resp.status_code == 200
+    assert [r["entity_name"] for r in dev_resp.json()["rankings"]] == ["T1 Esports Academy"]
+
+    # All
+    all_resp = client.get("/rankings", params={"entity_type": "team", "rating_system": "gl", "squad_scope": "all"})
+    assert all_resp.status_code == 200
+    assert len(all_resp.json()["rankings"]) == 4
+    assert {r["entity_name"] for r in all_resp.json()["rankings"]} == {
+        "Gen.G", "T1", "Karmine Corp Blue", "T1 Esports Academy"
+    }

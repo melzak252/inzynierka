@@ -12,14 +12,28 @@ from fastapi import APIRouter, Depends, Query
 
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import RankingEntry, RankingsResponse
+from betting_app.core.db import is_sqlite
 from betting_app.services.rating_contract import OPERATIONAL_RATINGS_VERSION
 
 router = APIRouter(tags=["rankings"])
 
 RatingSystem = Literal["unified", "elo", "gl", "ts", "os", "pl", "tm"]
 EntityType = Literal["team", "player"]
-SquadScope = Literal["main", "development", "all"]
+SquadScope = Literal["major", "regional_academy", "regional", "development", "all", "main"]
 
+
+def _tier_sql_expr(db) -> str:
+    bind = getattr(db, "bind", None)
+    if bind is None and hasattr(db, "get_bind"):
+        try:
+            bind = db.get_bind()
+        except Exception:
+            bind = None
+    dialect = getattr(bind, "dialect", None)
+    dialect_name = getattr(dialect, "name", None) or ("sqlite" if is_sqlite() else "postgresql")
+    if dialect_name == "sqlite":
+        return "json_extract(state_json, '$.tier')"
+    return "(state_json::json->>'tier')"
 
 def _subtract_months(value: date, months: int) -> date:
     target_index = value.year * 12 + value.month - 1 - months
@@ -84,7 +98,7 @@ def get_rankings(
     search: str | None = Query(default=None, max_length=100),
     min_games: int = Query(default=1, ge=0, le=10_000),
     active_within_months: int = Query(default=6, ge=0, le=120),
-    squad_scope: SquadScope = "main",
+    squad_scope: SquadScope = "major",
     limit: int = Query(default=100, ge=1, le=500),
     db=Depends(get_db),
 ) -> RankingsResponse:
@@ -138,8 +152,10 @@ def get_rankings(
     if active_since is not None:
         cohort_filter += " AND last_match_at IS NOT NULL AND SUBSTR(last_match_at, 1, 10) >= :active_since"
         params["active_since"] = active_since.isoformat()
-    if squad_scope != "all":
-        development_label = """
+    has_gl_system = "gl" in available_rating_systems
+    tier_expr = _tier_sql_expr(db)
+    development_label = """
+        (
             LOWER(
                 CASE
                     WHEN entity_type = 'team' THEN entity_name
@@ -170,8 +186,72 @@ def get_rankings(
                     ELSE COALESCE(team_name, '')
                 END
             ) LIKE '%development%'
-        """
-        cohort_filter += f" AND {'(' if squad_scope == 'development' else 'NOT ('}{development_label})"
+        )
+    """
+
+    if squad_scope in ("major", "main"):
+        if has_gl_system:
+            cohort_filter += f"""
+                AND normalized_entity_name IN (
+                    SELECT normalized_entity_name
+                    FROM entity_ratings
+                    WHERE ratings_version = :ratings_version
+                      AND entity_type = :entity_type
+                      AND rating_system = 'gl'
+                      AND {tier_expr} = 'major'
+                )
+            """
+        else:
+            cohort_filter += f" AND NOT {development_label}"
+    elif squad_scope == "regional_academy":
+        if has_gl_system:
+            cohort_filter += f"""
+                AND (
+                    normalized_entity_name IN (
+                        SELECT normalized_entity_name
+                        FROM entity_ratings
+                        WHERE ratings_version = :ratings_version
+                          AND entity_type = :entity_type
+                          AND rating_system = 'gl'
+                          AND {tier_expr} IN ('regional', 'development')
+                    )
+                    OR {development_label}
+                )
+            """
+        else:
+            cohort_filter += f" AND {development_label}"
+    elif squad_scope == "regional":
+        if has_gl_system:
+            cohort_filter += f"""
+                AND normalized_entity_name IN (
+                    SELECT normalized_entity_name
+                    FROM entity_ratings
+                    WHERE ratings_version = :ratings_version
+                      AND entity_type = :entity_type
+                      AND rating_system = 'gl'
+                      AND {tier_expr} = 'regional'
+                )
+                AND NOT {development_label}
+            """
+        else:
+            cohort_filter += f" AND NOT {development_label}"
+    elif squad_scope == "development":
+        if has_gl_system:
+            cohort_filter += f"""
+                AND (
+                    normalized_entity_name IN (
+                        SELECT normalized_entity_name
+                        FROM entity_ratings
+                        WHERE ratings_version = :ratings_version
+                          AND entity_type = :entity_type
+                          AND rating_system = 'gl'
+                          AND {tier_expr} = 'development'
+                    )
+                    OR {development_label}
+                )
+            """
+        else:
+            cohort_filter += f" AND {development_label}"
     normalized_search = (search or "").strip().lower()
     search_filter = ""
     if normalized_search:

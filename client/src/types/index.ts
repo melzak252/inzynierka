@@ -807,7 +807,7 @@ export interface FinancialAnalysisResponse {
 // Team and player rankings
 export type RankingEntityType = 'team' | 'player';
 export type RatingSystem = 'unified' | 'elo' | 'gl' | 'ts' | 'os' | 'pl' | 'tm';
-export type RankingSquadScope = 'main' | 'development' | 'all';
+export type RankingSquadScope = 'major' | 'regional_academy' | 'regional' | 'main' | 'development' | 'all';
 
 export interface RankingEntry {
   rank: number;

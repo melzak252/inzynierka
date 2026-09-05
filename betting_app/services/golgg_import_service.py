@@ -8,7 +8,7 @@ from typing import Any
 
 from betting_app.core.config import PROJECT_ROOT
 from betting_app.core.db import transaction
-from betting_app.core.matching import normalize_team_name
+from betting_app.core.matching import normalize_team_name, similarity
 from src.utils import golgg_schema
 
 
@@ -68,10 +68,24 @@ def import_golgg_batch(matches: list[dict[str, Any]]) -> dict[str, int]:
                     date = excluded.date,
                     tournament_name = excluded.tournament_name,
                     patch = excluded.patch,
-                    team1_name = excluded.team1_name,
-                    team2_name = excluded.team2_name,
-                    team1_id = excluded.team1_id,
-                    team2_id = excluded.team2_id,
+                    team1_name = CASE
+                        WHEN excluded.team1_id IS NOT NULL AND excluded.team1_id != '' THEN excluded.team1_name
+                        WHEN golgg_matches.team1_id IS NOT NULL AND golgg_matches.team1_id != '' THEN golgg_matches.team1_name
+                        ELSE COALESCE(NULLIF(excluded.team1_name, ''), golgg_matches.team1_name)
+                    END,
+                    team2_name = CASE
+                        WHEN excluded.team2_id IS NOT NULL AND excluded.team2_id != '' THEN excluded.team2_name
+                        WHEN golgg_matches.team2_id IS NOT NULL AND golgg_matches.team2_id != '' THEN golgg_matches.team2_name
+                        ELSE COALESCE(NULLIF(excluded.team2_name, ''), golgg_matches.team2_name)
+                    END,
+                    team1_id = CASE
+                        WHEN excluded.team1_id IS NOT NULL AND excluded.team1_id != '' THEN excluded.team1_id
+                        ELSE golgg_matches.team1_id
+                    END,
+                    team2_id = CASE
+                        WHEN excluded.team2_id IS NOT NULL AND excluded.team2_id != '' THEN excluded.team2_id
+                        ELSE golgg_matches.team2_id
+                    END,
                     team1_score = excluded.team1_score,
                     team2_score = excluded.team2_score,
                     team1_win = excluded.team1_win,
@@ -128,6 +142,41 @@ def import_golgg_batch(matches: list[dict[str, Any]]) -> dict[str, int]:
                 stats["teams"] += upsert_golgg_team(connection, game.get("t1_name"), game.get("date"))
                 stats["teams"] += upsert_golgg_team(connection, game.get("t2_name"), game.get("date"))
                 stats["players"] += upsert_game_players(connection, game, match_id, game_id)
+
+            games = [g for g in (match.get("games") or []) if isinstance(g, dict) and g.get("game_id")]
+            if games:
+                g0 = games[0]
+                g_t1_id = str(g0.get("team1_id") or g0.get("t1_id") or "").strip()
+                g_t2_id = str(g0.get("team2_id") or g0.get("t2_id") or "").strip()
+                g_t1_name = str(g0.get("team1_name") or g0.get("t1_name") or "").strip()
+                g_t2_name = str(g0.get("team2_name") or g0.get("t2_name") or "").strip()
+                if g_t1_id and g_t2_id:
+                    m_t1 = str(match.get("sname_t1") or match.get("team1_name") or "")
+                    m_t2 = str(match.get("sname_t2") or match.get("team2_name") or "")
+                    s_same = similarity(m_t1, g_t1_name) + similarity(m_t2, g_t2_name)
+                    s_swap = similarity(m_t1, g_t2_name) + similarity(m_t2, g_t1_name)
+                    if s_same >= s_swap:
+                        res_t1_name, res_t1_id = g_t1_name, g_t1_id
+                        res_t2_name, res_t2_id = g_t2_name, g_t2_id
+                    else:
+                        res_t1_name, res_t1_id = g_t2_name, g_t2_id
+                        res_t2_name, res_t2_id = g_t1_name, g_t1_id
+                    connection.execute(
+                        """
+                        UPDATE golgg_matches
+                        SET team1_name = :t1_name, team1_id = :t1_id,
+                            team2_name = :t2_name, team2_id = :t2_id
+                        WHERE match_id = :mid
+                          AND (team1_id IS NULL OR team1_id = '' OR team2_id IS NULL OR team2_id = '')
+                        """,
+                        {
+                            "mid": match_id,
+                            "t1_name": res_t1_name,
+                            "t1_id": res_t1_id,
+                            "t2_name": res_t2_name,
+                            "t2_id": res_t2_id,
+                        },
+                    )
     return stats
 
 

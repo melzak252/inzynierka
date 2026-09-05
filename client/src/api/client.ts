@@ -165,7 +165,7 @@ export async function fetchRankings(options: {
     rating_system: options.ratingSystem,
     min_games: String(options.minGames ?? 1),
     active_within_months: String(options.activeWithinMonths ?? 6),
-    squad_scope: options.squadScope ?? 'main',
+    squad_scope: options.squadScope ?? 'major',
     limit: String(options.limit ?? 100),
   });
   if (options.search?.trim()) params.set('search', options.search.trim());

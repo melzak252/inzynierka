@@ -52,7 +52,7 @@ export default function Rankings() {
   const [ratingSystem, setRatingSystem] = useState<RatingSystem>('unified')
   const [minGames, setMinGames] = useState(10)
   const [activeMonths, setActiveMonths] = useState(6)
-  const [squadScope, setSquadScope] = useState<RankingSquadScope>('main')
+  const [squadScope, setSquadScope] = useState<RankingSquadScope>('major')
   const [query, setQuery] = useState('')
   const [appliedQuery, setAppliedQuery] = useState('')
   const [data, setData] = useState<RankingsResponse | null>(null)
@@ -135,6 +135,36 @@ export default function Rankings() {
           <button type="button" role="tab" aria-selected={entityType === 'player'} className={entityType === 'player' ? 'active' : ''} onClick={() => switchEntity('player')}>Zawodnicy</button>
         </div>
 
+        <div className="rankings-scope-tabs" role="tablist" aria-label="Poziom rozgrywek">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={squadScope === 'major' || squadScope === 'main'}
+            className={squadScope === 'major' || squadScope === 'main' ? 'active' : ''}
+            onClick={() => setSquadScope('major')}
+          >
+            Ligi Major (Tier 1)
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={squadScope === 'regional_academy'}
+            className={squadScope === 'regional_academy' ? 'active' : ''}
+            onClick={() => setSquadScope('regional_academy')}
+          >
+            Regionalne i Akademie
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={squadScope === 'all'}
+            className={squadScope === 'all' ? 'active' : ''}
+            onClick={() => setSquadScope('all')}
+          >
+            Wszystkie ligi
+          </button>
+        </div>
+
         <div className="rankings-system-list" aria-label="System ratingowy">
           {RATING_SYSTEMS.map(item => (
             <button
@@ -170,10 +200,12 @@ export default function Rankings() {
             </select>
           </label>
           <label>
-            <span>Typ składu</span>
+            <span>Poziom rozgrywek</span>
             <select value={squadScope} onChange={event => setSquadScope(event.target.value as RankingSquadScope)}>
-              <option value="main">Główne składy</option>
-              <option value="development">Academy / Challengers</option>
+              <option value="major">Ligi Major (Tier 1)</option>
+              <option value="regional_academy">Regionalne / Akademie</option>
+              <option value="regional">Tylko Ligi Regionalne (ERL)</option>
+              <option value="development">Tylko Akademie / Challengers</option>
               <option value="all">Wszystkie</option>
             </select>
           </label>
@@ -201,7 +233,12 @@ export default function Rankings() {
             <article>
               <span>Zakwalifikowani</span>
               <strong>{data.total.toLocaleString('pl-PL')}</strong>
-              <small>min. {minGames} gier · {activeMonths ? `${activeMonths} mies.` : 'cała historia'} · {squadScope === 'main' ? 'główne' : squadScope === 'development' ? 'rozwojowe' : 'wszystkie'}</small>
+              <small>min. {minGames} gier · {activeMonths ? `${activeMonths} mies.` : 'cała historia'} · {
+                squadScope === 'major' || squadScope === 'main' ? 'ligi major' :
+                squadScope === 'regional_academy' ? 'regionalne i akademie' :
+                squadScope === 'regional' ? 'ligi regionalne' :
+                squadScope === 'development' ? 'akademie' : 'wszystkie'
+              }</small>
             </article>
             <article>
               <span>System</span>
@@ -265,7 +302,7 @@ export default function Rankings() {
             </div>
           </section>
 
-          <p className="rankings-footnote">Domyślnie widoczne są główne składy aktywne w ciągu sześciu miesięcy od cutoffu snapshotu. Jawnie oznaczone Academy, Challengers, Youth, Junior i Development mają osobną kohortę; nie są sztucznie obniżane ani łączone z głównym składem. Unified zamienia pozycję w każdym systemie na percentyl 0–100 i uśrednia tylko kompletne wpisy.</p>
+          <p className="rankings-footnote">Domyślnie widoczne są czołowe ligi Major (LCK, LPL, LEC, LCS/LTA) aktywne w wybranym oknie czasowym. Osobna kategoria obejmuje ligi regionalne (ERL) oraz składy i turnieje rozwojowe (Academy, Challengers), co zapobiega mieszaniu poziomów rozgrywek. Unified zamienia pozycję w każdym systemie na percentyl 0–100 i uśrednia tylko kompletne wpisy.</p>
         </>
       )}
     </div>
