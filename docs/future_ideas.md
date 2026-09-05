@@ -411,3 +411,119 @@ Furthermore, in Bo3/Bo5 series, Team A (the canonical home team / higher seed) r
 
 - `data/golgg_matches.json`
 - `docs/03_methodology/01_research_design.md`
+
+---
+
+## IDEA-018 — In-game prop prediction models (total kills, game duration, objectives)
+
+- **Status:** proposed
+- **Created:** 2026-09-05
+- **Updated:** 2026-09-05
+
+### Problem
+
+The application currently models pre-match winner probabilities (moneyline) for professional League of Legends. Match-winner markets are heavily arbitraged by bookmakers against global liquid exchanges (e.g. Pinnacle, Betfair), leaving narrow margins and requiring high precision to overcome the 12% Polish turnover tax.
+
+In contrast, secondary in-game prop markets—such as **Over/Under Total Kills**, **Over/Under Game Duration**, and **First Objective (Dragon/Baron/Tower/Blood)**—are frequently priced by sportsbooks using simplified league-wide averages or static provider heuristics. These markets exhibit higher variance but also substantially wider model-vs-market mispricings (edge).
+
+### Evidence
+
+- GOL.GG exports contain granular match records with exact `gameDuration`, team kills, deaths, gold differentials at 15m (`GD@15`), and first objective flags.
+- Bookmaker analysis shows Polish bookmakers (STS, Fortuna, Betclic, Superbet) offer lines on map totals (e.g. 26.5 kills, 31.5 min duration) with wider pricing variance across books than moneyline markets.
+
+### Non-goals
+
+- Do not modify or replace the frozen thesis model (`Sym-Cal LR-ElasticNet-W20-Binomial` / `exp-039`).
+- Do not use in-game or live statistics to generate pre-match predictions; temporal integrity strictly requires using data completed before kickoff.
+- Do not place bets automatically; the application remains an analytical intelligence tool.
+
+### Modeling methodology
+
+1. **Total Kills (Map Kill Totals):**
+   - Target: Count data ($y \in \mathbb{N}_0$) with overdispersion ($\text{Var}(Y) > \mathbb{E}[Y]$).
+   - Model: **Negative Binomial regression (NegBin)** or **Bivariate Poisson** to independently estimate Team A and Team B kill distributions and compute $P(\text{Kills} > L)$.
+2. **Game Duration (Map Length):**
+   - Target: Strictly positive, continuous, right-skewed ($y \in \mathbb{R}^+$).
+   - Model: **Generalized Linear Model (GLM) with Gamma family (log link)** or **Weibull duration model** to compute $P(\text{Duration} > D)$.
+3. **First Objectives (First Blood, Dragon, Tower):**
+   - Target: Binary outcome ($y \in \{0, 1\}$).
+   - Model: Calibrated Logistic Regression based on early-game pace features (`GD@15`, `FB%`, `FT%`).
+
+### Feature engineering contract
+
+- Matchup disparity ($\Delta \text{Rating}$ and win probability from existing rating models).
+- Team pace and style vectors from GOL.GG $W20$ rolling windows (`CKPM`, `AGD`, `KPM`, `DPM`, `GD@15`).
+- Regional and league pace baselines (e.g. LPL aggressive tempo vs LCK macro control).
+- Patch and meta pace shifts.
+
+### Prerequisites and open decisions
+
+- Scrapers in `betting_app/scrapers/` currently extract only moneyline (1-2) odds. Scrapers must be extended to parse map-specific tabs and extract lines and odds for Over/Under totals.
+- Polish 12% turnover tax requires $\approx 61.4\%$ accuracy on standard 1.85 / 1.85 lines to break even; selective EV thresholds are mandatory.
+
+### Implementation outline
+
+1. Phase 1: Exploratory data analysis (EDA) on historical GOL.GG duration and kill distributions.
+2. Phase 2: Offline model training (Gamma GLM for duration, Negative Binomial for kills) and backtesting against synthetic lines.
+3. Phase 3: Extension of STS and Betclic scrapers to collect prop lines and odds.
+4. Phase 4: Integration into the API and match detail UI (`MatchDetail.tsx`).
+
+### Affected areas
+
+- `ideas/IDEA-018_in_game_prop_prediction_models.md`
+- `betting_app/scrapers/`
+- `betting_app/ml/`
+- `client/src/pages/MatchDetail.tsx`
+
+### References
+
+- `data/golgg_matches.json`
+- `ideas/IDEA-018_in_game_prop_prediction_models.md`
+
+---
+
+## IDEA-019 — Tax-amortized two-leg favorite parlay recommender (Safe Dubel)
+
+- **Status:** proposed
+- **Created:** 2026-09-05
+- **Updated:** 2026-09-05
+
+### Problem
+
+In the Polish regulated market, bookmakers deduct a mandatory 12% turnover tax on stakes. For single bets on favorites (odds 1.35–2.10), this creates a steep hurdle requiring a +13.64% gross model edge to break even. In historical backtests on 201 verified opening lines, single bets on favorites achieved an empirical win rate of 73.9%, but net ROI was throttled to +11.01%.
+
+### Opportunity
+
+In accumulator (AKO) bets, the 12% turnover tax is paid only once on the coupon stake. Compounding gross odds rather than net odds amortizes the tax impact, reducing the required gross edge per leg to +6.60% (for 2 legs) and +4.35% (for 3 legs).
+
+### Empirical evidence
+
+Backtesting 2-leg parlays against single bets on 201 historical matches with 12% tax (`reports/exp039_db_market_backtest_v3_corrected/roi_benchmark_ev5/ledger_open_poland_tax_12.csv`):
+- **Single Favorites (odds <= 2.20):** N=69, Win Rate 73.9%, Profit +75.95 PLN, **ROI +11.01%**, Max Drawdown -60 PLN.
+- **2-Leg Favorite Parlays (odds <= 2.20):** N=34, Win Rate 52.9%, Avg Odds 3.01, Profit +122.29 PLN, **ROI +35.97%**, Max Drawdown **-30 PLN**, Max Losing Streak 3.
+- **Underdog Parlays (odds > 2.20):** Win Rate collapsed to 10.6%–16.0% with severe drawdowns (-188 PLN) and 12 consecutive losses, proving parlays must be strictly limited to favorites.
+
+### Non-goals and boundaries
+
+- Do not automate bet placement.
+- Limit strictly to 2-leg parlays (no 3+ leg "taśmy").
+- Restrict candidate legs to favorites (`entry_odds <= 2.20` and `model_probability >= 0.55`).
+- Ensure both selections are offered by the same bookmaker.
+
+### Implementation outline
+
+1. Engine: `betting_app/services/parlay_service.py` pairing non-overlapping same-bookmaker favorite bets.
+2. API: `GET /matches/recommendations/parlays`.
+3. UI: Dedicated "Rekomendowany Dubel Dnia" card in `client/src/pages/MatchList.tsx`.
+
+### Affected areas
+
+- `ideas/IDEA-019_tax_amortized_favorite_parlays.md`
+- `betting_app/services/`
+- `betting_app/api/routers/matches.py`
+- `client/src/pages/MatchList.tsx`
+
+### References
+
+- `reports/exp039_db_market_backtest_v3_corrected/roi_benchmark_ev5/ledger_open_poland_tax_12.csv`
+- `ideas/IDEA-019_tax_amortized_favorite_parlays.md`

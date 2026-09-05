@@ -260,6 +260,15 @@ def register_all_tasks():
         description="Sync Best-of formats and active team rosters from Liquipedia",
         enabled=True
     ))
+    # Team roster verification (LoL Fandom / Liquipedia) - runs daily at 05:15 UTC
+    registry.register(TaskDefinition(
+        id="verify_team_rosters_daily",
+        name="Team Roster Verification (Fandom / Liquipedia)",
+        func=maintenance.verify_team_rosters_task,
+        cron_trigger="15 5 * * *",  # Daily 05:15 UTC
+        description="Verify and update active 5-man team rosters from LoL Fandom (Leaguepedia) and Liquipedia",
+        enabled=True,
+    ))
     # OddsPapi fixture sync - runs every 3 days (1 request per run, ~10 requests/month)
     registry.register(TaskDefinition(
         id="oddspapi_fixture_sync",

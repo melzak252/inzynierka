@@ -23,8 +23,9 @@ def upsert_current_roster(
     source_game_id: str | None = None,
     source_match_date: str | None = None,
     team_id: str | None = None,
+    force: bool = False,
 ) -> bool:
-    """Replace a complete role roster if its source is newer than stored data.
+    """Replace a complete role roster if its source is newer than stored data (or force=True).
 
     A manual confirmation is timestamped at confirmation time, so delayed
     historical imports cannot undo it.  A genuinely later GOL.GG match does
@@ -53,7 +54,7 @@ def upsert_current_roster(
         ),
         {"normalized": normalized},
     ).mappings().first()
-    if current and current.get("source_match_date") and str(current["source_match_date"]) > stamp:
+    if not force and current and current.get("source_match_date") and str(current["source_match_date"]) > stamp:
         return False
 
     now = datetime.now(UTC).isoformat()

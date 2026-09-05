@@ -202,3 +202,22 @@ def run_heavy_cycle() -> dict:
         "duration_s": duration,
         "error": f"Heavy maintenance step failed: {failed_step}" if failed_step else None,
     }
+
+
+def verify_team_rosters_task(source: str = "auto", force: bool = False) -> dict:
+    """Verify and update active team rosters from LoL Fandom and Liquipedia."""
+    logger.info("Starting team roster verification task (source=%s, force=%s)", source, force)
+    start = datetime.now(UTC)
+
+    args = ["--source", source]
+    if force:
+        args.append("--force")
+
+    success = _run_module(
+        "betting_app.scripts.verify_and_sync_team_rosters",
+        args=args,
+        timeout=300,
+    )
+    duration = (datetime.now(UTC) - start).total_seconds()
+    logger.info("Team roster verification task: %s (%.1fs)", "OK" if success else "FAIL", duration)
+    return {"success": success, "duration_s": duration, "source": source}

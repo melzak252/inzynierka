@@ -5,9 +5,10 @@ Compatible with SQLite and PostgreSQL.
 """
 
 from __future__ import annotations
-
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 import json
+import pandas as pd
 import math
 import os
 import re
@@ -56,7 +57,10 @@ from betting_app.api.schemas import (
     MappingReviewResponse,
     MatchRosterOverrideRequest,
     MatchRosterOverrideResponse,
+    RosterVerificationRequest,
+    RosterStatusResponse,
 )
+from betting_app.services.roster_verification_service import RosterVerificationService
 from betting_app.services.canonical_match_service import align_snapshot_odds, competition_family
 from betting_app.core.ev import fair_market_probabilities
 from betting_app.services.market_service import (
@@ -1214,6 +1218,107 @@ def delete_alias_endpoint(body: AliasDeleteRequest, db=Depends(get_db)):
     if not deleted:
         raise HTTPException(status_code=404, detail="No manual alias found for that team")
     return {"ok": True, "deleted": True}
+
+# ── GET /matches/rosters/status & POST /matches/rosters/verify ───────────────
+
+
+@router.get("/rosters/status", response_model=RosterStatusResponse)
+def get_rosters_status(db=Depends(get_db)):
+    """Return the verification status of rosters for all upcoming matches."""
+    from betting_app.core.matching import normalize_team_name
+
+    try:
+        matches = query_df(
+            db,
+            """
+            SELECT id, team_a_name, team_b_name
+            FROM canonical_matches
+            WHERE status = 'upcoming'
+            ORDER BY start_time_normalized ASC
+            """,
+        )
+    except Exception:
+        matches = []
+    if not matches:
+        return RosterStatusResponse(
+            upcoming_matches_count=0,
+            total_teams=0,
+            teams_with_roster=0,
+            teams_missing_roster=0,
+            source_counts={},
+            teams_missing=[],
+            teams_verified=[],
+        )
+
+    unique_teams = sorted({
+        name for col in ("team_a_name", "team_b_name")
+        for name in [m.get(col) for m in matches]
+        if name and str(name).strip()
+    })
+
+    try:
+        roster_rows = query_df(
+            db,
+            """
+            SELECT normalized_team_name, team_name, role, source, updated_at
+            FROM team_current_roster_players
+            """,
+        )
+    except Exception:
+        roster_rows = []
+
+    by_norm_team: dict[str, list[dict]] = defaultdict(list)
+    for r in roster_rows:
+        by_norm_team[str(r.get("normalized_team_name") or "")].append(r)
+
+    teams_with_roster = 0
+    teams_missing: list[str] = []
+    source_counts: dict[str, int] = defaultdict(int)
+    teams_verified: list[dict[str, Any]] = []
+
+    for t in unique_teams:
+        norm = normalize_team_name(t)
+        p_list = by_norm_team.get(norm, [])
+        roles = {str(p.get("role") or "").upper() for p in p_list}
+        if len(roles.intersection({"TOP", "JUNGLE", "MID", "ADC", "SUPPORT"})) == 5:
+            teams_with_roster += 1
+            first = p_list[0]
+            src = str(first.get("source") or "auto")
+            source_counts[src] += 1
+            teams_verified.append({
+                "team_name": t,
+                "normalized_team_name": norm,
+                "source": src,
+                "roles_count": len(roles),
+                "updated_at": str(first.get("updated_at") or ""),
+            })
+        else:
+            teams_missing.append(t)
+
+    return RosterStatusResponse(
+        upcoming_matches_count=len(matches),
+        total_teams=len(unique_teams),
+        teams_with_roster=teams_with_roster,
+        teams_missing_roster=len(teams_missing),
+        source_counts=dict(source_counts),
+        teams_missing=teams_missing,
+        teams_verified=teams_verified,
+    )
+
+
+@router.post("/rosters/verify")
+def verify_rosters_endpoint(body: RosterVerificationRequest = RosterVerificationRequest(), db=Depends(get_db)):
+    """Trigger online roster verification and sync against LoL Fandom & Liquipedia."""
+    service = RosterVerificationService()
+    summary = service.verify_and_sync_rosters(
+        team_names=body.team_names,
+        session=db,
+        source=body.source,
+        force=body.force,
+        dry_run=body.dry_run,
+        limit=body.limit,
+    )
+    return summary
 
 # ── GET /matches/active-teams — list current active teams with rosters ────────
 

@@ -465,13 +465,20 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
         if len(current) == 5 and len(set(current["role"].astype(str).str.upper())) == 5:
             rows = current.to_dict("records")
             first = rows[0]
+            source_val = str(first.get("source") or "")
+            source_tourn = (
+                "manual confirmation" if source_val == "manual"
+                else "LoL Fandom active roster" if source_val == "fandom"
+                else "Liquipedia active roster" if source_val == "liquipedia"
+                else "GOL.GG current roster"
+            )
             return {
                 "team_name": first.get("team_name") or team_name,
                 "source_match_id": first.get("source_match_id"),
                 "source_match_date": first.get("source_match_date"),
-                "source_tournament": "manual confirmation" if first.get("source") == "manual" else "GOL.GG current roster",
+                "source_tournament": source_tourn,
                 "source_game_id": first.get("source_game_id"),
-                "source": str(first.get("source") or "auto"),
+                "source": source_val or "auto",
                 "players": [
                     {"player_id": str(row.get("player_id") or ""), "player_name": row.get("player_name"), "role": row.get("role")}
                     for row in rows

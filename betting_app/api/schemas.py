@@ -165,6 +165,28 @@ class MatchRosterOverrideResponse(BaseModel):
     message: str
 
 
+
+class RosterVerificationRequest(BaseModel):
+    """Parameters for on-demand roster verification and sync."""
+
+    team_names: list[str] | None = Field(default=None, description="Optional list of team names. If None, checks upcoming matches.")
+    source: Literal["auto", "fandom", "liquipedia"] = Field(default="auto")
+    dry_run: bool = Field(default=False, description="If True, reports discrepancies without committing to DB")
+    force: bool = Field(default=False, description="If True, forces overwrite even if recent timestamp exists")
+    limit: int = Field(default=50, ge=1, le=200)
+
+
+class RosterStatusResponse(BaseModel):
+    """Status of upcoming match rosters in the system."""
+
+    upcoming_matches_count: int
+    total_teams: int
+    teams_with_roster: int
+    teams_missing_roster: int
+    source_counts: dict[str, int]
+    teams_missing: list[str]
+    teams_verified: list[dict[str, Any]] = []
+
 class TeamRecentStats(BaseModel):
     team_name: str | None = None
     matches_count: int | None = None
