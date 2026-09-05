@@ -132,7 +132,7 @@ def _dataset_hash(frame: pd.DataFrame) -> str:
 
 def build_candidate_dataset(min_date: str, limit: int | None = None) -> pd.DataFrame:
     """Build chronological dataset augmenting base features with Markov Series simulation."""
-    matches = load_backtest_matches(min_date=min_date, limit=limit)
+    matches = load_backtest_matches(after_date=min_date, limit=limit)
     if not matches:
         raise RuntimeError(f"No GOL.GG matches found on or after {min_date}")
 
