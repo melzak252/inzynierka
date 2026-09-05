@@ -528,3 +528,53 @@ Backtesting 2-leg parlays against single bets on 201 historical matches with 12%
 
 - `reports/exp039_db_market_backtest_v3_corrected/roi_benchmark_ev5/ledger_open_poland_tax_12.csv`
 - `ideas/IDEA-019_tax_amortized_favorite_parlays.md`
+
+---
+
+## IDEA-020 — Regional meta-ratings and cross-regional strength calibration (Meta-OpenSkill)
+
+- **Status:** proposed
+- **Created:** 2026-09-05
+- **Updated:** 2026-09-05
+
+### Problem
+
+Over 95% of professional League of Legends matches occur within isolated regional leagues (LCK, LPL, LEC, LCS, etc.). Standard single-scale rating systems (Elo, Glicko-2, TrueSkill, OpenSkill) suffer from regional rating inflation, where dominant teams in weaker regions accumulate ratings on par with elite LCK/LPL teams. At international events (MSI and Worlds), standard models systematically overestimate minor-region champions and underestimate major-region seeds.
+
+### Opportunity
+
+PandaScore's published research (*PandaSkill*, arXiv:2501.10049) addresses this with a two-level hierarchical Bayesian rating framework (Meta-OpenSkill). Domestic matches update only individual/team ratings, while inter-region matches update both domestic ratings and an explicit regional meta-rating ($\mu_{\text{meta}}, \sigma_{\text{meta}}$). The effective global skill is $\theta_{\text{global}} = \theta_{\text{local}} + \mu_{\text{meta}}(r)$. In the paper, Meta FFA OpenSkill boosted inter-region prediction accuracy from 64.79% to 70.07% (+5.28%) and cut ECE from 1.77% to 1.01%.
+
+### Empirical evidence
+
+Local PandaSkill experiments (`EXP-068` and `EXP-071`):
+- Standalone standard OpenSkill achieved LogLoss `0.6762` on 31,009 chronological matches (2020–2026).
+- Tuned Thurstone–Mosteller OpenSkill (`EXP-071`) significantly improved standalone FFA LogLoss from `0.6437` to `0.6387` ($p < 0.001$, CI $[-0.0078, -0.0016]$).
+- However, without regional meta-calibration, PandaSkill added zero incremental value to the EXP-039 metamodel ($\Delta \text{LogLoss} = +0.000063$, CI includes zero).
+- Meta-OpenSkill was explicitly ablated in local experiments due to the absence of an approved effective-dated tournament-to-region data contract.
+
+### Non-goals and boundaries
+
+- Do not hardcode static arbitrary multipliers (e.g. "LCK = 1.2x"); regional offsets must update dynamically from international outcomes.
+- Strictly enforce point-in-time regional league membership to prevent temporal lookahead.
+- Preserve the EXP-039 thesis freeze.
+
+### Implementation outline
+
+1. Contract: Define point-in-time tournament-to-region mapping (`src/ratings/regional_context.py`).
+2. Engine: Hierarchical Bayesian Meta-Rating extending `PandaSkillRating` in `src/ratings/pandaskill_rating.py` (`use_meta=True`).
+3. Evaluation: Chronological backtest on international cohorts (MSI, Worlds, Rift Rivals) measuring LogLoss, Brier score, ECE, and cross-league ranking concordance against uncalibrated baselines.
+
+### Affected areas
+
+- `ideas/IDEA-020_regional_meta_ratings_and_inter_region_calibration.md`
+- `src/ratings/pandaskill_rating.py`
+- `src/ratings/`
+- `betting_app/services/competition_service.py`
+
+### References
+
+- De Bois et al. (2025). *PandaSkill: Player Performance and Skill Rating in Esports*. arXiv:2501.10049.
+- `docs/04_experiments/EXP-068_pandaskill_history.md`
+- `docs/04_experiments/EXP-071_tuned_openskill_pandaskill.md`
+- `ideas/IDEA-020_regional_meta_ratings_and_inter_region_calibration.md`

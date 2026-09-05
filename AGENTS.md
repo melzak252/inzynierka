@@ -41,18 +41,29 @@ Primary operational entry points:
 ```text
 uvicorn betting_app.api.main:app
 python -m betting_app.scheduler
-python -m betting_app.scripts.run_upcoming_prediction_pipeline
-python -m betting_app.ml.pipelines.exp039_weekly_retrain
+python -m betting_app.scripts.run_upcoming_prediction_pipeline --include-partial --operational-hybrid
+python -m betting_app.scripts.rebuild_regional_ratings
+python -m betting_app.ml.pipelines.exp040_retrain_pipeline
 ```
 
-The final thesis model family is:
+## Model architecture & active contracts
 
-```text
-Sym-Cal LR-ElasticNet-W20-Binomial / exp-039
-```
+1. **Active operational prediction engine**:
+   - **Pure model**: `Operational-PlayerTeamRatings-W20` (`v0.4-binom-series`).
+     - Combines $70\%$ player rating consensus (Elo, Glicko-2 regional, TrueSkill, OpenSkill, Plackett–Luce, Thurstone–Mosteller for each 5-man roster), $20\%$ team rating consensus, and $10\%$ W20 rolling stats from GOL.GG.
+     - Evaluates map probabilities and computes series outcomes using binomial series simulation (`series_probability`).
+   - **Active betting hybrid**: `Hybrid-Operational-Market` (`v0.4-binom-series-a0.35-t0.80`).
+     - Blends operational model probabilities ($T=0.80, \alpha=0.35$) with consensus no-vig market closing line ($1-\alpha=0.65$).
+     - Powers the betting recommendations, EV signals, and live match boards.
+   - **Rating contract**: `ratings-v2` (`family-calibrated-glicko2-v1`), featuring regional offset projection and Bayesian shrinkage across international and regional leagues.
 
-`exp-039` is frozen. Retraining must create a new version; never overwrite the frozen artifact.
+2. **Historical thesis model (frozen baseline)**:
+   - `Sym-Cal LR-ElasticNet-W20-Binomial / exp-039`
+   - `exp-039` is frozen. Retained exclusively for retrospective, cohort-matched academic comparisons. Never overwrite or retrain this artifact.
 
+3. **Candidate successor architecture (EXP-040)**:
+   - `Hierarchical-Markov-VennAbers-EXP040` (`exp040-markov-va-v1`).
+   - Combines Venn–Abers conformal multi-probability calibration, hierarchical Markov series simulation with side rotation, and Conformal Risk Control ($P_{\text{low}}$ lower-bound gating under the $12\%$ Polish turnover tax).
 ## Read before editing
 
 Choose the relevant context rather than reading the entire repository:
