@@ -436,3 +436,52 @@
     width: 100%;
   }
 }
+
+/* ── Match Recommendation Bar ───────────────────────────────────────────── */
+.match-recommendation-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0, 230, 118, 0.08);
+  border: 1px solid rgba(0, 230, 118, 0.25);
+  border-radius: 8px;
+  padding: 0.35rem 0.75rem;
+  margin: 0.75rem 0 0.5rem 0;
+  font-size: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.match-recommendation-bar .rec-badge {
+  background: #00e676;
+  color: #0b1f14;
+  font-weight: 800;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+
+.match-recommendation-bar .rec-team {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.match-recommendation-bar .rec-odds {
+  font-weight: 800;
+  color: #00e676;
+}
+
+.match-recommendation-bar .rec-bm {
+  color: #a0a0cc;
+  font-size: 0.8rem;
+}
+
+.match-recommendation-bar .rec-ev {
+  margin-left: auto;
+  font-weight: 700;
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.15);
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.78rem;
+}

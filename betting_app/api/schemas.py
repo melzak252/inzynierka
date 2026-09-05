@@ -74,6 +74,11 @@ class MatchBoardItem(BaseModel):
     is_conformal_value_b: bool = False
     recommended_stake_a: float | None = None
     recommended_stake_b: float | None = None
+    recommended_side: str | None = None
+    recommended_team: str | None = None
+    recommended_bookmaker: str | None = None
+    recommended_odds: float | None = None
+    recommended_ev: float | None = None
 
     last_scraped_at: str | None = None
 
@@ -333,6 +338,43 @@ class MatchBestOfUpdate(BaseModel):
     best_of: int = Field(ge=1, le=7)
 
 
+class BettingRecommendation(BaseModel):
+    has_value: bool
+    verdict: str  # "value_bet" | "no_bet" | "unmapped" | "no_odds"
+    verdict_label: str
+    side: Literal["a", "b"] | None = None
+    recommended_team: str | None = None
+    opponent_team: str | None = None
+    bookmaker: str | None = None
+    best_odds: float | None = None
+    offer_url: str | None = None
+
+    # Probabilities
+    model_prob: float | None = None
+    hybrid_prob: float | None = None
+    market_prob: float | None = None
+
+    # Expected Value & Edge
+    ev: float | None = None
+    pure_model_ev: float | None = None
+    edge_percentage_points: float | None = None
+    min_odds_required: float | None = None
+
+    # Staking
+    half_kelly: float | None = None
+    quarter_kelly: float | None = None
+    suggested_stake_pct: float | None = None
+
+    # Conformal bounds (if available from Venn-Abers / EXP-040)
+    conformal_prob_low: float | None = None
+    conformal_ev: float | None = None
+    is_conformal_safe: bool = False
+
+    # Human-readable breakdown
+    summary: str
+    reasons: list[str] = []
+    threshold_info: str | None = None
+
 class MatchDetailResponse(BaseModel):
     canonical_match_id: int
     team_a_name: str | None = None
@@ -351,6 +393,7 @@ class MatchDetailResponse(BaseModel):
     recent_stats_a: TeamRecentStats | None = None
     recent_stats_b: TeamRecentStats | None = None
     team_comparison: TeamComparisonInfo | None = None
+    recommendation: BettingRecommendation | None = None
 
 
 # ── Odds history (line movement) ────────────────────────────────────────────

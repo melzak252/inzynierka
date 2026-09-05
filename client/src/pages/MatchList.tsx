@@ -219,6 +219,15 @@ export default function MatchList() {
                   </div>
                 </div>
               </div>
+              {m.recommended_side && m.recommended_ev && m.recommended_ev > 0 ? (
+                <div className="match-recommendation-bar">
+                  <span className="rec-badge">🎯 Typ</span>
+                  <span className="rec-team">{m.recommended_team}</span>
+                  {m.recommended_odds && <span className="rec-odds">@{m.recommended_odds.toFixed(2)}</span>}
+                  {m.recommended_bookmaker && <span className="rec-bm">w {m.recommended_bookmaker}</span>}
+                  <span className="rec-ev">EV +{(m.recommended_ev * 100).toFixed(1)}%</span>
+                </div>
+              ) : null}
 
               <div className="match-footer">
                 <span className="bookmakers">

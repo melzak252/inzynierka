@@ -1290,3 +1290,273 @@ section h2 {
     min-width: 640px;
   }
 }
+
+/* ── Recommendation Section (Co obstawiac) ─────────────────────────────────── */
+.recommendation-section {
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.recommendation-section.value-bet-card {
+  background: linear-gradient(135deg, rgba(16, 42, 34, 0.95) 0%, rgba(20, 32, 48, 0.95) 100%);
+  border: 1.5px solid #00e676;
+  box-shadow: 0 4px 24px rgba(0, 230, 118, 0.15);
+}
+
+.recommendation-section.no-bet-card {
+  background: #16162a;
+  border: 1px solid #2a2a4a;
+}
+
+.recommendation-section.unmapped-card {
+  background: rgba(45, 30, 15, 0.85);
+  border: 1px solid #ff9800;
+}
+
+.recommendation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.recommendation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.3px;
+}
+
+.recommendation-badge.value-badge {
+  background: rgba(0, 230, 118, 0.2);
+  color: #00e676;
+  border: 1px solid rgba(0, 230, 118, 0.4);
+}
+
+.recommendation-badge.no-bet-badge {
+  background: rgba(136, 136, 170, 0.15);
+  color: #a0a0cc;
+  border: 1px solid rgba(136, 136, 170, 0.3);
+}
+
+.recommendation-badge.unmapped-badge {
+  background: rgba(255, 152, 0, 0.2);
+  color: #ffb74d;
+  border: 1px solid rgba(255, 152, 0, 0.4);
+}
+
+.recommendation-summary-pill {
+  font-size: 0.82rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+}
+
+.recommendation-summary-pill.highlight {
+  background: rgba(0, 230, 118, 0.1);
+  color: #b9f6ca;
+  border: 1px solid rgba(0, 230, 118, 0.2);
+}
+
+.recommendation-summary-pill.neutral {
+  background: rgba(255, 255, 255, 0.05);
+  color: #8888aa;
+}
+
+.recommendation-main-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.recommendation-pick-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+}
+
+.pick-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #8888aa;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.25rem;
+}
+
+.pick-team {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.pick-sub {
+  font-size: 0.82rem;
+  color: #8888aa;
+  margin-top: 0.25rem;
+}
+
+.recommendation-offer-box {
+  background: rgba(0, 230, 118, 0.05);
+  border: 1px solid rgba(0, 230, 118, 0.25);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.offer-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: #a0e0b0;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.25rem;
+}
+
+.offer-odds-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.odds-number {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #00e676;
+}
+
+.offer-bookmaker {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+
+.offer-link-btn {
+  display: inline-block;
+  text-align: center;
+  background: #00e676;
+  color: #0b1f14;
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  text-decoration: none;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.offer-link-btn:hover {
+  background: #69f0ae;
+  transform: translateY(-1px);
+}
+
+.recommendation-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.kpi-box {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.kpi-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: #8888aa;
+  letter-spacing: 0.4px;
+  margin-bottom: 0.25rem;
+}
+
+.kpi-val {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #e0e0e0;
+}
+
+.kpi-val.positive {
+  color: #00e676;
+}
+
+.kpi-note {
+  font-size: 0.7rem;
+  color: #777799;
+  margin-top: 0.2rem;
+}
+
+.edge-text {
+  color: #00e676;
+  font-weight: 600;
+}
+
+.recommendation-reasons {
+  background: rgba(0, 0, 0, 0.2);
+  border-left: 3px solid #00e676;
+  border-radius: 0 8px 8px 0;
+  padding: 0.85rem 1.25rem;
+}
+
+.reasons-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #88ffbb;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.reasons-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #c0c0d8;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.reasons-list li {
+  margin-bottom: 0.35rem;
+}
+
+.no-bet-content {
+  color: #a0a0cc;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.no-bet-summary {
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.no-bet-reasons {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #777799;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 768px) {
+  .recommendation-main-grid {
+    grid-template-columns: 1fr;
+  }
+  .recommendation-kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

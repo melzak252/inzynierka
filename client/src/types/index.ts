@@ -30,6 +30,11 @@ export interface MatchBoardItem {
   hybrid_prob_b: number | null;
   hybrid_ev_a: number | null;
   hybrid_ev_b: number | null;
+  recommended_side?: string | null;
+  recommended_team?: string | null;
+  recommended_bookmaker?: string | null;
+  recommended_odds?: number | null;
+  recommended_ev?: number | null;
   last_scraped_at: string | null;
 }
 
@@ -152,6 +157,34 @@ export interface TeamComparisonInfo {
   rating_probabilities: Record<string, number>;
 }
 
+export interface BettingRecommendation {
+  has_value: boolean;
+  verdict: string;
+  verdict_label: string;
+  side: 'a' | 'b' | null;
+  recommended_team: string | null;
+  opponent_team: string | null;
+  bookmaker: string | null;
+  best_odds: number | null;
+  offer_url: string | null;
+  model_prob: number | null;
+  hybrid_prob: number | null;
+  market_prob: number | null;
+  ev: number | null;
+  pure_model_ev: number | null;
+  edge_percentage_points: number | null;
+  min_odds_required: number | null;
+  half_kelly: number | null;
+  quarter_kelly: number | null;
+  suggested_stake_pct: number | null;
+  conformal_prob_low: number | null;
+  conformal_ev: number | null;
+  is_conformal_safe: boolean;
+  summary: string;
+  reasons: string[];
+  threshold_info: string | null;
+}
+
 export interface MatchDetailResponse {
   canonical_match_id: number;
   team_a_name: string | null;
@@ -169,6 +202,7 @@ export interface MatchDetailResponse {
   recent_stats_a: TeamRecentStats | null;
   recent_stats_b: TeamRecentStats | null;
   team_comparison: TeamComparisonInfo | null;
+  recommendation?: BettingRecommendation | null;
 }
 
 // System status types

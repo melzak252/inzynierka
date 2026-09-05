@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from betting_app.api.deps import get_db, query_df, query_one
 from betting_app.api.schemas import (
-    AliasCreateRequest,
+    BettingRecommendation,
     AliasBlockRequest,
     AliasCreateResponse,
     AliasDeleteRequest,
@@ -373,6 +373,28 @@ def list_matches(
             expected_value(float(p["fusion_symaug_prob_b"]), float(record["best_odds_b"]), tax_rate)
             if p.get("fusion_symaug_prob_b") is not None else None
         )
+        rec_side = None
+        rec_team = None
+        rec_bm = None
+        rec_odds = None
+        rec_ev = None
+        if not has_unmapped_teams:
+            val_a = hybrid_ev_a is not None and hybrid_ev_a > 0.0
+            val_b = hybrid_ev_b is not None and hybrid_ev_b > 0.0
+            if val_a or val_b:
+                if (hybrid_ev_a or -1.0) >= (hybrid_ev_b or -1.0):
+                    rec_side = "a"
+                    rec_team = team_a_name
+                    rec_bm = record.get("best_bookmaker_a")
+                    rec_odds = record.get("best_odds_a")
+                    rec_ev = hybrid_ev_a
+                else:
+                    rec_side = "b"
+                    rec_team = team_b_name
+                    rec_bm = record.get("best_bookmaker_b")
+                    rec_odds = record.get("best_odds_b")
+                    rec_ev = hybrid_ev_b
+
 
         # Only a direct model prediction with persisted Venn-Abers bounds can
         # be marked conformal. Hybrid probabilities mix a market quote after
@@ -450,6 +472,11 @@ def list_matches(
             is_conformal_value_b=is_conf_b,
             recommended_stake_a=stake_a,
             recommended_stake_b=stake_b,
+            recommended_side=rec_side,
+            recommended_team=rec_team,
+            recommended_bookmaker=rec_bm,
+            recommended_odds=rec_odds,
+            recommended_ev=round(rec_ev, 4) if rec_ev is not None else None,
             last_scraped_at=str(max(g["scraped_at"] for g in group if g.get("scraped_at"))),
         ))
 
@@ -1450,6 +1477,177 @@ def unblock_alias_endpoint(body: AliasBlockRequest, db=Depends(get_db)):
     return {"ok": True, "unblocked": True}
 
 
+def _build_match_recommendation(
+    team_a_name: str | None,
+    team_b_name: str | None,
+    has_unmapped_teams: bool,
+    odds_rows: list[BookmakerOddsRow],
+    hybrid_prob_a: float | None,
+    hybrid_prob_b: float | None,
+    pure_prob_a: float | None,
+    pure_prob_b: float | None,
+    diagnostics: Any = None,
+) -> BettingRecommendation:
+    """Build a structured betting recommendation based on the latest model system."""
+    name_a = team_a_name or "Drużyna A"
+    name_b = team_b_name or "Drużyna B"
+
+    if has_unmapped_teams:
+        return BettingRecommendation(
+            has_value=False,
+            verdict="unmapped",
+            verdict_label="Wymagane mapowanie drużyn",
+            summary="Przynajmniej jedna drużyna nie jest jeszcze powiązana z bazą GOL.GG. Przypisz alias, aby system mógł wyliczyć ratingi i wygenerować rekomendację.",
+            reasons=["Brak jednoznacznego powiązania nazwy bukmacherskiej ze statystykami GOL.GG."],
+        )
+
+    valid_odds_a = [o for o in odds_rows if o.canonical_odds_a and o.canonical_odds_a > 1.0]
+    valid_odds_b = [o for o in odds_rows if o.canonical_odds_b and o.canonical_odds_b > 1.0]
+    if not valid_odds_a or not valid_odds_b:
+        return BettingRecommendation(
+            has_value=False,
+            verdict="no_odds",
+            verdict_label="Brak aktualnych kursów",
+            summary="Brak aktywnych kursów bukmacherskich dla tego spotkania. Rekomendacja pojawi się automatycznie po pobraniu oferty.",
+            reasons=["Brak kwotowań bukmacherskich spełniających warunki świeżości (maks. 24h)."],
+        )
+
+    best_row_a = max(valid_odds_a, key=lambda o: o.canonical_odds_a or 0.0)
+    best_row_b = max(valid_odds_b, key=lambda o: o.canonical_odds_b or 0.0)
+    best_odds_a = float(best_row_a.canonical_odds_a or 1.0)
+    best_odds_b = float(best_row_b.canonical_odds_b or 1.0)
+
+    try:
+        m_prob_a, m_prob_b = fair_market_probabilities(best_odds_a, best_odds_b)
+    except Exception:
+        m_prob_a, m_prob_b = None, None
+
+    eff_prob_a = hybrid_prob_a if hybrid_prob_a is not None else pure_prob_a
+    eff_prob_b = hybrid_prob_b if hybrid_prob_b is not None else pure_prob_b
+
+    if eff_prob_a is None or eff_prob_b is None:
+        return BettingRecommendation(
+            has_value=False,
+            verdict="no_prediction",
+            verdict_label="Oczekiwanie na predykcję",
+            summary="Brak wyliczonej predykcji dla tego meczu w systemie operacyjnym.",
+            reasons=["Model nie wygenerował jeszcze prawdopodobieństw dla tego zestawienia."],
+        )
+
+    bounds_a = conformal_bounds_for_side(diagnostics, "a")
+    bounds_b = conformal_bounds_for_side(diagnostics, "b")
+    p_low_a = bounds_a[0] if bounds_a is not None else None
+    p_low_b = bounds_b[0] if bounds_b is not None else None
+
+    min_odds_a = round(1.0 / (eff_prob_a * (1.0 - TAX_RATE)), 2) if eff_prob_a > 0 else None
+    min_odds_b = round(1.0 / (eff_prob_b * (1.0 - TAX_RATE)), 2) if eff_prob_b > 0 else None
+
+    ev_a = expected_value(eff_prob_a, best_odds_a, TAX_RATE)
+    ev_b = expected_value(eff_prob_b, best_odds_b, TAX_RATE)
+    pure_ev_a = expected_value(pure_prob_a, best_odds_a, TAX_RATE) if pure_prob_a is not None else None
+    pure_ev_b = expected_value(pure_prob_b, best_odds_b, TAX_RATE) if pure_prob_b is not None else None
+
+    conf_ev_a = expected_value(p_low_a, best_odds_a, TAX_RATE) if p_low_a is not None else None
+    conf_ev_b = expected_value(p_low_b, best_odds_b, TAX_RATE) if p_low_b is not None else None
+
+    has_val_a = ev_a is not None and ev_a > 0.0
+    has_val_b = ev_b is not None and ev_b > 0.0
+
+    if not has_val_a and not has_val_b:
+        reasons = []
+        if min_odds_a is not None and ev_a is not None:
+            reasons.append(
+                f"Na {name_a}: najwyższy kurs {best_odds_a:.2f} w {best_row_a.bookmaker} "
+                f"(wymagany próg opłacalności po podatku: {min_odds_a:.2f}, EV: {ev_a:+.1%})."
+            )
+        if min_odds_b is not None and ev_b is not None:
+            reasons.append(
+                f"Na {name_b}: najwyższy kurs {best_odds_b:.2f} w {best_row_b.bookmaker} "
+                f"(wymagany próg opłacalności po podatku: {min_odds_b:.2f}, EV: {ev_b:+.1%})."
+            )
+        reasons.append(
+            "Marża bukmacherska oraz polski podatek 12% sprawiają, że żaden dostępny kurs nie daje dodatniej wartości oczekiwanej."
+        )
+        return BettingRecommendation(
+            has_value=False,
+            verdict="no_bet",
+            verdict_label="Brak opłacalnego typu (No Bet)",
+            model_prob=pure_prob_a,
+            hybrid_prob=hybrid_prob_a,
+            market_prob=m_prob_a,
+            summary="Żaden bukmacher nie oferuje kursu powyżej progu opłacalności po uwzględnieniu 12% podatku obrotowego.",
+            reasons=reasons,
+            threshold_info=f"Wymagane minimalne kursy: {name_a} ≥ {min_odds_a or '—'}, {name_b} ≥ {min_odds_b or '—'}",
+        )
+
+    pick_side = "a" if (ev_a or -1.0) >= (ev_b or -1.0) else "b"
+    team = name_a if pick_side == "a" else name_b
+    opp = name_b if pick_side == "a" else name_a
+    bm_row = best_row_a if pick_side == "a" else best_row_b
+    odds_val = best_odds_a if pick_side == "a" else best_odds_b
+    ev_val = ev_a if pick_side == "a" else ev_b
+    pure_ev_val = pure_ev_a if pick_side == "a" else pure_ev_b
+    h_prob = eff_prob_a if pick_side == "a" else eff_prob_b
+    p_prob = pure_prob_a if pick_side == "a" else pure_prob_b
+    m_prob = m_prob_a if pick_side == "a" else m_prob_b
+    min_odds = min_odds_a if pick_side == "a" else min_odds_b
+    p_low = p_low_a if pick_side == "a" else p_low_b
+    c_ev = conf_ev_a if pick_side == "a" else conf_ev_b
+
+    bounds = bounds_a if pick_side == "a" else bounds_b
+    is_conf = bool(bounds and (bounds[1] - bounds[0] <= 0.08) and c_ev and c_ev > 0)
+
+    half_k = kelly_fraction(h_prob, odds_val, TAX_RATE) if h_prob else None
+    quarter_k = (half_k / 2.0) if half_k else None
+    edge_pts = (h_prob - m_prob) * 100.0 if h_prob is not None and m_prob is not None else None
+
+    reasons = [
+        f"Kurs {odds_val:.2f} w {bm_row.bookmaker} oferuje {ev_val:+.1%} oczekiwanej wartości (EV) po potrąceniu 12% polskiego podatku obrotowego.",
+        f"Model hybrydowy szacuje prawdopodobieństwo wygranej na {h_prob:.1%}, podczas gdy rynek bez marży implikuje {m_prob:.1%}"
+        + (f" ({edge_pts:+.1f} p.p. przewagi nad rynkiem)." if edge_pts is not None else "."),
+    ]
+    if p_prob is not None and pure_ev_val is not None:
+        reasons.append(
+            f"Model sportowy oparty o ratingi składów 5v5 i formę W20 ocenia szanse na {p_prob:.1%} (czyste EV: {pure_ev_val:+.1%})."
+        )
+    if min_odds is not None:
+        reasons.append(
+            f"Kurs {odds_val:.2f} przewyższa wymagany próg opłacalności {min_odds:.2f} (kurs poniżej tej wartości byłby nieopłacalny)."
+        )
+    if quarter_k is not None and quarter_k > 0:
+        reasons.append(
+            f"Sugerowana ostrożna stawka wynosi {quarter_k:.2%} bankrolla (1/4 kryterium Kelly'ego chroniące kapitał przed wariancją)."
+        )
+
+    summary = f"Rekomendacja: typ na {team} po kursie {odds_val:.2f} w {bm_row.bookmaker} ({ev_val:+.1%} EV po podatku 12%)."
+
+    return BettingRecommendation(
+        has_value=True,
+        verdict="value_bet",
+        verdict_label="Wartościowy typ (Value Bet)",
+        side=pick_side,
+        recommended_team=team,
+        opponent_team=opp,
+        bookmaker=bm_row.bookmaker,
+        best_odds=odds_val,
+        offer_url=bm_row.offer_url or bm_row.source_url,
+        model_prob=round(p_prob, 4) if p_prob is not None else None,
+        hybrid_prob=round(h_prob, 4) if h_prob is not None else None,
+        market_prob=round(m_prob, 4) if m_prob is not None else None,
+        ev=round(ev_val, 4) if ev_val is not None else None,
+        pure_model_ev=round(pure_ev_val, 4) if pure_ev_val is not None else None,
+        edge_percentage_points=round(edge_pts, 1) if edge_pts is not None else None,
+        min_odds_required=min_odds,
+        half_kelly=round(half_k, 4) if half_k is not None else None,
+        quarter_kelly=round(quarter_k, 4) if quarter_k is not None else None,
+        suggested_stake_pct=round(quarter_k, 4) if quarter_k is not None else None,
+        conformal_prob_low=round(p_low, 4) if p_low is not None else None,
+        conformal_ev=round(c_ev, 4) if c_ev is not None else None,
+        is_conformal_safe=is_conf,
+        summary=summary,
+        reasons=reasons,
+        threshold_info=f"Próg opłacalności kursu: ≥ {min_odds:.2f} | Najlepsza oferta: {odds_val:.2f} ({bm_row.bookmaker})",
+    )
 # ── GET /matches/{id} ───────────────────────────────────────────────────────
 
 
@@ -1870,6 +2068,22 @@ def match_detail(
         roster_a = manual_roster_info("a", m.get("team_a_name"))
     if roster_b is None and roster_b_is_manual:
         roster_b = manual_roster_info("b", m.get("team_b_name"))
+    operational_pred = next((p for p in preds if p.get("model_name") == DEFAULT_MODEL_NAME), None)
+    pure_prob_a = none_or_float(operational_pred.get("prob_a")) if operational_pred else None
+    pure_prob_b = none_or_float(operational_pred.get("prob_b")) if operational_pred else None
+    op_diagnostics = operational_pred.get("diagnostics_json") if operational_pred else None
+
+    rec = _build_match_recommendation(
+        team_a_name=m.get("team_a_name"),
+        team_b_name=m.get("team_b_name"),
+        has_unmapped_teams=has_unmapped_teams,
+        odds_rows=odds_rows,
+        hybrid_prob_a=hybrid_prob_a,
+        hybrid_prob_b=hybrid_prob_b,
+        pure_prob_a=pure_prob_a,
+        pure_prob_b=pure_prob_b,
+        diagnostics=op_diagnostics,
+    )
 
     return MatchDetailResponse(
         canonical_match_id=match_id,
@@ -1888,6 +2102,7 @@ def match_detail(
         recent_stats_a=recent_stats_a,
         recent_stats_b=recent_stats_b,
         team_comparison=team_comparison,
+        recommendation=rec,
     )
 
 

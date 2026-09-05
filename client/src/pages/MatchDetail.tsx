@@ -890,6 +890,154 @@ export default function MatchDetail() {
         <div className="datetime">{formatDateTime(match.start_time_normalized)}</div>
       </div>
 
+      {/* ── Rekomendacja zakładu (Co obstawiać) ─────────────────────────── */}
+      {match.recommendation && (
+        <section
+          className={`recommendation-section ${
+            match.recommendation.has_value
+              ? 'value-bet-card'
+              : match.recommendation.verdict === 'unmapped'
+              ? 'unmapped-card'
+              : 'no-bet-card'
+          }`}
+        >
+          <div className="recommendation-header">
+            <div
+              className={`recommendation-badge ${
+                match.recommendation.has_value
+                  ? 'value-badge'
+                  : match.recommendation.verdict === 'unmapped'
+                  ? 'unmapped-badge'
+                  : 'no-bet-badge'
+              }`}
+            >
+              <span className="badge-icon">
+                {match.recommendation.has_value
+                  ? '🎯'
+                  : match.recommendation.verdict === 'unmapped'
+                  ? '⚠️'
+                  : '⏸️'}
+              </span>
+              <span className="badge-text">{match.recommendation.verdict_label}</span>
+            </div>
+            {match.recommendation.threshold_info && (
+              <div
+                className={`recommendation-summary-pill ${
+                  match.recommendation.has_value ? 'highlight' : 'neutral'
+                }`}
+              >
+                {match.recommendation.threshold_info}
+              </div>
+            )}
+          </div>
+
+          {match.recommendation.has_value ? (
+            <div className="recommendation-content">
+              <div className="recommendation-main-grid">
+                <div className="recommendation-pick-box">
+                  <div className="pick-label">Sugerowany zakład</div>
+                  <div className="pick-team">{match.recommendation.recommended_team}</div>
+                  <div className="pick-sub">vs {match.recommendation.opponent_team}</div>
+                </div>
+
+                <div className="recommendation-offer-box">
+                  <div className="offer-label">Najlepszy dostępny kurs</div>
+                  <div className="offer-odds-row">
+                    <span className="odds-number">{match.recommendation.best_odds?.toFixed(2)}</span>
+                    <span className="offer-bookmaker">w {match.recommendation.bookmaker?.toUpperCase()}</span>
+                  </div>
+                  {match.recommendation.offer_url && (
+                    <a
+                      href={match.recommendation.offer_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="offer-link-btn"
+                    >
+                      Przejdź do oferty w {match.recommendation.bookmaker?.toUpperCase()} →
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              <div className="recommendation-kpis">
+                <div className="kpi-box ev-kpi">
+                  <div className="kpi-label">Oczekiwana wartość (EV)</div>
+                  <div className="kpi-val positive">
+                    {match.recommendation.ev !== null && match.recommendation.ev !== undefined
+                      ? `${match.recommendation.ev > 0 ? '+' : ''}${(match.recommendation.ev * 100).toFixed(1)}%`
+                      : '—'}
+                  </div>
+                  <div className="kpi-note">po potrąceniu podatku 12%</div>
+                </div>
+
+                <div className="kpi-box prob-kpi">
+                  <div className="kpi-label">Szansa wygranej (Model)</div>
+                  <div className="kpi-val">
+                    {match.recommendation.hybrid_prob !== null && match.recommendation.hybrid_prob !== undefined
+                      ? `${(match.recommendation.hybrid_prob * 100).toFixed(1)}%`
+                      : match.recommendation.model_prob !== null && match.recommendation.model_prob !== undefined
+                      ? `${(match.recommendation.model_prob * 100).toFixed(1)}%`
+                      : '—'}
+                  </div>
+                  <div className="kpi-note">
+                    fair rynek: {match.recommendation.market_prob ? `${(match.recommendation.market_prob * 100).toFixed(1)}%` : '—'}
+                    {match.recommendation.edge_percentage_points !== null &&
+                      match.recommendation.edge_percentage_points !== undefined && (
+                        <span className="edge-text">
+                          {' '}
+                          ({match.recommendation.edge_percentage_points > 0 ? '+' : ''}
+                          {match.recommendation.edge_percentage_points} p.p.)
+                        </span>
+                      )}
+                  </div>
+                </div>
+
+                <div className="kpi-box stake-kpi">
+                  <div className="kpi-label">Sugerowana stawka (1/4 Kelly)</div>
+                  <div className="kpi-val">
+                    {match.recommendation.suggested_stake_pct !== null &&
+                    match.recommendation.suggested_stake_pct !== undefined
+                      ? `${(match.recommendation.suggested_stake_pct * 100).toFixed(2)}%`
+                      : '—'}
+                  </div>
+                  <div className="kpi-note">zarządzanie ryzykiem bankrolla</div>
+                </div>
+
+                <div className="kpi-box threshold-kpi">
+                  <div className="kpi-label">Próg opłacalności</div>
+                  <div className="kpi-val">
+                    kurs ≥ {match.recommendation.min_odds_required?.toFixed(2) || '—'}
+                  </div>
+                  <div className="kpi-note">kurs poniżej tej wartości daje ujemne EV</div>
+                </div>
+              </div>
+
+              {match.recommendation.reasons && match.recommendation.reasons.length > 0 && (
+                <div className="recommendation-reasons">
+                  <div className="reasons-title">Dlaczego ten typ? (Analiza systemu)</div>
+                  <ul className="reasons-list">
+                    {match.recommendation.reasons.map((reason, idx) => (
+                      <li key={idx}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="no-bet-content">
+              <p className="no-bet-summary">{match.recommendation.summary}</p>
+              {match.recommendation.reasons && match.recommendation.reasons.length > 0 && (
+                <ul className="no-bet-reasons">
+                  {match.recommendation.reasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
       <section className="odds-section">
         <h2>Kursy bukmacherów</h2>
         {match.odds.length === 0 ? (
