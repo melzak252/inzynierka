@@ -501,7 +501,7 @@ class RankingsResponse(BaseModel):
     ratings_version: str | None = None
     data_cutoff_at: str | None = None
     active_since: str | None = None
-    squad_scope: Literal["main", "development", "all"] = "main"
+    squad_scope: Literal["major", "regional_academy", "regional", "development", "all", "main"] = "major"
     snapshot_at: str | None = None
     total: int
     available_rating_systems: list[str] = []
