@@ -53,6 +53,10 @@ const PLAY_IN_SLOT_LABELS = ['LCS #3', 'LEC #3', 'LCP #3', 'CBLOL #2'];
 
 export default function TournamentSimulation() {
   const [activeTab, setActiveTab] = useState<'regional' | 'worlds' | 'enc'>('regional');
+  // Layout states for spacious tables and flexible views
+  const [regionalLayout, setRegionalLayout] = useState<'split' | 'stacked'>('split');
+  const [worldsView, setWorldsView] = useState<'results' | 'editor' | 'split'>('results');
+  const [encView, setEncView] = useState<'results' | 'rosters' | 'split'>('results');
 
   // Regional state
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
@@ -81,8 +85,7 @@ export default function TournamentSimulation() {
   const [encData, setEncData] = useState<EncSimulationResponse | null>(null);
   const [encLoading, setEncLoading] = useState<boolean>(false);
   const [encSimulating, setEncSimulating] = useState<boolean>(false);
-  const [encSimCount, setEncSimCount] = useState<number>(5000);
-
+  const [encSimCount, setEncSimCount] = useState<number>(1000);
   useEffect(() => {
     fetchTournaments()
       .then((list) => {
@@ -155,6 +158,7 @@ export default function TournamentSimulation() {
         worldsSimCount,
       );
       setWorldsData(res);
+      setWorldsView('results');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Błąd symulacji Worlds');
     } finally {
@@ -166,7 +170,9 @@ export default function TournamentSimulation() {
     if (!encConfiguration?.simulation_ready) return;
     setEncSimulating(true);
     try {
-      setEncData(await simulateEnc(encSimCount));
+      const res = await simulateEnc(encSimCount);
+      setEncData(res);
+      setEncView('results');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Błąd symulacji ENC');
     } finally {
@@ -349,6 +355,24 @@ export default function TournamentSimulation() {
                 Reset scenariuszy ({Object.keys(overrides).length})
               </button>
             )}
+            <div className="layout-toggle-group" role="group" aria-label="Układ widoku regionalnego">
+              <button
+                type="button"
+                className={`layout-toggle-btn ${regionalLayout === 'split' ? 'active' : ''}`}
+                onClick={() => setRegionalLayout('split')}
+                title="Widok obok siebie (Szeroka tabela + Drabinka)"
+              >
+                ⊞ Obok siebie
+              </button>
+              <button
+                type="button"
+                className={`layout-toggle-btn ${regionalLayout === 'stacked' ? 'active' : ''}`}
+                onClick={() => setRegionalLayout('stacked')}
+                title="Widok pełnej szerokości (Tabela na górze, Drabinka pod spodem)"
+              >
+                ☰ Tabela na górze
+              </button>
+            </div>
           </div>
         ) : activeTab === 'worlds' ? (
           <div className="tournament-controls">
@@ -375,6 +399,29 @@ export default function TournamentSimulation() {
                 ? '⏳ Symulacja Worlds...'
                 : `⚡ Symuluj Worlds (${worldsSimCount.toLocaleString('pl-PL')} prób)`}
             </button>
+            <div className="simulation-subtabs" role="group" aria-label="Widok Worlds">
+              <button
+                type="button"
+                className={`subtab-btn ${worldsView === 'results' ? 'active' : ''}`}
+                onClick={() => setWorldsView('results')}
+              >
+                📊 Tabela wyników
+              </button>
+              <button
+                type="button"
+                className={`subtab-btn ${worldsView === 'editor' ? 'active' : ''}`}
+                onClick={() => setWorldsView('editor')}
+              >
+                ⚙️ Edytor slotów
+              </button>
+              <button
+                type="button"
+                className={`subtab-btn ${worldsView === 'split' ? 'active' : ''}`}
+                onClick={() => setWorldsView('split')}
+              >
+                ⊞ Obok siebie
+              </button>
+            </div>
             {!worldsReady && (
               <span className="worlds-validation-hint">
                 Uzupełnij drużyny dla wszystkich 15 slotów Swiss i 4 slotów Play-In.
@@ -402,8 +449,31 @@ export default function TournamentSimulation() {
               onClick={handleSimulateEnc}
               disabled={encSimulating || !encConfiguration?.simulation_ready}
             >
-              {encSimulating ? '⏳ Symulacja ENC...' : `⚡ Symuluj ENC (${encSimCount.toLocaleString('pl-PL')} prób)`}
+            {encSimulating ? '⏳ Symulacja ENC...' : `⚡ Symuluj ENC (${encSimCount.toLocaleString('pl-PL')} prób)`}
             </button>
+            <div className="simulation-subtabs" role="group" aria-label="Widok ENC">
+              <button
+                type="button"
+                className={`subtab-btn ${encView === 'results' ? 'active' : ''}`}
+                onClick={() => setEncView('results')}
+              >
+                🏆 Tabela wyników
+              </button>
+              <button
+                type="button"
+                className={`subtab-btn ${encView === 'rosters' ? 'active' : ''}`}
+                onClick={() => setEncView('rosters')}
+              >
+                👥 Składy nacji
+              </button>
+              <button
+                type="button"
+                className={`subtab-btn ${encView === 'split' ? 'active' : ''}`}
+                onClick={() => setEncView('split')}
+              >
+                ⊞ Obok siebie
+              </button>
+            </div>
           </div>
         )}
       </header>
@@ -411,37 +481,50 @@ export default function TournamentSimulation() {
       {error && <div className="error-banner">{error}</div>}
 
       {activeTab === 'regional' ? (
-        <div className="simulation-layout">
-          <section className="standings-panel">
-            <h2>📊 Szanse na końcowy wynik ({data?.simulations.toLocaleString()} symulacji)</h2>
-            <table className="standings-table">
-              <thead>
-                <tr>
-                  <th>Drużyna</th>
-                  <th>🥇 Mistrz</th>
-                  <th>🥈 Top 2</th>
-                  <th>🥉 Top 3</th>
-                  <th>Top 4</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data?.standings.map((s) => (
-                  <tr key={s.team}>
-                    <td className="team-cell"><strong>{s.team}</strong></td>
-                    <td className="prob-cell champ-prob">{(s.champion_prob * 100).toFixed(1)}%</td>
-                    <td className="prob-cell">{(s.top2_prob * 100).toFixed(1)}%</td>
-                    <td className="prob-cell">{(s.top3_prob * 100).toFixed(1)}%</td>
-                    <td className="prob-cell">{(s.top4_prob * 100).toFixed(1)}%</td>
+        <div className={`simulation-layout ${regionalLayout}`}>
+          <section className={`standings-panel ${regionalLayout === 'stacked' ? 'full-width' : ''}`}>
+            <div className="standings-panel-header">
+              <h2>📊 Szanse na końcowy wynik ({data?.simulations.toLocaleString('pl-PL')} symulacji)</h2>
+            </div>
+            <div className="table-responsive">
+              <table className="standings-table">
+                <thead>
+                  <tr>
+                    <th className="th-rank">Poz.</th>
+                    <th className="th-team">Drużyna</th>
+                    <th className="th-num">🥇 Mistrz</th>
+                    <th className="th-num">🥈 Top 2</th>
+                    <th className="th-num">🥉 Top 3</th>
+                    <th className="th-num">Top 4</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data?.standings.map((s, idx) => (
+                    <tr key={s.team}>
+                      <td className="rank-cell">{idx + 1}</td>
+                      <td className="team-cell"><strong>{s.team}</strong></td>
+                      <td className="prob-cell champ-prob">
+                        <div className="prob-with-bar">
+                          <div className="mini-bar-bg">
+                            <div className="mini-bar-fill gold" style={{ width: `${Math.min(100, s.champion_prob * 100)}%` }} />
+                          </div>
+                          <span>{(s.champion_prob * 100).toFixed(1)}%</span>
+                        </div>
+                      </td>
+                      <td className="prob-cell">{(s.top2_prob * 100).toFixed(1)}%</td>
+                      <td className="prob-cell">{(s.top3_prob * 100).toFixed(1)}%</td>
+                      <td className="prob-cell">{(s.top4_prob * 100).toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <p className="scenario-tip">
               💡 <strong>Tryb scenariuszy (What-if):</strong> Kliknij na dowolną drużynę w drabince, aby wymusić jej zwycięstwo i przeliczyć resztę turnieju.
             </p>
           </section>
 
-          <section className="bracket-panel">
+          <section className={`bracket-panel ${regionalLayout === 'stacked' ? 'full-width' : ''}`}>
             <h2>Drzewo Turniejowe (Chronologiczny układ rund)</h2>
 
             <div className="bracket-section-group">
@@ -510,8 +593,9 @@ export default function TournamentSimulation() {
           </section>
         </div>
       ) : activeTab === 'worlds' ? (
-        <div className="worlds-layout">
-          <section className="worlds-teams-editor">
+        <div className={`worlds-layout ${worldsView}`}>
+          {(worldsView === 'editor' || worldsView === 'split') && (
+            <section className={`worlds-teams-editor ${worldsView === 'editor' ? 'full-width' : ''}`}>
             <h2>Skład Worlds 2026 — wybierz drużyny do oficjalnych slotów</h2>
             <p className="subtitle-sm">
               Wstępnie wypełnione zespoły odpowiadają slotom Leaguepedia/Fandom. Możesz je zmienić przed
@@ -638,50 +722,130 @@ export default function TournamentSimulation() {
             {teamSuggestionError && (
               <p className="worlds-suggestion-error">{teamSuggestionError}</p>
             )}
-          </section>
+            </section>
+          )}
 
-          <section className="worlds-results-panel">
-            <h2>🏆 Wyniki Symulacji Worlds 2026</h2>
-            {worldsData ? (
-              <table className="standings-table">
-                <thead>
-                  <tr>
-                    <th>Drużyna</th>
-                    <th>Region / etap</th>
-                    <th>Play-In → Swiss</th>
-                    <th>🥇 Puchar Worlds</th>
-                    <th>🥈 Finał</th>
-                    <th>Top 4</th>
-                    <th>Swiss Top 8</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {worldsData.standings.map((standing) => (
-                    <tr key={standing.team}>
-                      <td className="team-cell"><strong>{standing.team}</strong></td>
-                      <td className="prob-cell">
-                        {standing.region} · {standing.stage === 'play_in' ? 'Play-In' : `Swiss P${standing.pool}`}
-                      </td>
-                      <td className="prob-cell">{(standing.play_in_qualifier_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell champ-prob">{(standing.champion_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell">{(standing.top2_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell">{(standing.top4_prob * 100).toFixed(1)}%</td>
-                      <td className="prob-cell">{(standing.top8_swiss_prob * 100).toFixed(1)}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <div className="empty-state">
-                <p>Wpisz własne 15 bezpośrednich uczestników i 4 zespoły Play-In. Symulacja obejmie Play-In,
-                  Swiss (Bo1/Bo3) oraz pucharową fazę Bo5.</p>
+          {(worldsView === 'results' || worldsView === 'split') && (
+            <section className={`worlds-results-panel ${worldsView === 'results' ? 'full-width' : ''}`}>
+              <div className="results-panel-header">
+                <div>
+                  <h2>🏆 Wyniki Symulacji Worlds 2026</h2>
+                  {worldsData && (
+                    <p className="subtitle-sm">
+                      Symulacja Monte Carlo ({worldsData.simulations.toLocaleString('pl-PL')} prób): Play-In Bo5, Swiss Bo1/Bo3 i puchar Bo5.
+                    </p>
+                  )}
+                </div>
+                {worldsData && worldsView === 'results' && (
+                  <button
+                    type="button"
+                    className="ghost-action-btn"
+                    onClick={() => setWorldsView('editor')}
+                  >
+                    ✏️ Edytuj sloty drużyn
+                  </button>
+                )}
               </div>
-            )}
-          </section>
+              {worldsData ? (
+                <>
+                  <div className="summary-cards-grid">
+                    <div className="summary-card gold-border">
+                      <span className="card-label">Główny faworyt</span>
+                      <strong className="card-value">{worldsData.standings[0]?.team || '—'}</strong>
+                      <span className="card-sub">
+                        {((worldsData.standings[0]?.champion_prob || 0) * 100).toFixed(1)}% szans na mistrzostwo
+                      </span>
+                    </div>
+                    <div className="summary-card silver-border">
+                      <span className="card-label">Drugi pretendent</span>
+                      <strong className="card-value">{worldsData.standings[1]?.team || '—'}</strong>
+                      <span className="card-sub">
+                        {((worldsData.standings[1]?.champion_prob || 0) * 100).toFixed(1)}% mistrz · {((worldsData.standings[1]?.top2_prob || 0) * 100).toFixed(1)}% finał
+                      </span>
+                    </div>
+                    <div className="summary-card">
+                      <span className="card-label">Uczestnicy</span>
+                      <strong className="card-value">{worldsData.standings.length} zespołów</strong>
+                      <span className="card-sub">15 Swiss + 4 Play-In</span>
+                    </div>
+                    <div className="summary-card">
+                      <span className="card-label">Liczba symulacji</span>
+                      <strong className="card-value">{worldsData.simulations.toLocaleString('pl-PL')}</strong>
+                      <span className="card-sub">Format Riot 2026</span>
+                    </div>
+                  </div>
+
+                  <div className="table-responsive">
+                    <table className="standings-table">
+                      <thead>
+                        <tr>
+                          <th className="th-rank">Poz.</th>
+                          <th className="th-team">Drużyna</th>
+                          <th className="th-meta">Region i etap</th>
+                          <th className="th-num">Play-In → Swiss</th>
+                          <th className="th-num">🥇 Puchar Worlds</th>
+                          <th className="th-num">🥈 Finał</th>
+                          <th className="th-num">Top 4</th>
+                          <th className="th-num">Swiss Top 8</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {worldsData.standings.map((standing, idx) => (
+                          <tr key={standing.team}>
+                            <td className="rank-cell">{idx + 1}</td>
+                            <td className="team-cell"><strong>{standing.team}</strong></td>
+                            <td className="meta-cell">
+                              <span className="badge region-badge">{standing.region}</span>
+                              <span className="badge stage-badge">
+                                {standing.stage === 'play_in' ? 'Play-In' : `Swiss P${standing.pool}`}
+                              </span>
+                            </td>
+                            <td className="prob-cell">{(standing.play_in_qualifier_prob * 100).toFixed(1)}%</td>
+                            <td className="prob-cell champ-prob">
+                              <div className="prob-with-bar">
+                                <div className="mini-bar-bg">
+                                  <div
+                                    className="mini-bar-fill gold"
+                                    style={{ width: `${Math.min(100, standing.champion_prob * 100)}%` }}
+                                  />
+                                </div>
+                                <span>{(standing.champion_prob * 100).toFixed(1)}%</span>
+                              </div>
+                            </td>
+                            <td className="prob-cell">{(standing.top2_prob * 100).toFixed(1)}%</td>
+                            <td className="prob-cell">{(standing.top4_prob * 100).toFixed(1)}%</td>
+                            <td className="prob-cell">{(standing.top8_swiss_prob * 100).toFixed(1)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">
+                  <p>
+                    Wpisz własne 15 bezpośrednich uczestników i 4 zespoły Play-In (lub skorzystaj z gotowych slotów Fandom).
+                    Kliknij <strong>⚡ Symuluj Worlds</strong> w pasku powyżej, aby wygenerować pełną tabelę wyników.
+                  </p>
+                  {worldsView === 'results' && (
+                    <button
+                      type="button"
+                      className="ghost-action-btn"
+                      style={{ marginTop: '1rem' }}
+                      onClick={() => setWorldsView('editor')}
+                    >
+                      ⚙️ Otwórz edytor slotów drużyn
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
         </div>
       ) : (
-        <div className="enc-layout">
-          <section className="enc-rosters-panel">
+        <div className={`enc-layout ${encView}`}>
+          {(encView === 'rosters' || encView === 'split') && (
+            <section className={`enc-rosters-panel ${encView === 'rosters' ? 'full-width' : ''}`}>
             <h2>ENC 2027 — najwyższy aktualny GL w roli z Fandom</h2>
             {encLoading && <div className="empty-state"><p>Ładowanie składów i snapshotu GL...</p></div>}
             {encConfiguration && (
@@ -752,50 +916,128 @@ export default function TournamentSimulation() {
                 </div>
               </>
             )}
-          </section>
+            </section>
+          )}
 
-          <section className="enc-results-panel">
-            <h2>🏆 Wyniki ENC 2027</h2>
-            {encData ? (
-              <div className="enc-standings-scroll">
-                <table className="standings-table">
-                  <thead>
-                    <tr>
-                      <th>Reprezentacja</th>
-                      <th>🥇 Mistrz</th>
-                      <th>Finał</th>
-                      <th>Top 4</th>
-                      <th>Playoffs</th>
-                      <th>Group Stage</th>
-                      <th>Wejście</th>
-                      <th>GL składu</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {encData.standings.map((standing) => (
-                      <tr key={standing.nation}>
-                        <td className="team-cell"><strong>{standing.nation}</strong></td>
-                        <td className="prob-cell champ-prob">{(standing.champion_prob * 100).toFixed(1)}%</td>
-                        <td className="prob-cell">{(standing.top2_prob * 100).toFixed(1)}%</td>
-                        <td className="prob-cell">{(standing.top4_prob * 100).toFixed(1)}%</td>
-                        <td className="prob-cell">{(standing.playoff_prob * 100).toFixed(1)}%</td>
-                        <td className="prob-cell">{(standing.group_stage_prob * 100).toFixed(1)}%</td>
-                        <td className="prob-cell">{standing.entry_stage === 'group_stage' ? 'Group Stage' : 'Play-In'}</td>
-                        <td className="prob-cell">{standing.roster_rating.toFixed(1)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {(encView === 'results' || encView === 'split') && (
+            <section className={`enc-results-panel ${encView === 'results' ? 'full-width' : ''}`}>
+              <div className="results-panel-header">
+                <div>
+                  <h2>🏆 Wyniki ENC 2027</h2>
+                  {encData && (
+                    <p className="subtitle-sm">
+                      Symulacja Monte Carlo ({encData.simulations.toLocaleString('pl-PL')} prób): Play-In Bo1, grupy Bo3 i puchar Bo3/Bo5.
+                    </p>
+                  )}
+                </div>
+                {encData && encView === 'results' && (
+                  <button
+                    type="button"
+                    className="ghost-action-btn"
+                    onClick={() => setEncView('rosters')}
+                  >
+                    👥 Zobacz składy 16 reprezentacji
+                  </button>
+                )}
               </div>
-            ) : (
-              <div className="empty-state">
-                <p>
-                  Uruchom symulację, aby rozegrać cztery grupy Play-In Bo1, cztery grupy główne Bo3 i puchar
-                  Bo3/Bo5 zgodnie z opublikowanym formatem.
-                </p>
-              </div>
-            )}
-          </section>
+              {encData ? (
+                <>
+                  <div className="summary-cards-grid">
+                    <div className="summary-card gold-border">
+                      <span className="card-label">Główny faworyt ENC</span>
+                      <strong className="card-value">{encData.standings[0]?.nation || '—'}</strong>
+                      <span className="card-sub">
+                        {((encData.standings[0]?.champion_prob || 0) * 100).toFixed(1)}% mistrz · GL {encData.standings[0]?.roster_rating.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="summary-card silver-border">
+                      <span className="card-label">Drugi pretendent / Finał</span>
+                      <strong className="card-value">{encData.standings[1]?.nation || '—'}</strong>
+                      <span className="card-sub">
+                        {((encData.standings[1]?.champion_prob || 0) * 100).toFixed(1)}% mistrz · {((encData.standings[1]?.top2_prob || 0) * 100).toFixed(1)}% finał
+                      </span>
+                    </div>
+                    <div className="summary-card">
+                      <span className="card-label">Reprezentacje</span>
+                      <strong className="card-value">{encData.standings.length} nacji</strong>
+                      <span className="card-sub">Oficjalny format Fandom</span>
+                    </div>
+                    <div className="summary-card">
+                      <span className="card-label">Próby Monte Carlo</span>
+                      <strong className="card-value">{encData.simulations.toLocaleString('pl-PL')}</strong>
+                      <span className="card-sub">Play-In → Grupy Bo3 → Puchar</span>
+                    </div>
+                  </div>
+
+                  <div className="table-responsive">
+                    <table className="standings-table">
+                      <thead>
+                        <tr>
+                          <th className="th-rank">Poz.</th>
+                          <th className="th-team">Reprezentacja</th>
+                          <th className="th-meta">Etap wejścia</th>
+                          <th className="th-rating">GL składu</th>
+                          <th className="th-num">🥇 Mistrz ENC</th>
+                          <th className="th-num">🥈 Finał</th>
+                          <th className="th-num">Top 4</th>
+                          <th className="th-num">Playoffs</th>
+                          <th className="th-num">Group Stage</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {encData.standings.map((standing, idx) => (
+                          <tr key={standing.nation}>
+                            <td className="rank-cell">{idx + 1}</td>
+                            <td className="team-cell"><strong>{standing.nation}</strong></td>
+                            <td className="meta-cell">
+                              <span className={`badge ${standing.entry_stage === 'group_stage' ? 'stage-group-badge' : 'stage-playin-badge'}`}>
+                                {standing.entry_stage === 'group_stage' ? 'Faza grupowa' : 'Play-In'}
+                              </span>
+                            </td>
+                            <td className="rating-cell">
+                              <span className="rating-badge">{standing.roster_rating.toFixed(1)}</span>
+                            </td>
+                            <td className="prob-cell champ-prob">
+                              <div className="prob-with-bar">
+                                <div className="mini-bar-bg">
+                                  <div
+                                    className="mini-bar-fill gold"
+                                    style={{ width: `${Math.min(100, standing.champion_prob * 100)}%` }}
+                                  />
+                                </div>
+                                <span>{(standing.champion_prob * 100).toFixed(1)}%</span>
+                              </div>
+                            </td>
+                            <td className="prob-cell">{(standing.top2_prob * 100).toFixed(1)}%</td>
+                            <td className="prob-cell">{(standing.top4_prob * 100).toFixed(1)}%</td>
+                            <td className="prob-cell">{(standing.playoff_prob * 100).toFixed(1)}%</td>
+                            <td className="prob-cell">{(standing.group_stage_prob * 100).toFixed(1)}%</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="empty-state">
+                  <p>
+                    Uruchom symulację, aby rozegrać cztery grupy Play-In Bo1, cztery grupy główne Bo3 i puchar
+                    Bo3/Bo5 zgodnie z opublikowanym formatem.
+                  </p>
+                  {encView === 'results' && (
+                    <button
+                      type="button"
+                      className="ghost-action-btn"
+                      style={{ marginTop: '1rem' }}
+                      onClick={() => setEncView('rosters')}
+                    >
+                      👥 Otwórz składy reprezentacji
+                    </button>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>
