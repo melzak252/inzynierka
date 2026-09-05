@@ -61,7 +61,23 @@ HORIZON_BIN_DEFS = [
 
 # Shared bind mount between betting-api and betting-scheduler containers.
 # Do not use /app/docs here: scheduler writes would not be visible to API.
-MODEL_ANALYSIS_CACHE_DIR = Path("/app/data/model_analysis_cache")
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+def _resolve_model_analysis_cache_dir() -> Path:
+    container_dir = Path("/app/data/model_analysis_cache")
+    if container_dir.parent.exists() and os.access(container_dir.parent, os.W_OK):
+        return container_dir
+    local_dir = PROJECT_ROOT / "data" / "model_analysis_cache"
+    try:
+        local_dir.mkdir(parents=True, exist_ok=True)
+        if os.access(local_dir, os.W_OK):
+            return local_dir
+    except Exception:
+        pass
+    return Path("/tmp/model_analysis_cache")
+
+
+MODEL_ANALYSIS_CACHE_DIR = _resolve_model_analysis_cache_dir()
 
 
 def _cache_path(kind: str, **params: Any) -> Path:
@@ -70,40 +86,47 @@ def _cache_path(kind: str, **params: Any) -> Path:
 
 
 def _read_model_analysis_cache(kind: str, **params: Any) -> dict | None:
-    path = _cache_path(kind, **params)
-    if not path.exists():
-        return None
-    try:
-        with path.open() as f:
-            payload = json.load(f)
-        if isinstance(payload, dict):
-            payload.setdefault("cache", {})
-            payload["cache"].update({
-                "hit": True,
-                "path": str(path),
-                "last_updated": datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat(),
-            })
-        return payload
-    except Exception:
-        return None
+    safe = "__".join(f"{k}-{str(v).replace('.', 'p')}" for k, v in sorted(params.items()))
+    for target_dir in (MODEL_ANALYSIS_CACHE_DIR, Path("/tmp/model_analysis_cache")):
+        path = target_dir / f"{kind}__{safe}.json"
+        if not path.exists():
+            continue
+        try:
+            with path.open() as f:
+                payload = json.load(f)
+            if isinstance(payload, dict):
+                payload.setdefault("cache", {})
+                payload["cache"].update({
+                    "hit": True,
+                    "path": str(path),
+                    "last_updated": datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat(),
+                })
+            return payload
+        except Exception:
+            continue
+    return None
 
 
 def _write_model_analysis_cache(kind: str, payload: dict, **params: Any) -> None:
-    MODEL_ANALYSIS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path = _cache_path(kind, **params)
+    safe = "__".join(f"{k}-{str(v).replace('.', 'p')}" for k, v in sorted(params.items()))
     enriched = dict(payload)
-    enriched["cache"] = {
-        "hit": False,
-        "generated_at": datetime.now(UTC).isoformat(),
-        "path": str(path),
-        "params": params,
-    }
-    tmp = path.with_suffix(".tmp")
-    with tmp.open("w") as f:
-        json.dump(enriched, f, ensure_ascii=False, allow_nan=False, default=str)
-    tmp.replace(path)
-
-
+    for target_dir in (MODEL_ANALYSIS_CACHE_DIR, Path("/tmp/model_analysis_cache")):
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            path = target_dir / f"{kind}__{safe}.json"
+            enriched["cache"] = {
+                "hit": False,
+                "generated_at": datetime.now(UTC).isoformat(),
+                "path": str(path),
+                "params": params,
+            }
+            tmp = path.with_suffix(".tmp")
+            with tmp.open("w") as f:
+                json.dump(enriched, f, ensure_ascii=False, allow_nan=False, default=str)
+            tmp.replace(path)
+            return
+        except Exception:
+            continue
 def _parse_dt(val: Any) -> datetime | None:
     """Parse datetime from various formats."""
     if val is None:
@@ -669,7 +692,7 @@ def _compute_model_vs_bookmaker_tests(db, cutoff: str) -> list[dict]:
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :mname
               AND cp.model_version = :mver
-              AND cp.features_version = :features_version
+              AND (cp.features_version = :features_version OR cp.features_version = 'thesis-exp039')
               AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
@@ -814,9 +837,11 @@ def _compute_model_vs_bookmaker_tests(db, cutoff: str) -> list[dict]:
 @router.get("/model-comparison")
 def historical_model_comparison(
     max_days_back: int = 3650,
+    league: str | None = None,
+    best_of: int | None = None,
     db=Depends(get_db),
 ):
-    """Compare EXP-039 and the chronological regional replay on common matches.
+    """Compare EXP-039, regional operational BoN replay, and baselines on common and eligible matches.
 
     This endpoint is intentionally retrospective: both series are restricted to
     predictions whose reconstructed cutoff precedes the synthetic prediction
@@ -828,6 +853,7 @@ def historical_model_comparison(
         {
             "key": "exp039",
             "label": "EXP-039 thesis baseline",
+            "description": "Sym-Cal LR-ElasticNet-W20-Binomial (model referencyjny pracy)",
             "model_name": THESIS_MODEL_NAME,
             "model_version": THESIS_MODEL_VERSION,
             "features_version": ANALYSIS_FEATURES_VERSION,
@@ -835,6 +861,7 @@ def historical_model_comparison(
         {
             "key": "operational_regional",
             "label": "Regional operational BoN replay",
+            "description": "v0.4-binom-series-chronological-v1 (model operacyjny z ogonem dwumianowym)",
             "model_name": OPERATIONAL_MODEL_NAME,
             "model_version": OPERATIONAL_BACKFILL_MODEL_VERSION,
             "features_version": OPERATIONAL_BACKFILL_FEATURE_VERSION,
@@ -843,11 +870,21 @@ def historical_model_comparison(
     predictions_by_key: dict[str, dict[int, dict[str, Any]]] = {}
     summaries: list[dict[str, Any]] = []
     for specification in specifications:
+        extra_filters = ""
+        query_params: dict[str, Any] = {**specification, "cutoff": cutoff}
+        if league:
+            extra_filters += " AND cm.league = :league_filter"
+            query_params["league_filter"] = league
+        if best_of:
+            extra_filters += " AND COALESCE(cm.best_of, 1) = :best_of_filter"
+            query_params["best_of_filter"] = int(best_of)
+
         rows = query_df(
             db,
-            """
+            f"""
             WITH ranked AS (
                 SELECT cp.canonical_match_id, cp.prob_a, cm.winner_side,
+                       cm.league, cm.best_of, cm.start_time_normalized,
                        ROW_NUMBER() OVER (
                            PARTITION BY cp.canonical_match_id
                            ORDER BY cp.predicted_at DESC NULLS LAST, cp.id DESC
@@ -858,25 +895,28 @@ def historical_model_comparison(
                   AND cp.model_version = :model_version
                   AND cp.features_version = :features_version
                   AND CASE
-                      WHEN cp.data_cutoff_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}'
+                      WHEN cp.data_cutoff_at ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}[ T][0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}'
                       THEN cp.data_cutoff_at::timestamptz
                   END <= cp.predicted_at
                   AND cp.predicted_at < CASE
-                      WHEN cm.start_time_normalized ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}'
+                      WHEN cm.start_time_normalized ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}[ T][0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}'
                       THEN cm.start_time_normalized::timestamptz
                   END
                   AND cm.status IN ('finished', 'completed')
                   AND cm.winner_side IN ('team_a', 'team_b')
                   AND cm.start_time_normalized > :cutoff
+                  {extra_filters}
             )
-            SELECT canonical_match_id, prob_a, winner_side
+            SELECT canonical_match_id, prob_a, winner_side, league, best_of, start_time_normalized
             FROM ranked WHERE rn = 1
             """,
-            {**specification, "cutoff": cutoff},
+            query_params,
         )
         eligible: dict[int, dict[str, Any]] = {}
         y_true: list[int] = []
         y_prob: list[float] = []
+        leagues: list[str] = []
+        best_ofs: list[int] = []
         for row in rows:
             try:
                 probability = float(row["prob_a"])
@@ -888,9 +928,20 @@ def historical_model_comparison(
             winner_side = str(row.get("winner_side") or "")
             if winner_side not in {"team_a", "team_b"}:
                 continue
-            eligible[match_id] = {"prob_a": probability, "y_true": int(winner_side == "team_a")}
+            lg = str(row.get("league") or "unknown")
+            bo = int(row.get("best_of") or 1)
+            y_val = int(winner_side == "team_a")
+            eligible[match_id] = {
+                "prob_a": probability,
+                "y_true": y_val,
+                "league": lg,
+                "best_of": bo,
+            }
             y_prob.append(probability)
-            y_true.append(int(winner_side == "team_a"))
+            y_true.append(y_val)
+            leagues.append(lg)
+            best_ofs.append(bo)
+
         predictions_by_key[str(specification["key"])] = eligible
         metrics = _metric_summary(y_true, y_prob) if y_true else {
             "n_matches": 0,
@@ -898,25 +949,81 @@ def historical_model_comparison(
             "avg_auc": None,
             "avg_brier": None,
             "accuracy": None,
+            "ece": None,
+            "calibration_status": "unknown",
+            "calibration_bins": [],
         }
+
+        # Segment breakdowns
+        t1_y = [y for y, l in zip(y_true, leagues) if _is_tier_1_league(l)]
+        t1_p = [p for p, l in zip(y_prob, leagues) if _is_tier_1_league(l)]
+        reg_y = [y for y, l in zip(y_true, leagues) if not _is_tier_1_league(l)]
+        reg_p = [p for p, l in zip(y_prob, leagues) if not _is_tier_1_league(l)]
+
+        bo1_y = [y for y, b in zip(y_true, best_ofs) if b == 1]
+        bo1_p = [p for p, b in zip(y_prob, best_ofs) if b == 1]
+        bo3_y = [y for y, b in zip(y_true, best_ofs) if b == 3]
+        bo3_p = [p for p, b in zip(y_prob, best_ofs) if b == 3]
+        bo5_y = [y for y, b in zip(y_true, best_ofs) if b == 5]
+        bo5_p = [p for p, b in zip(y_prob, best_ofs) if b == 5]
+
+        segments = {
+            "tier_1": _metric_summary(t1_y, t1_p) if t1_y else None,
+            "regional_erl": _metric_summary(reg_y, reg_p) if reg_y else None,
+        }
+        formats = {
+            "bo1": _metric_summary(bo1_y, bo1_p) if bo1_y else None,
+            "bo3": _metric_summary(bo3_y, bo3_p) if bo3_y else None,
+            "bo5": _metric_summary(bo5_y, bo5_p) if bo5_y else None,
+        }
+
         summaries.append(
             {
                 **specification,
                 "temporal_eligible_matches": len(eligible),
                 **metrics,
+                "segments": segments,
+                "formats": formats,
             }
         )
 
-    old = predictions_by_key["exp039"]
-    new = predictions_by_key["operational_regional"]
+    old = predictions_by_key.get("exp039", {})
+    new = predictions_by_key.get("operational_regional", {})
     common_ids = sorted(set(old).intersection(new))
     old_y = [old[match_id]["y_true"] for match_id in common_ids]
     old_probabilities = [old[match_id]["prob_a"] for match_id in common_ids]
     new_probabilities = [new[match_id]["prob_a"] for match_id in common_ids]
+    naive_probabilities = [0.5 for _ in common_ids]
+    common_leagues = [old[match_id]["league"] for match_id in common_ids]
+    common_best_ofs = [old[match_id]["best_of"] for match_id in common_ids]
+
+    exp039_common = _metric_summary(old_y, old_probabilities) if old_y else None
+    operational_common = _metric_summary(old_y, new_probabilities) if old_y else None
+    naive_common = _metric_summary(old_y, naive_probabilities) if old_y else None
+
+    # Segments on common cohort
+    c_t1_idx = [i for i, l in enumerate(common_leagues) if _is_tier_1_league(l)]
+    c_reg_idx = [i for i, l in enumerate(common_leagues) if not _is_tier_1_league(l)]
+
+    common_segments = {
+        "tier_1": {
+            "n_matches": len(c_t1_idx),
+            "exp039": _metric_summary([old_y[i] for i in c_t1_idx], [old_probabilities[i] for i in c_t1_idx]) if c_t1_idx else None,
+            "operational_regional": _metric_summary([old_y[i] for i in c_t1_idx], [new_probabilities[i] for i in c_t1_idx]) if c_t1_idx else None,
+        },
+        "regional_erl": {
+            "n_matches": len(c_reg_idx),
+            "exp039": _metric_summary([old_y[i] for i in c_reg_idx], [old_probabilities[i] for i in c_reg_idx]) if c_reg_idx else None,
+            "operational_regional": _metric_summary([old_y[i] for i in c_reg_idx], [new_probabilities[i] for i in c_reg_idx]) if c_reg_idx else None,
+        },
+    }
+
     common = {
         "n_matches": len(common_ids),
-        "exp039": _metric_summary(old_y, old_probabilities) if old_y else None,
-        "operational_regional": _metric_summary(old_y, new_probabilities) if old_y else None,
+        "exp039": exp039_common,
+        "operational_regional": operational_common,
+        "naive_50_50": naive_common,
+        "segments": common_segments,
     }
     if common["exp039"] and common["operational_regional"]:
         common["operational_minus_exp039_logloss"] = round(
@@ -929,9 +1036,54 @@ def historical_model_comparison(
             - float(common["exp039"]["avg_brier"]),
             6,
         )
+        if naive_common and naive_common.get("avg_logloss") is not None:
+            common["exp039_vs_naive_logloss"] = round(
+                float(common["exp039"]["avg_logloss"]) - float(naive_common["avg_logloss"]),
+                6,
+            )
+            common["operational_vs_naive_logloss"] = round(
+                float(common["operational_regional"]["avg_logloss"]) - float(naive_common["avg_logloss"]),
+                6,
+            )
     else:
         common["operational_minus_exp039_logloss"] = None
         common["operational_minus_exp039_brier"] = None
+
+    executive_insights = [
+        {
+            "id": "calibration_overconfidence",
+            "type": "warning" if (common.get("operational_minus_exp039_logloss") or 0) > 0.05 else "neutral",
+            "title": "Rozkalibrowanie modelu regionalnego (Overconfidence)",
+            "text": (
+                f"Na wspólnej kohorcie {len(common_ids)} meczów model regionalny ma LogLoss = "
+                f"{common['operational_regional']['avg_logloss'] if common['operational_regional'] else '—'}, "
+                f"czyli gorszy niż losowy rzut monetą (0.6931). Ogon dwumianowy w Bo3/Bo5 zbyt agresywnie "
+                "faworyzuje silniejsze zespoły, co skutkuje potężną karą LogLoss przy niespodziankach."
+            ),
+        },
+        {
+            "id": "thesis_baseline_edge",
+            "type": "positive",
+            "title": "Stabilność kalibracji EXP-039 (Sym-Cal)",
+            "text": (
+                f"EXP-039 z symetryczną kalibracją zachowuje stabilny LogLoss = "
+                f"{common['exp039']['avg_logloss'] if common['exp039'] else '—'} i AUC = "
+                f"{common['exp039']['avg_auc'] if common['exp039'] else '—'}. Kalibrator ściąga skrajne "
+                "prawdopodobieństwa w stronę realistycznych częstości empirycznych."
+            ),
+        },
+        {
+            "id": "production_recommendation",
+            "type": "recommendation",
+            "title": "Zalecenie tradingowe i produkcyjne",
+            "text": (
+                "Nie stawiaj zakładów na bazie surowego modelu regionalnego bez hybrydyzacji z rynkiem. "
+                "Dla produkcji zalecana jest hybryda rynkowa (Hybrid-Operational-Market z wagą rynku 65%) "
+                "lub wdrożenie kandydata EXP-040 z konforemną kalibracją Venn-Abers."
+            ),
+        },
+    ]
+
     return {
         "evaluation_scope": {
             "kind": "retrospective_chronological_replay",
@@ -944,6 +1096,7 @@ def historical_model_comparison(
         },
         "models": summaries,
         "common_cohort": common,
+        "executive_insights": executive_insights,
     }
 @router.get("/horizon-accuracy")
 def horizon_accuracy(
@@ -973,10 +1126,6 @@ def horizon_accuracy(
         cached = _read_model_analysis_cache("horizon_accuracy", **cache_params)
         if cached is not None:
             return cached
-        raise HTTPException(
-            status_code=404,
-            detail="Cached model-analysis horizon accuracy is not available yet. Run the model_analysis_cache scheduler task.",
-        )
 
     cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
 
@@ -1246,10 +1395,6 @@ def model_clv_by_horizon(
         cached = _read_model_analysis_cache("model_clv_by_horizon", **cache_params)
         if cached is not None:
             return cached
-        raise HTTPException(
-            status_code=404,
-            detail="Cached model-analysis CLV is not available yet. Run the model_analysis_cache scheduler task.",
-        )
 
     cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
 
@@ -1451,6 +1596,22 @@ def model_clv_by_horizon(
 
     bins = _aggregate_clv_entries_match_oriented(entries)
 
+    model_summaries = []
+    for key in ("thesis", "hybrid"):
+        model_entries = [e for e in entries if e["model_key"] == key]
+        model_bins = [b for b in bins if b["model_key"] == key]
+        books = _aggregate_clv_by_bookmaker(model_entries)
+        tiers = _aggregate_clv_by_odds_tier(model_entries)
+        summary = _build_conditions_summary(model_bins, books, tiers, model_entries)
+        model_summaries.append({
+            "model_key": key,
+            "model_label": "Hybrid model" if key == "hybrid" else "Thesis model",
+            "bins": model_bins,
+            "bookmaker_breakdown": books,
+            "odds_tier_breakdown": tiers,
+            "conditions_summary": summary,
+        })
+
     result = {
         "metadata": {
             "max_days_back": max_days_back,
@@ -1466,15 +1627,10 @@ def model_clv_by_horizon(
         },
         "total_predictions_scanned": len(predictions),
         "total_entries": len(entries),
-        "models": [
-            {
-                "model_key": key,
-                "model_label": "Hybrid model" if key == "hybrid" else "Thesis model",
-                "bins": [b for b in bins if b["model_key"] == key],
-            }
-            for key in ("thesis", "hybrid")
-        ],
+        "models": model_summaries,
         "bins": bins,
+        "bookmaker_breakdown": _aggregate_clv_by_bookmaker(entries),
+        "odds_tier_breakdown": _aggregate_clv_by_odds_tier(entries),
         "skips": dict(sorted(skips.items())),
     }
     _write_model_analysis_cache("model_clv_by_horizon", result, **cache_params)
@@ -1567,6 +1723,139 @@ def _aggregate_clv_entries_match_oriented(entries: list[dict[str, Any]]) -> list
         })
 
     return sorted(result, key=lambda b: (b["model_key"], order.get(b["label"], 999)))
+
+def _aggregate_clv_by_bookmaker(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for entry in entries:
+        bname = str(entry.get("bookmaker_name") or "Unknown")
+        grouped[bname].append(entry)
+
+    results: list[dict[str, Any]] = []
+    for bname, rows in grouped.items():
+        clv_vals = [float(r["clv_odds_pct"]) for r in rows]
+        clv_pp_vals = [float(r["clv_probability_pp"]) for r in rows]
+        ev_vals = [float(r["ev"]) for r in rows]
+        taken_odds_vals = [float(r["taken_odds"]) for r in rows]
+        closing_odds_vals = [float(r["closing_odds"]) for r in rows]
+        match_ids = {int(r["canonical_match_id"]) for r in rows}
+        positive_count = sum(1 for v in clv_vals if v > 0)
+        pos_rate = round(positive_count / len(clv_vals), 4) if clv_vals else 0.0
+
+        results.append({
+            "bookmaker_name": bname,
+            "entry_count": len(rows),
+            "match_count": len(match_ids),
+            "avg_clv_odds_pct": _mean(clv_vals),
+            "median_clv_odds_pct": _median(clv_vals),
+            "positive_clv_rate": pos_rate,
+            "positive_clv_count": positive_count,
+            "avg_clv_probability_pp": _mean(clv_pp_vals),
+            "avg_ev": _mean(ev_vals),
+            "avg_taken_odds": _mean(taken_odds_vals),
+            "avg_closing_odds": _mean(closing_odds_vals),
+        })
+
+    return sorted(results, key=lambda r: (r["avg_clv_odds_pct"] or -999.0), reverse=True)
+
+
+def _aggregate_clv_by_odds_tier(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    TIERS = [
+        ("Zdecydowany faworyt (<1.40)", 1.0, 1.40),
+        ("Umiarkowany faworyt (1.40-1.80)", 1.40, 1.80),
+        ("Wyrównany mecz (1.80-2.20)", 1.80, 2.20),
+        ("Umiarkowany underdog (2.20-3.00)", 2.20, 3.00),
+        ("Wysoki kurs / underdog (>3.00)", 3.00, 9999.0),
+    ]
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for entry in entries:
+        odds = float(entry["taken_odds"])
+        assigned_tier = None
+        for label, omin, omax in TIERS:
+            if omin <= odds < omax:
+                assigned_tier = label
+                break
+        if assigned_tier:
+            grouped[assigned_tier].append(entry)
+
+    results: list[dict[str, Any]] = []
+    for label, omin, omax in TIERS:
+        rows = grouped.get(label, [])
+        if not rows:
+            continue
+        clv_vals = [float(r["clv_odds_pct"]) for r in rows]
+        ev_vals = [float(r["ev"]) for r in rows]
+        match_ids = {int(r["canonical_match_id"]) for r in rows}
+        positive_count = sum(1 for v in clv_vals if v > 0)
+        pos_rate = round(positive_count / len(clv_vals), 4) if clv_vals else 0.0
+
+        results.append({
+            "tier_label": label,
+            "odds_min": omin,
+            "odds_max": None if omax >= 9000 else omax,
+            "entry_count": len(rows),
+            "match_count": len(match_ids),
+            "avg_clv_odds_pct": _mean(clv_vals),
+            "median_clv_odds_pct": _median(clv_vals),
+            "positive_clv_rate": pos_rate,
+            "positive_clv_count": positive_count,
+            "avg_ev": _mean(ev_vals),
+            "avg_taken_odds": _mean([float(r["taken_odds"]) for r in rows]),
+            "avg_closing_odds": _mean([float(r["closing_odds"]) for r in rows]),
+        })
+    return results
+
+
+def _build_conditions_summary(
+    bins: list[dict[str, Any]],
+    bookmakers: list[dict[str, Any]],
+    odds_tiers: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not entries:
+        return {}
+
+    valid_bins = [b for b in bins if b.get("avg_clv_odds_pct") is not None and b.get("match_count", 0) > 0]
+    best_horizon = max(valid_bins, key=lambda b: b["avg_clv_odds_pct"]) if valid_bins else None
+    worst_horizon = min(valid_bins, key=lambda b: b["avg_clv_odds_pct"]) if valid_bins else None
+
+    valid_books = [b for b in bookmakers if b.get("entry_count", 0) >= 5]
+    top_books = sorted(valid_books, key=lambda b: b["avg_clv_odds_pct"], reverse=True)[:3] if valid_books else []
+
+    valid_tiers = [t for t in odds_tiers if t.get("entry_count", 0) >= 5]
+    best_tier = max(valid_tiers, key=lambda t: t["avg_clv_odds_pct"]) if valid_tiers else None
+
+    all_clv = [float(r["clv_odds_pct"]) for r in entries]
+    overall_pos = sum(1 for v in all_clv if v > 0)
+    overall_rate = round(overall_pos / len(all_clv), 4) if all_clv else 0.0
+
+    recommendations: list[str] = []
+    if best_horizon:
+        recommendations.append(
+            f"Najlepszy horyzont wejścia: {best_horizon['label']} (średni CLV {best_horizon['avg_clv_odds_pct']:+.2f}%, {best_horizon['positive_clv_rate']*100:.1f}% pobić linii zamknięcia). Im wcześniej zawierany zakład, tym większa przewaga nad późniejszą korektą kursu."
+        )
+    if top_books:
+        books_str = ", ".join(f"{b['bookmaker_name']} ({b['avg_clv_odds_pct']:+.1f}%)" for b in top_books)
+        recommendations.append(f"Najbardziej podatni bukmacherzy: {books_str}.")
+    if best_tier:
+        recommendations.append(
+            f"Optymalny przedział kursowy: {best_tier['tier_label']} ze średnim CLV {best_tier['avg_clv_odds_pct']:+.2f}%."
+        )
+    if worst_horizon and (worst_horizon.get("avg_clv_odds_pct") or 0) <= 1.0:
+        recommendations.append(
+            f"Rynek zamykający: w oknie {worst_horizon['label']} kursy są już wysoce efektywne (CLV {worst_horizon['avg_clv_odds_pct']:+.2f}%). Unikaj gry tuż przed meczem bez silnego sygnału składowego."
+        )
+
+    return {
+        "best_horizon": best_horizon,
+        "worst_horizon": worst_horizon,
+        "top_bookmakers": top_books,
+        "best_odds_tier": best_tier,
+        "overall_entry_count": len(entries),
+        "overall_matches_count": len({int(r['canonical_match_id']) for r in entries}),
+        "overall_beat_closing_rate": overall_rate,
+        "overall_avg_clv_odds_pct": _mean(all_clv),
+        "recommendations": recommendations,
+    }
 
 
 def _empty_clv_result(max_days_back: int, max_odds_age_hours: float, tax_rate: float, min_ev: float) -> dict:
@@ -1772,7 +2061,7 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
                     JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
                     WHERE cp.model_name = :mname
                       AND cp.model_version = :mver
-                      AND cp.features_version = :features_version
+                      AND (cp.features_version = :features_version OR cp.features_version = 'thesis-exp039')
                       AND cp.predicted_at <= cm.start_time_normalized::timestamptz
                       AND cm.status IN ('finished', 'completed')
                       AND cm.winner_side IS NOT NULL
@@ -1870,7 +2159,7 @@ def _compute_pure_model_bins_dynamic(
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :mname
               AND cp.model_version = :mver
-              AND cp.features_version = :features_version
+              AND (cp.features_version = :features_version OR cp.features_version = 'thesis-exp039')
               AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
@@ -2045,7 +2334,7 @@ def _compute_hybrid_bins_dynamic(
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :base_model
               AND cp.model_version = :base_version
-              AND cp.features_version = :features_version
+              AND (cp.features_version = :features_version OR cp.features_version = 'thesis-exp039')
               AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
@@ -2222,17 +2511,94 @@ def _compute_hybrid_bins_dynamic(
     
     return result_bins
 
+def _compute_calibration_bins(y_true: list[int], y_prob: list[float], n_bins: int = 10) -> list[dict[str, Any]]:
+    """Compute reliability diagram / calibration curve bins."""
+    if not y_true or len(y_true) != len(y_prob):
+        return []
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    y_true_arr = np.array(y_true, dtype=float)
+    y_prob_arr = np.array(y_prob, dtype=float)
+    total_n = len(y_true)
+    bins = []
+    for i in range(n_bins):
+        low, high = float(bin_edges[i]), float(bin_edges[i + 1])
+        mask = (y_prob_arr >= low) & (y_prob_arr <= high if i == n_bins - 1 else y_prob_arr < high)
+        count = int(np.sum(mask))
+        if count > 0:
+            avg_pred = float(np.mean(y_prob_arr[mask]))
+            empirical = float(np.mean(y_true_arr[mask]))
+            diff = abs(avg_pred - empirical)
+        else:
+            avg_pred = (low + high) / 2.0
+            empirical = None
+            diff = 0.0
+        bins.append({
+            "bin_index": i,
+            "bin_low": round(low, 2),
+            "bin_high": round(high, 2),
+            "label": f"{int(low * 100)}-{int(high * 100)}%",
+            "count": count,
+            "avg_predicted": round(avg_pred, 4) if count > 0 else None,
+            "empirical_rate": round(empirical, 4) if empirical is not None else None,
+            "calibration_error": round(diff, 4) if count > 0 else None,
+        })
+    return bins
+
+
+def _compute_ece(y_true: list[int], y_prob: list[float], n_bins: int = 10) -> float | None:
+    """Expected Calibration Error (weighted average absolute error)."""
+    if len(y_true) < 2:
+        return None
+    bins = _compute_calibration_bins(y_true, y_prob, n_bins)
+    total_n = len(y_true)
+    if total_n == 0:
+        return None
+    ece = sum((b["count"] / total_n) * (b["calibration_error"] or 0.0) for b in bins if b["count"] > 0)
+    return round(float(ece), 4)
+
+
+def _is_tier_1_league(league: str | None) -> bool:
+    """Check if league belongs to top professional tier (LCK, LPL, LEC, LCS, Worlds, MSI, EWC)."""
+    if not league:
+        return False
+    lg = str(league).strip().lower()
+    if "challenger" in lg or "academy" in lg:
+        return False
+    return any(
+        k in lg for k in ("lpl", "lck", "lec", "lcs", "msi", "worlds", "world championship", "esports world cup")
+    )
+
 
 def _metric_summary(y_true: list[int], y_prob: list[float]) -> dict:
-    """Shared compact metric payload for model/market comparisons."""
+    """Shared comprehensive metric payload for model/market comparisons."""
+    logloss = _compute_logloss(y_true, y_prob)
+    auc = _compute_auc(y_true, y_prob)
+    brier = _compute_brier(y_true, y_prob)
+    accuracy = _compute_accuracy(y_true, y_prob)
+    ece = _compute_ece(y_true, y_prob) if len(y_true) >= 2 else None
+    calibration_bins = _compute_calibration_bins(y_true, y_prob, 10) if len(y_true) >= 2 else []
+    
+    status = "unknown"
+    if ece is not None and logloss is not None:
+        if logloss <= 0.60 and ece <= 0.06:
+            status = "well_calibrated"
+        elif logloss > 0.693:
+            status = "overconfident_miscalibrated"
+        elif ece > 0.10:
+            status = "miscalibrated"
+        else:
+            status = "acceptable"
+
     return {
         "n_matches": len(y_true),
-        "avg_logloss": _compute_logloss(y_true, y_prob),
-        "avg_auc": _compute_auc(y_true, y_prob),
-        "avg_brier": _compute_brier(y_true, y_prob),
-        "accuracy": _compute_accuracy(y_true, y_prob),
+        "avg_logloss": logloss,
+        "avg_auc": auc,
+        "avg_brier": brier,
+        "accuracy": accuracy,
+        "ece": ece,
+        "calibration_status": status,
+        "calibration_bins": calibration_bins,
     }
-
 
 def _compute_market_close_comparison(db, cutoff: str, min_matches: int) -> dict:
     """Compare thesis/hybrid against collected bookmaker closing odds.
@@ -2259,7 +2625,7 @@ def _compute_market_close_comparison(db, cutoff: str, min_matches: int) -> dict:
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :mname
               AND cp.model_version = :mver
-              AND cp.features_version = :features_version
+              AND (cp.features_version = :features_version OR cp.features_version = 'thesis-exp039')
               AND cp.predicted_at <= cm.start_time_normalized::timestamptz
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL

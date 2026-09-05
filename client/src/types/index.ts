@@ -427,18 +427,52 @@ export interface ModelVsBookmakerTest {
   significant: boolean;
 }
 
-export interface HistoricalModelMetrics {
-  key: 'exp039' | 'operational_regional';
+export interface CalibrationBin {
+  bin_index: number;
+  bin_low: number;
+  bin_high: number;
   label: string;
-  model_name: string;
-  model_version: string;
-  features_version: string;
-  temporal_eligible_matches: number;
+  avg_predicted: number | null;
+  empirical_rate: number | null;
+  calibration_error: number | null;
+  count: number;
+}
+
+export interface MetricSummary {
   n_matches: number;
   avg_logloss: number | null;
   avg_auc: number | null;
   avg_brier: number | null;
   accuracy: number | null;
+  ece?: number | null;
+  calibration_status?: 'well_calibrated' | 'acceptable' | 'overconfident_miscalibrated' | 'miscalibrated' | 'unknown' | string;
+  calibration_bins?: CalibrationBin[];
+}
+
+export interface HistoricalModelMetrics extends MetricSummary {
+  key: string;
+  label: string;
+  description?: string;
+  model_name: string;
+  model_version: string;
+  features_version: string;
+  temporal_eligible_matches: number;
+  segments?: {
+    tier_1: MetricSummary | null;
+    regional_erl: MetricSummary | null;
+  };
+  formats?: {
+    bo1: MetricSummary | null;
+    bo3: MetricSummary | null;
+    bo5: MetricSummary | null;
+  };
+}
+
+export interface ExecutiveInsight {
+  id: string;
+  type: 'warning' | 'positive' | 'recommendation' | 'neutral';
+  title: string;
+  text: string;
 }
 
 export interface HistoricalModelComparison {
@@ -450,11 +484,27 @@ export interface HistoricalModelComparison {
   models: HistoricalModelMetrics[];
   common_cohort: {
     n_matches: number;
-    exp039: Omit<HistoricalModelMetrics, 'key' | 'label' | 'model_name' | 'model_version' | 'features_version' | 'temporal_eligible_matches'> | null;
-    operational_regional: Omit<HistoricalModelMetrics, 'key' | 'label' | 'model_name' | 'model_version' | 'features_version' | 'temporal_eligible_matches'> | null;
+    exp039: MetricSummary | null;
+    operational_regional: MetricSummary | null;
+    naive_50_50?: MetricSummary | null;
     operational_minus_exp039_logloss: number | null;
     operational_minus_exp039_brier: number | null;
+    exp039_vs_naive_logloss?: number | null;
+    operational_vs_naive_logloss?: number | null;
+    segments?: {
+      tier_1: {
+        n_matches: number;
+        exp039: MetricSummary | null;
+        operational_regional: MetricSummary | null;
+      };
+      regional_erl: {
+        n_matches: number;
+        exp039: MetricSummary | null;
+        operational_regional: MetricSummary | null;
+      };
+    };
   };
+  executive_insights?: ExecutiveInsight[];
 }
 
 export interface MatchupSimulationRequest {

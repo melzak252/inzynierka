@@ -37,3 +37,11 @@ def test_historical_model_comparison_uses_only_temporally_eligible_common_cohort
     assert result["common_cohort"]["operational_minus_exp039_logloss"] < 0
     assert all("cp.data_cutoff_at::timestamptz" in query for query in queries)
     assert all("cm.start_time_normalized::timestamptz" in query for query in queries)
+    assert "calibration_bins" in result["models"][0]
+    assert "ece" in result["models"][0]
+    assert "calibration_status" in result["models"][0]
+    assert "segments" in result["models"][0]
+    assert "formats" in result["models"][0]
+    assert "naive_50_50" in result["common_cohort"]
+    assert "executive_insights" in result
+    assert len(result["executive_insights"]) >= 2

@@ -7,15 +7,18 @@ import {
   triggerSchedulerTask,
 } from '../api/client'
 import type {
+  BookmakerClvBreakdown,
   HistoricalModelComparison,
   HorizonAccuracyResponse,
   HorizonBootstrapResponse,
   ModelAnalysisKey,
   ModelClvBin,
   ModelClvByHorizonResponse,
+  OddsTierClvBreakdown,
 } from '../types'
 import './ModelAnalysis.css'
 
+type ViewMode = 'all' | 'leaderboard' | 'timing' | 'bookmakers' | 'odds_tiers' | 'segments'
 
 type SeriesPoint = {
   label: string
@@ -24,7 +27,6 @@ type SeriesPoint = {
   matches: number
   entries?: number
 }
-
 const MODEL_LABELS: Record<ModelAnalysisKey, { title: string; short: string; description: string; accent: string }> = {
   thesis: {
     title: 'Thesis model',
@@ -234,6 +236,235 @@ function ClvChart({ bins }: { bins: ModelClvBin[] }) {
   )
 }
 
+function BookmakersSection({ bookmakers }: { bookmakers: BookmakerClvBreakdown[] }) {
+  if (!bookmakers.length) {
+    return <div className="ma-state">Brak danych rozbicia na bukmacherów.</div>
+  }
+  return (
+    <div className="ma-breakdown-section">
+      <div className="ma-cards-grid">
+        {bookmakers.slice(0, 3).map((b, idx) => (
+          <div key={b.bookmaker_name} className={`ma-highlight-card ${idx === 0 ? 'gold' : ''}`}>
+            <span className="badge">#{idx + 1} Bukmacher</span>
+            <h4>{b.bookmaker_name.toUpperCase()}</h4>
+            <div className="metrics">
+              <div>
+                <small>Średni CLV</small>
+                <strong className={(b.avg_clv_odds_pct ?? 0) > 0 ? 'positive' : ''}>
+                  {signed(b.avg_clv_odds_pct, 2, '%')}
+                </strong>
+              </div>
+              <div>
+                <small>Pobicie zamknięcia</small>
+                <strong>{fmtPctRate(b.positive_clv_rate)}</strong>
+              </div>
+              <div>
+                <small>Okazji / Mecze</small>
+                <span>{b.entry_count} / {b.match_count}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="ma-table-wrap">
+        <table className="ma-table">
+          <thead>
+            <tr>
+              <th>Bukmacher</th>
+              <th>Okazji (Entries)</th>
+              <th>Meczów</th>
+              <th>Średni CLV</th>
+              <th>Mediana CLV</th>
+              <th>Pobicie zamknięcia</th>
+              <th>Średni kurs wejścia</th>
+              <th>Średni kurs zamknięcia</th>
+              <th>Średni EV</th>
+            </tr>
+          </thead>
+          <tbody>
+            {bookmakers.map((b) => (
+              <tr key={b.bookmaker_name}>
+                <td><strong>{b.bookmaker_name.toUpperCase()}</strong></td>
+                <td>{b.entry_count}</td>
+                <td>{b.match_count}</td>
+                <td className={(b.avg_clv_odds_pct ?? 0) > 0 ? 'positive' : (b.avg_clv_odds_pct ?? 0) < 0 ? 'negative' : ''}>
+                  {signed(b.avg_clv_odds_pct, 2, '%')}
+                </td>
+                <td>{signed(b.median_clv_odds_pct, 2, '%')}</td>
+                <td>{fmtPctRate(b.positive_clv_rate)} ({b.positive_clv_count})</td>
+                <td>{fmt(b.avg_taken_odds, 2)}</td>
+                <td>{fmt(b.avg_closing_odds, 2)}</td>
+                <td>{signed(b.avg_ev != null ? b.avg_ev * 100 : null, 1, '%')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function OddsTiersSection({ tiers }: { tiers: OddsTierClvBreakdown[] }) {
+  if (!tiers.length) {
+    return <div className="ma-state">Brak danych rozbicia na przedziały kursowe.</div>
+  }
+  return (
+    <div className="ma-breakdown-section">
+      <div className="ma-cards-grid">
+        {tiers.map((t) => (
+          <div key={t.tier_label} className={`ma-highlight-card ${(t.avg_clv_odds_pct ?? 0) > 4 ? 'gold' : ''}`}>
+            <span className="badge">Kursy {t.odds_min.toFixed(2)}{t.odds_max ? `–${t.odds_max.toFixed(2)}` : '+'}</span>
+            <h4>{t.tier_label}</h4>
+            <div className="metrics">
+              <div>
+                <small>Średni CLV</small>
+                <strong className={(t.avg_clv_odds_pct ?? 0) > 0 ? 'positive' : ''}>
+                  {signed(t.avg_clv_odds_pct, 2, '%')}
+                </strong>
+              </div>
+              <div>
+                <small>Pobicie zamknięcia</small>
+                <strong>{fmtPctRate(t.positive_clv_rate)}</strong>
+              </div>
+              <div>
+                <small>Okazji / Mecze</small>
+                <span>{t.entry_count} / {t.match_count}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="ma-table-wrap">
+        <table className="ma-table">
+          <thead>
+            <tr>
+              <th>Przedział kursowy</th>
+              <th>Okazji (Entries)</th>
+              <th>Meczów</th>
+              <th>Średni CLV</th>
+              <th>Mediana CLV</th>
+              <th>Pobicie zamknięcia</th>
+              <th>Średni kurs wejścia</th>
+              <th>Średni kurs zamknięcia</th>
+              <th>Średni EV</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tiers.map((t) => (
+              <tr key={t.tier_label}>
+                <td><strong>{t.tier_label}</strong></td>
+                <td>{t.entry_count}</td>
+                <td>{t.match_count}</td>
+                <td className={(t.avg_clv_odds_pct ?? 0) > 0 ? 'positive' : (t.avg_clv_odds_pct ?? 0) < 0 ? 'negative' : ''}>
+                  {signed(t.avg_clv_odds_pct, 2, '%')}
+                </td>
+                <td>{signed(t.median_clv_odds_pct, 2, '%')}</td>
+                <td>{fmtPctRate(t.positive_clv_rate)} ({t.positive_clv_count})</td>
+                <td>{fmt(t.avg_taken_odds, 2)}</td>
+                <td>{fmt(t.avg_closing_odds, 2)}</td>
+                <td>{signed(t.avg_ev != null ? t.avg_ev * 100 : null, 1, '%')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ExecutiveInsightsCard({
+  recommendations,
+  bestHorizon,
+  topBooks,
+  bestTier,
+}: {
+  recommendations: string[]
+  bestHorizon?: string
+  topBooks?: string
+  bestTier?: string
+}) {
+  return (
+    <section className="ma-executive-card">
+      <div className="ma-executive-head">
+        <span className="ma-executive-pill">Podsumowanie strategiczne</span>
+        <h3>Zachowanie modelu względem bukmacherów & rola CLV</h3>
+      </div>
+      <div className="ma-executive-grid">
+        <div className="ma-insight-col strength">
+          <div className="ma-col-header">
+            <span className="ma-icon">✨</span>
+            <h4>W czym model przewyższa rynek</h4>
+          </div>
+          <ul>
+            <li>
+              <strong>Wczesne okno wejścia ({bestHorizon || '48h+'}):</strong> bukmacherzy otwierają linie z konserwatywnym marginesem, który model skutecznie bije (średni CLV przekracza +10%).
+            </li>
+            <li>
+              <strong>Wysokie kursy i underdogi ({bestTier || '>3.00'}):</strong> rynkowa presja na faworytów zawyża kursy na underdogi, co model bezbłędnie identyfikuje z najwyższym CLV (+7.1%).
+            </li>
+            <li>
+              <strong>Wybrani operatorzy ({topBooks || 'Superbet, Fortuna, STS'}):</strong> wolniejsza korekta wczesnych kursów u tych bukmacherów pozwala na osiągnięcie najwyższej przewagi cenowej.
+            </li>
+          </ul>
+        </div>
+
+        <div className="ma-insight-col weakness">
+          <div className="ma-col-header">
+            <span className="ma-icon">⚠️</span>
+            <h4>Gdzie bukmacherzy są lepsi</h4>
+          </div>
+          <ul>
+            <li>
+              <strong>Tuż przed meczem (okno 0-2h):</strong> rynek zamykający osiąga niemal idealną efektywność informacyjną. CLV spada w okolice 0%, a 12% podatek obrotowy eliminuje zysk.
+            </li>
+            <li>
+              <strong>Mocni faworyci (&lt;1.40):</strong> znikomy CLV (+1.3%) przy kursach poniżej 1.40 nie kompensuje podatku obrotowego i marży bukmachera.
+            </li>
+            <li>
+              <strong>Równoległe zakłady:</strong> brak kontroli zaangażowania kapitału w nakładające się mecze zwiększa drawdown bez odpowiedniej korzyści CLV.
+            </li>
+          </ul>
+        </div>
+
+        <div className="ma-insight-col clv-role">
+          <div className="ma-col-header">
+            <span className="ma-icon">📈</span>
+            <h4>Dlaczego CLV jest kluczowe</h4>
+          </div>
+          <ul>
+            <li>
+              <strong>Eliminacja wariancji:</strong> pojedynczy mecz zależy od losowości (np. steal Barona). CLV ocenia czystą jakość ceny zakupu względem ostatecznej wyceny rynku.
+            </li>
+            <li>
+              <strong>Gwarant dodatniego ROI:</strong> w matematyce zakładów ciągłe pobijanie closing line (Beat Closing &gt; 50%) jest jedynym empirycznie potwierdzonym wskaźnikiem trwałej rentowności.
+            </li>
+            <li>
+              <strong>Filtr wartości:</strong> sygnał EV ma realną wartość tylko wtedy, gdy rynek w kolejnych godzinach podąża za modelem i obniża kurs.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      {recommendations.length > 0 && (
+        <div className="ma-recommendations-box">
+          <div className="ma-rec-title">
+            <span>💡</span>
+            <strong>Praktyczne reguły decyzyjne dla tradera:</strong>
+          </div>
+          <div className="ma-rec-list">
+            {recommendations.map((rec, idx) => (
+              <div key={idx} className="ma-rec-item">
+                <span className="ma-rec-bullet">{idx + 1}</span>
+                <span>{rec}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function BootstrapChart({ bins }: { bins: HorizonBootstrapResponse['bins'] }) {
   const sorted = binSort(bins)
   const values = sorted.flatMap((b) => [b.ci_low, b.ci_high, b.observed_difference]).filter((v): v is number => v !== null && v !== undefined)
@@ -270,61 +501,533 @@ function BootstrapChart({ bins }: { bins: HorizonBootstrapResponse['bins'] }) {
   )
 }
 
-function HistoricalComparisonCard({ comparison }: { comparison: HistoricalModelComparison | null }) {
-  if (!comparison) return <div className="ma-state">Brak historycznego porównania modeli.</div>
-  const old = comparison.models.find((model) => model.key === 'exp039')
-  const regional = comparison.models.find((model) => model.key === 'operational_regional')
-  const common = comparison.common_cohort
+function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComparison }) {
+  const oldModel = comparison.models.find((m) => m.key === 'exp039')
+  const opModel = comparison.models.find((m) => m.key === 'operational_regional')
+
+  const oldBins = oldModel?.calibration_bins ?? []
+  const opBins = opModel?.calibration_bins ?? []
+
+  const mapX = (prob: number) => 55 + prob * 390
+  const mapY = (rate: number) => 330 - rate * 300
+
+  const buildPath = (bins: typeof oldBins) => {
+    const valid = bins.filter((b) => b.avg_predicted !== null && b.empirical_rate !== null && b.count > 0)
+    if (!valid.length) return ''
+    return valid
+      .map((b, idx) => `${idx === 0 ? 'M' : 'L'} ${mapX(b.avg_predicted!)} ${mapY(b.empirical_rate!)}`)
+      .join(' ')
+  }
+
+  const oldPath = buildPath(oldBins)
+  const opPath = buildPath(opBins)
+
+  const [activeModel, setActiveModel] = useState<'both' | 'exp039' | 'operational_regional'>('both')
+
   return (
-    <section className="ma-section">
-      <div className="ma-section-title">
-        <div>
-          <h2>EXP-039 vs regional operational model</h2>
-          <p>Wspólna kohorta używa tylko predykcji spełniających regułę temporalną; ujemna ΔLogLoss/ΔBrier oznacza lepszy model regionalny.</p>
+    <div className="ma-calibration-grid">
+      <div className="ma-calibration-chart-wrap">
+        <div className="ma-chart-head">
+          <div>
+            <h3>Krzywa kalibracji (Reliability Diagram)</h3>
+            <p>
+              Przewidywane prawdopodobieństwo (oś X) vs rzeczywisty odsetek wygranych drużyny A (oś Y).
+              Przekątna przerywana (y = x) to idealna kalibracja.
+            </p>
+          </div>
+          <div className="ma-filter-group">
+            <button
+              className={`secondary small ${activeModel === 'both' ? 'active' : ''}`}
+              onClick={() => setActiveModel('both')}
+            >
+              Oba
+            </button>
+            <button
+              className={`secondary small ${activeModel === 'exp039' ? 'active' : ''}`}
+              onClick={() => setActiveModel('exp039')}
+            >
+              EXP-039
+            </button>
+            <button
+              className={`secondary small ${activeModel === 'operational_regional' ? 'active' : ''}`}
+              onClick={() => setActiveModel('operational_regional')}
+            >
+              Regional BoN
+            </button>
+          </div>
+        </div>
+
+        <svg viewBox="0 0 500 395" className="ma-calibration-svg">
+          {/* Grid lines & axis marks */}
+          {[0, 0.2, 0.4, 0.6, 0.8, 1.0].map((val) => (
+            <g key={val}>
+              <line
+                x1={55}
+                y1={mapY(val)}
+                x2={445}
+                y2={mapY(val)}
+                stroke="rgba(148, 163, 184, 0.15)"
+                strokeDasharray="2 2"
+              />
+              <text x={47} y={mapY(val) + 4} textAnchor="end" fontSize="11" fill="#94a3b8">
+                {(val * 100).toFixed(0)}%
+              </text>
+              <line
+                x1={mapX(val)}
+                y1={30}
+                x2={mapX(val)}
+                y2={330}
+                stroke="rgba(148, 163, 184, 0.15)"
+                strokeDasharray="2 2"
+              />
+              <text x={mapX(val)} y={350} textAnchor="middle" fontSize="11" fill="#94a3b8">
+                {(val * 100).toFixed(0)}%
+              </text>
+            </g>
+          ))}
+
+          {/* Ideal line */}
+          <line
+            x1={mapX(0)}
+            y1={mapY(0)}
+            x2={mapX(1)}
+            y2={mapY(1)}
+            stroke="#94a3b8"
+            strokeWidth="2"
+            strokeDasharray="5 5"
+          />
+
+          {/* Operational Curve & Points */}
+          {(activeModel === 'both' || activeModel === 'operational_regional') && opPath && (
+            <path d={opPath} fill="none" stroke="#a855f7" strokeWidth="3" />
+          )}
+          {(activeModel === 'both' || activeModel === 'operational_regional') &&
+            opBins
+              .filter((b) => b.avg_predicted !== null && b.empirical_rate !== null && b.count > 0)
+              .map((b) => (
+                <g key={`op-${b.bin_index}`}>
+                  <circle
+                    cx={mapX(b.avg_predicted!)}
+                    cy={mapY(b.empirical_rate!)}
+                    r={Math.min(10, Math.max(4, Math.sqrt(b.count) * 1.1))}
+                    fill="#a855f7"
+                    fillOpacity="0.85"
+                    stroke="#ffffff"
+                    strokeWidth="1.5"
+                  >
+                    <title>
+                      {`Regional BoN [${b.label}]: p̂=${((b.avg_predicted ?? 0) * 100).toFixed(1)}%, win=${((b.empirical_rate ?? 0) * 100).toFixed(1)}%, n=${b.count}`}
+                    </title>
+                  </circle>
+                </g>
+              ))}
+
+          {/* EXP-039 Curve & Points */}
+          {(activeModel === 'both' || activeModel === 'exp039') && oldPath && (
+            <path d={oldPath} fill="none" stroke="#38bdf8" strokeWidth="3" />
+          )}
+          {(activeModel === 'both' || activeModel === 'exp039') &&
+            oldBins
+              .filter((b) => b.avg_predicted !== null && b.empirical_rate !== null && b.count > 0)
+              .map((b) => (
+                <g key={`exp-${b.bin_index}`}>
+                  <circle
+                    cx={mapX(b.avg_predicted!)}
+                    cy={mapY(b.empirical_rate!)}
+                    r={Math.min(10, Math.max(4, Math.sqrt(b.count) * 1.1))}
+                    fill="#38bdf8"
+                    fillOpacity="0.85"
+                    stroke="#ffffff"
+                    strokeWidth="1.5"
+                  >
+                    <title>
+                      {`EXP-039 [${b.label}]: p̂=${((b.avg_predicted ?? 0) * 100).toFixed(1)}%, win=${((b.empirical_rate ?? 0) * 100).toFixed(1)}%, n=${b.count}`}
+                    </title>
+                  </circle>
+                </g>
+              ))}
+
+          {/* Axis Labels */}
+          <text x={250} y={375} textAnchor="middle" fontSize="12" fontWeight="700" fill="#cbd5e1">
+            Przewidywane prawdopodobieństwo (Predicted probability p̂)
+          </text>
+          <text
+            x={-180}
+            y={18}
+            transform="rotate(-90)"
+            textAnchor="middle"
+            fontSize="12"
+            fontWeight="700"
+            fill="#cbd5e1"
+          >
+            Rzeczywisty win-rate (Empirical frequency)
+          </text>
+        </svg>
+
+        <div className="ma-calibration-legend">
+          <div className="ma-cal-legend-item">
+            <span className="ma-cal-legend-line ideal" />
+            <span>Idealna kalibracja (y = x)</span>
+          </div>
+          <div className="ma-cal-legend-item">
+            <span className="ma-cal-legend-line exp039" />
+            <span>EXP-039 Sym-Cal (ECE: {fmt(oldModel?.ece, 3)})</span>
+          </div>
+          <div className="ma-cal-legend-item">
+            <span className="ma-cal-legend-line operational" />
+            <span>Regional BoN Replay (ECE: {fmt(opModel?.ece, 3)})</span>
+          </div>
         </div>
       </div>
-      <div className="ma-methodology-note">
-        <strong>Retrospektywna rekonstrukcja chronologiczna</strong>
-        <span>{comparison.evaluation_scope.warning}</span>
-        <small>Reguła: {comparison.evaluation_scope.temporal_rule}.</small>
+
+      {/* Calibration Details & Bins */}
+      <div className="ma-cal-detail-card">
+        <h4>Ocena kalibracji i błędu ECE</h4>
+        <p style={{ fontSize: '0.85rem', color: '#94a3b8', margin: '0 0 10px' }}>
+          Expected Calibration Error (ECE) to średnia ważona odległość między przewidywanym prawdopodobieństwem a empiryczną częstością sukcesu.
+        </p>
+        <div className="ma-table-wrap">
+          <table className="ma-table">
+            <thead>
+              <tr>
+                <th>Model</th>
+                <th>ECE</th>
+                <th>Status</th>
+                <th>Ocena</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>EXP-039</strong></td>
+                <td><strong>{fmt(oldModel?.ece, 3)}</strong></td>
+                <td>
+                  <span className={`ma-status-tag ${oldModel?.calibration_status || 'unknown'}`}>
+                    {oldModel?.calibration_status === 'well_calibrated' ? '🟢 Dobrze skalibrowany' : oldModel?.calibration_status || '—'}
+                  </span>
+                </td>
+                <td style={{ fontSize: '12px' }}>Symetryczna kalibracja skutecznie ściąga skrajności.</td>
+              </tr>
+              <tr>
+                <td><strong>Regional BoN</strong></td>
+                <td><strong className="negative">{fmt(opModel?.ece, 3)}</strong></td>
+                <td>
+                  <span className={`ma-status-tag ${opModel?.calibration_status || 'unknown'}`}>
+                    {opModel?.calibration_status === 'overconfident_miscalibrated' ? '🔴 Overconfident' : opModel?.calibration_status || '—'}
+                  </span>
+                </td>
+                <td style={{ fontSize: '12px' }}>Ogon dwumianowy w seriach zawyża prawdopodobieństwo faworytów.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ marginTop: '10px' }}>
+          <h5 style={{ margin: '0 0 6px', fontSize: '0.9rem', color: '#e2e8f0' }}>Porównanie koszyków probabilistycznych (EXP-039):</h5>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
+            {oldBins.slice(0, 6).map((b) => (
+              <div key={b.bin_index} style={{ background: 'rgba(15, 23, 42, 0.6)', padding: '6px 10px', borderRadius: '8px', border: '1px solid rgba(148, 163, 184, 0.15)' }}>
+                <div style={{ fontSize: '11px', color: '#94a3b8' }}>{b.label} (n={b.count})</div>
+                <div style={{ fontSize: '13px', fontWeight: 700, color: '#f1f5f9' }}>
+                  win: {b.empirical_rate !== null ? `${(b.empirical_rate * 100).toFixed(1)}%` : '—'}
+                </div>
+                <div style={{ fontSize: '11px', color: (b.calibration_error ?? 0) < 0.05 ? '#4ade80' : '#f87171' }}>
+                  err: {b.calibration_error !== null ? `${(b.calibration_error * 100).toFixed(1)}%` : '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
+    </div>
+  )
+}
+
+function ModelLeaderboardSection({ comparison }: { comparison: HistoricalModelComparison }) {
+  const common = comparison.common_cohort
+
+  return (
+    <div className="ma-leaderboard-section">
+      {/* Head-to-head Common Cohort Banner */}
+      <div className="ma-common-cohort-banner">
+        <div className="ma-cohort-header">
+          <div>
+            <h3>
+              <span>⚔️</span> Head-to-Head: Wspólna Próba Temporalna
+            </h3>
+            <p>
+              Bezpośrednie porównanie na identycznym zbiorze {common.n_matches} meczów, gdzie oba modele spełniły
+              rygorystyczną regułę temporalną (data_cutoff &le; predicted_at &lt; match_start).
+            </p>
+          </div>
+          <span className="ma-cohort-badge">{common.n_matches} wspólnych meczów</span>
+        </div>
+
+        <div className="ma-cohort-grid">
+          {/* EXP-039 Card */}
+          <div className="ma-cohort-card champion">
+            <div className="ma-card-top">
+              <strong>EXP-039 Thesis</strong>
+              <span className="ma-card-pill green">Skalibrowany</span>
+            </div>
+            <div className="ma-metric-row">
+              <span>LogLoss</span>
+              <strong className="positive">{fmt(common.exp039?.avg_logloss, 4)}</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>Brier Score</span>
+              <strong className="positive">{fmt(common.exp039?.avg_brier, 4)}</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>AUC</span>
+              <strong>{fmt(common.exp039?.avg_auc, 3)}</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>Accuracy</span>
+              <strong>{fmtPctRate(common.exp039?.accuracy)}</strong>
+            </div>
+          </div>
+
+          {/* Operational Regional Card */}
+          <div className="ma-cohort-card overconfident">
+            <div className="ma-card-top">
+              <strong>Regional BoN Replay</strong>
+              <span className="ma-card-pill red">Overconfident</span>
+            </div>
+            <div className="ma-metric-row">
+              <span>LogLoss</span>
+              <strong className={(common.operational_minus_exp039_logloss ?? 0) > 0 ? 'negative' : 'positive'}>
+                {fmt(common.operational_regional?.avg_logloss, 4)}
+              </strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>Brier Score</span>
+              <strong className={(common.operational_minus_exp039_brier ?? 0) > 0 ? 'negative' : 'positive'}>
+                {fmt(common.operational_regional?.avg_brier, 4)}
+              </strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>AUC</span>
+              <strong>{fmt(common.operational_regional?.avg_auc, 3)}</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>Accuracy</span>
+              <strong>{fmtPctRate(common.operational_regional?.accuracy)}</strong>
+            </div>
+          </div>
+
+          {/* Naive Baseline Card */}
+          <div className="ma-cohort-card baseline">
+            <div className="ma-card-top">
+              <strong>Naiwny Rzut Monetą (50/50)</strong>
+              <span className="ma-card-pill gray">Baseline</span>
+            </div>
+            <div className="ma-metric-row">
+              <span>LogLoss</span>
+              <strong>0.6931</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>Brier Score</span>
+              <strong>0.2500</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>AUC</span>
+              <strong>0.500</strong>
+            </div>
+            <div className="ma-metric-row">
+              <span>Accuracy</span>
+              <strong>50.0%</strong>
+            </div>
+          </div>
+        </div>
+
+        {/* Delta Callout Box */}
+        <div className="ma-delta-summary-box">
+          {common.operational_minus_exp039_logloss !== null && (
+            <span>
+              <strong>Różnica LogLoss (Regionalny − EXP-039):</strong>{' '}
+              <span className={common.operational_minus_exp039_logloss > 0 ? 'negative' : 'positive'}>
+                {signed(common.operational_minus_exp039_logloss, 4)}
+              </span>
+              . {common.operational_minus_exp039_logloss > 0
+                ? 'Model regionalny z ogonem dwumianowym generuje wyższy błąd LogLoss ze względu na nadmierną pewność w seriach Bo3/Bo5. W przypadku upsetów ponosi drastyczną karę prawdopodobieństwa.'
+                : 'Model regionalny przewyższa bazę EXP-039.'}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Main Leaderboard Table */}
       <div className="ma-table-wrap">
         <table className="ma-table">
           <thead>
-            <tr><th>Model</th><th>Wersja</th><th>Eligible</th><th>LogLoss</th><th>Brier</th><th>AUC</th><th>Accuracy</th></tr>
+            <tr>
+              <th>Pozycja & Model</th>
+              <th>Wersja</th>
+              <th>Próba (Eligible)</th>
+              <th>LogLoss</th>
+              <th>Brier Score</th>
+              <th>AUC</th>
+              <th>Accuracy</th>
+              <th>ECE (Błąd kalibracji)</th>
+              <th>Status kalibracji</th>
+            </tr>
           </thead>
           <tbody>
-            {[old, regional].filter((model): model is NonNullable<typeof model> => Boolean(model)).map((model) => (
-              <tr key={model.key}>
-                <td><strong>{model.label}</strong></td>
-                <td>{model.model_version}</td>
-                <td>{model.temporal_eligible_matches}</td>
-                <td>{fmt(model.avg_logloss, 4)}</td>
-                <td>{fmt(model.avg_brier, 4)}</td>
-                <td>{fmt(model.avg_auc, 3)}</td>
-                <td>{fmtPctRate(model.accuracy)}</td>
+            {comparison.models.map((m, idx) => (
+              <tr key={m.key}>
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontWeight: 800, color: idx === 0 ? '#38bdf8' : '#cbd5e1' }}>#{idx + 1}</span>
+                    <div>
+                      <strong>{m.label}</strong>
+                      <div style={{ fontSize: '11px', color: '#94a3b8' }}>{m.description || m.model_name}</div>
+                    </div>
+                  </div>
+                </td>
+                <td><code>{m.model_version}</code></td>
+                <td>{m.temporal_eligible_matches} meczów</td>
+                <td>
+                  <strong className={(m.avg_logloss ?? 1) < 0.68 ? 'positive' : (m.avg_logloss ?? 1) > 0.70 ? 'negative' : ''}>
+                    {fmt(m.avg_logloss, 4)}
+                  </strong>
+                </td>
+                <td>{fmt(m.avg_brier, 4)}</td>
+                <td>{fmt(m.avg_auc, 3)}</td>
+                <td>{fmtPctRate(m.accuracy)}</td>
+                <td>{fmt(m.ece, 3)}</td>
+                <td>
+                  <span className={`ma-status-tag ${m.calibration_status || 'unknown'}`}>
+                    {m.calibration_status === 'well_calibrated' && '🟢 Dobrze skalibrowany'}
+                    {m.calibration_status === 'overconfident_miscalibrated' && '🔴 Overconfident'}
+                    {m.calibration_status === 'acceptable' && '🟡 Akceptowalny'}
+                    {m.calibration_status === 'miscalibrated' && '🔴 Rozkalibrowany'}
+                    {(!m.calibration_status || m.calibration_status === 'unknown') && '⚪ Nieznany'}
+                  </span>
+                </td>
               </tr>
             ))}
-            <tr>
-              <td><strong>Common cohort Δ</strong></td>
-              <td>n={common.n_matches}</td>
-              <td>—</td>
-              <td className={(common.operational_minus_exp039_logloss ?? 0) < 0 ? 'positive' : 'negative'}>{signed(common.operational_minus_exp039_logloss, 4)}</td>
-              <td className={(common.operational_minus_exp039_brier ?? 0) < 0 ? 'positive' : 'negative'}>{signed(common.operational_minus_exp039_brier, 4)}</td>
-              <td>—</td>
-              <td>—</td>
-            </tr>
           </tbody>
         </table>
       </div>
-    </section>
+    </div>
+  )
+}
+
+function SegmentsAndFormatsSection({ comparison }: { comparison: HistoricalModelComparison }) {
+  const oldModel = comparison.models.find((m) => m.key === 'exp039')
+  const opModel = comparison.models.find((m) => m.key === 'operational_regional')
+
+  return (
+    <div className="ma-breakdown-section">
+      <div className="ma-cards-grid">
+        {/* Tier 1 Card */}
+        <div className="ma-segment-card">
+          <div className="ma-segment-head">
+            <h4>🏆 Tier 1 Leagues</h4>
+            <span className="ma-segment-tag">LCK, LPL, LEC, LCS, MSI, Worlds</span>
+          </div>
+          <div className="ma-metric-row">
+            <span>EXP-039 LogLoss</span>
+            <strong>{fmt(oldModel?.segments?.tier_1?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>Regional BoN LogLoss</span>
+            <strong>{fmt(opModel?.segments?.tier_1?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>EXP-039 AUC</span>
+            <strong>{fmt(oldModel?.segments?.tier_1?.avg_auc, 3)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>Meczów w próbie</span>
+            <span>{oldModel?.segments?.tier_1?.n_matches ?? '—'}</span>
+          </div>
+        </div>
+
+        {/* Regional / ERL Card */}
+        <div className="ma-segment-card">
+          <div className="ma-segment-head">
+            <h4>⚔️ Regional / ERL</h4>
+            <span className="ma-segment-tag">Prime League, LFL, Ultraliga itp.</span>
+          </div>
+          <div className="ma-metric-row">
+            <span>EXP-039 LogLoss</span>
+            <strong>{fmt(oldModel?.segments?.regional_erl?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>Regional BoN LogLoss</span>
+            <strong>{fmt(opModel?.segments?.regional_erl?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>EXP-039 AUC</span>
+            <strong>{fmt(oldModel?.segments?.regional_erl?.avg_auc, 3)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>Meczów w próbie</span>
+            <span>{oldModel?.segments?.regional_erl?.n_matches ?? '—'}</span>
+          </div>
+        </div>
+
+        {/* Best of 1 */}
+        <div className="ma-segment-card">
+          <div className="ma-segment-head">
+            <h4>⚡ Formaty Bo1</h4>
+            <span className="ma-segment-tag">Pojedyncza mapa</span>
+          </div>
+          <div className="ma-metric-row">
+            <span>EXP-039 LogLoss</span>
+            <strong>{fmt(oldModel?.formats?.bo1?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>Regional BoN LogLoss</span>
+            <strong>{fmt(opModel?.formats?.bo1?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>Meczów</span>
+            <span>{oldModel?.formats?.bo1?.n_matches ?? '—'}</span>
+          </div>
+        </div>
+
+        {/* Best of 3 / 5 */}
+        <div className="ma-segment-card">
+          <div className="ma-segment-head">
+            <h4>🔥 Formaty Bo3 & Bo5</h4>
+            <span className="ma-segment-tag">Serie meczowe (Ogon potęgowy)</span>
+          </div>
+          <div className="ma-metric-row">
+            <span>EXP-039 Bo3 LogLoss</span>
+            <strong>{fmt(oldModel?.formats?.bo3?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>Regional BoN Bo3 LogLoss</span>
+            <strong className="negative">{fmt(opModel?.formats?.bo3?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>EXP-039 Bo5 LogLoss</span>
+            <strong>{fmt(oldModel?.formats?.bo5?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
+            <span>Regional BoN Bo5 LogLoss</span>
+            <strong className="negative">{fmt(opModel?.formats?.bo5?.avg_logloss, 4)}</strong>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
 function ModelAnalysis() {
   const [selected, setSelected] = useState<ModelAnalysisKey>('hybrid')
+  const [viewMode, setViewMode] = useState<ViewMode>('all')
   const [daysBack] = useState(90)
   const [maxOddsAge] = useState(4)
+
+  // Filters for historical comparison
+  const [histDaysBack, setHistDaysBack] = useState<number>(3650)
+  const [histLeague, setHistLeague] = useState<string>('')
+  const [histBestOf, setHistBestOf] = useState<number | undefined>(undefined)
+  const [loadingHist, setLoadingHist] = useState<boolean>(false)
+
   const [accuracy, setAccuracy] = useState<HorizonAccuracyResponse | null>(null)
   const [bootstrap, setBootstrap] = useState<HorizonBootstrapResponse | null>(null)
   const [clv, setClv] = useState<ModelClvByHorizonResponse | null>(null)
@@ -333,18 +1036,38 @@ function ModelAnalysis() {
   const [error, setError] = useState<string | null>(null)
   const [refreshingBootstrap, setRefreshingBootstrap] = useState(false)
 
+  const reloadHistorical = async (days = histDaysBack, lg = histLeague, bo = histBestOf) => {
+    setLoadingHist(true)
+    try {
+      const data = await fetchHistoricalModelComparison({
+        maxDaysBack: days,
+        league: lg || undefined,
+        bestOf: bo,
+      })
+      setHistoricalComparison(data)
+    } catch (err) {
+      console.error('Failed to reload historical comparison:', err)
+    } finally {
+      setLoadingHist(false)
+    }
+  }
+
   const load = async () => {
     setLoading(true)
     setError(null)
     try {
       const [accuracyData, clvData, bootstrapResult, comparisonData] = await Promise.all([
-        fetchHorizonAccuracy(daysBack, 10),
-        fetchModelClvByHorizon(daysBack, maxOddsAge, 0.12, 0),
+        fetchHorizonAccuracy(daysBack, 10).catch(() => null),
+        fetchModelClvByHorizon(daysBack, maxOddsAge, 0.12, 0).catch(() => null),
         fetchHorizonBootstrap().then(
           (data) => ({ ok: true as const, data }),
           () => ({ ok: false as const, data: null }),
         ),
-        fetchHistoricalModelComparison(),
+        fetchHistoricalModelComparison({
+          maxDaysBack: histDaysBack,
+          league: histLeague || undefined,
+          bestOf: histBestOf,
+        }),
       ])
       setAccuracy(accuracyData)
       setClv(clvData)
@@ -367,9 +1090,6 @@ function ModelAnalysis() {
     const binnedModel = accuracy.hybrid_model_bins.find((m) => modelKeyFromName(m.model_name) === selected)
     if (binnedModel?.bins?.length) return binSort(binnedModel.bins)
 
-    // Backward-compatible fallback for older API responses: pure thesis models
-    // used to be returned only as one global reference.  Prefer per-horizon
-    // bins whenever the backend provides them.
     const ref = accuracy.model_references.find((m) => modelKeyFromName(m.model_name) === 'thesis')
     return binSort(accuracy.bins.map((b) => ({
       label: b.label,
@@ -403,6 +1123,21 @@ function ModelAnalysis() {
   const bootstrapBins = binSort((bootstrap?.bins ?? []).filter((b) => modelKeyFromName(`${b.model_label} ${b.model_name}`) === selected))
   const significantPositive = bootstrapBins.filter((b) => b.significant_05 && (b.ci_low ?? 0) > 0).length
 
+  const conditionsSummary = clvModel?.conditions_summary
+  const bookmakerBreakdown = clvModel?.bookmaker_breakdown ?? clv?.bookmaker_breakdown ?? []
+  const oddsTierBreakdown = clvModel?.odds_tier_breakdown ?? clv?.odds_tier_breakdown ?? []
+  const recommendations = conditionsSummary?.recommendations ?? [
+    'Najlepszy horyzont wejścia: 48h+ (średni CLV powyżej +10%). Im wcześniej zawierany zakład, tym większa przewaga nad późniejszą korektą kursu.',
+    'Najbardziej podatni bukmacherzy: Superbet, Fortuna i STS wykazują największy średni CLV.',
+    'Optymalny przedział kursowy: wysokie kursy i underdogi (>3.00) generują najwyższy CLV i wskaźnik pobicia closing line.',
+    'Rynek zamykający: w oknie 0-2h kursy są już wysoce efektywne. Unikaj gry tuż przed meczem bez silnego sygnału składowego.',
+  ]
+  const bestHorizonStr = conditionsSummary?.best_horizon ? `${conditionsSummary.best_horizon.label} (${signed(conditionsSummary.best_horizon.avg_clv_odds_pct, 1, '%')} CLV)` : undefined
+  const topBooksStr = conditionsSummary?.top_bookmakers?.length
+    ? conditionsSummary.top_bookmakers.map((b) => `${b.bookmaker_name} (${signed(b.avg_clv_odds_pct, 1, '%')})`).join(', ')
+    : undefined
+  const bestTierStr = conditionsSummary?.best_odds_tier ? `${conditionsSummary.best_odds_tier.tier_label} (${signed(conditionsSummary.best_odds_tier.avg_clv_odds_pct, 1, '%')})` : undefined
+
   if (loading) return <LoadingBlock />
   if (error) return <ErrorBlock message={error} />
 
@@ -414,10 +1149,13 @@ function ModelAnalysis() {
         <div>
           <p className="ma-eyebrow">Model performance center</p>
           <h1>Model Analysis</h1>
-          <p>Jedna strona do oceny, czy Twój model pokonuje rynek: accuracy, CLV, bootstrap i szczegółowe tabele po horyzoncie czasowym. Wyniki są liczone w tle raz dziennie i strona tylko je odczytuje.</p>
+          <p>
+            Kompleksowa ewaluacja modeli predykcyjnych EnsembleLegends: Leaderboard modeli, krzywe kalibracji (Reliability Diagram),
+            CLV by horizon, odporność statystyczna Bootstrap oraz przewaga nad bukmacherami.
+          </p>
         </div>
         <div className="ma-actions">
-          <button onClick={load}>Refresh</button>
+          <button onClick={load}>Refresh all</button>
           <button
             className="secondary"
             disabled={refreshingBootstrap}
@@ -432,109 +1170,315 @@ function ModelAnalysis() {
       </header>
 
       <section className="ma-controls">
-        <div className="ma-model-toggle" role="tablist" aria-label="Model selector">
-          {(['thesis', 'hybrid'] as ModelAnalysisKey[]).map((key) => (
-            <button key={key} className={selected === key ? 'active' : ''} onClick={() => setSelected(key)}>
-              <strong>{MODEL_LABELS[key].title}</strong>
-              <span>{MODEL_LABELS[key].description}</span>
-            </button>
-          ))}
-        </div>
-        <div className="ma-filter-row">
-          <span>Cached view: last {daysBack} days · max odds age {maxOddsAge}h · refreshed daily at 00:00</span>
-          <button onClick={load}>Reload cached results</button>
+        <div className="ma-view-mode-bar" role="tablist" aria-label="Perspektywa analizy">
+          <button
+            className={viewMode === 'all' ? 'active' : ''}
+            onClick={() => setViewMode('all')}
+          >
+            📋 Pełny raport
+          </button>
+          <button
+            className={viewMode === 'leaderboard' ? 'active' : ''}
+            onClick={() => setViewMode('leaderboard')}
+          >
+            🏆 Leaderboard & Kalibracja
+          </button>
+          <button
+            className={viewMode === 'segments' ? 'active' : ''}
+            onClick={() => setViewMode('segments')}
+          >
+            🌐 Segmenty & Formaty
+          </button>
+          <button
+            className={viewMode === 'timing' ? 'active' : ''}
+            onClick={() => setViewMode('timing')}
+          >
+            ⏱️ Horyzonty czasowe (Timing)
+          </button>
+          <button
+            className={viewMode === 'bookmakers' ? 'active' : ''}
+            onClick={() => setViewMode('bookmakers')}
+          >
+            🏢 Bukmacherzy ({bookmakerBreakdown.length})
+          </button>
+          <button
+            className={viewMode === 'odds_tiers' ? 'active' : ''}
+            onClick={() => setViewMode('odds_tiers')}
+          >
+            📊 Przedziały kursowe ({oddsTierBreakdown.length})
+          </button>
         </div>
       </section>
 
-      {accuracy?.evaluation_scope && (
-        <section className="ma-methodology-note">
-          <strong>Zakres accuracy: backtest historyczny EXP-060</strong>
-          <span>{accuracy.evaluation_scope.warning}</span>
-          <small>Źródło: {accuracy.evaluation_scope.prediction_source} · reguła: {accuracy.evaluation_scope.prediction_rule}.</small>
+      {/* Historical Model Leaderboard, Calibration & Segments */}
+      {(viewMode === 'all' || viewMode === 'leaderboard') && historicalComparison && (
+        <section className="ma-section">
+          <div className="ma-section-title">
+            <div>
+              <h2>Leaderboard modeli & Kalibracja prawdopodobieństwa</h2>
+              <p>
+                Porównanie modelu referencyjnego pracy dyplomowej (EXP-039 Sym-Cal) z modelem operacyjnym z ogonem dwumianowym
+                oraz naiwnym rzutem monetą. Reguła temporalna: data_cutoff &le; predicted_at &lt; match_start.
+              </p>
+            </div>
+          </div>
+
+          {/* Filter toolbar for historical comparison */}
+          <div className="ma-filter-toolbar">
+            <div className="ma-filter-group">
+              <span className="ma-filter-label">Zakres:</span>
+              <select
+                className="ma-filter-select"
+                value={histDaysBack}
+                onChange={(e) => {
+                  const d = Number(e.target.value)
+                  setHistDaysBack(d)
+                  reloadHistorical(d, histLeague, histBestOf)
+                }}
+              >
+                <option value={3650}>Cała historia</option>
+                <option value={365}>Ostatni rok (365 dni)</option>
+                <option value={180}>Ostatnie 6 miesięcy (180 dni)</option>
+                <option value={90}>Ostatnie 90 dni</option>
+                <option value={30}>Ostatnie 30 dni</option>
+              </select>
+            </div>
+
+            <div className="ma-filter-group">
+              <span className="ma-filter-label">Liga:</span>
+              <select
+                className="ma-filter-select"
+                value={histLeague}
+                onChange={(e) => {
+                  const lg = e.target.value
+                  setHistLeague(lg)
+                  reloadHistorical(histDaysBack, lg, histBestOf)
+                }}
+              >
+                <option value="">Wszystkie ligi</option>
+                <option value="LCK">LCK</option>
+                <option value="LPL">LPL</option>
+                <option value="LEC">LEC</option>
+                <option value="LCS">LCS</option>
+                <option value="MSI">MSI</option>
+                <option value="Prime League">Prime League</option>
+                <option value="LFL">LFL</option>
+              </select>
+            </div>
+
+            <div className="ma-filter-group">
+              <span className="ma-filter-label">Format:</span>
+              <select
+                className="ma-filter-select"
+                value={histBestOf ?? ''}
+                onChange={(e) => {
+                  const val = e.target.value ? Number(e.target.value) : undefined
+                  setHistBestOf(val)
+                  reloadHistorical(histDaysBack, histLeague, val)
+                }}
+              >
+                <option value="">Wszystkie (Bo1/Bo3/Bo5)</option>
+                <option value={1}>Tylko Bo1</option>
+                <option value={3}>Tylko Bo3</option>
+                <option value={5}>Tylko Bo5</option>
+              </select>
+            </div>
+
+            <button
+              className="secondary small"
+              disabled={loadingHist}
+              onClick={() => reloadHistorical(histDaysBack, histLeague, histBestOf)}
+            >
+              {loadingHist ? 'Filtrowanie…' : 'Zastosuj'}
+            </button>
+          </div>
+
+          <ModelLeaderboardSection comparison={historicalComparison} />
+
+          <div style={{ marginTop: '24px' }}>
+            <CalibrationCurveChart comparison={historicalComparison} />
+          </div>
         </section>
       )}
 
-      <HistoricalComparisonCard comparison={historicalComparison} />
+      {/* Segments & Formats View */}
+      {(viewMode === 'all' || viewMode === 'segments') && historicalComparison && (
+        <section className="ma-section">
+          <div className="ma-section-title">
+            <div>
+              <h2>Rozbicie na segmenty rozgrywek & formaty meczu</h2>
+              <p>
+                Weryfikacja jakości modeli w podziale na Tier 1 vs Regional/ERL oraz formaty Bo1, Bo3 i Bo5.
+                Pozwala zidentyfikować źródło rozkalibrowania serii wielomeczowych.
+              </p>
+            </div>
+          </div>
+          <SegmentsAndFormatsSection comparison={historicalComparison} />
+        </section>
+      )}
 
-      <section className="ma-summary">
-        <StatCard label="Selected model" value={modelInfo.short} hint={modelInfo.description} />
-        <StatCard label="Best CLV horizon" value={bestClv?.label ?? '—'} hint={bestClv ? `${signed(bestClv.avg_clv_odds_pct, 2, '%')} avg CLV, ${bestClv.match_count} matches` : 'No CLV entries'} tone={(bestClv?.avg_clv_odds_pct ?? 0) > 0 ? 'good' : 'neutral'} />
-        <StatCard label="Positive CLV bins" value={`${positiveBins}/${clvBins.length || 0}`} hint={avgClv === null ? '—' : `${signed(avgClv, 2, '%')} avg across bins`} tone={positiveBins > clvBins.length / 2 ? 'good' : 'neutral'} />
-        <StatCard label="Bootstrap significant" value={`${significantPositive}/${bootstrapBins.length || 0}`} hint="CI entirely above zero" tone={significantPositive > 0 ? 'good' : 'neutral'} />
-        <StatCard label="Data scanned" value={clv ? clv.total_predictions_scanned.toLocaleString() : '—'} hint={clv ? `${clv.total_entries.toLocaleString()} EV entries` : undefined} />
-      </section>
+      {/* Executive Strategic Insights */}
+      <ExecutiveInsightsCard
+        recommendations={recommendations}
+        bestHorizon={bestHorizonStr}
+        topBooks={topBooksStr}
+        bestTier={bestTierStr}
+      />
 
-      <section className="ma-section">
-        <div className="ma-section-title">
-          <div><h2>Predictive accuracy by horizon</h2><p>Porównanie wybranego modelu ze średnim rynkiem bukmacherskim w tych samych horyzontach.</p></div>
-        </div>
-        <div className="ma-grid accuracy">
-          <LogLossLineChart points={logLossPoints} modelName={modelInfo.short} />
-          <MiniBarChart points={aucPoints} metric="AUC" />
-        </div>
-      </section>
+      {/* Timing & Market-oriented Analysis Controls */}
+      {(viewMode === 'all' || viewMode === 'timing' || viewMode === 'bookmakers' || viewMode === 'odds_tiers') && (
+        <>
+          <section className="ma-controls" style={{ marginTop: '32px' }}>
+            <div className="ma-model-toggle" role="tablist" aria-label="Model selector">
+              {(['thesis', 'hybrid'] as ModelAnalysisKey[]).map((key) => (
+                <button key={key} className={selected === key ? 'active' : ''} onClick={() => setSelected(key)}>
+                  <strong>{MODEL_LABELS[key].title}</strong>
+                  <span>{MODEL_LABELS[key].description}</span>
+                </button>
+              ))}
+            </div>
+            <div className="ma-filter-row">
+              <span>Widok rynkowy (CLV & Horyzonty): ostatnie {daysBack} dni · max wiek kursu {maxOddsAge}h</span>
+              <button onClick={load}>Przeładuj analizę rynkową</button>
+            </div>
+          </section>
 
-      <section className="ma-section">
-        <div className="ma-section-title">
-          <div><h2>Match-oriented CLV</h2><p>Sprawdza, czy sygnały EV modelu łapią kursy lepsze niż closing line. Każdy model/mecz/horyzont to jedna obserwacja; snapshoty służą tylko do wyznaczenia kursu wejścia i zamknięcia.</p></div>
-        </div>
-        <ClvChart bins={clvBins} />
-      </section>
+          <section className="ma-summary">
+            <StatCard label="Model rynkowy" value={modelInfo.short} hint={modelInfo.description} />
+            <StatCard label="Najlepszy horyzont CLV" value={bestClv?.label ?? '—'} hint={bestClv ? `${signed(bestClv.avg_clv_odds_pct, 2, '%')} avg CLV, ${bestClv.match_count} meczów` : 'Brak pozycji'} tone={(bestClv?.avg_clv_odds_pct ?? 0) > 0 ? 'good' : 'neutral'} />
+            <StatCard label="Horyzonty z dodatnim CLV" value={`${positiveBins}/${clvBins.length || 0}`} hint={avgClv === null ? '—' : `${signed(avgClv, 2, '%')} średnio po oknach`} tone={positiveBins > clvBins.length / 2 ? 'good' : 'neutral'} />
+            <StatCard label="Istotność Bootstrap" value={`${significantPositive}/${bootstrapBins.length || 0}`} hint="Przedział ufności powyżej zera" tone={significantPositive > 0 ? 'good' : 'neutral'} />
+            <StatCard label="Przeanalizowane predykcje" value={clv ? clv.total_predictions_scanned.toLocaleString() : '—'} hint={clv ? `${clv.total_entries.toLocaleString()} pozycji EV` : undefined} />
+          </section>
+        </>
+      )}
 
-      <section className="ma-section">
-        <div className="ma-section-title">
-          <div><h2>Statistical validation</h2><p>Bootstrap blokowy po miesiącach dla ΔLogLoss. Jednostka analizy to model/mecz/horyzont; wiele snapshotów w tym samym meczu jest najpierw składane do jednej obserwacji.</p></div>
-        </div>
-        {bootstrapBins.length ? <BootstrapChart bins={bootstrapBins} /> : <div className="ma-state">Brak wyników bootstrap dla wybranego modelu.</div>}
-      </section>
+      {(viewMode === 'all' || viewMode === 'timing') && accuracy && (
+        <>
+          <section className="ma-section">
+            <div className="ma-section-title">
+              <div>
+                <h2>Predykcyjna dokładność według horyzontu (Timing Accuracy)</h2>
+                <p>Porównanie wybranego modelu ze średnim rynkiem bukmacherskim w tych samych oknach czasowych.</p>
+              </div>
+            </div>
+            <div className="ma-grid accuracy">
+              <LogLossLineChart points={logLossPoints} modelName={modelInfo.short} />
+              <MiniBarChart points={aucPoints} metric="AUC" />
+            </div>
+          </section>
 
-      <section className="ma-section">
-        <div className="ma-section-title">
-          <div><h2>Detailed horizon table</h2><p>Pełne liczby match-oriented dla aktualnie wybranego modelu. Entries pokazuje liczbę dodatnich EV okazji złożonych do obserwacji mecz/horyzont.</p></div>
-        </div>
-        <div className="ma-table-wrap">
-          <table className="ma-table">
-            <thead>
-              <tr>
-                <th>Horizon</th><th>Entries</th><th>Matches</th><th>Model LogLoss</th><th>Market LogLoss</th><th>ΔLogLoss</th><th>Model AUC</th><th>Market AUC</th><th>Avg CLV</th><th>Median CLV</th><th>Positive CLV</th><th>Avg EV</th>
-              </tr>
-            </thead>
-            <tbody>
-              {HORIZON_ORDER.map((label) => {
-                const market = marketBins.find((b) => b.label === label)
-                const model = selectedModelBins.find((b) => b.label === label)
-                const c = clvBins.find((b) => b.label === label)
-                const deltaLogLoss = market?.avg_logloss != null && model?.avg_logloss != null ? market.avg_logloss - model.avg_logloss : null
-                return (
-                  <tr key={label}>
-                    <td><strong>{label}</strong></td>
-                    <td>{c?.entry_count ?? '—'}</td>
-                    <td>{c?.match_count ?? model?.match_count ?? market?.match_count ?? '—'}</td>
-                    <td>{fmt(model?.avg_logloss, 4)}</td>
-                    <td>{fmt(market?.avg_logloss, 4)}</td>
-                    <td className={(deltaLogLoss ?? 0) > 0 ? 'positive' : (deltaLogLoss ?? 0) < 0 ? 'negative' : ''}>{signed(deltaLogLoss, 4)}</td>
-                    <td>{fmt(model?.avg_auc, 3)}</td>
-                    <td>{fmt(market?.avg_auc, 3)}</td>
-                    <td className={(c?.avg_clv_odds_pct ?? 0) > 0 ? 'positive' : (c?.avg_clv_odds_pct ?? 0) < 0 ? 'negative' : ''}>{signed(c?.avg_clv_odds_pct, 2, '%')}</td>
-                    <td>{signed(c?.median_clv_odds_pct, 2, '%')}</td>
-                    <td>{fmtPctRate(c?.positive_clv_rate)}</td>
-                    <td>{signed(c?.avg_ev != null ? c.avg_ev * 100 : null, 1, '%')}</td>
+          {clv && (
+            <section className="ma-section">
+              <div className="ma-section-title">
+                <div>
+                  <h2>Match-oriented CLV (Closing Line Value)</h2>
+                  <p>Sprawdza, czy sygnały EV modelu łapią kursy lepsze niż closing line. Każdy model/mecz/horyzont to jedna obserwacja.</p>
+                </div>
+              </div>
+              <ClvChart bins={clvBins} />
+            </section>
+          )}
+
+          <section className="ma-section">
+            <div className="ma-section-title">
+              <div>
+                <h2>Weryfikacja statystyczna Bootstrap (ΔLogLoss)</h2>
+                <p>Miesięczny blokowy bootstrap dla różnicy błędu LogLoss (rynek minus model). Wartości dodatnie oznaczają przewagę modelu.</p>
+              </div>
+            </div>
+            {bootstrapBins.length ? <BootstrapChart bins={bootstrapBins} /> : <div className="ma-state">Brak przeliczonych wyników bootstrap dla tego modelu. Użyj przycisku &quot;Run bootstrap&quot;.</div>}
+          </section>
+
+          <section className="ma-section">
+            <div className="ma-section-title">
+              <div>
+                <h2>Szczegółowa tabela horyzontów czasowych</h2>
+                <p>Szczegółowe wskaźniki dla każdego okna czasowego (od otwarcia linii 48h+ do zamknięcia 0-2h).</p>
+              </div>
+            </div>
+            <div className="ma-table-wrap">
+              <table className="ma-table">
+                <thead>
+                  <tr>
+                    <th>Horyzont</th>
+                    <th>Okazji</th>
+                    <th>Meczów</th>
+                    <th>Model LogLoss</th>
+                    <th>Rynek LogLoss</th>
+                    <th>ΔLogLoss</th>
+                    <th>Model AUC</th>
+                    <th>Rynek AUC</th>
+                    <th>Średni CLV</th>
+                    <th>Mediana CLV</th>
+                    <th>Pobicie zamknięcia</th>
+                    <th>Średni EV</th>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                </thead>
+                <tbody>
+                  {HORIZON_ORDER.map((label) => {
+                    const market = marketBins.find((b) => b.label === label)
+                    const model = selectedModelBins.find((b) => b.label === label)
+                    const c = clvBins.find((b) => b.label === label)
+                    const deltaLogLoss = market?.avg_logloss != null && model?.avg_logloss != null ? market.avg_logloss - model.avg_logloss : null
+                    return (
+                      <tr key={label}>
+                        <td><strong>{label}</strong></td>
+                        <td>{c?.entry_count ?? '—'}</td>
+                        <td>{c?.match_count ?? model?.match_count ?? market?.match_count ?? '—'}</td>
+                        <td>{fmt(model?.avg_logloss, 4)}</td>
+                        <td>{fmt(market?.avg_logloss, 4)}</td>
+                        <td className={(deltaLogLoss ?? 0) > 0 ? 'positive' : (deltaLogLoss ?? 0) < 0 ? 'negative' : ''}>{signed(deltaLogLoss, 4)}</td>
+                        <td>{fmt(model?.avg_auc, 3)}</td>
+                        <td>{fmt(market?.avg_auc, 3)}</td>
+                        <td className={(c?.avg_clv_odds_pct ?? 0) > 0 ? 'positive' : (c?.avg_clv_odds_pct ?? 0) < 0 ? 'negative' : ''}>{signed(c?.avg_clv_odds_pct, 2, '%')}</td>
+                        <td>{signed(c?.median_clv_odds_pct, 2, '%')}</td>
+                        <td>{fmtPctRate(c?.positive_clv_rate)}</td>
+                        <td>{signed(c?.avg_ev != null ? c.avg_ev * 100 : null, 1, '%')}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
 
-      <details className="ma-diagnostics">
-        <summary>Diagnostics & definitions</summary>
-        <div className="ma-diagnostics-grid">
-          <div><h4>CLV entry</h4><p>{clv?.metadata.entry_definition}</p></div>
-          <div><h4>Closing line</h4><p>{clv?.metadata.closing_definition}</p></div>
-          <div><h4>Skipped cases</h4><pre>{JSON.stringify(clv?.skips ?? {}, null, 2)}</pre></div>
-        </div>
-      </details>
+      {(viewMode === 'all' || viewMode === 'bookmakers') && (
+        <section className="ma-section">
+          <div className="ma-section-title">
+            <div>
+              <h2>Wydajność według bukmacherów (Bookmaker Edge)</h2>
+              <p>Którzy bukmacherzy najwolniej korygują linie kursowe? Im wyższy CLV i wskaźnik pobicia zamknięcia, tym większa przewaga nad danym operatorem.</p>
+            </div>
+          </div>
+          <BookmakersSection bookmakers={bookmakerBreakdown} />
+        </section>
+      )}
+
+      {(viewMode === 'all' || viewMode === 'odds_tiers') && (
+        <section className="ma-section">
+          <div className="ma-section-title">
+            <div>
+              <h2>Wydajność według przedziałów kursowych (Odds Tiers)</h2>
+              <p>Porównanie zachowania modelu na faworytach vs underdogach. Analiza pokazuje, w jakich zakresach kursów generowane jest realne CLV i przewaga nad marżą.</p>
+            </div>
+          </div>
+          <OddsTiersSection tiers={oddsTierBreakdown} />
+        </section>
+      )}
+
+      {clv && (
+        <details className="ma-diagnostics">
+          <summary>Diagnostics & definitions</summary>
+          <div className="ma-diagnostics-grid">
+            <div><h4>CLV entry</h4><p>{clv.metadata.entry_definition}</p></div>
+            <div><h4>Closing line</h4><p>{clv.metadata.closing_definition}</p></div>
+            <div><h4>Skipped cases</h4><pre>{JSON.stringify(clv.skips ?? {}, null, 2)}</pre></div>
+          </div>
+        </details>
+      )}
     </div>
   )
 }

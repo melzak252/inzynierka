@@ -337,8 +337,17 @@ export async function fetchHorizonAccuracy(
   return response.json();
 }
 
-export async function fetchHistoricalModelComparison(): Promise<HistoricalModelComparison> {
-  const response = await fetch(`${API_BASE}/timing/model-comparison`);
+export async function fetchHistoricalModelComparison(options?: {
+  maxDaysBack?: number;
+  league?: string;
+  bestOf?: number;
+}): Promise<HistoricalModelComparison> {
+  const params = new URLSearchParams();
+  if (options?.maxDaysBack) params.set('max_days_back', String(options.maxDaysBack));
+  if (options?.league) params.set('league', options.league);
+  if (options?.bestOf) params.set('best_of', String(options.bestOf));
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const response = await fetch(`${API_BASE}/timing/model-comparison${query}`);
   if (!response.ok) throw new Error(`Failed to fetch historical model comparison: ${response.statusText}`);
   return response.json();
 }
