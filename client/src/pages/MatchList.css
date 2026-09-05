@@ -294,21 +294,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.ev-value,
-.kelly-value {
-  font-size: 0.68rem;
-  color: var(--text-subtle);
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.ev-value.ev-strong {
-  color: #86efac;
-}
-
-.kelly-value.kelly-strong {
-  color: #93c5fd;
-}
 
 .vs {
   display: inline-flex;

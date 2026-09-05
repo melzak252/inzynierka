@@ -52,15 +52,6 @@ export default function MatchList() {
     });
   };
 
-  // Kelly Criterion: f* = (p*b - q) / b, gdzie b = odds-1, q = 1-p
-  // Używamy half-Kelly (f*/2) dla bezpieczeństwa
-  const calcKelly = (prob: number | null, odds: number | null): number | null => {
-    if (prob === null || odds === null || odds <= 1) return null;
-    const b = odds - 1;
-    const q = 1 - prob;
-    const kelly = (prob * b - q) / b;
-    return Math.max(0, kelly / 2); // half-Kelly, minimum 0
-  };
 
   return (
     <div className="match-list">
@@ -90,18 +81,15 @@ export default function MatchList() {
 
       <div className="matches-grid">
         {matches.map((m) => {
-          const evA = m.hybrid_ev_a;
-          const evB = m.hybrid_ev_b;
-          const kellyA = calcKelly(m.hybrid_prob_a, m.best_odds_a);
-          const kellyB = calcKelly(m.hybrid_prob_b, m.best_odds_b);
-          const hasStrongEv =
-            (evA !== null && evA > 0.05) || (evB !== null && evB > 0.05);
+          const hasRecommendation = Boolean(
+            m.recommended_side && m.recommended_ev && m.recommended_ev > 0
+          );
           const unmappedTeams = [
             !m.team_a_golgg_name ? m.team_a_name : null,
             !m.team_b_golgg_name ? m.team_b_name : null,
           ].filter(Boolean).join(', ');
 
-          const cardClass = `match-card${hasStrongEv ? ' ev-highlight' : ''}${m.has_unmapped_teams ? ' mapping-warning' : ''}`;
+          const cardClass = `match-card${hasRecommendation ? ' ev-highlight' : ''}${m.has_unmapped_teams ? ' mapping-warning' : ''}`;
 
           return (
             <Link
@@ -182,16 +170,6 @@ export default function MatchList() {
                     {m.best_odds_a && (
                       <span className="odds">{m.best_odds_a.toFixed(2)}</span>
                     )}
-                    {evA !== null && evA > 0 && (
-                      <span className={`ev-value${evA > 0.05 ? ' ev-strong' : ''}`}>
-                        EV {(evA * 100).toFixed(1)}%
-                      </span>
-                    )}
-                    {kellyA !== null && kellyA > 0 && (
-                      <span className={`kelly-value${kellyA > 0.05 ? ' kelly-strong' : ''}`}>
-                        Kelly {(kellyA * 100).toFixed(1)}%
-                      </span>
-                    )}
                   </div>
                 </div>
                 <span className="vs">vs</span>
@@ -205,16 +183,6 @@ export default function MatchList() {
                   <div className="odds-block">
                     {m.best_odds_b && (
                       <span className="odds">{m.best_odds_b.toFixed(2)}</span>
-                    )}
-                    {evB !== null && evB > 0 && (
-                      <span className={`ev-value${evB > 0.05 ? ' ev-strong' : ''}`}>
-                        EV {(evB * 100).toFixed(1)}%
-                      </span>
-                    )}
-                    {kellyB !== null && kellyB > 0 && (
-                      <span className={`kelly-value${kellyB > 0.05 ? ' kelly-strong' : ''}`}>
-                        Kelly {(kellyB * 100).toFixed(1)}%
-                      </span>
                     )}
                   </div>
                 </div>
