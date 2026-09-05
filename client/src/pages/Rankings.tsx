@@ -4,7 +4,7 @@ import type { RankingEntityType, RankingsResponse, RankingSquadScope, RatingSyst
 import './Rankings.css'
 
 const RATING_SYSTEMS: Array<{ id: RatingSystem; label: string; detail: string }> = [
-  { id: 'unified', label: 'Unified', detail: 'średnia pozycji percentylowych' },
+  { id: 'unified', label: 'Unified', detail: 'kalibrowany konsensus systemów ratingowych' },
   { id: 'elo', label: 'Elo', detail: 'klasyczny rating wyniku' },
   { id: 'gl', label: 'Glicko-2 regionalny', detail: 'rating z niepewnością RD i korektą regionu' },
   { id: 'ts', label: 'TrueSkill', detail: 'rating probabilistyczny' },

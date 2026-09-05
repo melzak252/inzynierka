@@ -22,7 +22,7 @@ EntityType = Literal["team", "player"]
 SquadScope = Literal["major", "regional_academy", "regional", "development", "all", "main"]
 
 
-def _tier_sql_expr(db) -> str:
+def _tier_sql_expr(db, col: str = "state_json") -> str:
     bind = getattr(db, "bind", None)
     if bind is None and hasattr(db, "get_bind"):
         try:
@@ -32,9 +32,36 @@ def _tier_sql_expr(db) -> str:
     dialect = getattr(bind, "dialect", None)
     dialect_name = getattr(dialect, "name", None) or ("sqlite" if is_sqlite() else "postgresql")
     if dialect_name == "sqlite":
-        return "json_extract(state_json, '$.tier')"
-    return "(state_json::json->>'tier')"
+        return f"json_extract({col}, '$.tier')"
+    return f"({col}::json->>'tier')"
 
+
+def _offset_sql_expr(db, col: str = "ro.state_json") -> str:
+    bind = getattr(db, "bind", None)
+    if bind is None and hasattr(db, "get_bind"):
+        try:
+            bind = db.get_bind()
+        except Exception:
+            bind = None
+    dialect = getattr(bind, "dialect", None)
+    dialect_name = getattr(dialect, "name", None) or ("sqlite" if is_sqlite() else "postgresql")
+    if dialect_name == "sqlite":
+        return f"CAST(COALESCE(json_extract({col}, '$.offset'), 0.0) AS REAL)"
+    return f"COALESCE(({col}::json->>'offset')::float, 0.0)"
+
+
+def _loc_sigma_sql_expr(db, col: str = "ro.state_json") -> str:
+    bind = getattr(db, "bind", None)
+    if bind is None and hasattr(db, "get_bind"):
+        try:
+            bind = db.get_bind()
+        except Exception:
+            bind = None
+    dialect = getattr(bind, "dialect", None)
+    dialect_name = getattr(dialect, "name", None) or ("sqlite" if is_sqlite() else "postgresql")
+    if dialect_name == "sqlite":
+        return f"SQRT(MAX(0.0, CAST(COALESCE(json_extract({col}, '$.location_variance'), 0.0) AS REAL)))"
+    return f"SQRT(GREATEST(0.0, COALESCE(({col}::json->>'location_variance')::float, 0.0)))"
 def _subtract_months(value: date, months: int) -> date:
     target_index = value.year * 12 + value.month - 1 - months
     year, zero_based_month = divmod(target_index, 12)
@@ -154,6 +181,8 @@ def get_rankings(
         params["active_since"] = active_since.isoformat()
     has_gl_system = "gl" in available_rating_systems
     tier_expr = _tier_sql_expr(db)
+    offset_expr = _offset_sql_expr(db, "ro.state_json")
+    loc_sigma_expr = _loc_sigma_sql_expr(db, "ro.state_json")
     development_label = """
         (
             LOWER(
@@ -260,64 +289,187 @@ def get_rankings(
 
     if rating_system == "unified":
         params["system_count"] = len(available_rating_systems)
-        leaderboard_cte = f"""
-            WITH system_positions AS (
-                SELECT
-                    entity_type,
-                    entity_name,
-                    normalized_entity_name,
-                    team_name,
-                    role,
-                    rating_system,
-                    games_played,
-                    last_match_at,
-                    snapshot_at,
-                    RANK() OVER (
-                        PARTITION BY rating_system
-                        ORDER BY rating_value DESC, games_played DESC, normalized_entity_name ASC
-                    ) AS system_rank,
-                    COUNT(*) OVER (PARTITION BY rating_system) AS system_total
-                FROM entity_ratings
-                WHERE ratings_version = :ratings_version
-                  AND entity_type = :entity_type
-                  AND rating_value IS NOT NULL
-                  AND games_played >= :min_games
-                  {cohort_filter}
-            ),
-            consensus AS (
-                SELECT
-                    entity_type,
-                    MAX(entity_name) AS entity_name,
-                    normalized_entity_name,
-                    MAX(team_name) AS team_name,
-                    MAX(role) AS role,
-                    'unified' AS rating_system,
-                    AVG(
+        if has_gl_system:
+            if len(available_rating_systems) > 1:
+                params["w_gl"] = 0.80
+                params["w_other"] = 0.20 / (len(available_rating_systems) - 1)
+            else:
+                params["w_gl"] = 1.00
+                params["w_other"] = 0.00
+            leaderboard_cte = f"""
+                WITH regional_offsets AS (
+                    SELECT
+                        normalized_entity_name AS gl_normalized_name,
+                        state_json
+                    FROM (
+                        SELECT
+                            normalized_entity_name,
+                            state_json,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY normalized_entity_name
+                                ORDER BY last_match_at DESC, id DESC
+                            ) AS rn
+                        FROM entity_ratings
+                        WHERE ratings_version = :ratings_version
+                          AND entity_type = :entity_type
+                          AND rating_system = 'gl'
+                          AND rating_value IS NOT NULL
+                    ) ro_sub
+                    WHERE rn = 1
+                ),
+                calibrated_entities AS (
+                    SELECT
+                        e.entity_type,
+                        e.entity_name,
+                        e.normalized_entity_name,
+                        e.team_name,
+                        e.role,
+                        e.rating_system,
+                        e.games_played,
+                        e.last_match_at,
+                        e.snapshot_at,
                         CASE
-                            WHEN system_total = 1 THEN 100.0
-                            ELSE 100.0 * (system_total - system_rank) / (system_total - 1)
-                        END
-                    ) AS rating_value,
-                    NULL AS rd,
-                    NULL AS sigma,
-                    MIN(games_played) AS games_played,
-                    MAX(last_match_at) AS last_match_at,
-                    MAX(snapshot_at) AS snapshot_at,
-                    NULL AS state_json,
-                    COUNT(DISTINCT rating_system) AS system_count
-                FROM system_positions
-                GROUP BY entity_type, normalized_entity_name
-                HAVING COUNT(DISTINCT rating_system) = :system_count
-            ),
-            ranked AS (
-                SELECT
-                    ROW_NUMBER() OVER (
-                        ORDER BY rating_value DESC, games_played DESC, normalized_entity_name ASC
-                    ) AS rank,
-                    *
-                FROM consensus
-            )
-        """
+                            WHEN e.rating_system = 'gl' THEN (e.rating_value - 1.0 * COALESCE(e.rd, 350.0))
+                            WHEN e.rating_system = 'elo' THEN (e.rating_value + {offset_expr} - 1.0 * {loc_sigma_expr})
+                            WHEN e.rating_system IN ('ts', 'os') THEN (e.rating_value + ({offset_expr} - 1.0 * {loc_sigma_expr}) * (8.333 / 400.0) - 1.0 * COALESCE(e.sigma, 8.333))
+                            WHEN e.rating_system IN ('pl', 'tm') THEN (e.rating_value + ({offset_expr} - 1.0 * {loc_sigma_expr}) * (18.75 / 400.0) - 1.0 * COALESCE(e.sigma, 18.75))
+                            ELSE e.rating_value
+                        END AS effective_score
+                    FROM (
+                        SELECT *,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY rating_system, normalized_entity_name
+                                ORDER BY last_match_at DESC, id DESC
+                            ) AS entity_rn
+                        FROM entity_ratings
+                        WHERE ratings_version = :ratings_version
+                          AND entity_type = :entity_type
+                          AND rating_value IS NOT NULL
+                          AND games_played >= :min_games
+                          {cohort_filter}
+                    ) e
+                    LEFT JOIN regional_offsets ro
+                           ON e.normalized_entity_name = ro.gl_normalized_name
+                    WHERE e.entity_rn = 1
+                ),
+                system_positions AS (
+                    SELECT
+                        entity_type,
+                        entity_name,
+                        normalized_entity_name,
+                        team_name,
+                        role,
+                        rating_system,
+                        games_played,
+                        last_match_at,
+                        snapshot_at,
+                        RANK() OVER (
+                            PARTITION BY rating_system
+                            ORDER BY effective_score DESC, games_played DESC, normalized_entity_name ASC
+                        ) AS system_rank,
+                        COUNT(*) OVER (PARTITION BY rating_system) AS system_total
+                    FROM calibrated_entities
+                ),
+                consensus AS (
+                    SELECT
+                        entity_type,
+                        MAX(entity_name) AS entity_name,
+                        normalized_entity_name,
+                        MAX(team_name) AS team_name,
+                        MAX(role) AS role,
+                        'unified' AS rating_system,
+                        SUM(
+                            (
+                                CASE
+                                    WHEN system_total = 1 THEN 100.0
+                                    ELSE 100.0 * (system_total - system_rank) / (system_total - 1)
+                                END
+                            ) * (
+                                CASE
+                                    WHEN rating_system = 'gl' THEN :w_gl
+                                    ELSE :w_other
+                                END
+                            )
+                        ) AS rating_value,
+                        NULL AS rd,
+                        NULL AS sigma,
+                        MIN(games_played) AS games_played,
+                        MAX(last_match_at) AS last_match_at,
+                        MAX(snapshot_at) AS snapshot_at,
+                        NULL AS state_json,
+                        COUNT(DISTINCT rating_system) AS system_count
+                    FROM system_positions
+                    GROUP BY entity_type, normalized_entity_name
+                    HAVING COUNT(DISTINCT rating_system) = :system_count
+                ),
+                ranked AS (
+                    SELECT
+                        ROW_NUMBER() OVER (
+                            ORDER BY rating_value DESC, games_played DESC, normalized_entity_name ASC
+                        ) AS rank,
+                        *
+                    FROM consensus
+                )
+            """
+        else:
+            leaderboard_cte = f"""
+                WITH system_positions AS (
+                    SELECT
+                        entity_type,
+                        entity_name,
+                        normalized_entity_name,
+                        team_name,
+                        role,
+                        rating_system,
+                        games_played,
+                        last_match_at,
+                        snapshot_at,
+                        RANK() OVER (
+                            PARTITION BY rating_system
+                            ORDER BY rating_value DESC, games_played DESC, normalized_entity_name ASC
+                        ) AS system_rank,
+                        COUNT(*) OVER (PARTITION BY rating_system) AS system_total
+                    FROM entity_ratings
+                    WHERE ratings_version = :ratings_version
+                      AND entity_type = :entity_type
+                      AND rating_value IS NOT NULL
+                      AND games_played >= :min_games
+                      {cohort_filter}
+                ),
+                consensus AS (
+                    SELECT
+                        entity_type,
+                        MAX(entity_name) AS entity_name,
+                        normalized_entity_name,
+                        MAX(team_name) AS team_name,
+                        MAX(role) AS role,
+                        'unified' AS rating_system,
+                        AVG(
+                            CASE
+                                WHEN system_total = 1 THEN 100.0
+                                ELSE 100.0 * (system_total - system_rank) / (system_total - 1)
+                            END
+                        ) AS rating_value,
+                        NULL AS rd,
+                        NULL AS sigma,
+                        MIN(games_played) AS games_played,
+                        MAX(last_match_at) AS last_match_at,
+                        MAX(snapshot_at) AS snapshot_at,
+                        NULL AS state_json,
+                        COUNT(DISTINCT rating_system) AS system_count
+                    FROM system_positions
+                    GROUP BY entity_type, normalized_entity_name
+                    HAVING COUNT(DISTINCT rating_system) = :system_count
+                ),
+                ranked AS (
+                    SELECT
+                        ROW_NUMBER() OVER (
+                            ORDER BY rating_value DESC, games_played DESC, normalized_entity_name ASC
+                        ) AS rank,
+                        *
+                    FROM consensus
+                )
+            """
     else:
         leaderboard_cte = f"""
             WITH ranked AS (

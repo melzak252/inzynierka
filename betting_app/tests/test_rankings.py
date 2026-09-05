@@ -305,3 +305,79 @@ def test_rankings_scope_major_vs_regional_academy(client: TestClient) -> None:
     assert {r["entity_name"] for r in all_resp.json()["rankings"]} == {
         "Gen.G", "T1", "Karmine Corp Blue", "T1 Esports Academy"
     }
+
+
+def test_unified_rankings_with_gl_calibration_and_weights(client: TestClient) -> None:
+    import json
+
+    with get_session() as session:
+        session.execute(text("DELETE FROM entity_ratings"))
+        session.execute(text("DELETE FROM rating_runs"))
+        session.execute(
+            text(
+                """
+                INSERT INTO rating_runs (
+                    id, ratings_version, data_cutoff_at, started_at, finished_at,
+                    status, matches_processed, games_processed, players_processed
+                ) VALUES (
+                    1, 'ratings-v3', '2026-09-01T00:00:00+00:00',
+                    '2026-09-01T00:00:00+00:00', '2026-09-01T00:05:00+00:00',
+                    'completed', 10, 20, 50
+                )
+                """
+            )
+        )
+
+        # Gen.G (Major LCK): high GL, high raw Elo
+        geng_state = json.dumps({"offset": 2200.0, "location_variance": 50000.0, "tier": "major"})
+        # T1 (Major LCK): high GL, good raw Elo
+        t1_state = json.dumps({"offset": 2150.0, "location_variance": 50000.0, "tier": "major"})
+        # Galions (Regional): low GL, but inflated raw Elo from stomping weak regional opponents
+        galions_state = json.dumps({"offset": 1500.0, "location_variance": 10000.0, "tier": "regional"})
+
+        session.execute(
+            text(
+                """
+                INSERT INTO entity_ratings(
+                    rating_run_id, ratings_version, snapshot_at, entity_type,
+                    entity_name, normalized_entity_name, team_name, role,
+                    rating_system, rating_value, rd, sigma, games_played, last_match_at, state_json
+                ) VALUES
+                    (1, 'ratings-v3', '2026-09-01T00:05:00+00:00', 'team',
+                     'Gen.G', 'gen g', NULL, NULL, 'gl', 2230.0, 35.0, NULL, 30, '2026-08-31', :geng_state),
+                    (1, 'ratings-v3', '2026-09-01T00:05:00+00:00', 'team',
+                     'T1', 't1', NULL, NULL, 'gl', 2160.0, 38.0, NULL, 30, '2026-08-31', :t1_state),
+                    (1, 'ratings-v3', '2026-09-01T00:05:00+00:00', 'team',
+                     'Galions', 'galions', NULL, NULL, 'gl', 1600.0, 45.0, NULL, 30, '2026-08-31', :galions_state),
+
+                    (1, 'ratings-v3', '2026-09-01T00:05:00+00:00', 'team',
+                     'Gen.G', 'gen g', NULL, NULL, 'elo', 2020.0, NULL, NULL, 30, '2026-08-31', :geng_state),
+                    (1, 'ratings-v3', '2026-09-01T00:05:00+00:00', 'team',
+                     'T1', 't1', NULL, NULL, 'elo', 1980.0, NULL, NULL, 30, '2026-08-31', :t1_state),
+                    (1, 'ratings-v3', '2026-09-01T00:05:00+00:00', 'team',
+                     'Galions', 'galions', NULL, NULL, 'elo', 2050.0, NULL, NULL, 30, '2026-08-31', :galions_state)
+                """
+            ),
+            {"geng_state": geng_state, "t1_state": t1_state, "galions_state": galions_state},
+        )
+        session.commit()
+
+    # 1. Under raw Elo, Galions is #1 because 2050 > 2020 > 1980
+    elo_resp = client.get("/rankings", params={"entity_type": "team", "rating_system": "elo", "squad_scope": "all"})
+    assert elo_resp.status_code == 200
+    elo_rankings = elo_resp.json()["rankings"]
+    assert elo_rankings[0]["entity_name"] == "Galions"
+    assert elo_rankings[1]["entity_name"] == "Gen.G"
+    assert elo_rankings[2]["entity_name"] == "T1"
+
+    # 2. Under Unified (calibrated consensus with 80% GL weight + regional offset on Elo),
+    # Gen.G and T1 must be ranked ahead of Galions
+    unified_resp = client.get("/rankings", params={"entity_type": "team", "rating_system": "unified", "squad_scope": "all"})
+    assert unified_resp.status_code == 200
+    unified_rankings = unified_resp.json()["rankings"]
+    assert [r["entity_name"] for r in unified_rankings] == ["Gen.G", "T1", "Galions"]
+    assert unified_rankings[0]["rank"] == 1
+    assert unified_rankings[1]["rank"] == 2
+    assert unified_rankings[2]["rank"] == 3
+    # Check system_count is 2
+    assert all(r["system_count"] == 2 for r in unified_rankings)
