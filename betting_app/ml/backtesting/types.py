@@ -60,6 +60,10 @@ class BacktestBet:
     bankroll_before: float
     bankroll_after: float
     prediction_id: int | None = None
+    settled_at: datetime | None = None
+    expected_profit: float | None = None
+    available_bankroll_before: float | None = None
+    reserved_stake_after_placement: float | None = None
 
 
 @dataclass(frozen=True)

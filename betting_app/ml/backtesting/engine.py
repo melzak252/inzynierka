@@ -85,6 +85,10 @@ def run_backtest(
                     bankroll_before=bankroll_before,
                     bankroll_after=bankroll,
                     prediction_id=prediction.prediction_id,
+                    settled_at=label.start_time if label is not None else None,
+                    expected_profit=stake * ev,
+                    available_bankroll_before=bankroll_before,
+                    reserved_stake_after_placement=stake,
                 )
             )
 

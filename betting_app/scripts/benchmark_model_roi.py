@@ -471,7 +471,13 @@ def build_closing_quote_index(
 def _longest_losing_streak(bets: list[BacktestBet]) -> int:
     longest = 0
     current = 0
-    for bet in sorted(bets, key=lambda item: (item.settled_at, item.canonical_match_id)):
+    for bet in sorted(
+        bets,
+        key=lambda item: (
+            getattr(item, "settled_at", None) or item.placed_at,
+            item.canonical_match_id,
+        ),
+    ):
         if bet.result == "lost":
             current += 1
             longest = max(longest, current)
@@ -540,6 +546,29 @@ def result_ledger(
         start_at = pd.to_datetime(
             match.get("start_time_normalized"), utc=True, errors="coerce"
         )
+        bet_settled_at = getattr(bet, "settled_at", None)
+        settled_at = bet_settled_at if bet_settled_at is not None else (
+            start_at.to_pydatetime() if pd.notna(start_at) else bet.placed_at
+        )
+        hours_before_start = (
+            (start_at.to_pydatetime() - bet.placed_at).total_seconds() / 3600
+            if pd.notna(start_at) and bet.placed_at is not None
+            else None
+        )
+        settlement_delay_hours = (
+            (settled_at - start_at.to_pydatetime()).total_seconds() / 3600
+            if pd.notna(start_at) and settled_at is not None
+            else None
+        )
+        expected_profit = getattr(bet, "expected_profit", None)
+        if expected_profit is None:
+            expected_profit = bet.stake * bet.ev
+        available_before = getattr(bet, "available_bankroll_before", None)
+        if available_before is None:
+            available_before = bet.bankroll_before
+        reserved_after = getattr(bet, "reserved_stake_after_placement", None)
+        if reserved_after is None:
+            reserved_after = bet.stake
         rows.append(
             {
                 "scenario": scenario,
@@ -559,17 +588,9 @@ def result_ledger(
                 "odds_snapshot_id": bet.odds_snapshot_id,
                 "placed_at": bet.placed_at.isoformat(),
                 "start_at": start_at.isoformat() if pd.notna(start_at) else None,
-                "settled_at": bet.settled_at.isoformat(),
-                "hours_before_start": (
-                    (start_at.to_pydatetime() - bet.placed_at).total_seconds() / 3600
-                    if pd.notna(start_at)
-                    else None
-                ),
-                "settlement_delay_hours": (
-                    (bet.settled_at - start_at.to_pydatetime()).total_seconds() / 3600
-                    if pd.notna(start_at)
-                    else None
-                ),
+                "settled_at": settled_at.isoformat() if settled_at is not None else None,
+                "hours_before_start": hours_before_start,
+                "settlement_delay_hours": settlement_delay_hours,
                 "entry_odds": bet.odds,
                 "close_odds_same_book": close_odds,
                 "clv_odds_pct": (
@@ -584,14 +605,14 @@ def result_ledger(
                 "expected_value": bet.ev,
                 "stake": bet.stake,
                 "tax_paid": bet.stake * tax_rate,
-                "expected_profit": bet.expected_profit,
+                "expected_profit": expected_profit,
                 "profit": bet.profit,
                 "return_on_stake": bet.profit / bet.stake,
                 "result": bet.result,
                 "won": bet.result == "won",
                 "bankroll_before_placement": bet.bankroll_before,
-                "available_before_placement": bet.available_bankroll_before,
-                "reserved_after_placement": bet.reserved_stake_after_placement,
+                "available_before_placement": available_before,
+                "reserved_after_placement": reserved_after,
                 "bankroll_after_settlement": bet.bankroll_after,
             }
         )
