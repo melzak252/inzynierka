@@ -1869,9 +1869,9 @@ def _load_historical_match_rosters(
             f"""
             SELECT normalized_entity_name, rating_system, rating_value, rd, games_played
             FROM entity_ratings
-            WHERE entity_type = 'PLAYER'
+            WHERE entity_type = 'player'
               AND normalized_entity_name IN ({placeholders})
-              AND ratings_version = 'v2_composite'
+              AND ratings_version = 'ratings-v2'
             """,
             params,
         )
@@ -1888,9 +1888,9 @@ def _load_historical_match_rosters(
         tname = r.get("team_name")
         p_id = str(r.get("player_id") or "")
         p_ratings = ratings_by_pid.get(p_id, {})
-        gl = p_ratings.get("Glicko", {})
-        elo = p_ratings.get("Elo", {})
-        ts = p_ratings.get("TrueSkill", {})
+        gl = p_ratings.get("gl", {})
+        elo = p_ratings.get("elo", {})
+        ts = p_ratings.get("ts", {})
         gp = none_or_float(gl.get("games_played") or elo.get("games_played"))
         rp = RosterPlayer(
             player_id=p_id or None,
