@@ -869,9 +869,9 @@ def main() -> None:
         label.start_time for label in labels if label.start_time is not None
     ]
     result_recorded_at = [
-        label.result_available_at
+        getattr(label, "result_available_at", None)
         for label in labels
-        if label.result_available_at is not None
+        if getattr(label, "result_available_at", None) is not None
     ]
     if args.allow_retrospective_proxy:
         scope = (

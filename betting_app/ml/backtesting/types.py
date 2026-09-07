@@ -28,6 +28,7 @@ class MatchLabel:
     winner_side: Side
     start_time: datetime | None = None
     league: str | None = None
+    result_available_at: datetime | None = None
 
 
 @dataclass(frozen=True)

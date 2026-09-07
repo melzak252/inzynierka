@@ -44,18 +44,33 @@ def load_finished_match_labels(
         where.append("REPLACE(start_time_normalized, 'T', ' ') >= REPLACE(:min_start, 'T', ' ')")
         params["min_start"] = (datetime.now(UTC) - timedelta(days=int(days_back))).isoformat(timespec="seconds")
 
-    df = query_df(
-        f"""
-        SELECT id AS canonical_match_id,
-               winner_side,
-               start_time_normalized,
-               league
-        FROM canonical_matches
-        WHERE {' AND '.join(where)}
-        """,
-        params,
-        session=session,
-    )
+    try:
+        df = query_df(
+            f"""
+            SELECT id AS canonical_match_id,
+                   winner_side,
+                   start_time_normalized,
+                   league,
+                   result_recorded_at
+            FROM canonical_matches
+            WHERE {' AND '.join(where)}
+            """,
+            params,
+            session=session,
+        )
+    except Exception:
+        df = query_df(
+            f"""
+            SELECT id AS canonical_match_id,
+                   winner_side,
+                   start_time_normalized,
+                   league
+            FROM canonical_matches
+            WHERE {' AND '.join(where)}
+            """,
+            params,
+            session=session,
+        )
     labels: list[MatchLabel] = []
     for row in df.to_dict("records"):
         raw_side = row["winner_side"]
@@ -66,6 +81,7 @@ def load_finished_match_labels(
                 winner_side=side,
                 start_time=_parse_dt(row.get("start_time_normalized")),
                 league=row.get("league"),
+                result_available_at=_parse_dt(row.get("result_recorded_at")) if "result_recorded_at" in row else None,
             )
         )
     return labels
