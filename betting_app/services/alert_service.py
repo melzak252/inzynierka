@@ -104,22 +104,35 @@ def build_discord_embed(signal: Dict[str, Any]) -> Dict[str, Any]:
     market_prob = float(signal.get("market_prob") or 0.0)
     stake_pct = float(signal.get("suggested_stake") or 0.0)
     match_start = signal.get("match_start_at") or "Wkrótce"
+    conviction = signal.get("conviction", "HIGH_CONVICTION")
+    conviction_badge = signal.get("conviction_badge") or ("🔥 WYSOKA PEWNOŚĆ" if ev >= 0.10 else "⚡ SPEKULACYJNY")
+    market_edge = float(signal.get("market_edge") or 0.0)
+    is_full_roster = signal.get("is_full_roster", True)
 
-    # Color: Bright Green for strong EV (>10%), Cyan for 5-10%
-    color = 0x10B981 if ev >= 0.10 else 0x38BDF8
+    # Color: Bright Green for strong EV (>=10%), Cyan for 5-10%
+    if ev >= 0.10:
+        color = 0x10B981
+    elif conviction == "ROSTER_WARNING":
+        color = 0xF59E0B
+    else:
+        color = 0x38BDF8
+
+    edge_str = f"+{market_edge * 100:.1f}%" if market_edge >= 0 else f"{market_edge * 100:.1f}% (pod prąd rynku)"
+    roster_str = "✅ Pełny skład (5/5 zweryfikowany)" if is_full_roster else "⚠️ Skład częściowy / niepotwierdzony"
 
     fields = [
-        {"name": "🎯 Typowana Drużyna", "value": f"**{team_name}** ({side})", "inline": True},
+        {"name": "🎯 Typowana Drużyna", "value": f"**{team_name}** ({side}) • `{conviction_badge}`", "inline": True},
         {"name": "🏢 Bukmacher", "value": f"**{bookmaker}**", "inline": True},
-        {"name": "📈 Kurs", "value": f"**{odds:.2f}**", "inline": True},
+        {"name": "📈 Kurs i Przewaga", "value": f"**{odds:.2f}** (Edge: `{edge_str}`)", "inline": True},
         {"name": "💰 EV (po podatku 12%)", "value": f"**+{ev * 100:.1f}%**", "inline": True},
         {"name": "📊 Model vs Rynek", "value": f"Model: `{model_prob * 100:.1f}%`\nRynek: `{market_prob * 100:.1f}%`", "inline": True},
         {"name": "💵 Sugerowana Stawka", "value": f"`{stake_pct:.1f}%` bankrolla", "inline": True},
+        {"name": "👥 Weryfikacja Składu", "value": roster_str, "inline": True},
         {"name": "⏰ Początek Meczu", "value": f"{match_start}", "inline": False},
     ]
 
     return {
-        "title": f"🔥 VALUE BET: {match_label}",
+        "title": f"🔥 VALUE BET: {match_label} [{conviction_badge}]",
         "description": f"Zidentyfikowano dodatnią wartość oczekiwaną w lidze **{league}**.",
         "color": color,
         "fields": fields,
@@ -141,20 +154,26 @@ def build_telegram_html(signal: Dict[str, Any]) -> str:
     market_prob = float(signal.get("market_prob") or 0.0)
     stake_pct = float(signal.get("suggested_stake") or 0.0)
     match_start = signal.get("match_start_at") or "Wkrótce"
+    conviction_badge = signal.get("conviction_badge") or "🔥 VALUE BET"
+    market_edge = float(signal.get("market_edge") or 0.0)
+    is_full_roster = signal.get("is_full_roster", True)
+
+    edge_str = f"(Przewaga nad rynkiem: <b>+{market_edge * 100:.1f}%</b>)" if market_edge >= 0 else f"(⚠️ Pod prąd rynku: <b>{market_edge * 100:.1f}%</b>)"
+    roster_str = "✅ Pełny skład (5/5)" if is_full_roster else "⚠️ <b>Skład częściowy/niepotwierdzony!</b>"
 
     return (
-        f"🔥 <b>VALUE BET ALERT</b>\n\n"
+        f"🔥 <b>VALUE BET ALERT</b> [{conviction_badge}]\n\n"
         f"🏆 <b>Mecz:</b> {match_label} (<i>{league}</i>)\n"
         f"🎯 <b>Typ:</b> <b>{team_name}</b> [Strona {side}]\n"
         f"🏢 <b>Bukmacher:</b> <b>{bookmaker}</b>\n"
-        f"📈 <b>Kurs:</b> <b>{odds:.2f}</b>\n"
+        f"📈 <b>Kurs:</b> <b>{odds:.2f}</b> {edge_str}\n"
         f"💰 <b>EV (po podatku 12%):</b> <b>+{ev * 100:.1f}%</b>\n"
+        f"👥 <b>Skład:</b> {roster_str}\n"
         f"📊 <b>Prawdopodobieństwo:</b> Model: {model_prob * 100:.1f}% | Rynek: {market_prob * 100:.1f}%\n"
         f"💵 <b>Sugerowana stawka (Kelly):</b> {stake_pct:.1f}% bankrolla\n"
         f"⏰ <b>Start meczu:</b> {match_start}\n\n"
         f"⚡ <i>EnsembleLegends Intelligence</i>"
     )
-
 
 def send_discord_notification(webhook_url: str, embed: Dict[str, Any]) -> tuple[bool, Optional[str]]:
     """Send a notification to Discord webhook. Returns (success, error_message)."""
@@ -272,10 +291,18 @@ def scan_and_dispatch_ev_alerts(db: Session, force_dry_run: bool = False) -> Dic
             cm.team_b_name,
             cm.league,
             cm.start_time_normalized,
-            b.name AS bookmaker_name
+            b.name AS bookmaker_name,
+            umf.feature_status,
+            cp.diagnostics_json
         FROM model_ev_signals mes
         JOIN canonical_matches cm ON cm.id = mes.canonical_match_id
         JOIN bookmakers b ON b.id = mes.bookmaker_id
+        LEFT JOIN canonical_predictions cp ON cp.id = mes.canonical_prediction_id
+        LEFT JOIN (
+            SELECT canonical_match_id, MAX(feature_status) AS feature_status
+            FROM upcoming_match_features
+            GROUP BY canonical_match_id
+        ) umf ON umf.canonical_match_id = mes.canonical_match_id
         WHERE mes.status = 'new'
           AND mes.ev >= :min_ev
           AND mes.odds >= :min_odds
@@ -313,12 +340,56 @@ def scan_and_dispatch_ev_alerts(db: Session, force_dry_run: bool = False) -> Dic
         bookmaker_name = row.get("bookmaker_name") or "Bukmacher"
         odds = float(row.get("odds") or 0.0)
         ev = float(row.get("ev") or 0.0)
+        model_prob = float(row.get("model_prob") or 0.0)
+        market_prob = float(row.get("market_prob") or 0.0)
         cm_id = int(row.get("canonical_match_id") or 0) or None
 
         # Check cooldown
         if is_alert_on_cooldown(db, cm_id, bookmaker_name, side, odds, ev, cooldown_hours):
             skipped += 1
             continue
+
+        # Market edge vs consensus line
+        market_edge = (odds * market_prob) - 1.0 if (odds > 0 and market_prob > 0) else 0.0
+
+        # Roster verification status
+        feature_status = str(row.get("feature_status") or "").lower()
+        is_full_roster = feature_status in {"ready_player", "ready"}
+
+        # Conformal risk / Epistemic uncertainty check from diagnostics
+        p_low = None
+        p_low_ev = None
+        diag_raw = row.get("diagnostics_json")
+        if diag_raw:
+            try:
+                diag = json.loads(diag_raw) if isinstance(diag_raw, str) else diag_raw
+                p_low_key = f"prob_risk_adjusted_p_low_{side}"
+                if p_low_key in diag:
+                    p_low = float(diag[p_low_key])
+                elif f"res_p_low_{side}" in diag:
+                    p_low = float(diag[f"res_p_low_{side}"])
+                if p_low is not None and 0 < p_low < 1:
+                    p_low_ev = p_low * odds * 0.88 - 1.0
+            except Exception:
+                pass
+
+        # Conviction classification:
+        # 1. HIGH CONVICTION: Verified full roster AND (market edge > 0 or conformal lower-bound EV > 0)
+        # 2. ROSTER WARNING: Unverified or partial roster (high operational hazard)
+        # 3. SPECULATIVE: Full roster, but betting against market steam (market_edge < 0 and p_low_ev <= 0)
+        if is_full_roster and (market_edge >= 0.0 or (p_low_ev is not None and p_low_ev > 0)):
+            conviction = "HIGH_CONVICTION"
+            conviction_badge = "🔥 WYSOKA PEWNOŚĆ"
+        elif feature_status in {"partial", "missing_ratings", "unknown", ""}:
+            conviction = "ROSTER_WARNING"
+            conviction_badge = "⚠️ SKŁAD NIEZWERYFIKOWANY"
+        else:
+            conviction = "SPECULATIVE"
+            conviction_badge = "⚡ SPEKULACYJNY"
+
+        raw_stake = float(row.get("stake_suggestion") or 0.0)
+        # Apply defensive scaling: halve suggested stake if not high conviction
+        suggested_stake = round(raw_stake * 0.5, 2) if conviction != "HIGH_CONVICTION" else raw_stake
 
         signal_data = {
             "canonical_match_id": cm_id,
@@ -329,10 +400,16 @@ def scan_and_dispatch_ev_alerts(db: Session, force_dry_run: bool = False) -> Dic
             "team_name": team_name,
             "bookmaker_name": bookmaker_name,
             "odds": odds,
-            "model_prob": row.get("model_prob"),
-            "market_prob": row.get("market_prob"),
+            "model_prob": model_prob,
+            "market_prob": market_prob,
+            "market_edge": market_edge,
             "ev": ev,
-            "suggested_stake": row.get("stake_suggestion"),
+            "suggested_stake": suggested_stake,
+            "conviction": conviction,
+            "conviction_badge": conviction_badge,
+            "is_full_roster": is_full_roster,
+            "p_low": p_low,
+            "p_low_ev": p_low_ev,
         }
 
         channel_names = []

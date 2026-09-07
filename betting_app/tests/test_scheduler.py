@@ -43,14 +43,14 @@ def _next_fire(task_id: str, now: datetime) -> datetime:
 
 def test_registry_fires_scrape_and_prediction_chain_in_order() -> None:
     register_all_tasks()
-    now = datetime(2026, 9, 2, 9, 50, tzinfo=UTC)
+    now = datetime(2026, 9, 2, 9, 12, tzinfo=UTC)
 
-    assert _next_fire("scrape_sts", now) == datetime(2026, 9, 2, 9, 55, tzinfo=UTC)
+    assert _next_fire("scrape_sts", now) == datetime(2026, 9, 2, 9, 15, tzinfo=UTC)
+    assert _next_fire("prediction_pipeline", now) == datetime(2026, 9, 2, 9, 20, tzinfo=UTC)
+    assert _next_fire("value_alerts_dispatch", now) == datetime(2026, 9, 2, 9, 23, tzinfo=UTC)
+    assert _next_fire("shadow_ml_inference", now) == datetime(2026, 9, 2, 9, 25, tzinfo=UTC)
+    assert _next_fire("scrape_prop_odds", now) == datetime(2026, 9, 2, 9, 40, tzinfo=UTC)
     assert _next_fire("expire_matches", now) == datetime(2026, 9, 2, 10, 0, tzinfo=UTC)
-    assert _next_fire("prediction_pipeline", now) == datetime(2026, 9, 2, 10, 10, tzinfo=UTC)
-    assert _next_fire("shadow_ml_inference", now) == datetime(2026, 9, 2, 10, 20, tzinfo=UTC)
-    assert _next_fire("scrape_prop_odds", now) == datetime(2026, 9, 2, 10, 35, tzinfo=UTC)
-
 def test_registry_schedules_ordered_cycles() -> None:
     register_all_tasks()
     now = datetime(2026, 9, 2, 8, 56, tzinfo=UTC)

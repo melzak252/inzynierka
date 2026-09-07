@@ -54,12 +54,19 @@ def run_prediction_pipeline() -> dict:
     start = datetime.now(UTC)
     
     rematch_ok = rematch_canonical()
+    alerts_dispatched = None
     if rematch_ok:
         predict_ok = _run_module(
             "betting_app.scripts.run_upcoming_prediction_pipeline",
             args=["--include-partial", "--operational-hybrid"],
             timeout=900,
         )
+        if predict_ok:
+            try:
+                alerts_dispatched = dispatch_value_alerts()
+                logger.info("Auto-dispatched value alerts: %s", alerts_dispatched)
+            except Exception as alert_err:
+                logger.warning("Failed to auto-dispatch value alerts after prediction: %s", alert_err)
     else:
         logger.error("Skipping prediction because canonical rematching failed")
         predict_ok = False
@@ -77,5 +84,6 @@ def run_prediction_pipeline() -> dict:
         "success": all_ok,
         "steps": steps,
         "duration_s": duration,
+        "alerts": alerts_dispatched,
         "error": "Canonical rematching failed" if not rematch_ok else None,
     }

@@ -56,14 +56,14 @@ def register_all_tasks():
     """Register all tasks in the system."""
     from .tasks import scrape, predict, maintenance, ml, oddspapi
     
-    # Scrape tasks - run at :55 every hour (captures odds close to full-hour match starts)
+    # Scrape tasks - run at :15 and :45 every hour (captures odds before :30 and :00 match starts)
     for bookmaker in scrape.BOOKMAKERS:
         registry.register(TaskDefinition(
             id=f"scrape_{bookmaker}",
             name=f"Scrape {bookmaker.title()}",
             func=scrape.scrape_bookmaker,
             args=(bookmaker,),
-            cron_trigger="55 * * * *",  # At :55 every hour
+            cron_trigger="15,45 * * * *",  # At :15 and :45 every hour
             description=f"Scrape odds from {bookmaker}",
             enabled=True
         ))
@@ -72,38 +72,38 @@ def register_all_tasks():
         id="scrape_prop_odds",
         name="Scrape Prop Odds (STS, Fortuna, Betclic, Superbet)",
         func=scrape.scrape_prop_odds,
-        cron_trigger="35 * * * *",  # At :35 every hour
+        cron_trigger="10,40 * * * *",  # At :10 and :40 every hour
         description="Scrape in-game proposition odds (kills, duration, objectives) from Polish bookmakers",
         enabled=True,
         lock_key="scrape_props",
     ))
     
-    # Prediction pipeline - run at :10 every hour (15 min after scraping)
+    # Prediction pipeline - run at :20 and :50 every hour (5 min after scraping, 10 min before matches)
     registry.register(TaskDefinition(
         id="prediction_pipeline",
         name="Prediction Pipeline",
         func=predict.run_prediction_pipeline,
-        cron_trigger="10 * * * *",  # At minute 10 every hour
+        cron_trigger="20,50 * * * *",  # At minute 20 and 50 every hour
         description="Run full prediction pipeline",
         enabled=True
     ))
 
-    # Value Bet alerts dispatch - runs at :15 every hour (5 min after prediction pipeline)
+    # Value Bet alerts dispatch - runs at :23 and :53 every hour (3 min after prediction pipeline, 7 min before matches)
     registry.register(TaskDefinition(
         id="value_alerts_dispatch",
         name="Value Bet Alerts Dispatch",
         func=predict.dispatch_value_alerts,
-        cron_trigger="15 * * * *",  # 5 min after prediction pipeline
+        cron_trigger="23,53 * * * *",  # At minute 23 and 53 every hour
         description="Scan upcoming EV+ opportunities and send Discord/Telegram notifications",
         enabled=True
     ))
 
-    # Shadow ML inference - run at :20 every hour (after the main prediction pipeline)
+    # Shadow ML inference - run at :25 and :55 every hour (after the main prediction pipeline)
     registry.register(TaskDefinition(
         id="shadow_ml_inference",
         name="Shadow ML Inference",
         func=ml.run_shadow_inference,
-        cron_trigger="20 * * * *",  # At minute 20 every hour
+        cron_trigger="25,55 * * * *",  # At minute 25 and 55 every hour
         description="Run registered shadow ML models without replacing production predictions",
         enabled=True
     ))

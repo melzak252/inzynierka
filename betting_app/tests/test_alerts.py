@@ -286,3 +286,30 @@ def test_api_alerts_endpoints(client: TestClient):
     assert "total" in hist
     assert isinstance(hist["alerts"], list)
     assert hist["total"] >= 1
+
+def test_alert_conviction_and_roster_warning():
+    signal = {
+        "match_label": "Karmine Corp vs Vitality",
+        "league": "LEC 2026",
+        "team_name": "Vitality",
+        "side": "b",
+        "bookmaker_name": "Fortuna",
+        "odds": 2.45,
+        "ev": 0.085,
+        "model_prob": 0.52,
+        "market_prob": 0.44,
+        "market_edge": 0.078,
+        "suggested_stake": 2.5,
+        "match_start_at": "2026-09-08 17:00 UTC",
+        "conviction": "ROSTER_WARNING",
+        "conviction_badge": "⚠️ SKŁAD NIEZWERYFIKOWANY",
+        "is_full_roster": False,
+    }
+    embed = build_discord_embed(signal)
+    assert embed["color"] == 0xF59E0B  # Amber/Orange for roster warning
+    assert "⚠️ SKŁAD NIEZWERYFIKOWANY" in embed["title"]
+    assert any("Skład częściowy" in f["value"] for f in embed["fields"])
+
+    html = build_telegram_html(signal)
+    assert "Przewaga nad rynkiem" in html
+    assert "Skład częściowy" in html

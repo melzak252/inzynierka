@@ -1464,8 +1464,23 @@ def generate_model_ev_signals(
     tax_rate: float = 0.12,
     min_ev: float = 0.0,
     bankroll: float = 100.0,
+    reserved_bankroll: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Generate EV rows for latest predictions and latest odds per bookmaker."""
+    """Generate EV rows for latest predictions and latest odds per bookmaker.
+
+    Calculates multi-bookmaker consensus fair market probabilities, identifies
+    bookmaker market edges/outliers, and sizes stakes taking into account currently
+    open bets and portfolio risk limits.
+    """
+    try:
+        open_bets_df = query_df(
+            "SELECT COALESCE(SUM(stake), 0.0) AS open_stake FROM bets WHERE status = 'open'"
+        )
+        existing_reserved = float(open_bets_df.iloc[0]["open_stake"]) if not open_bets_df.empty else 0.0
+    except Exception:
+        existing_reserved = 0.0
+
+    effective_reserved = existing_reserved if reserved_bankroll is None else float(reserved_bankroll)
 
     rows = query_df(
         """
@@ -1505,6 +1520,77 @@ def generate_model_ev_signals(
         (model_name, model_version),
     )
     generated: list[dict[str, Any]] = []
+
+    # 1. Parse valid odds snapshots and aggregate fair market probabilities per match
+    match_market_probs: dict[int, list[float]] = {}
+    parsed_rows: list[dict[str, Any]] = []
+    for row in rows.to_dict("records"):
+        if row.get("odds_snapshot_id") is None:
+            continue
+        aligned = align_snapshot_odds(
+            str(row.get("normalized_team_a") or ""),
+            str(row.get("normalized_team_b") or ""),
+            str(row.get("raw_team_a") or ""),
+            str(row.get("raw_team_b") or ""),
+            row.get("odds_a"),
+            row.get("odds_b"),
+        )
+        if aligned is None:
+            continue
+        odds_a, odds_b = aligned
+        if odds_a is None or odds_b is None or float(odds_a) <= 1.0 or float(odds_b) <= 1.0:
+            continue
+        oa = float(odds_a)
+        ob = float(odds_b)
+        ma, mb = fair_market_probabilities(oa, ob)
+        cm_id = int(row["canonical_match_id"])
+        match_market_probs.setdefault(cm_id, []).append(ma)
+        parsed_rows.append({
+            "row": row,
+            "odds_a": oa,
+            "odds_b": ob,
+            "single_market_a": ma,
+            "single_market_b": mb,
+        })
+
+    # Consensus market probability for Team A across all bookmaker observations
+    consensus_market_p_a: dict[int, float] = {
+        cm_id: sum(probs) / len(probs)
+        for cm_id, probs in match_market_probs.items()
+        if probs
+    }
+
+    # 2. Collect candidate signals across both sides
+    candidate_signals: list[dict[str, Any]] = []
+    for item in parsed_rows:
+        row = item["row"]
+        cm_id = int(row["canonical_match_id"])
+        cons_a = consensus_market_p_a.get(cm_id, item["single_market_a"])
+        cons_b = 1.0 - cons_a
+
+        candidates = [
+            ("a", float(row["prob_a"]), item["odds_a"], cons_a),
+            ("b", float(row["prob_b"]), item["odds_b"], cons_b),
+        ]
+        for side, prob, odds, cons_prob in candidates:
+            ev = expected_value(prob, odds, tax_rate)
+            if ev < min_ev:
+                continue
+            market_edge = (odds * cons_prob) - 1.0
+            candidate_signals.append({
+                "row": row,
+                "side": side,
+                "odds": odds,
+                "prob": prob,
+                "market_prob": cons_prob,
+                "ev": ev,
+                "market_edge": market_edge,
+                "outlier_ratio": odds * cons_prob,
+            })
+
+    # Sort candidates by EV descending so highest-value bets receive allocation priority
+    candidate_signals.sort(key=lambda x: x["ev"], reverse=True)
+
     with transaction() as connection:
         connection.execute(
             """
@@ -1516,71 +1602,69 @@ def generate_model_ev_signals(
             """,
             (model_name, model_version),
         )
-        for row in rows.to_dict("records"):
-            # Skip rows without odds_snapshot_id (no matching odds found)
-            if row.get("odds_snapshot_id") is None:
-                continue
-            aligned = align_snapshot_odds(
-                str(row.get("normalized_team_a") or ""),
-                str(row.get("normalized_team_b") or ""),
-                str(row.get("raw_team_a") or ""),
-                str(row.get("raw_team_b") or ""),
-                row.get("odds_a"),
-                row.get("odds_b"),
+
+        running_reserved = effective_reserved
+        allocated_matches: set[tuple[int, str]] = set()
+
+        for sig in candidate_signals:
+            row = sig["row"]
+            cm_id = int(row["canonical_match_id"])
+            side = sig["side"]
+            odds = sig["odds"]
+            prob = sig["prob"]
+            market_prob = sig["market_prob"]
+            ev = sig["ev"]
+
+            stake = fractional_kelly_stake(
+                bankroll,
+                prob,
+                odds,
+                fraction=0.05,
+                tax_rate=tax_rate,
+                reserved_bankroll=running_reserved,
             )
-            if aligned is None:
-                continue
-            odds_a, odds_b = aligned
-            if odds_a is None or odds_b is None or float(odds_a) <= 1.0 or float(odds_b) <= 1.0:
-                continue
-            odds_a = float(odds_a)
-            odds_b = float(odds_b)
-            market_a, market_b = fair_market_probabilities(odds_a, odds_b)
-            candidates = [
-                ("a", float(row["prob_a"]), odds_a, market_a),
-                ("b", float(row["prob_b"]), odds_b, market_b),
-            ]
-            for side, prob, odds, market_prob in candidates:
-                ev = expected_value(prob, odds, tax_rate)
-                if ev < min_ev:
-                    continue
-                stake = fractional_kelly_stake(bankroll, prob, odds, fraction=0.05, tax_rate=tax_rate)
-                cursor = connection.execute(
-                    """
-                    INSERT INTO model_ev_signals(
-                        canonical_match_id, canonical_prediction_id, odds_snapshot_id, bookmaker_id,
-                        side, odds, model_prob, market_prob, ev, tax_rate, stake_suggestion, status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')
-                    """,
-                    (
-                        int(row["canonical_match_id"]),
-                        int(row["prediction_id"]),
-                        int(row["odds_snapshot_id"]),
-                        int(row["bookmaker_id"]),
-                        side,
-                        odds,
-                        prob,
-                        market_prob,
-                        ev,
-                        tax_rate,
-                        stake,
-                    ),
-                )
-                generated.append(
-                    {
-                        "signal_id": int(cursor.lastrowid),
-                        "canonical_match_id": int(row["canonical_match_id"]),
-                        "match": f"{row.get('team_a_name')} vs {row.get('team_b_name')}",
-                        "bookmaker": row.get("bookmaker"),
-                        "side": side,
-                        "odds": odds,
-                        "model_prob": prob,
-                        "market_prob": market_prob,
-                        "ev": ev,
-                        "stake_suggestion": stake,
-                        "offer_url": row.get("offer_url"),
-                    }
-                )
+            if (cm_id, side) not in allocated_matches and stake > 0:
+                allocated_matches.add((cm_id, side))
+                running_reserved += stake
+
+            cursor = connection.execute(
+                """
+                INSERT INTO model_ev_signals(
+                    canonical_match_id, canonical_prediction_id, odds_snapshot_id, bookmaker_id,
+                    side, odds, model_prob, market_prob, ev, tax_rate, stake_suggestion, status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')
+                """,
+                (
+                    cm_id,
+                    int(row["prediction_id"]),
+                    int(row["odds_snapshot_id"]),
+                    int(row["bookmaker_id"]),
+                    side,
+                    odds,
+                    prob,
+                    market_prob,
+                    ev,
+                    tax_rate,
+                    stake,
+                ),
+            )
+            generated.append(
+                {
+                    "signal_id": int(cursor.lastrowid),
+                    "canonical_match_id": cm_id,
+                    "match": f"{row.get('team_a_name')} vs {row.get('team_b_name')}",
+                    "bookmaker": row.get("bookmaker"),
+                    "side": side,
+                    "odds": odds,
+                    "model_prob": prob,
+                    "market_prob": market_prob,
+                    "market_edge": round(sig["market_edge"], 4),
+                    "outlier_ratio": round(sig["outlier_ratio"], 4),
+                    "ev": ev,
+                    "stake_suggestion": stake,
+                    "offer_url": row.get("offer_url"),
+                }
+            )
     return sorted(generated, key=lambda item: item["ev"], reverse=True)
 
 
