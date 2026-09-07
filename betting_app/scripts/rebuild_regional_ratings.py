@@ -12,14 +12,26 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import date
 from typing import Any, Sequence
 
+import trueskill
 from betting_app.scripts import rebuild_calibrated_ratings as calibrated
 from betting_app.scripts import rebuild_ratings as raw
+from src.models.competition_tiers import CompetitionTier
 from src.ratings.manager import RatingManager
 
+ROOKIE_MAJOR_GAMES_THRESHOLD = 20
+ROOKIE_MAJOR_ELO_CAP = 1750.0
+ROOKIE_MAJOR_TS_MU_CAP = 28.0
+ROOKIE_MAJOR_TS_SIGMA_FLOOR = 3.83
+ROOKIE_MAJOR_OS_MU_CAP = 28.0
+ROOKIE_MAJOR_OS_SIGMA_FLOOR = 3.83
+ROOKIE_MAJOR_PL_MU_CAP = 33.0
+ROOKIE_MAJOR_PL_SIGMA_FLOOR = 5.0
+ROOKIE_MAJOR_TM_MU_CAP = 31.0
+ROOKIE_MAJOR_TM_SIGMA_FLOOR = 3.95
 RATINGS_VERSION = "ratings-v2"
 DEFAULT_SOURCE = "regional-ratings-v2"
 REGIONAL_ENGINE = "family-calibrated-glicko2-v1"
@@ -108,11 +120,56 @@ def _raw_rows(
 def _replay_raw_systems(
     matches: Sequence[calibrated.LoadedMatch],
 ) -> RatingManager:
-    """Replay the same complete-date ordered matches used by regional Glicko."""
+    """Replay the same complete-date ordered matches used by regional Glicko,
+    calibrating rookie transitions into major competition tiers."""
     manager = RatingManager(raw.RATING_SYSTEM_PARAMS)
+    major_games_count: dict[str, int] = defaultdict(int)
     for match in matches:
+        is_major = match.competition.tier in (
+            CompetitionTier.MAJOR,
+            CompetitionTier.INTERNATIONAL,
+        )
         players_a = [player.player_id for player in match.players_a]
         players_b = [player.player_id for player in match.players_b]
+        if is_major:
+            for p in players_a + players_b:
+                if major_games_count[p] < ROOKIE_MAJOR_GAMES_THRESHOLD:
+                    elo = manager.systems["elo"].get_player_rating(p)
+                    if elo > ROOKIE_MAJOR_ELO_CAP:
+                        manager.systems["elo"].player_ratings[p] = ROOKIE_MAJOR_ELO_CAP
+                    ts_r = manager.systems["ts"].get_player_rating(p)
+                    if ts_r.mu > ROOKIE_MAJOR_TS_MU_CAP:
+                        manager.systems["ts"].player_ratings[p] = trueskill.Rating(
+                            mu=ROOKIE_MAJOR_TS_MU_CAP,
+                            sigma=max(ts_r.sigma, ROOKIE_MAJOR_TS_SIGMA_FLOOR),
+                        )
+                    os_r = manager.systems["os"].get_player_rating(p)
+                    if os_r.mu > ROOKIE_MAJOR_OS_MU_CAP:
+                        manager.systems["os"].player_ratings[p] = (
+                            manager.systems["os"].model.rating(
+                                mu=ROOKIE_MAJOR_OS_MU_CAP,
+                                sigma=max(os_r.sigma, ROOKIE_MAJOR_OS_SIGMA_FLOOR),
+                            )
+                        )
+                    pl_r = manager.systems["pl"].get_player_rating(p)
+                    if pl_r.mu > ROOKIE_MAJOR_PL_MU_CAP:
+                        manager.systems["pl"].player_ratings[p] = (
+                            manager.systems["pl"].pl_model.rating(
+                                mu=ROOKIE_MAJOR_PL_MU_CAP,
+                                sigma=max(pl_r.sigma, ROOKIE_MAJOR_PL_SIGMA_FLOOR),
+                            )
+                        )
+                    tm_r = manager.systems["tm"].get_player_rating(p)
+                    if tm_r.mu > ROOKIE_MAJOR_TM_MU_CAP:
+                        manager.systems["tm"].player_ratings[p] = (
+                            manager.systems["tm"].tm_model.rating(
+                                mu=ROOKIE_MAJOR_TM_MU_CAP,
+                                sigma=max(tm_r.sigma, ROOKIE_MAJOR_TM_SIGMA_FLOOR),
+                            )
+                        )
+            for p in players_a + players_b:
+                major_games_count[p] += len(match.scores)
+
         for score_a in match.scores:
             for system_name in RAW_SYSTEMS:
                 system = manager.systems[system_name]

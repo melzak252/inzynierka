@@ -321,8 +321,19 @@ def build_features_for_match(
         missing.append("team_a_last_roster")
     if not roster_b or len(roster_b.get("players", [])) < 5:
         missing.append("team_b_last_roster")
-    player_ratings_a = load_roster_player_ratings(roster_a, ratings_version) if roster_a else {}
-    player_ratings_b = load_roster_player_ratings(roster_b, ratings_version) if roster_b else {}
+    match_league = match.get("league") or match.get("tournament_name")
+    match_comp = classify_competition(match_league) if match_league else None
+    match_tier = match_comp.tier if match_comp else None
+    player_ratings_a = (
+        load_roster_player_ratings(roster_a, ratings_version, competition_tier=match_tier)
+        if roster_a
+        else {}
+    )
+    player_ratings_b = (
+        load_roster_player_ratings(roster_b, ratings_version, competition_tier=match_tier)
+        if roster_b
+        else {}
+    )
     for system in RATING_SYSTEMS:
         if system not in player_ratings_a:
             missing.append(f"team_a_player_rating:{system}")
@@ -729,8 +740,50 @@ def regional_adjustment_state(adjustment: CompetitionAdjustment) -> dict[str, An
     }
 
 
-def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: str) -> dict[str, dict[str, Any]]:
-    """Load aggregate player ratings for a roster by rating system."""
+def get_player_major_game_counts(player_ids: Sequence[str]) -> dict[str, int]:
+    """Return count of major tournament games played by each player."""
+    if not player_ids:
+        return {}
+    clean_ids = [str(p) for p in player_ids if p]
+    if not clean_ids:
+        return {}
+    placeholders = ",".join("?" for _ in clean_ids)
+    try:
+        df = query_df(
+            f"""
+            SELECT gpm.player_id, count(distinct gpm.game_id) as major_games
+            FROM golgg_game_players gpm
+            JOIN golgg_matches gm ON gpm.match_id = gm.match_id
+            WHERE gpm.player_id IN ({placeholders})
+              AND (
+                  gm.tournament_name LIKE '%LEC%'
+                  OR gm.tournament_name LIKE '%LCK%'
+                  OR gm.tournament_name LIKE '%LPL%'
+                  OR gm.tournament_name LIKE '%LCS%'
+                  OR gm.tournament_name LIKE '%Worlds%'
+                  OR gm.tournament_name LIKE '%Mid-Season Invitational%'
+                  OR gm.tournament_name LIKE '%MSI%'
+              )
+            GROUP BY gpm.player_id
+            """,
+            tuple(clean_ids),
+        )
+        result = {pid: 0 for pid in clean_ids}
+        if not df.empty and "player_id" in df.columns:
+            for _, row in df.iterrows():
+                result[str(row["player_id"])] = int(row["major_games"])
+        return result
+    except Exception:
+        return {pid: 0 for pid in clean_ids}
+
+
+def load_roster_player_ratings(
+    roster: dict[str, Any] | None,
+    ratings_version: str,
+    competition_tier: CompetitionTier | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Load aggregate player ratings for a roster by rating system, applying
+    rookie tier calibration if the upcoming match is in a major competition."""
     if not roster:
         return {}
     roster_players = {
@@ -798,6 +851,12 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
     )
     if frame.empty or "rating_system" not in frame.columns:
         return {}
+    is_major = competition_tier in (
+        CompetitionTier.MAJOR,
+        CompetitionTier.INTERNATIONAL,
+    )
+    major_counts = get_player_major_game_counts(player_ids) if is_major else {}
+
     result: dict[str, dict[str, Any]] = {}
     for system, group in frame.groupby("rating_system"):
         matched_players: dict[str, dict[str, Any]] = {}
@@ -823,12 +882,43 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
             if existing is None or int(player.get("games_played") or 0) > int(
                 existing.get("games_played") or 0
             ):
-                matched_players[player_id] = {
+                rec = {
                     **player,
                     "player_id": player_id,
                     "player_name": clean_player_name(roster_player.get("player_name") or player.get("entity_name")),
                     "role": roster_player.get("role"),
                 }
+                if is_major and major_counts.get(player_id, 0) < 20:
+                    if system == "elo":
+                        val = none_or_float(rec.get("rating_value"))
+                        if val is not None and val > 1750.0:
+                            rec["rating_value"] = 1750.0
+                    elif system in ("ts", "os"):
+                        val = none_or_float(rec.get("rating_value"))
+                        if val is not None and val > 28.0:
+                            rec["rating_value"] = 28.0
+                        sig = none_or_float(rec.get("sigma"))
+                        if sig is None or sig < 3.83:
+                            rec["sigma"] = 3.83
+                    elif system == "pl":
+                        val = none_or_float(rec.get("rating_value"))
+                        if val is not None and val > 33.0:
+                            rec["rating_value"] = 33.0
+                        sig = none_or_float(rec.get("sigma"))
+                        if sig is None or sig < 5.0:
+                            rec["sigma"] = 5.0
+                    elif system == "tm":
+                        val = none_or_float(rec.get("rating_value"))
+                        if val is not None and val > 31.0:
+                            rec["rating_value"] = 31.0
+                        sig = none_or_float(rec.get("sigma"))
+                        if sig is None or sig < 3.95:
+                            rec["sigma"] = 3.95
+                    elif system == "gl":
+                        rd = none_or_float(rec.get("rd"))
+                        if rd is None or rd < 150.0:
+                            rec["rd"] = 150.0
+                matched_players[player_id] = rec
         player_records = list(matched_players.values())
         ratings = [none_or_float(player.get("rating_value")) for player in player_records]
         ratings = [value for value in ratings if value is not None]

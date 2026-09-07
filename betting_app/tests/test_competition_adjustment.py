@@ -168,3 +168,51 @@ def test_load_regional_adjustment_resolves_via_tournament_fallback(monkeypatch: 
     )
     assert adj != NEUTRAL_COMPETITION_ADJUSTMENT
     assert adj.mean > 0.0
+
+
+def test_roster_player_ratings_applies_rookie_tier_calibration(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pandas as pd
+    from betting_app.services import upcoming_inference_service as inference
+    from src.models.competition_tiers import CompetitionTier
+
+    roster = {
+        "team_name": "Test Team",
+        "players": [
+            {"player_id": "101", "player_name": "RookieStar", "role": "mid"},
+            {"player_id": "102", "player_name": "VeteranFaker", "role": "bot"},
+        ],
+    }
+
+    df_ratings = pd.DataFrame([
+        # RookieStar (has huge uncalibrated ERL ratings)
+        {"rating_system": "elo", "entity_name": "RookieStar", "normalized_entity_name": "101", "rating_value": 2300.0, "rd": None, "sigma": None, "games_played": 100, "last_match_at": "2026-08-01"},
+        {"rating_system": "ts", "entity_name": "RookieStar", "normalized_entity_name": "101", "rating_value": 35.0, "rd": None, "sigma": 2.0, "games_played": 100, "last_match_at": "2026-08-01"},
+        {"rating_system": "gl", "entity_name": "RookieStar", "normalized_entity_name": "101", "rating_value": 1950.0, "rd": 60.0, "sigma": None, "games_played": 100, "last_match_at": "2026-08-01"},
+        # VeteranFaker (genuine major veteran)
+        {"rating_system": "elo", "entity_name": "VeteranFaker", "normalized_entity_name": "102", "rating_value": 2400.0, "rd": None, "sigma": None, "games_played": 1000, "last_match_at": "2026-08-01"},
+        {"rating_system": "ts", "entity_name": "VeteranFaker", "normalized_entity_name": "102", "rating_value": 34.0, "rd": None, "sigma": 2.1, "games_played": 1000, "last_match_at": "2026-08-01"},
+        {"rating_system": "gl", "entity_name": "VeteranFaker", "normalized_entity_name": "102", "rating_value": 1980.0, "rd": 65.0, "sigma": None, "games_played": 1000, "last_match_at": "2026-08-01"},
+    ])
+
+    # Mock query_df to return ratings
+    monkeypatch.setattr(inference, "query_df", lambda sql, *_: df_ratings)
+    # Mock get_player_major_game_counts
+    monkeypatch.setattr(inference, "get_player_major_game_counts", lambda ids: {"101": 5, "102": 500})
+
+    # 1. In a Major Tier match (e.g. LEC)
+    major_result = inference.load_roster_player_ratings(roster, "ratings-v2", competition_tier=CompetitionTier.MAJOR)
+    rookie_elo = next(p for p in major_result["elo"]["players"] if p["player_id"] == "101")
+    veteran_elo = next(p for p in major_result["elo"]["players"] if p["player_id"] == "102")
+    rookie_ts = next(p for p in major_result["ts"]["players"] if p["player_id"] == "101")
+    rookie_gl = next(p for p in major_result["gl"]["players"] if p["player_id"] == "101")
+
+    assert rookie_elo["rating_value"] == 1750.0  # Capped from 2300.0
+    assert veteran_elo["rating_value"] == 2400.0  # Untouched for veteran
+    assert rookie_ts["rating_value"] == 28.0  # Capped from 35.0
+    assert rookie_ts["sigma"] == 3.83  # Uncertainty floor applied
+    assert rookie_gl["rd"] == 150.0  # RD floor applied
+
+    # 2. In a Regional Tier match (e.g. SuperLiga)
+    regional_result = inference.load_roster_player_ratings(roster, "ratings-v2", competition_tier=CompetitionTier.REGIONAL)
+    rookie_regional_elo = next(p for p in regional_result["elo"]["players"] if p["player_id"] == "101")
+    assert rookie_regional_elo["rating_value"] == 2300.0  # Untouched in regional
