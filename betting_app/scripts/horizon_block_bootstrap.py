@@ -21,11 +21,11 @@ Output (/app/docs/assets/horizon_block_bootstrap/):
 
 from __future__ import annotations
 
+import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -76,7 +76,7 @@ BIN_DEFS: list[tuple[str, float, float]] = [
     ("48h+",   48,  9999),
 ]
 
-OUTPUT_DIR = _PROJECT_ROOT / "docs/assets/horizon_block_bootstrap"
+OUTPUT_DIR = Path(os.getenv("BOOTSTRAP_DIR", str(_PROJECT_ROOT / "data" / "horizon_block_bootstrap")))
 
 
 # ── Data structures ────────────────────────────────────────────────────────

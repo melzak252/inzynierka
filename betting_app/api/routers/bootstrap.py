@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -16,12 +17,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/bootstrap", tags=["bootstrap"])
 
 # Path to cached bootstrap results (shared volume between api + scheduler)
-BOOTSTRAP_DIR = Path("/app/docs/assets/horizon_block_bootstrap")
+_DEFAULT_BOOTSTRAP_DIR = Path(__file__).resolve().parents[3] / "data" / "horizon_block_bootstrap"
+BOOTSTRAP_DIR = Path(os.getenv("BOOTSTRAP_DIR", str(_DEFAULT_BOOTSTRAP_DIR)))
 RESULTS_CSV = BOOTSTRAP_DIR / "horizon_block_bootstrap_results.csv"
 SAMPLES_CSV = BOOTSTRAP_DIR / "horizon_block_bootstrap_samples.csv"
 MONTHLY_CSV = BOOTSTRAP_DIR / "horizon_monthly_observed_differences.csv"
 PLOT_PNG = BOOTSTRAP_DIR / "horizon_block_bootstrap_ci.png"
-
 
 def _read_csv(path: Path) -> list[dict]:
     """Read a CSV file and return a list of dicts."""

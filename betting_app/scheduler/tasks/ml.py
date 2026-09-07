@@ -7,6 +7,7 @@ from sqlalchemy import text
 
 from betting_app.core.db import get_session
 
+from betting_app.core.models import get_thesis_model
 from .scrape import _run_module
 
 logger = logging.getLogger(__name__)
@@ -84,9 +85,9 @@ def run_thesis_model_healthcheck() -> dict:
         "betting_app.ml.pipelines.evaluate_existing_model",
         args=[
             "--model-name",
-            "Sym-Cal LR-ElasticNet-W20-Binomial",
+            get_thesis_model().name,
             "--model-version",
-            "exp-039",
+            get_thesis_model().version,
             "--days-back",
             "90",
             "--no-register",

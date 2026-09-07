@@ -54,3 +54,19 @@ Minimalna kolejność odtwarzania wyników wygląda następująco:
 
 > [!check]
 > Taki układ utrzymuje zgodność między kodem a kolejnością etapów pracy: czytelnik może przejść od etapu pipeline'u do odpowiadającego mu folderu skryptów.
+
+---
+
+## Narzędzia benchmarkowe (w katalogu głównym `scripts/`)
+
+W katalogu `scripts/` znajdują się bezpośrednie CLI do diagnostyki i ewaluacji modeli:
+
+1. **`scripts/run_odds_bracket_benchmark.py`**:
+   - Dzieli przestrzeń na 7 koszyków kursowych (od ciężkich faworytów $<1.40$ po wysokie underdogi $>3.50$).
+   - Mierzy błąd kalibracji, Brier score, LogLoss modelu vs rynkowy LogLoss no-vig oraz identyfikuje koszyki z overconfidence.
+
+2. **`scripts/run_financial_benchmark.py`**:
+   - Kompleksowy benchmark finansowy symulujący zakłady o $\text{EV}_{\text{net}} \ge 5\%$ z uwzględnieniem 12% polskiego podatku obrotowego.
+   - Segmentuje wyniki według przedziałów kursowych, poziomów EV oraz wskaźnika CLV (Closing Line Value).
+   - Szczegółowe przykłady użycia i instrukcja porównywania modeli (czysty model vs hybryda) znajdują się w głównym `README.md`.
+

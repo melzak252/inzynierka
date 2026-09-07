@@ -11,9 +11,9 @@ export default function MatchList() {
   const [editingBoMatchId, setEditingBoMatchId] = useState<number | null>(null);
   const [savingBo, setSavingBo] = useState(false);
   const [bookmakers, setBookmakers] = useState<BookmakerStatus[]>([]);
-  const [selectedBookmaker, setSelectedBookmaker] = useState<string>('');
-  const [parlays, setParlays] = useState<ParlayRecommendationsResponse | null>(null);
-
+   const [selectedBookmaker, setSelectedBookmaker] = useState<string>('');
+   const [onlyProps, setOnlyProps] = useState(false);
+   const [parlays, setParlays] = useState<ParlayRecommendationsResponse | null>(null);
   useEffect(() => {
     fetchBookmakers().then(setBookmakers).catch(() => {});
   }, []);
@@ -77,26 +77,36 @@ export default function MatchList() {
       <h1>Nadchodzące mecze</h1>
       <p className="subtitle">{matches.length} meczów</p>
 
-      <div className="filters-bar">
-        <label className="filter-label">
-          Bukmacher:
-          <select
-            value={selectedBookmaker}
-            onChange={(e) => {
-              setSelectedBookmaker(e.target.value);
-              setLoading(true);
-            }}
-            className="filter-select"
-          >
-            <option value="">Wszyscy</option>
-            {bookmakers.map((bk) => (
-              <option key={bk.id} value={bk.name}>
-                {bk.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
+       <div className="filters-bar">
+         <label className="filter-label">
+           Bukmacher:
+           <select
+             value={selectedBookmaker}
+             onChange={(e) => {
+               setSelectedBookmaker(e.target.value);
+               setLoading(true);
+             }}
+             className="filter-select"
+           >
+             <option value="">Wszyscy</option>
+             {bookmakers.map((bk) => (
+               <option key={bk.id} value={bk.name}>
+                 {bk.name}
+               </option>
+             ))}
+           </select>
+         </label>
+ 
+         <label className={`filter-checkbox-label ${onlyProps ? 'active' : ''}`}>
+           <input
+             type="checkbox"
+             checked={onlyProps}
+             onChange={(e) => setOnlyProps(e.target.checked)}
+             style={{ cursor: 'pointer' }}
+           />
+           <span>🎯 Tylko z rynkami pobocznymi ({matches.filter((m) => m.has_props).length})</span>
+         </label>
+       </div>
 
       {parlays?.top_parlay && (
         <section className="parlay-recommendation-card">
@@ -186,8 +196,10 @@ export default function MatchList() {
         </section>
       )}
 
-      <div className="matches-grid">
-        {matches.map((m) => {
+       <div className="matches-grid">
+         {matches
+           .filter((m) => !onlyProps || m.has_props)
+           .map((m) => {
           const hasRecommendation = Boolean(
             m.recommended_side && m.recommended_ev && m.recommended_ev > 0
           );
@@ -214,6 +226,14 @@ export default function MatchList() {
                 {m.has_unmapped_teams && (
                   <span className="mapping-warning-badge" title={`Brak mapowania: ${unmappedTeams}. Kliknij mecz i dodaj alias.`}>
                     ⚠️ Dodaj mapowanie
+                  </span>
+                )}
+                {m.has_props && (
+                  <span
+                    className="props-badge"
+                    title={`Dostępne rynki poboczne (Props): ${m.prop_lines_count || 11} linii kursowych (zabójstwa, handicapy)`}
+                  >
+                    🎯 Props ({m.prop_lines_count || 11})
                   </span>
                 )}
                 {editingBoMatchId === m.canonical_match_id ? (

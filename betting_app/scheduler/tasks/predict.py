@@ -57,7 +57,7 @@ def run_prediction_pipeline() -> dict:
     if rematch_ok:
         predict_ok = _run_module(
             "betting_app.scripts.run_upcoming_prediction_pipeline",
-            args=["--include-partial", "--operational-hybrid", "--notify"],
+            args=["--include-partial", "--operational-hybrid"],
             timeout=900,
         )
     else:

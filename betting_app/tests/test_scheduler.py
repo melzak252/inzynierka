@@ -43,13 +43,13 @@ def _next_fire(task_id: str, now: datetime) -> datetime:
 
 def test_registry_fires_scrape_and_prediction_chain_in_order() -> None:
     register_all_tasks()
-    now = datetime(2026, 9, 2, 8, 56, tzinfo=UTC)
+    now = datetime(2026, 9, 2, 9, 50, tzinfo=UTC)
 
     assert _next_fire("scrape_sts", now) == datetime(2026, 9, 2, 9, 55, tzinfo=UTC)
     assert _next_fire("expire_matches", now) == datetime(2026, 9, 2, 10, 0, tzinfo=UTC)
     assert _next_fire("prediction_pipeline", now) == datetime(2026, 9, 2, 10, 10, tzinfo=UTC)
     assert _next_fire("shadow_ml_inference", now) == datetime(2026, 9, 2, 10, 20, tzinfo=UTC)
-
+    assert _next_fire("scrape_prop_odds", now) == datetime(2026, 9, 2, 10, 35, tzinfo=UTC)
 
 def test_registry_schedules_ordered_cycles() -> None:
     register_all_tasks()
@@ -518,13 +518,15 @@ def test_reset_persisted_jobs_removes_obsolete_schedule(
 def test_scheduler_jobs_keep_latest_status_for_every_registered_task(client) -> None:
     register_all_tasks()
     with get_session() as session:
+        is_pg = session.bind.dialect.name == "postgresql" if session.bind else False
+        blob_type = "BYTEA" if is_pg else "BLOB"
         session.execute(
             text(
-                """
-                CREATE TABLE apscheduler_jobs (
+                f"""
+                CREATE TABLE IF NOT EXISTS apscheduler_jobs (
                     id VARCHAR(191) PRIMARY KEY,
                     next_run_time FLOAT,
-                    job_state BLOB NOT NULL
+                    job_state {blob_type} NOT NULL
                 )
                 """
             )

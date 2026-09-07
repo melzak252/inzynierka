@@ -79,12 +79,16 @@ from betting_app.ml.model_lifecycle import RETIRED_PUBLIC_MODEL_NAME
 from betting_app.services.mapping_service import suggest_mapping
 from betting_app.services.current_roster_service import upsert_current_roster
 from betting_app.services.thesis_inference_service import EPSILON, _load_roster_overrides
+from betting_app.core.models import (
+    PredictionEngine,
+    get_active_hybrid,
+    get_active_model,
+    get_active_prediction_db_params,
+    list_registered_models,
+)
 from betting_app.services.upcoming_inference_service import (
     DEFAULT_HYBRID_ALPHA,
-    DEFAULT_HYBRID_MODEL_NAME,
     DEFAULT_HYBRID_TEMPERATURE,
-    DEFAULT_MODEL_NAME,
-    DEFAULT_MODEL_VERSION,
     generate_hybrid_predictions,
     predict_operational_match,
 )
@@ -141,10 +145,10 @@ def _parse_bookmaker_ev_json(raw: Any) -> dict[str, Any]:
 
 TAX_RATE = 0.12
 DEFAULT_MAX_ODDS_AGE_HOURS = 24.0
-HYBRID_MODEL_NAME = DEFAULT_HYBRID_MODEL_NAME
-HYBRID_MODEL_VERSION = (
-    f"{DEFAULT_MODEL_VERSION}-a{DEFAULT_HYBRID_ALPHA:.2f}-t{DEFAULT_HYBRID_TEMPERATURE:.2f}"
-)
+DEFAULT_MODEL_NAME = get_active_model().name
+DEFAULT_MODEL_VERSION = get_active_model().version
+HYBRID_MODEL_NAME = get_active_hybrid().hybrid_model_name
+HYBRID_MODEL_VERSION = get_active_hybrid().hybrid_model_version
 
 
 def _parse_hybrid_version(version: str) -> tuple[float, float]:
@@ -297,7 +301,7 @@ def list_matches(
                  AND latest.model_version=p.model_version
                  AND latest.predicted_at=p.predicted_at
         """,
-        {"hn": HYBRID_MODEL_NAME, "hv": HYBRID_MODEL_VERSION, "sn": DEFAULT_MODEL_NAME, "sv": DEFAULT_MODEL_VERSION},
+        get_active_prediction_db_params(),
     )
     pred_map: dict[int, dict] = {}
     for p in preds:
@@ -310,6 +314,23 @@ def list_matches(
             item["model_prob_a"] = none_or_float(p.get("prob_a"))
             item["model_prob_b"] = none_or_float(p.get("prob_b"))
             item["model_diagnostics"] = p.get("diagnostics_json")
+
+    prop_counts: dict[int, int] = {}
+    try:
+        prop_rows = query_df(
+            db,
+            """
+            SELECT canonical_match_id, COUNT(*) AS cnt
+            FROM prop_odds_snapshots
+            WHERE canonical_match_id IS NOT NULL
+            GROUP BY canonical_match_id
+            """,
+        )
+        for r in prop_rows:
+            if r.get("canonical_match_id") is not None:
+                prop_counts[int(r["canonical_match_id"])] = int(r["cnt"])
+    except Exception:
+        pass
 
     items: list[MatchBoardItem] = []
     for mid, group in groups.items():
@@ -478,6 +499,8 @@ def list_matches(
             recommended_bookmaker=rec_bm,
             recommended_odds=rec_odds,
             recommended_ev=round(rec_ev, 4) if rec_ev is not None else None,
+            has_props=mid in prop_counts,
+            prop_lines_count=prop_counts.get(mid, 0),
             last_scraped_at=str(max(g["scraped_at"] for g in group if g.get("scraped_at"))),
         ))
 
@@ -1412,9 +1435,24 @@ def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
     )
 
     features = feature_result.get("features") or {}
-    map_prob_a, components = predict_probability_from_features(features)
-    series_prob_a = series_probability(map_prob_a, best_of)
-
+    if "canonical" not in features:
+        features["canonical"] = synthetic_match
+    elif features["canonical"].get("best_of") is None:
+        features["canonical"]["best_of"] = best_of
+    pred_res = PredictionEngine.predict_from_features(features)
+    series_prob_a = pred_res.prob_a
+    map_prob_a = pred_res.map_prob_a if pred_res.map_prob_a is not None else pred_res.prob_a
+    components = {
+        "model_name": pred_res.model_name,
+        "model_version": pred_res.model_version,
+        "feature_version": pred_res.feature_version,
+        "best_of": pred_res.best_of,
+        "market_features_used": False,
+        "side_symmetric": True,
+        "epistemic_sigma_z": pred_res.epistemic_sigma_z,
+        "prob_risk_adjusted_p_low": pred_res.p_low_a,
+        **pred_res.diagnostics,
+    }
     # Extract rosters and comparison info
     team_comparison = None
     recent_stats_a = None
@@ -1902,10 +1940,7 @@ def match_detail(
         """,
         {
             "mid": match_id,
-            "operational_name": DEFAULT_MODEL_NAME,
-            "operational_version": DEFAULT_MODEL_VERSION,
-            "hybrid_name": HYBRID_MODEL_NAME,
-            "hybrid_version": HYBRID_MODEL_VERSION,
+            **get_active_prediction_db_params(),
         },
     )
 
@@ -2756,6 +2791,8 @@ def predict_match(match_id: int, db=Depends(get_db)):
             "Operational hybrid generation failed for match %s: %s", match_id, error
         )
 
+    active_model = get_active_model()
+    active_hybrid = get_active_hybrid()
     hybrid_pred = query_df(
         db,
         """
@@ -2766,7 +2803,7 @@ def predict_match(match_id: int, db=Depends(get_db)):
         ORDER BY predicted_at DESC
         LIMIT 1
         """,
-        {"mid": match_id, "hn": HYBRID_MODEL_NAME, "hv": HYBRID_MODEL_VERSION},
+        {"mid": match_id, "hn": active_hybrid.hybrid_model_name, "hv": active_hybrid.hybrid_model_version},
     )
     hybrid_prob_a = none_or_float(hybrid_pred[0].get("prob_a")) if hybrid_pred else None
     hybrid_prob_b = none_or_float(hybrid_pred[0].get("prob_b")) if hybrid_pred else None
@@ -2777,7 +2814,46 @@ def predict_match(match_id: int, db=Depends(get_db)):
         prob_b=prediction["prob_b"],
         hybrid_prob_a=hybrid_prob_a,
         hybrid_prob_b=hybrid_prob_b,
-        model_name=DEFAULT_MODEL_NAME,
-        model_version=DEFAULT_MODEL_VERSION,
+        model_name=prediction.get("model_name") or active_model.name,
+        model_version=prediction.get("model_version") or active_model.version,
         diagnostics=prediction["diagnostics"],
     )
+
+
+@router.get("/models/active")
+def get_active_model_info():
+    """Return the active operational model and hybrid configuration."""
+    active = get_active_model()
+    hybrid = get_active_hybrid()
+    return {
+        "status": "ok",
+        "active_operational_model": active.identifier(),
+        "active_hybrid_model": hybrid.identifier(),
+        "operational_model": {
+            "name": active.name,
+            "version": active.version,
+            "family": active.family.value if hasattr(active.family, "value") else str(active.family),
+            "feature_version": active.feature_version,
+            "ratings_version": active.ratings_version,
+            "target": active.target.value if hasattr(active.target, "value") else str(active.target),
+            "has_epistemic_uncertainty": active.has_epistemic_uncertainty,
+        },
+        "hybrid_model": {
+            "name": hybrid.hybrid_model_name,
+            "version": hybrid.hybrid_model_version,
+            "alpha": hybrid.alpha,
+            "temperature": hybrid.temperature,
+            "blending_mode": hybrid.blending_mode,
+        },
+    }
+
+
+@router.get("/models/registered")
+def get_registered_models():
+    """List all registered candidate, baseline, and operational models."""
+    return {
+        "status": "ok",
+        "active_operational_model": get_active_model().identifier(),
+        "active_hybrid_model": get_active_hybrid().identifier(),
+        "models": list_registered_models(),
+    }

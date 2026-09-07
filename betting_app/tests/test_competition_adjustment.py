@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 
 import pytest
@@ -96,3 +97,74 @@ def test_regional_posterior_projects_once_onto_raw_systems_not_glicko() -> None:
         assert probabilities["gl"] == 0.5
         assert all(probabilities[system] > 0.5 for system in systems if system != "gl")
         assert probabilities["consensus"] > 0.5
+
+
+def test_resolve_team_affiliation_prefers_state_json() -> None:
+    from betting_app.services.upcoming_inference_service import resolve_team_affiliation
+
+    rating = {"state_json": json.dumps({"family": "LEC", "tier": "major"})}
+    assert resolve_team_affiliation(rating, "LPL Summer 2024") == ("LEC", "major")
+
+
+def test_resolve_team_affiliation_falls_back_to_tournament() -> None:
+    from betting_app.services.upcoming_inference_service import resolve_team_affiliation
+
+    assert resolve_team_affiliation(None, "LCK Spring 2024") == ("LCK", "major")
+    assert resolve_team_affiliation({}, "CBLOL Split 1 2024") == ("CBLOL", "minor_top_level")
+    assert resolve_team_affiliation({"state_json": None}, "LFL Spring 2024") == ("LFL", "regional")
+
+
+def test_resolve_team_affiliation_ignores_cross_league_or_unknown() -> None:
+    from betting_app.services.upcoming_inference_service import resolve_team_affiliation
+
+    assert resolve_team_affiliation(None, "World Championship 2024") is None
+    assert resolve_team_affiliation(None, "Mid-Season Invitational 2024") is None
+    assert resolve_team_affiliation(None, "Some Random Tournament 2024") is None
+
+
+def test_load_regional_adjustment_graceful_on_missing_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pandas as pd
+    from betting_app.services import upcoming_inference_service as inference
+
+    monkeypatch.setattr(inference, "query_df", lambda *_: pd.DataFrame())
+    inference._REGIONAL_ENGINE_CACHE.clear()
+
+    ratings_a = {"gl": {"state_json": json.dumps({"family": "LCK", "tier": "major"})}}
+    ratings_b = {"gl": {"state_json": json.dumps({"family": "LEC", "tier": "major"})}}
+    adj = inference.load_regional_adjustment(ratings_a, ratings_b, "ratings-v2")
+    assert adj == NEUTRAL_COMPETITION_ADJUSTMENT
+
+
+def test_load_regional_adjustment_resolves_via_tournament_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    import pandas as pd
+    from betting_app.services import upcoming_inference_service as inference
+    from src.ratings.family_calibrated_glicko2 import FamilyCalibratedGlicko2, GaussianOffsetState
+
+    engine = FamilyCalibratedGlicko2()
+    engine._tier_states["major"] = GaussianOffsetState(mean=100.0, variance=50.0)
+    engine._tier_states["minor_top_level"] = GaussianOffsetState(mean=-50.0, variance=50.0)
+    engine._family_states["LCK"] = GaussianOffsetState(mean=150.0, variance=50.0)
+    engine._family_tiers["LCK"] = "major"
+    engine._family_states["CBLOL"] = GaussianOffsetState(mean=-50.0, variance=50.0)
+    engine._family_tiers["CBLOL"] = "minor_top_level"
+    mock_systems_json = json.dumps({
+        "gl": {
+            "engine": "family-calibrated-glicko2-v1",
+            "state": engine.to_state(),
+        }
+    })
+    df_run = pd.DataFrame([{"systems_json": mock_systems_json}])
+    monkeypatch.setattr(inference, "query_df", lambda *_: df_run)
+    inference._REGIONAL_ENGINE_CACHE.clear()
+
+    ratings_a = {"gl": {"rating_value": 1700.0}}
+    ratings_b = {"gl": {"rating_value": 1600.0}}
+    adj = inference.load_regional_adjustment(
+        ratings_a,
+        ratings_b,
+        "ratings-v2",
+        "LCK Spring 2024",
+        "CBLOL Split 1 2024",
+    )
+    assert adj != NEUTRAL_COMPETITION_ADJUSTMENT
+    assert adj.mean > 0.0

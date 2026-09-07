@@ -20,6 +20,7 @@ import type {
   GolggTeamsResponse,
   HorizonBootstrapResponse,
   ModelClvByHorizonResponse,
+  ModelProfitabilityAuditResponse,
   ChampionEmbeddingProjectionResponse,
   FinancialAnalysisResponse,
   RankingEntityType,
@@ -372,6 +373,23 @@ export async function fetchModelClvByHorizon(
   return response.json();
 }
 
+export async function fetchModelProfitabilityAudit(options?: {
+  modelKey?: string;
+  taxRate?: number;
+  minEv?: number;
+  maxDaysBack?: number;
+}): Promise<ModelProfitabilityAuditResponse> {
+  const params = new URLSearchParams();
+  if (options?.modelKey) params.set('model_key', options.modelKey);
+  if (options?.taxRate !== undefined) params.set('tax_rate', String(options.taxRate));
+  if (options?.minEv !== undefined) params.set('min_ev', String(options.minEv));
+  if (options?.maxDaysBack !== undefined) params.set('max_days_back', String(options.maxDaysBack));
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const response = await fetch(`${API_BASE}/timing/model-profitability-audit${query}`);
+  if (!response.ok) throw new Error(`Failed to fetch model profitability audit: ${response.statusText}`);
+  return response.json();
+}
+
 // ─── Alias Mapping ───────────────────────────────────────────
 
 export async function createTeamAlias(request: AliasCreateRequest): Promise<AliasCreateResponse> {
@@ -689,5 +707,57 @@ export async function fetchPropOddsLatest(
   if (options?.mapNumber != null) params.set('map_number', options.mapNumber.toString());
   const response = await fetch(`${API_BASE}/matches/${canonicalMatchId}/props/latest?${params}`);
   if (!response.ok) throw new Error(`Failed to fetch latest prop odds: ${response.statusText}`);
+  return response.json();
+}
+
+export interface ActiveModelInfo {
+  status: string;
+  active_operational_model: string;
+  active_hybrid_model: string;
+  operational_model: {
+    name: string;
+    version: string;
+    family: string;
+    feature_version: string;
+    ratings_version: string;
+    target: string;
+    has_epistemic_uncertainty: boolean;
+  };
+  hybrid_model: {
+    name: string;
+    version: string;
+    alpha: number;
+    temperature: number;
+    blending_mode: string;
+  };
+}
+
+export async function fetchActiveModel(): Promise<ActiveModelInfo> {
+  const response = await fetch(`${API_BASE}/matches/models/active`);
+  if (!response.ok) throw new Error(`Failed to fetch active model: ${response.statusText}`);
+  return response.json();
+}
+
+export interface RegisteredModelItem {
+  name: string;
+  version: string;
+  family: string;
+  feature_version: string;
+  ratings_version: string;
+  target: string;
+  has_epistemic_uncertainty: boolean;
+  description?: string;
+}
+
+export interface RegisteredModelsResponse {
+  status: string;
+  active_operational_model: string;
+  active_hybrid_model: string;
+  models: RegisteredModelItem[];
+}
+
+export async function fetchRegisteredModels(): Promise<RegisteredModelsResponse> {
+  const response = await fetch(`${API_BASE}/matches/models/registered`);
+  if (!response.ok) throw new Error(`Failed to fetch registered models: ${response.statusText}`);
   return response.json();
 }

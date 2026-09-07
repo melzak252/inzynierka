@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, Query
 from betting_app.api.deps import get_db, query_df
 from betting_app.api.schemas import EVSignal, EVSignalResponse
 from betting_app.services.market_service import expected_value, kelly_fraction, none_or_float
-from betting_app.services.upcoming_inference_service import DEFAULT_HYBRID_MODEL_NAME
+from betting_app.core.models import get_active_hybrid, list_registered_models
+
+DEFAULT_HYBRID_MODEL_NAME = get_active_hybrid().hybrid_model_name
 from betting_app.ml.model_lifecycle import RETIRED_PUBLIC_MODEL_NAME
 
 
@@ -92,3 +94,12 @@ def list_predictions(
         ))
 
     return EVSignalResponse(total=len(signals), signals=signals)
+
+
+@router.get("/models")
+def get_ev_models():
+    """List models available for EV predictions."""
+    return {
+        "active_hybrid_model": get_active_hybrid().hybrid_model_name,
+        "models": list_registered_models(),
+    }

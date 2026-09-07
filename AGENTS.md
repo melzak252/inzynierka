@@ -280,19 +280,76 @@ odds_b > 1
 - Apply time decay using the actual match date.
 - Do not let iteration order, canonical side, or bookmaker side change a symmetric prediction.
 
-### Model evaluation
+### Model evaluation & promotion benchmark
 
-Report at least:
+Every candidate model version or architectural modification must be evaluated against this standard before promotion or operational adoption. Do not optimize for cherry-picked splits, unrepresentative subsets, or isolated failure cases.
 
-- sample size and exact cohort dates;
-- log loss and Brier score;
-- AUC as secondary discrimination evidence;
-- calibration diagnostics;
-- no-vig market baseline on the same rows;
-- temporal eligibility counts and exclusions;
-- uncertainty using an appropriate temporal/block bootstrap.
+#### 1. Walk-forward temporal protocol
+- **Strict chronologic evaluation**: expanding-window or rolling-window walk-forward validation; zero future information or cross-game shuffle.
+- **Time constraint**: `feature/source time <= data_cutoff_at <= predicted_at < match_start_at` for every evaluated row.
+- **Standard evaluation cohort (Modern LoL Holdout)**:
+  - Default locked evaluation cohort: matches from `2024-01-01` onward (minimum $N \ge 10\,000$ completed series).
+  - Frozen comparative baselines: `Sym-Cal LR-ElasticNet-W20-Binomial / exp-039` and active operational model `Operational-PlayerTeamRatings-W20 (v0.4-binom-series)`.
+  - Predictions must be recorded point-in-time on strictly earlier data.
 
-Never call a point-estimate difference “significant” without naming the test, resampling unit, confidence interval, and preselected decision rule.
+#### 2. Core performance metrics (all required)
+- **LogLoss (Binary Cross-Entropy)**: Primary proper scoring rule for probability accuracy ($\min$).
+- **Brier Score**: Quadratic loss $\frac{1}{N} \sum (p_i - y_i)^2$ ($\min$).
+- **Brier Decomposition**:
+  - *Reliability*: calibration error component ($\to 0$, threshold $< 0.010$).
+  - *Resolution*: discriminatory power ($\to \max$).
+  - *Uncertainty*: baseline variance $p_0 (1 - p_0)$.
+- **AUC (ROC-AUC)**: Pure ranking discrimination between match winners and losers ($\max$).
+- **Accuracy**: Threshold $P \ge 0.50$ symmetric classification rate, with strict side symmetry ($P(A, B) + P(B, A) = 1.0$).
+
+#### 3. Calibration and reliability diagnostics
+- **Expected Calibration Error (ECE)**: 10 equal-width bins (target $\le 0.030$).
+- **Platt / Logistic Calibration Parameters**: Fit $\text{logit}(y) = \alpha + \beta \cdot \text{logit}(p)$.
+  - *Calibration Slope* ($\beta$): ideal $1.0$. Slope $< 0.85$ indicates severe overconfidence; slope $> 1.15$ indicates underconfidence. Required range: $[0.85, 1.15]$.
+  - *Calibration Intercept* ($\alpha$): ideal $0.0$. Measures global team/side bias.
+- **Maximum Calibration Error (MCE)**: Maximum deviation in any populated confidence bin.
+
+#### 4. Statistical significance and uncertainty estimation
+- **Paired $\Delta \text{LogLoss}$ and $\Delta \text{Brier}$**: Calculated per match against the locked baseline:
+  $$\Delta \text{LogLoss}_i = \text{LogLoss}_{\text{candidate}, i} - \text{LogLoss}_{\text{baseline}, i}$$
+- **Monthly-block bootstrap**:
+  - Minimum 5,000 resamples drawn with replacement from monthly cohorts (to preserve temporal patch/meta autocorrelation).
+  - Report mean difference, **95% Confidence Interval ($[CI_{\text{low}}, CI_{\text{high}}]$)**, and one-sided p-value ($p = P(\Delta \ge 0)$).
+- **Hard decision rule**: A candidate cannot be claimed superior if the 95% bootstrap CI upper bound is $\ge 0.0$. Point-estimate improvements without CI are invalid.
+
+#### 5. Diagnostic failure-mode slices ("Gdzie model się myli")
+Every benchmark report must segment metrics across five mandatory risk dimensions to detect hidden miscalibration:
+1. **Odds / Confidence buckets**:
+   - Heavy Favorites ($P \ge 0.75$, market odds $< 1.33$)
+   - Moderate Favorites ($0.60 \le P < 0.75$, market odds $1.33 - 1.67$)
+   - Toss-up / Close Matches ($0.45 \le P \le 0.55$, market odds $1.80 - 2.20$)
+   - Underdogs ($P \le 0.40$, market odds $> 2.50$), with explicit auditing of the $[3.50, 5.00]$ odds tier to prevent false underdog favoritism.
+2. **Series format (BoN)**:
+   - Bo1 (high single-game variance) vs Bo3 (standard regular season) vs Bo5 (playoffs/internationals). Verifies binomial expansion accuracy.
+3. **Competition tiers**:
+   - Tier-1 International (Worlds, MSI)
+   - Tier-1 Domestic (LCK, LPL, LEC, LCS)
+   - Tier-2 / ERL (Prime League, LFL, Superliga, LDL, NACL, etc.). Confirms regional shrinkage does not distort sub-leagues.
+4. **Roster stability & prior experience**:
+   - Stable rosters (all 5 players with $\ge 10$ historical matches) vs rosters with $\ge 1$ rookie or substitute ($< 10$ matches or missing prior).
+5. **Internal signal disagreement**:
+   - Consensus agreement ($|P_{\text{player}} - P_{\text{team}}| \le 0.08$) vs severe disagreement ($|P_{\text{player}} - P_{\text{team}}| > 0.15$).
+
+#### 6. Market benchmark comparison
+On the common sample of finished matches with pre-match no-vig odds:
+- Report $\Delta \text{LogLoss}_{\text{market}} = \text{LogLoss}_{\text{model}} - \text{LogLoss}_{\text{market}}$.
+- Pearson and Spearman correlation with market consensus closing line ($r$).
+- Mean Absolute Deviation ($|P_{\text{model}} - P_{\text{market}}|$).
+- Hybridization curve: optimal $\alpha$ blending performance ($p_{\text{hybrid}} = \alpha p_{\text{model}} + (1 - \alpha) p_{\text{market}}$).
+
+#### 7. Promotion gate checklist
+A new model version is approved for promotion only when all criteria pass:
+- [ ] Temporal integrity: strictly chronologic, zero leakage, no post-match features.
+- [ ] Symmetry: $P(A, B) + P(B, A) = 1.0 \pm 10^{-6}$ everywhere.
+- [ ] Probabilistic superiority: 95% Monthly-block Bootstrap CI for $\Delta \text{LogLoss} < 0$ against production baseline.
+- [ ] Tier-1 safety: No degradation on Tier-1 matches ($\Delta \text{LogLoss}_{\text{Tier1}} \le +0.002$).
+- [ ] Calibration integrity: ECE $\le \text{ECE}_{\text{baseline}}$ and calibration slope $\in [0.85, 1.15]$.
+- [ ] Underdog safety: Underdog predictions in $[3.50, 5.00]$ odds tier do not predict $P > 0.50$ without market confirmation.
 
 ### Financial calculations
 

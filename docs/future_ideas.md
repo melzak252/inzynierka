@@ -67,10 +67,9 @@ Every entry should contain:
 
 ## IDEA-001 — Read-only foreign LoL market reference feeds
 
-- **Status:** proposed
+- **Status:** researched
 - **Created:** 2026-09-02
-- **Updated:** 2026-09-02
-
+- **Updated:** 2026-09-07
 ### Problem
 
 The application currently compares model probabilities with seven Polish sportsbook feeds. Adding independent foreign market references could improve the market baseline, expose regional pricing differences, and support a better-calibrated market or model-market ensemble.
@@ -92,6 +91,17 @@ Prediction markets and exchanges are not bookmakers. Treating them as ordinary d
 
 Abios and PandaScore may provide proprietary esports prices, but their standard products are not side-by-side foreign-bookmaker consensus feeds. They are potential model comparators, not replacements for market observations.
 
+### Empirical Audit Results (2026-09-07)
+
+Evaluated on a unified cohort of $N = 447$ League of Legends matches (`2026-05-29` to `2026-09-01`) with direct pre-match Pinnacle quotes from Oddspapi (`data/oddspapi_lol_2026_model_audit/`):
+- **Pinnacle Market Quality**: No-vig fair line achieves LogLoss `0.5357`, Brier `0.1802`, ROC-AUC `0.8073`, Accuracy `72.93%`, and Coin-Flip LogLoss `0.6820`.
+- **Bookmaker Margin (Vig)**: Pinnacle average vig is `6.41%` (median `6.01%`), compared to `8.66%` for Polish bookmakers (STS, Fortuna, Superbet, Betclic).
+- **Statistical Superiority (Paired Bootstrap, $B=5,000$)**:
+  - Over Pure Sports Model: $\Delta\text{LogLoss} = +0.0367$ [95% CI: $+0.0164, +0.0574$], $p = 0.0004$.
+  - Over Polish Market Close: $\Delta\text{LogLoss} = +0.0262$ [95% CI: $+0.0118, +0.0406$], $p < 0.0001$.
+- **Disagreement Analysis (46 matches, 10.3%)**: When Model and Pinnacle pick opposing favorites ($P \ge 0.50$), Pinnacle wins `67.4%` (31/46, LogLoss `0.5941`) vs Model `32.6%` (15/46, LogLoss `0.7701`).
+- **Financial Inefficiency Test**: Flat betting on apparent model edge against Pinnacle ($\text{EV}_{\text{gross}} \ge +5\%$) yields $\text{ROI} = -11.17\%$ ($N=243$), confirming that Pinnacle odds are informationally efficient and cannot be exploited by pure rating models.
+- **Hybrid Oracle Value**: Blending model forecasts with Pinnacle fair lines ($\alpha=0.35$ Bayesian shrinkage) achieves LogLoss `0.5407` and AUC `0.8054`.
 ### Non-goals and safety boundaries
 
 - No automatic bet placement.
@@ -268,9 +278,9 @@ The current hybrid model applies a fixed model weight (e.g. $\alpha = 0.50$ or $
 
 ## IDEA-011 — Calibrated player-contribution rating updates
 
-- **Status:** in-progress
+- **Status:** rejected
 - **Created:** 2026-09-04
-- **Updated:** 2026-09-04
+- **Updated:** 2026-09-06
 
 ### Problem
 
@@ -540,9 +550,9 @@ Backtesting 2-leg parlays against single bets on 201 historical matches with 12%
 
 ## IDEA-020 — Regional meta-ratings and cross-regional strength calibration (Meta-OpenSkill)
 
-- **Status:** proposed
+- **Status:** rejected
 - **Created:** 2026-09-05
-- **Updated:** 2026-09-05
+- **Updated:** 2026-09-06
 
 ### Problem
 
@@ -585,3 +595,93 @@ Local PandaSkill experiments (`EXP-068` and `EXP-071`):
 - `docs/04_experiments/EXP-068_pandaskill_history.md`
 - `docs/04_experiments/EXP-071_tuned_openskill_pandaskill.md`
 - `ideas/IDEA-020_regional_meta_ratings_and_inter_region_calibration.md`
+
+
+> [!danger] DECYZJA KOŃCOWA: DEFINITYWNIE ODRZUCONE
+> PandaSkill i Meta-OpenSkill zostały definitywnie odrzucone. Problem inflacji regionalnej został skutecznie i w pełni rozwiązany w `EXP-076` za pomocą rzutowania offsetów regionalnych Glicko-2 (`ratings-v2`), bez potrzeby wdrażania zawodnych wag indywidualnych boxscore. PandaScore / PandaSkill nie jest już rozwijane ani brane pod uwagę.
+---
+
+## IDEA-021 — Bayesian Market Shrinkage and Tail Gating (Successor to Operational Hybrid)
+
+- **Status:** researched
+- **Created:** 2026-09-06
+- **Updated:** 2026-09-06
+
+### Problem
+
+The operational model (`Operational-PlayerTeamRatings-W20`) lacks an output calibration stage, combining rating components linearly. This creates severe overconfidence (calibration slope 0.88), inflating win probabilities on high underdogs (odds 3.50–5.00) from an empirical 20.4% to >42.7% and causing -26.9% ROI losses under the 12% Polish turnover tax. Global temperature scaling fails to repair thick tail distortions, while ad-hoc format-specific scaling ($T_{\text{Bo1}}=1.36$) over-flattens single-map predictions (degrading Bo1 LogLoss from 0.589 to 0.620).
+
+### Opportunity
+
+Apply pure logit-space Bayesian Market Shrinkage ($z_{\text{shrunk}} = (1 - \alpha) \cdot z_{\text{model}} + \alpha \cdot z_{\text{market\_novig}}$ with $\alpha = 0.35 - 0.40$). The market consensus acts as a regularizing prior, preserving the model's genuine edge (60–65% weight) while damping extreme tail variance. Unresolved tail anomalies in $[3.50 - 5.00]$ are handled by a deterministic capital quarantine rather than complex non-linear piecewise alphas.
+
+### Empirical evidence
+
+5-fold cross-validation across 483 finished canonical matches:
+- Uncalibrated baseline: LogLoss `0.5657`, Brier `0.1924`, Slope `0.881`.
+- No-vig market alone: LogLoss `0.5838`, Brier `0.1982`, Slope `0.785`.
+- Pure Bayesian Shrinkage ($\alpha=0.40$): **LogLoss `0.5500`**, **Brier `0.1864`**, **Slope `1.002`**.
+- Total portfolio Net ROI improved from `+57.75%` to `+99.51%` (+123.40 units profit across 124 bets).
+- Adding hard capital quarantine to $[3.50 - 5.00]$ eliminates residual underdog losses completely without distorting Bo1 predictions.
+- Audit EXP-078 na wspólnym kohorcie 2023–2026 ($N=7\,125$, koszyk fair 3.50–5.00: $N=1\,381$): EXP-078 standalone zredukował błąd średni do +3.80 p.p. (LogLoss 0.5356 vs rynek 0.5630), jednak w podprzedziałach `[0.30, 0.40)` i `[0.40, 0.50)` nadmierna pewność wynosi odpowiednio +10.9 p.p. i +16.5 p.p. To potwierdza konieczność zewnętrznego shrinkingu rynkowego lub ochrony kapitałowej.
+
+### Non-goals and boundaries
+
+- Do not use closing odds (temporal leakage risk); use pre-match quotes strictly before `match_start_at`.
+- Do not introduce piecewise step functions into the ML probability formula that harm Bo1 accuracy.
+- Preserve the frozen thesis EXP-039 artifact.
+
+### Implementation outline
+
+1. Core ML: In `betting_app/services/upcoming_inference_service.py`, upgrade `generate_hybrid_predictions` to use logit-space Bayesian blending instead of linear probability averaging.
+2. Cold-start fallback: When pre-match quotes are unavailable, fall back to global temperature calibration ($T=1.13$).
+3. Capital gate: Maintain the strict quarantine filter in `is_bet_eligible` for odds $[3.50 - 5.00]$.
+4. Prerequisite weryfikacyjny: Audyt z 2026-09-06 ujawnił brak implementacji funkcji `is_bet_eligible` w repozytorium. Wymagane jest rzeczywiste zaimplementowanie i otestowanie bramki kapitałowej w `betting_app/services/`.
+
+### Affected areas
+
+- `ideas/IDEA-021_bayesian_market_shrinkage_and_format_calibration.md`
+- `betting_app/services/upcoming_inference_service.py`
+- `betting_app/ml/calibration/candidate_calibration.py`
+- `betting_app/api/routers/timing.py`
+
+### References
+
+- `ideas/IDEA-021_bayesian_market_shrinkage_and_format_calibration.md`
+- `issues/ISSUE-001_miscalibration_underdogs_3.5_to_5.0.md`
+---
+
+## IDEA-022 — Knowledge Distillation from Sharp Foreign Closing Lines into Symmetrized Siamese Models
+
+- **Status:** proposed
+- **Created:** 2026-09-07
+- **Updated:** 2026-09-07
+
+### Problem
+
+The EXP-081 Siamese Series model achieves strong performance on historical out-of-sample data (LogLoss `0.5518`, AUC `0.7875`), but the 2026 Pinnacle benchmark reveals an informational gap of $+0.0367$ LogLoss against sharp foreign closing lines (`0.5357`). Pure sports models train solely on binary win/loss labels ($y \in \{0, 1\}$), discarding the rich, continuous probability landscape aggregated by global market liquidity (lineup changes, emergency substitutions, draft tendencies, scrim rumors).
+
+### Proposed Solution
+
+Train successor neural architectures (e.g. EXP-082) using **Knowledge Distillation (KD)**, where Pinnacle / sharp closing line probabilities $p_{\text{sharp}}$ serve as soft target teachers:
+$$\mathcal{L}_{\text{total}} = (1 - \lambda) \mathcal{L}_{\text{Focal}}(y, p_{\text{pred}}) + \lambda \mathcal{L}_{\text{KD}}(p_{\text{sharp}}, p_{\text{pred}})$$
+where $\mathcal{L}_{\text{KD}}$ is Kullback-Leibler divergence or soft binary cross-entropy at temperature $T_{\text{KD}} = 1.0$.
+
+### Non-goals and Safety Boundaries
+
+- Closing odds are strictly prohibited as pre-match inference features (violates temporal leakage invariants).
+- Distillation is strictly a training-time loss regularization technique; at inference time, the model consumes only pure pre-match ratings and rolling features.
+- Preserves machine anti-symmetry: $f_{\text{KD}}(x) = -f_{\text{KD}}(-x)$.
+
+### Acceptance Criteria
+
+1. Reduces standalone test LogLoss on 2026 matches below `0.5450`.
+2. Retains machine anti-symmetry error $\equiv 0.00 \times 10^{-16}$.
+3. Demonstrates improved agreement rate with sharp market favorites above $92\%$.
+4. Evaluated strictly on out-of-sample chronological splits.
+
+### References
+
+- `reports/pinnacle_vs_model_benchmark_2026.md`
+- `docs/04_experiments/02_produkcja_i_nastepcy/EXP-081_siamese_focal_uncertainty_gating.md`
+- `data/oddspapi_lol_2026_model_audit/selected_pre_match_quotes.csv`

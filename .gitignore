@@ -62,3 +62,8 @@ thesis/*-SAVE-ERROR
 Thumbs.db
 .vscode/
 .idea/
+.agents/
+backups/
+issues/
+plans/
+client/Caddyfile

@@ -7,6 +7,12 @@ import './MatchResults.css'
 const DAYS_OPTIONS = [7, 14, 30, 60, 90]
 const MODEL_OPTIONS = [
   {
+    label: 'Hybrid Operacyjna',
+    name: 'Hybrid-Operational-Market',
+    version: 'exp081-siamese-series-v1-a0.50-t0.80',
+    description: '50% Siamese Series EXP-081 + 50% rynek',
+  },
+  {
     label: 'Hybrid parity v2',
     name: 'Hybrid-Thesis-Market',
     version: 'a0.35-t0.80-p2',

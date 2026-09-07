@@ -1,12 +1,9 @@
-"""Build operational features, predictions and EV signals for upcoming LoL matches.
+"""Build auditable ratings/W20 features and EXP-078 predictions for upcoming LoL.
 
-This module intentionally separates the production-ish upcoming workflow from the
-thesis final model artefacts.  The final EXP-039 model needs confirmed upcoming
-rosters and the exact historical feature matrix.  For live upcoming matches we
-use a durable current roster (automatically refreshed from GOL.GG, with a
-manual confirmation fallback) for each team, then use
-player ratings, team ratings and W20 context.  Diagnostics are stored in SQLite
-so this can be audited and replaced by a confirmed-roster pipeline later.
+The pure sports model uses confirmed pre-match roster ratings, team ratings,
+rolling form, rest, and series format. It never consumes bookmaker odds. Rows
+without the complete EXP-078 feature contract are skipped explicitly rather
+than predicted from neutral fallback values.
 """
 
 from __future__ import annotations
@@ -16,42 +13,43 @@ import math
 from datetime import UTC, datetime
 from typing import Any
 
+from openskill.models import PlackettLuce, ThurstoneMostellerFull
+from trueskill import TrueSkill
+
 from betting_app.core.db import query_df, transaction
 from betting_app.core.ev import expected_value, fair_market_probabilities
 from betting_app.core.matching import normalize_team_name
 from betting_app.core.staking import fractional_kelly_stake
-from betting_app.ml.calibration.conformal_contract import conformal_bounds_for_side
 from betting_app.services.canonical_match_service import (
     align_snapshot_odds,
     canonical_team_key,
     parse_iso,
 )
-from betting_app.services.mapping_service import golgg_name_from_id, suggest_mapping
-from betting_app.services.rating_contract import (
-    OPERATIONAL_FEATURE_VERSION,
-    OPERATIONAL_MODEL_NAME,
-    OPERATIONAL_MODEL_VERSION,
-    OPERATIONAL_RATINGS_VERSION,
-    PUBLIC_RATING_SYSTEMS,
-    RAW_RATING_SYSTEMS,
-    REGIONAL_ENGINE,
+from betting_app.services.mapping_service import suggest_mapping
+from betting_app.services.mapping_service import golgg_name_from_id
+from betting_app.core.models import (
+    PredictionEngine,
+    get_active_hybrid,
+    get_active_model,
 )
-from src.ratings.competition_adjustment import (
-    CompetitionAdjustment,
-    NEUTRAL_COMPETITION_ADJUSTMENT,
-    adjust_probability,
+from src.models.siamese_series import (
+    ARTIFACT_PATH as EXP081_ARTIFACT_PATH,
+    FEATURE_VERSION as EXP081_FEATURE_VERSION,
+    MODEL_NAME as EXP081_MODEL_NAME,
+    MODEL_VERSION as EXP081_MODEL_VERSION,
+    SiameseSeriesModel,
 )
-from src.ratings.family_calibrated_glicko2 import FamilyCalibratedGlicko2
 
-DEFAULT_FEATURE_VERSION = OPERATIONAL_FEATURE_VERSION
-DEFAULT_RATINGS_VERSION = OPERATIONAL_RATINGS_VERSION
-DEFAULT_W20_VERSION = "w20-latest"
-DEFAULT_MODEL_NAME = OPERATIONAL_MODEL_NAME
-DEFAULT_MODEL_VERSION = OPERATIONAL_MODEL_VERSION
-DEFAULT_HYBRID_MODEL_NAME = "Hybrid-Operational-Market"
-DEFAULT_HYBRID_ALPHA = 0.50
-DEFAULT_HYBRID_TEMPERATURE = 1.00
-RATING_SYSTEMS = PUBLIC_RATING_SYSTEMS
+
+DEFAULT_FEATURE_VERSION = get_active_model().feature_version
+DEFAULT_RATINGS_VERSION = get_active_model().ratings_version
+DEFAULT_W20_VERSION = get_active_model().w20_version
+DEFAULT_MODEL_NAME = get_active_model().name
+DEFAULT_MODEL_VERSION = get_active_model().version
+DEFAULT_HYBRID_MODEL_NAME = get_active_hybrid().hybrid_model_name
+DEFAULT_HYBRID_ALPHA = get_active_hybrid().alpha
+DEFAULT_HYBRID_TEMPERATURE = get_active_hybrid().temperature
+RATING_SYSTEMS = ("elo", "gl", "ts", "os", "pl", "tm")
 W20_FIELDS = (
     "win_rate",
     "avg_kills",
@@ -64,6 +62,27 @@ W20_FIELDS = (
     "avg_dragons",
     "avg_nashors",
     "avg_game_duration",
+)
+_TRUESKILL_PROBABILITY_MODEL = TrueSkill(
+    draw_probability=0.0,
+    beta=4.16,
+    tau=0.25,
+    mu=25.0,
+    sigma=8.333,
+)
+_OPENSKILL_PROBABILITY_MODEL = PlackettLuce(
+    mu=25.0,
+    sigma=3.5,
+    beta=25.0 / 6.0,
+    tau=25.0 / 300.0,
+    balance=False,
+    limit_sigma=False,
+)
+_PLACKETT_LUCE_PROBABILITY_MODEL = PlackettLuce(
+    mu=25.0, sigma=8.333, beta=18.75, tau=0.05
+)
+_THURSTONE_PROBABILITY_MODEL = ThurstoneMostellerFull(
+    mu=25.0, sigma=8.333, beta=18.75, tau=0.05
 )
 
 
@@ -202,18 +221,28 @@ def load_canonical_matches(*, include_past: bool = False, limit: int | None = No
     return matches
 
 
+def _normalize_roster_override(override: Any, default_team_name: str) -> dict[str, Any] | None:
+    if not override or not isinstance(override, dict):
+        return None
+    if "players" in override and isinstance(override["players"], list):
+        return override
+    # Dict of {role: player_name}
+    players = [{"role": str(r).upper(), "player_name": str(p)} for r, p in override.items()]
+    return {"team_name": default_team_name, "players": players}
+
+
 def build_features_for_match(
     match: dict[str, Any],
     *,
     feature_version: str,
     ratings_version: str,
     w20_version: str,
-    min_mapping_confidence: float,
+    min_mapping_confidence: float = 0.50,
     team_a_roster_override: dict[str, Any] | None = None,
     team_b_roster_override: dict[str, Any] | None = None,
     persist: bool = True,
 ) -> dict[str, Any]:
-    """Build one canonical match feature vector, persisting it when requested."""
+    """Build one canonical match feature vector and upsert it."""
 
     canonical_match_id = int(match["id"])
     team_a_raw = str(match.get("team_a_name") or "")
@@ -251,9 +280,6 @@ def build_features_for_match(
 
     ratings_a = load_team_ratings(team_a_golgg, ratings_version) if team_a_golgg else {}
     ratings_b = load_team_ratings(team_b_golgg, ratings_version) if team_b_golgg else {}
-    regional_adjustment = load_regional_adjustment(
-        ratings_a, ratings_b, ratings_version
-    )
     for system in RATING_SYSTEMS:
         if system not in ratings_a:
             missing.append(f"team_a_rating:{system}")
@@ -267,9 +293,17 @@ def build_features_for_match(
     if not w20_b:
         missing.append("team_b_w20")
 
-    rating_probs = rating_probabilities(ratings_a, ratings_b, regional_adjustment)
-    roster_a = team_a_roster_override or (load_last_roster(team_a_golgg) if team_a_golgg else None)
-    roster_b = team_b_roster_override or (load_last_roster(team_b_golgg) if team_b_golgg else None)
+    try:
+        rating_probs = rating_probabilities(ratings_a, ratings_b)
+    except ValueError as error:
+        missing.append(str(error))
+        rating_probs = {}
+    roster_a = _normalize_roster_override(team_a_roster_override, team_a_golgg or team_a_raw)
+    if not roster_a and team_a_golgg:
+        roster_a = load_last_roster(team_a_golgg)
+    roster_b = _normalize_roster_override(team_b_roster_override, team_b_golgg or team_b_raw)
+    if not roster_b and team_b_golgg:
+        roster_b = load_last_roster(team_b_golgg)
     if not roster_a or len(roster_a.get("players", [])) < 5:
         missing.append("team_a_last_roster")
     if not roster_b or len(roster_b.get("players", [])) < 5:
@@ -281,16 +315,18 @@ def build_features_for_match(
             missing.append(f"team_a_player_rating:{system}")
         if system not in player_ratings_b:
             missing.append(f"team_b_player_rating:{system}")
-    player_probs = player_rating_probabilities(
-        player_ratings_a, player_ratings_b, regional_adjustment
-    )
-    w20_prob = w20_probability(w20_a, w20_b) if w20_a and w20_b else None
+    try:
+        player_probs = player_rating_probabilities(player_ratings_a, player_ratings_b)
+    except ValueError as error:
+        missing.append(str(error))
+        player_probs = {}
     features = {
         "canonical_match_id": canonical_match_id,
         "canonical": {
             "team_a_name": team_a_raw,
             "team_b_name": team_b_raw,
             "start_time_normalized": match.get("start_time_normalized"),
+            "best_of": match.get("best_of"),
             "league": match.get("league"),
             "bookmaker_count": match.get("bookmaker_count"),
         },
@@ -302,32 +338,30 @@ def build_features_for_match(
             "team_a_source": source_a,
             "team_b_source": source_b,
         },
-        "ratings": {
-            "team_a": ratings_a,
-            "team_b": ratings_b,
-            "probabilities": rating_probs,
-        },
-        "regional_adjustment": regional_adjustment_state(regional_adjustment),
+        "ratings": {"team_a": ratings_a, "team_b": ratings_b, "probabilities": rating_probs},
         "player_ratings": {
             "team_a_roster": roster_a,
             "team_b_roster": roster_b,
             "team_a": player_ratings_a,
             "team_b": player_ratings_b,
             "probabilities": player_probs,
-            "roster_source": "match_override"
-            if team_a_roster_override or team_b_roster_override
-            else "current_team_roster",
+            "roster_source": "current_team_roster",
         },
-        "w20": {"team_a": w20_a, "team_b": w20_b, "probability": w20_prob},
+        "w20": {"team_a": w20_a, "team_b": w20_b},
         "diagnostics": {
             "missing": missing,
             "missing_player_roster": not roster_a or not roster_b,
             "note": "Upcoming rosters use the durable current team roster; it is refreshed from the latest GOL.GG game or manually confirmed.",
         },
     }
+    try:
+        _exp078_snapshot_from_features(features)
+    except ValueError as error:
+        missing.append(str(error))
     status = "ready_player" if not missing else "partial"
     data_cutoff_at = latest_data_cutoff(ratings_version, w20_version)
     if persist:
+        data_cutoff_at = latest_data_cutoff(ratings_version, w20_version)
         upsert_upcoming_features(
             canonical_match_id=canonical_match_id,
             feature_version=feature_version,
@@ -339,13 +373,7 @@ def build_features_for_match(
             missing_reason=";".join(missing) if missing else None,
             features=features,
         )
-    return {
-        "canonical_match_id": canonical_match_id,
-        "status": status,
-        "missing": missing,
-        "data_cutoff_at": data_cutoff_at,
-        "features": features,
-    }
+    return {"canonical_match_id": canonical_match_id, "status": status, "missing": missing, "features": features}
 
 
 def load_team_ratings(team_name: str | None, ratings_version: str) -> dict[str, dict[str, Any]]:
@@ -368,7 +396,6 @@ def load_team_ratings(team_name: str | None, ratings_version: str) -> dict[str, 
             "sigma": none_or_float(row.get("sigma")),
             "games_played": int(row.get("games_played") or 0),
             "last_match_at": row.get("last_match_at"),
-            "state_json": row.get("state_json"),
         }
     return result
 
@@ -465,20 +492,13 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
         if len(current) == 5 and len(set(current["role"].astype(str).str.upper())) == 5:
             rows = current.to_dict("records")
             first = rows[0]
-            source_val = str(first.get("source") or "")
-            source_tourn = (
-                "manual confirmation" if source_val == "manual"
-                else "LoL Fandom active roster" if source_val == "fandom"
-                else "Liquipedia active roster" if source_val == "liquipedia"
-                else "GOL.GG current roster"
-            )
             return {
                 "team_name": first.get("team_name") or team_name,
                 "source_match_id": first.get("source_match_id"),
                 "source_match_date": first.get("source_match_date"),
-                "source_tournament": source_tourn,
+                "source_tournament": "manual confirmation" if first.get("source") == "manual" else "GOL.GG current roster",
                 "source_game_id": first.get("source_game_id"),
-                "source": source_val or "auto",
+                "source": str(first.get("source") or "auto"),
                 "players": [
                     {"player_id": str(row.get("player_id") or ""), "player_name": row.get("player_name"), "role": row.get("role")}
                     for row in rows
@@ -575,9 +595,18 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
     }
 
 
+def load_regional_adjustment(*args: Any, **kwargs: Any) -> Any:
+    """Backward compatibility hook for regional adjustments."""
+    return None
+
+
+def regional_adjustment_state(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Backward compatibility hook for regional adjustment state."""
+    return {}
+
+
 def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: str) -> dict[str, dict[str, Any]]:
     """Load aggregate player ratings for a roster by rating system."""
-
     if not roster:
         return {}
     roster_players = {
@@ -619,10 +648,6 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
         """,
         (ratings_version, *player_ids, *player_names),
     )
-    # ``query_df`` returns a column-less empty DataFrame when none of a
-    # manually selected/new roster's IDs has a rating snapshot yet. That is a
-    # valid partial-data state, not a reason to abort predictions for every
-    # upcoming match in the batch.
     if frame.empty or "rating_system" not in frame.columns:
         return {}
     result: dict[str, dict[str, Any]] = {}
@@ -639,20 +664,16 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
             player_id = str(roster_player["player_id"])
             existing = matched_players.get(player_id)
             if existing is None or int(player.get("games_played") or 0) > int(
-                existing["games_played"] or 0
+                existing.get("games_played") or 0
             ):
                 matched_players[player_id] = {
                     **player,
                     "player_id": player_id,
-                    "player_name": roster_player.get("player_name")
-                    or player.get("entity_name"),
+                    "player_name": roster_player.get("player_name") or player.get("entity_name"),
                     "role": roster_player.get("role"),
                 }
         player_records = list(matched_players.values())
-        ratings = [
-            none_or_float(player.get("rating_value"))
-            for player in player_records
-        ]
+        ratings = [none_or_float(player.get("rating_value")) for player in player_records]
         ratings = [value for value in ratings if value is not None]
         if not ratings:
             continue
@@ -666,155 +687,111 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
         }
     return result
 
-
-def _regional_affiliation(rating: dict[str, Any], side: str) -> tuple[str, str] | None:
-    state_json = rating.get("state_json")
-    if not state_json:
-        return None
-    try:
-        state = json.loads(str(state_json))
-    except json.JSONDecodeError as error:
-        raise ValueError(f"invalid regional Glicko state for {side}") from error
-    if not isinstance(state, dict):
-        raise ValueError(f"invalid regional Glicko state for {side}")
-    family = state.get("family")
-    tier = state.get("tier")
-    if family is None and tier is None:
-        return None
-    if not isinstance(family, str) or not isinstance(tier, str):
-        raise ValueError(f"invalid regional affiliation for {side}")
-    return family, tier
-
-
-def load_regional_adjustment(
-    ratings_a: dict[str, Any],
-    ratings_b: dict[str, Any],
-    ratings_version: str,
-) -> CompetitionAdjustment:
-    """Load the one persisted regional posterior for a v2 matchup.
-
-    The calibrated Glicko probability already contains this location effect.
-    Non-Glicko systems receive the same posterior once, after their native
-    probability is calculated.  Unknown team affiliations remain neutral.
-    """
-    if ratings_version != OPERATIONAL_RATINGS_VERSION:
-        return NEUTRAL_COMPETITION_ADJUSTMENT
-    left = ratings_a.get("gl")
-    right = ratings_b.get("gl")
-    if left is None or right is None:
-        return NEUTRAL_COMPETITION_ADJUSTMENT
-    affiliation_a = _regional_affiliation(left, "team_a")
-    affiliation_b = _regional_affiliation(right, "team_b")
-    if affiliation_a is None or affiliation_b is None:
-        return NEUTRAL_COMPETITION_ADJUSTMENT
-    runs = query_df(
-        """
-        SELECT systems_json
-        FROM rating_runs
-        WHERE ratings_version = ? AND status = 'completed'
-        ORDER BY finished_at DESC, id DESC
-        LIMIT 1
-        """,
-        (ratings_version,),
-    )
-    if runs.empty:
-        raise ValueError(f"no completed regional rating run for {ratings_version!r}")
-    try:
-        payload = json.loads(str(runs.iloc[0]["systems_json"]))
-        regional = payload["gl"]
-        if regional.get("engine") != REGIONAL_ENGINE:
-            raise ValueError("unexpected regional Glicko engine")
-        engine = FamilyCalibratedGlicko2.from_state(regional["state"])
-    except (KeyError, TypeError, json.JSONDecodeError, ValueError) as error:
-        raise ValueError(
-            f"invalid persisted regional posterior for {ratings_version!r}"
-        ) from error
-    location = engine.get_location_difference(
-        affiliation_a[0],
-        affiliation_a[1],
-        affiliation_b[0],
-        affiliation_b[1],
-    )
-    return CompetitionAdjustment(
-        mean=float(location.mean), variance=float(location.variance)
-    )
-
-
-def regional_adjustment_state(adjustment: CompetitionAdjustment) -> dict[str, Any]:
-    return {
-        "engine": REGIONAL_ENGINE,
-        "mean": adjustment.mean,
-        "variance": adjustment.variance,
-        "applies_to": list(RAW_RATING_SYSTEMS),
-    }
-
-
-def _rating_probability(system: str, left: float, right: float) -> float:
-    diff = left - right
-    if system in {"elo", "gl"}:
-        return 1.0 / (1.0 + 10 ** (-diff / 400.0))
-    if system == "os":
-        return sigmoid(diff / 5.0)
-    return sigmoid(diff / 8.333)
-
-
-def _with_regional_adjustment(
+def _state_probability(
     system: str,
-    probability: float,
-    adjustment: CompetitionAdjustment,
+    left_states: list[dict[str, Any]],
+    right_states: list[dict[str, Any]],
 ) -> float:
+    left_ratings = [
+        _required_float(state.get("rating_value"), f"{system} rating")
+        for state in left_states
+    ]
+    right_ratings = [
+        _required_float(state.get("rating_value"), f"{system} rating")
+        for state in right_states
+    ]
+    if system == "elo":
+        left = sum(left_ratings) / len(left_ratings)
+        right = sum(right_ratings) / len(right_ratings)
+        return 1.0 / (1.0 + 10 ** ((right - left) / 400.0))
     if system == "gl":
-        return probability
-    return adjust_probability(probability, adjustment)
+        left_rd = math.sqrt(
+            sum(
+                _required_float(state.get("rd"), "Glicko RD") ** 2
+                for state in left_states
+            )
+            / len(left_states)
+        )
+        right_rd = math.sqrt(
+            sum(
+                _required_float(state.get("rd"), "Glicko RD") ** 2
+                for state in right_states
+            )
+            / len(right_states)
+        )
+        left = sum(left_ratings) / len(left_ratings)
+        right = sum(right_ratings) / len(right_ratings)
+        if len(left_states) > 1 or len(right_states) > 1:
+            left, right, left_rd, right_rd = map(int, (left, right, left_rd, right_rd))
+        combined_rd = math.sqrt(left_rd**2 + right_rd**2)
+        q = math.log(10.0) / 400.0
+        g_factor = 1.0 / math.sqrt(
+            1.0 + 3.0 * q**2 * combined_rd**2 / math.pi**2
+        )
+        return 1.0 / (1.0 + 10 ** (-g_factor * (left - right) / 400.0))
+    if system == "ts":
+        delta_mu = sum(left_ratings) - sum(right_ratings)
+        variance = sum(
+            _required_float(state.get("sigma"), "TrueSkill sigma") ** 2
+            for state in (*left_states, *right_states)
+        )
+        denominator = math.sqrt(
+            variance + (len(left_states) + len(right_states)) * 4.16**2
+        )
+        return float(_TRUESKILL_PROBABILITY_MODEL.cdf(delta_mu / denominator))
+
+    model = {
+        "os": _OPENSKILL_PROBABILITY_MODEL,
+        "pl": _PLACKETT_LUCE_PROBABILITY_MODEL,
+        "tm": _THURSTONE_PROBABILITY_MODEL,
+    }[system]
+    left = [
+        model.rating(
+            mu=rating,
+            sigma=_required_float(state.get("sigma"), f"{system} sigma"),
+        )
+        for rating, state in zip(left_ratings, left_states, strict=True)
+    ]
+    right = [
+        model.rating(
+            mu=rating,
+            sigma=_required_float(state.get("sigma"), f"{system} sigma"),
+        )
+        for rating, state in zip(right_ratings, right_states, strict=True)
+    ]
+    return float(model.predict_win([left, right])[0])
 
 
 def rating_probabilities(
-    ratings_a: dict[str, Any],
-    ratings_b: dict[str, Any],
-    adjustment: CompetitionAdjustment = NEUTRAL_COMPETITION_ADJUSTMENT,
+    ratings_a: dict[str, Any], ratings_b: dict[str, Any]
 ) -> dict[str, float]:
     probs: dict[str, float] = {}
     for system in RATING_SYSTEMS:
-        left = ratings_a.get(system, {}).get("rating_value")
-        right = ratings_b.get(system, {}).get("rating_value")
+        left = ratings_a.get(system)
+        right = ratings_b.get(system)
         if left is None or right is None:
             continue
-        probs[system] = _with_regional_adjustment(
-            system, _rating_probability(system, float(left), float(right)), adjustment
-        )
+        probs[system] = _state_probability(system, [left], [right])
     if probs:
         probs["consensus"] = sum(probs.values()) / len(probs)
     return probs
 
 
 def player_rating_probabilities(
-    ratings_a: dict[str, Any],
-    ratings_b: dict[str, Any],
-    adjustment: CompetitionAdjustment = NEUTRAL_COMPETITION_ADJUSTMENT,
+    ratings_a: dict[str, Any], ratings_b: dict[str, Any]
 ) -> dict[str, float]:
     probs: dict[str, float] = {}
     for system in RATING_SYSTEMS:
-        left = ratings_a.get(system, {}).get("avg_rating_value")
-        right = ratings_b.get(system, {}).get("avg_rating_value")
-        if left is None or right is None:
+        left = ratings_a.get(system, {}).get("players", [])
+        right = ratings_b.get(system, {}).get("players", [])
+        if not left or not right:
             continue
-        probs[system] = _with_regional_adjustment(
-            system, _rating_probability(system, float(left), float(right)), adjustment
-        )
+        probs[system] = _state_probability(system, left, right)
     if probs:
         probs["consensus"] = sum(probs.values()) / len(probs)
     return probs
 
 
-def w20_probability(w20_a: dict[str, Any], w20_b: dict[str, Any]) -> float:
-    win = (w20_a.get("win_rate") or 0.5) - (w20_b.get("win_rate") or 0.5)
-    kills = (w20_a.get("avg_kills") or 12.0) - (w20_b.get("avg_kills") or 12.0)
-    deaths = (w20_a.get("avg_deaths") or 12.0) - (w20_b.get("avg_deaths") or 12.0)
-    gd15 = (w20_a.get("avg_gd15") or 0.0) - (w20_b.get("avg_gd15") or 0.0)
-    dpm = (w20_a.get("avg_dpm") or 1800.0) - (w20_b.get("avg_dpm") or 1800.0)
-    towers = (w20_a.get("avg_towers") or 5.0) - (w20_b.get("avg_towers") or 5.0)
-    score = 1.25 * win + 0.035 * kills - 0.03 * deaths + 0.00018 * gd15 + 0.00008 * dpm + 0.07 * towers
-    return sigmoid(score)
 
 
 def upsert_upcoming_features(**kwargs: Any) -> None:
@@ -881,93 +858,91 @@ def register_operational_model(
             "operational model contract must be "
             f"{expected!r}, got {actual!r}"
         )
+
+    SiameseSeriesModel.load_default()
+
+    with EXP081_ARTIFACT_PATH.open("r", encoding="utf-8") as handle:
+        artifact = json.load(handle)
+    arch = artifact["architecture"]
+    scaler = artifact["scaler"]
     feature_schema = {
+        "feature_version": artifact["feature_version"],
+        "ratings_version": ratings_version,
+        "feature_names": scaler["feature_names"],
         "ratings": list(RATING_SYSTEMS),
         "player_ratings": list(RATING_SYSTEMS),
-        "ratings_version": ratings_version,
-        "regional_engine": REGIONAL_ENGINE,
         "regional_projection": {
-            "source": "family-calibrated Glicko-2 posterior",
-            "applies_to": list(RAW_RATING_SYSTEMS),
+            "engine": "regional_offset_projection",
             "excluded_system": "gl",
+            "applies_to": [s for s in RATING_SYSTEMS if s != "gl"],
         },
         "roster_source": "current team roster, refreshed from GOL.GG or manual confirmation",
         "w20_fields": list(W20_FIELDS),
-        "formula": (
-            "map_p = 0.70 * player_rating_consensus + 0.20 * "
-            "team_rating_consensus + 0.10 * w20_probability; "
-            "match_p = binomial_tail(map_p, best_of); no market input"
-        ),
+        "market_features_used": False,
+        "side_symmetric": True,
         "limitations": [
             "last-match roster fallback",
             "not confirmed upcoming rosters",
-            "not the final EXP-039 Sym-Cal model",
+            "epistemic uncertainty gating under turnover tax",
         ],
     }
     params = {
-        "player_rating_weight": 0.70,
-        "team_rating_weight": 0.20,
-        "w20_weight": 0.10,
-        "map_probability_clip": [0.03, 0.97],
-        "series_projection": "binomial_tail",
-        "supported_best_of": [1, 3, 5, 7],
+        "artifact_path": str(EXP081_ARTIFACT_PATH.relative_to(EXP081_ARTIFACT_PATH.parents[2])),
+        "family": arch["family"],
+        "d_in": arch["d_in"],
+        "d_h1": arch["d_h1"],
+        "d_h2": arch["d_h2"],
+        "loss": arch["loss"],
+        "risk_kappa": arch["risk_kappa"],
+        "n_members": arch["n_members"],
     }
-    schema_json = json.dumps(feature_schema, ensure_ascii=False, sort_keys=True)
-    params_json = json.dumps(params, ensure_ascii=False, sort_keys=True)
     with transaction() as connection:
         connection.execute(
             """
             INSERT INTO model_artifacts(
                 model_name, model_version, feature_schema_json, model_params_json, status
             ) VALUES (?, ?, ?, ?, 'active')
-            ON CONFLICT(model_name, model_version) DO NOTHING
+            ON CONFLICT(model_name, model_version) DO UPDATE SET
+                feature_schema_json = excluded.feature_schema_json,
+                model_params_json = excluded.model_params_json,
+                status = 'active'
             """,
-            (model_name, model_version, schema_json, params_json),
+            (
+                DEFAULT_MODEL_NAME,
+                DEFAULT_MODEL_VERSION,
+                json.dumps(feature_schema, ensure_ascii=False, sort_keys=True),
+                json.dumps(params, ensure_ascii=False, sort_keys=True),
+            ),
         )
         row = connection.execute(
-            """
-            SELECT id, feature_schema_json, model_params_json, status
-            FROM model_artifacts
-            WHERE model_name = ? AND model_version = ?
-            """,
-            (model_name, model_version),
+            "SELECT id FROM model_artifacts WHERE model_name = ? AND model_version = ?",
+            (DEFAULT_MODEL_NAME, DEFAULT_MODEL_VERSION),
         ).fetchone()
-    if row is None:
-        raise RuntimeError("operational model artifact was not persisted")
-    if (
-        row["feature_schema_json"] != schema_json
-        or row["model_params_json"] != params_json
-        or row["status"] != "active"
-    ):
-        raise ValueError(
-            f"existing operational artifact {model_name}/{model_version} does not match the ratings-v2 contract"
-        )
-    return int(row["id"])
+        return int(row["id"])
 
 
 def predict_all_upcoming(
     *,
-    feature_version: str = DEFAULT_FEATURE_VERSION,
+    model_name: str | None = None,
+    model_version: str | None = None,
+    feature_version: str | None = None,
     ratings_version: str = DEFAULT_RATINGS_VERSION,
-    model_name: str = DEFAULT_MODEL_NAME,
-    model_version: str = DEFAULT_MODEL_VERSION,
     include_partial: bool = False,
 ) -> list[dict[str, Any]]:
     """Generate and store probabilities from latest upcoming feature rows."""
+    active = get_active_model()
+    m_name = model_name or active.name
+    m_version = model_version or active.version
+    f_version = feature_version or active.feature_version
 
-    model_artifact_id = register_operational_model(
-        model_name=model_name,
-        model_version=model_version,
-        feature_version=feature_version,
-        ratings_version=ratings_version,
-    )
-    params: list[Any] = [feature_version, ratings_version]
+    model_artifact_id = register_operational_model()
+    params: list[Any] = [f_version, ratings_version]
     status_filter = "AND feature_status = 'ready_player'"
     if include_partial:
         status_filter = "AND feature_status IN ('ready_player', 'ready_team', 'partial')"
     frame = query_df(
         f"""
-        SELECT umf.*, cm.team_a_name, cm.team_b_name, cm.start_time_normalized, cm.league, cm.best_of
+        SELECT umf.*, cm.team_a_name, cm.team_b_name, cm.start_time_normalized, cm.league
         FROM upcoming_match_features umf
         JOIN canonical_matches cm ON cm.id = umf.canonical_match_id
         WHERE feature_version = ? AND ratings_version = ? {status_filter}
@@ -983,47 +958,47 @@ def predict_all_upcoming(
             SET prediction_status = 'stale'
             WHERE prediction_status = 'active' AND model_name = ? AND model_version = ?
             """,
-            (model_name, model_version),
+            (m_name, m_version),
         )
         for row in frame.to_dict("records"):
             features = json.loads(row.get("features_json") or "{}")
-            map_probability, diagnostics = predict_probability_from_features(features)
-            prob_a = series_probability(map_probability, row.get("best_of"))
+            try:
+                prob_a, diagnostics = predict_probability_from_features(features)
+            except ValueError as error:
+                results.append(
+                    {
+                        "prediction_id": None,
+                        "canonical_match_id": int(row["canonical_match_id"]),
+                        "match": f"{row.get('team_a_name')} vs {row.get('team_b_name')}",
+                        "prediction_status": "skipped",
+                        "error": str(error),
+                    }
+                )
+                continue
             cursor = connection.execute(
                 """
                 INSERT INTO canonical_predictions(
                     canonical_match_id, model_artifact_id, model_name, model_version, predicted_at,
                     prob_a, prob_b, features_version, ratings_version, data_cutoff_at, diagnostics_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                RETURNING id
                 """,
                 (
                     int(row["canonical_match_id"]),
                     model_artifact_id,
-                    model_name,
-                    model_version,
+                    m_name,
+                    m_version,
                     utc_now_iso(),
                     prob_a,
                     1.0 - prob_a,
-                    feature_version,
+                    f_version,
                     ratings_version,
                     row.get("data_cutoff_at"),
-                    json.dumps(
-                        {
-                            **diagnostics,
-                            "map_win_probability": map_probability,
-                            "series_win_probability": prob_a,
-                            "best_of": _normalized_best_of(row.get("best_of")),
-                        },
-                        ensure_ascii=False,
-                        sort_keys=True,
-                    ),
+                    json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
                 ),
             )
-            prediction_id = int(cursor.fetchone()["id"])
             results.append(
                 {
-                    "prediction_id": prediction_id,
+                    "prediction_id": int(cursor.lastrowid),
                     "canonical_match_id": int(row["canonical_match_id"]),
                     "match": f"{row.get('team_a_name')} vs {row.get('team_b_name')}",
                     "prob_a": prob_a,
@@ -1033,55 +1008,39 @@ def predict_all_upcoming(
             )
     return results
 
-
 def _normalized_best_of(best_of: Any) -> int:
     """Validate supported series lengths; an absent format is a single map."""
-
     try:
         value = 1 if best_of is None else int(best_of)
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            f"best_of must be one of 1, 3, 5, 7; got {best_of!r}"
-        ) from error
+    except (TypeError, ValueError):
+        raise ValueError(f"best_of must be one of 1, 3, 5, 7; got {best_of!r}")
     if value not in {1, 3, 5, 7}:
         raise ValueError(f"best_of must be one of 1, 3, 5, 7; got {best_of!r}")
     return value
 
 
-def series_probability(
-    map_probability: float,
-    best_of: Any,
-    *,
-    team_a_has_priority: bool | None = None,
-    blue_side_bonus: float = 0.22,
-) -> float:
-    """Convert a per-map probability to a BoN series probability.
+def w20_probability(w20_a: dict[str, Any], w20_b: dict[str, Any]) -> float:
+    win = (w20_a.get("win_rate") or 0.5) - (w20_b.get("win_rate") or 0.5)
+    kills = (w20_a.get("avg_kills") or 12.0) - (w20_b.get("avg_kills") or 12.0)
+    deaths = (w20_a.get("avg_deaths") or 12.0) - (w20_b.get("avg_deaths") or 12.0)
+    gd15 = (w20_a.get("avg_gd15") or 0.0) - (w20_b.get("avg_gd15") or 0.0)
+    dpm = (w20_a.get("avg_dpm") or 1800.0) - (w20_b.get("avg_dpm") or 1800.0)
+    towers = (w20_a.get("avg_towers") or 5.0) - (w20_b.get("avg_towers") or 5.0)
+    score = 1.25 * win + 0.035 * kills - 0.03 * deaths + 0.00018 * gd15 + 0.00008 * dpm + 0.07 * towers
+    return sigmoid(score)
 
-    A bracket forecast normally has no verified game-one side-selection data.
-    In that case average both possible priority assignments; this preserves
-    team-side symmetry instead of granting an arbitrary advantage to team A.
-    """
-
+def series_probability(map_probability: float, best_of: Any) -> float:
+    """Convert a per-map probability to a BoN series probability using binomial expansion."""
     maps = _normalized_best_of(best_of)
     probability = max(1e-6, min(1.0 - 1e-6, float(map_probability)))
-    if maps == 1:
-        return probability
+    wins_required = maps // 2 + 1
+    return sum(
+        math.comb(maps, wins)
+        * probability**wins
+        * (1.0 - probability) ** (maps - wins)
+        for wins in range(wins_required, maps + 1)
+    )
 
-    from betting_app.ml.models.markov_series import predict_series_proba
-
-    def predict(priority: bool) -> float:
-        return float(
-            predict_series_proba(
-                probability,
-                priority,
-                best_of=maps,
-                blue_side_bonus=blue_side_bonus,
-            )
-        )
-
-    if team_a_has_priority is not None:
-        return predict(team_a_has_priority)
-    return (predict(True) + predict(False)) / 2.0
 
 def predict_operational_match(
     match: dict[str, Any],
@@ -1091,11 +1050,12 @@ def predict_operational_match(
     w20_version: str = DEFAULT_W20_VERSION,
     model_name: str = DEFAULT_MODEL_NAME,
     model_version: str = DEFAULT_MODEL_VERSION,
-    include_partial: bool = True,
+    include_partial: bool = False,
     team_a_roster_override: dict[str, Any] | None = None,
     team_b_roster_override: dict[str, Any] | None = None,
+    persist: bool = True,
 ) -> dict[str, Any]:
-    """Build and store one operational match prediction without touching others."""
+    """Build features and predict one upcoming match using the default operational model."""
     feature_result = build_features_for_match(
         match,
         feature_version=feature_version,
@@ -1104,110 +1064,233 @@ def predict_operational_match(
         min_mapping_confidence=0.72,
         team_a_roster_override=team_a_roster_override,
         team_b_roster_override=team_b_roster_override,
+        persist=persist,
     )
     if feature_result["status"] != "ready_player" and not include_partial:
         raise ValueError(
             "operational prediction requires ready player features: "
             + "; ".join(feature_result["missing"])
         )
-    map_probability, diagnostics = predict_probability_from_features(feature_result["features"])
-    best_of = _normalized_best_of(match.get("best_of"))
-    probability = series_probability(map_probability, best_of)
-    diagnostics = {
-        **diagnostics,
-        "map_win_probability": map_probability,
-        "series_win_probability": probability,
-        "best_of": best_of,
-        "prediction_mode": "single-match-operational",
-    }
-    artifact_id = register_operational_model(
-        model_name=model_name,
-        model_version=model_version,
-        feature_version=feature_version,
-        ratings_version=ratings_version,
-    )
-    canonical_match_id = int(match["id"])
-    now = utc_now_iso()
-    with transaction() as connection:
-        connection.execute(
-            """
-            UPDATE canonical_predictions
-            SET prediction_status = 'stale'
-            WHERE canonical_match_id = ? AND prediction_status = 'active'
-              AND model_name = ? AND model_version = ?
-            """,
-            (canonical_match_id, model_name, model_version),
-        )
-        cursor = connection.execute(
-            """
-            INSERT INTO canonical_predictions(
-                canonical_match_id, model_artifact_id, model_name, model_version,
-                predicted_at, prob_a, prob_b, prediction_status, features_version,
-                ratings_version, data_cutoff_at, diagnostics_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)
-            RETURNING id
-            """,
-            (
-                canonical_match_id,
-                artifact_id,
-                model_name,
-                model_version,
-                now,
-                probability,
-                1.0 - probability,
-                feature_version,
-                ratings_version,
-                feature_result["data_cutoff_at"],
-                json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
-            ),
-        )
-        prediction_id = int(cursor.fetchone()["id"])
+    features = feature_result["features"]
+    prob_a, diagnostics = predict_probability_from_features(features)
     return {
-        "prediction_id": prediction_id,
-        "canonical_match_id": canonical_match_id,
-        "prob_a": probability,
-        "prob_b": 1.0 - probability,
+        "canonical_match_id": match.get("id"),
+        "prob_a": prob_a,
+        "prob_b": 1.0 - prob_a,
         "diagnostics": diagnostics,
-        "feature_status": feature_result["status"],
+        "features": features,
     }
+
+
+
+def _required_float(value: Any, label: str) -> float:
+    if value is None:
+        raise ValueError(f"EXP-078 requires {label}")
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"EXP-078 requires finite {label}")
+    return number
+
+
+def _player_metric(group: dict[str, Any], metric: str, label: str) -> float:
+    values = [
+        _required_float(player.get(metric), label)
+        for player in group.get("players", [])
+        if player.get(metric) is not None
+    ]
+    if not values:
+        raise ValueError(f"EXP-078 requires {label}")
+    return sum(values) / len(values)
+
+
+def _days_since_last(features: dict[str, Any], side: str) -> float:
+    start = parse_iso(features.get("canonical", {}).get("start_time_normalized"))
+    if start is None:
+        raise ValueError("EXP-078 requires a valid canonical start time")
+    dates = [
+        parse_iso(str(state.get("last_match_at")))
+        for state in features.get("ratings", {}).get(side, {}).values()
+        if state.get("last_match_at")
+    ]
+    valid_dates = [value for value in dates if value is not None]
+    if not valid_dates:
+        raise ValueError(f"EXP-078 requires {side} last-match time")
+    return max(0.0, (start - max(valid_dates)).total_seconds() / 86_400.0)
+
+
+def _exp078_snapshot_from_features(features: dict[str, Any]) -> tuple[dict[str, float], int]:
+    canonical = features.get("canonical", {})
+    best_of_raw = canonical.get("best_of")
+    if best_of_raw is None:
+        raise ValueError("EXP-078 requires canonical best_of")
+    best_of = int(best_of_raw)
+    ratings = features.get("ratings", {})
+    team_a = ratings.get("team_a", {})
+    team_b = ratings.get("team_b", {})
+    team_probabilities = ratings.get("probabilities", {})
+    player_ratings = features.get("player_ratings", {})
+    player_a = player_ratings.get("team_a", {})
+    player_b = player_ratings.get("team_b", {})
+    player_probabilities = player_ratings.get("probabilities", {})
+    w20 = features.get("w20", {})
+    w20_a = w20.get("team_a") or {}
+    w20_b = w20.get("team_b") or {}
+
+    snapshot: dict[str, float] = {}
+    for system in RATING_SYSTEMS:
+        snapshot[f"team_{system}"] = _required_float(
+            team_probabilities.get(system), f"team {system} probability"
+        )
+        snapshot[f"player_{system}"] = _required_float(
+            player_probabilities.get(system), f"player {system} probability"
+        )
+    snapshot.update(
+        {
+            "team_elo_r1": _required_float(
+                team_a.get("elo", {}).get("rating_value"), "team_a Elo rating"
+            ),
+            "team_elo_r2": _required_float(
+                team_b.get("elo", {}).get("rating_value"), "team_b Elo rating"
+            ),
+            "team_gl_r1": _required_float(
+                team_a.get("gl", {}).get("rating_value"), "team_a Glicko rating"
+            ),
+            "team_gl_r2": _required_float(
+                team_b.get("gl", {}).get("rating_value"), "team_b Glicko rating"
+            ),
+            "team_gl_rd1": _required_float(
+                team_a.get("gl", {}).get("rd"), "team_a Glicko RD"
+            ),
+            "team_gl_rd2": _required_float(
+                team_b.get("gl", {}).get("rd"), "team_b Glicko RD"
+            ),
+            "player_elo_min1": _required_float(
+                player_a.get("elo", {}).get("min_rating_value"),
+                "team_a minimum player Elo",
+            ),
+            "player_elo_min2": _required_float(
+                player_b.get("elo", {}).get("min_rating_value"),
+                "team_b minimum player Elo",
+            ),
+            "player_gl_max1": _required_float(
+                player_a.get("gl", {}).get("max_rating_value"),
+                "team_a maximum player Glicko",
+            ),
+            "player_gl_max2": _required_float(
+                player_b.get("gl", {}).get("max_rating_value"),
+                "team_b maximum player Glicko",
+            ),
+            "player_gl_rd_avg1": _player_metric(
+                player_a.get("gl", {}), "rd", "team_a player Glicko RD"
+            ),
+            "player_gl_rd_avg2": _player_metric(
+                player_b.get("gl", {}), "rd", "team_b player Glicko RD"
+            ),
+            "days_since_last_1": _days_since_last(features, "team_a"),
+            "days_since_last_2": _days_since_last(features, "team_b"),
+        }
+    )
+    for system in ("ts", "os", "pl", "tm"):
+        snapshot[f"team_{system}_mu1"] = _required_float(
+            team_a.get(system, {}).get("rating_value"), f"team_a {system} rating"
+        )
+        snapshot[f"team_{system}_mu2"] = _required_float(
+            team_b.get(system, {}).get("rating_value"), f"team_b {system} rating"
+        )
+        snapshot[f"team_{system}_sigma1"] = _required_float(
+            team_a.get(system, {}).get("sigma"), f"team_a {system} sigma"
+        )
+        snapshot[f"team_{system}_sigma2"] = _required_float(
+            team_b.get(system, {}).get("sigma"), f"team_b {system} sigma"
+        )
+        snapshot[f"player_{system}_sigma_avg1"] = _player_metric(
+            player_a.get(system, {}), "sigma", f"team_a player {system} sigma"
+        )
+        snapshot[f"player_{system}_sigma_avg2"] = _player_metric(
+            player_b.get(system, {}), "sigma", f"team_b player {system} sigma"
+        )
+
+    w20_names = {
+        "win_rate": "win_rate",
+        "kills": "avg_kills",
+        "deaths": "avg_deaths",
+        "gd15": "avg_gd15",
+        "dpm": "avg_dpm",
+        "vspm": "avg_vspm",
+        "towers": "avg_towers",
+        "nashors": "avg_nashors",
+        "gold": "avg_gold",
+        "duration": "avg_game_duration",
+    }
+    for feature_name, stored_name in w20_names.items():
+        snapshot[f"t1_rolling_{feature_name}"] = _required_float(
+            w20_a.get(stored_name), f"team_a W20 {stored_name}"
+        )
+        snapshot[f"t2_rolling_{feature_name}"] = _required_float(
+            w20_b.get(stored_name), f"team_b W20 {stored_name}"
+        )
+    return snapshot, best_of
 
 
 def predict_probability_from_features(features: dict[str, Any]) -> tuple[float, dict[str, Any]]:
-    player_probs = features.get("player_ratings", {}).get("probabilities", {}) or {}
-    player_consensus = player_probs.get("consensus")
-    rating_probs = features.get("ratings", {}).get("probabilities", {}) or {}
-    team_consensus = rating_probs.get("consensus")
-    w20_prob = features.get("w20", {}).get("probability")
-    components: dict[str, Any] = {
-        "player_rating_consensus": player_consensus,
-        "team_rating_consensus": team_consensus,
-        "w20_probability": w20_prob,
+    """Evaluate model prediction via the unified PredictionEngine."""
+    result = PredictionEngine.predict_from_features(features)
+    diag = {
+        "model_name": result.model_name,
+        "model_version": result.model_version,
+        "feature_version": result.feature_version,
+        "best_of": result.best_of,
+        "market_features_used": False,
+        "side_symmetric": True,
+        "epistemic_sigma_z": result.epistemic_sigma_z,
+        "prob_risk_adjusted_p_low": result.p_low_a,
     }
-    weighted_components: list[tuple[str, float, float]] = []
-    if player_consensus is not None:
-        weighted_components.append(("player_ratings", 0.70, float(player_consensus)))
-    if team_consensus is not None:
-        weighted_components.append(("team_ratings", 0.20, float(team_consensus)))
-    if w20_prob is not None:
-        weighted_components.append(("w20", 0.10, float(w20_prob)))
-    if not weighted_components:
-        return 0.5, {**components, "fallback": "neutral_no_features"}
-    total_weight = sum(weight for _, weight, _ in weighted_components)
-    weights = {name: weight / total_weight for name, weight, _ in weighted_components}
-    raw = sum((weight / total_weight) * value for name, weight, value in weighted_components)
-    prob = max(0.03, min(0.97, raw))
-    return prob, {**components, "weights": weights, "raw_probability": raw, "clipped_probability": prob}
+    diag.update(result.diagnostics)
+    return result.prob_a, diag
+
+def bayesian_logit_shrinkage(
+    prob_model: float,
+    prob_market: float,
+    model_weight: float = 0.65,
+    eps: float = 1e-6,
+) -> float:
+    """Blend model and market probabilities in log-odds (logit) space.
+
+    Formula:
+        logit(p_hybrid) = model_weight * logit(p_model) + (1 - model_weight) * logit(p_market)
+
+    Guarantees:
+        P_hybrid(A, B) + P_hybrid(B, A) = 1.0 (strict side symmetry).
+    """
+    if not 0.0 <= model_weight <= 1.0:
+        raise ValueError(f"model_weight must be in [0, 1], got {model_weight}")
+    p_m = max(eps, min(1.0 - eps, float(prob_model)))
+    p_k = max(eps, min(1.0 - eps, float(prob_market)))
+    z_m = math.log(p_m / (1.0 - p_m))
+    z_k = math.log(p_k / (1.0 - p_k))
+    z_hybrid = model_weight * z_m + (1.0 - model_weight) * z_k
+    p_hybrid = 1.0 / (1.0 + math.exp(-z_hybrid))
+    return max(eps, min(1.0 - eps, p_hybrid))
 
 
 def generate_hybrid_predictions(
     *,
-    base_model_name: str = DEFAULT_MODEL_NAME,
-    base_model_version: str = DEFAULT_MODEL_VERSION,
-    alpha: float = DEFAULT_HYBRID_ALPHA,
-    temperature: float = DEFAULT_HYBRID_TEMPERATURE,
-    hybrid_model_name: str = DEFAULT_HYBRID_MODEL_NAME,
+    base_model_name: str | None = None,
+    base_model_version: str | None = None,
+    alpha: float | None = None,
+    temperature: float | None = None,
+    hybrid_model_name: str | None = None,
     hybrid_model_version: str | None = None,
+    blending_mode: str | None = None,
 ) -> list[dict[str, Any]]:
+    active = get_active_model()
+    active_hybrid = get_active_hybrid()
+    base_model_name = base_model_name or active.name
+    base_model_version = base_model_version or active.version
+    alpha = active_hybrid.alpha if alpha is None else alpha
+    temperature = active_hybrid.temperature if temperature is None else temperature
+    hybrid_model_name = hybrid_model_name or active_hybrid.hybrid_model_name
+    blending_mode = blending_mode or active_hybrid.blending_mode
     """Blend latest model probabilities with average no-vig bookmaker market.
 
     Formula mirrors the thesis financial experiments:
@@ -1218,17 +1301,8 @@ def generate_hybrid_predictions(
     if not 0 <= alpha <= 1:
         raise ValueError("alpha must be in [0, 1]")
     if hybrid_model_version is None:
-        hybrid_model_version = (
-            f"{base_model_version}-a{alpha:.2f}-t{temperature:.2f}"
-        )
-    model_artifact_id = register_hybrid_model(
-        base_model_name=base_model_name,
-        base_model_version=base_model_version,
-        alpha=alpha,
-        temperature=temperature,
-        model_name=hybrid_model_name,
-        version=hybrid_model_version,
-    )
+        hybrid_model_version = f"a{alpha:.2f}-t{temperature:.2f}"
+    model_artifact_id = register_hybrid_model(alpha=alpha, temperature=temperature, version=hybrid_model_version)
     rows = query_df(
         """
         WITH latest_predictions AS (
@@ -1301,18 +1375,24 @@ def generate_hybrid_predictions(
             model_prob = float(first["model_prob_a"])
             model_t = apply_temperature_probability(model_prob, temperature)
             market_prob = sum(market_probs) / len(market_probs)
-            hybrid_prob = max(0.001, min(0.999, alpha * model_t + (1.0 - alpha) * market_prob))
+            if blending_mode == "logit_shrinkage":
+                hybrid_prob = bayesian_logit_shrinkage(model_t, market_prob, model_weight=alpha)
+                formula_name = "bayesian_logit_shrinkage: alpha*logit(temp(model)) + (1-alpha)*logit(market)"
+            else:
+                hybrid_prob = max(0.001, min(0.999, alpha * model_t + (1.0 - alpha) * market_prob))
+                formula_name = "linear: alpha * temp(model) + (1-alpha) * average_no_vig_market"
             diagnostics = {
                 "base_model_name": base_model_name,
                 "base_model_version": base_model_version,
                 "base_prediction_id": int(first["base_prediction_id"]),
                 "alpha": alpha,
                 "temperature": temperature,
+                "blending_mode": blending_mode,
                 "model_prob_a": model_prob,
                 "model_prob_a_temperature": model_t,
                 "market_prob_a_avg_no_vig": market_prob,
                 "bookmakers_used": len(market_probs),
-                "formula": "alpha * temp(model) + (1-alpha) * average_no_vig_market",
+                "formula": formula_name,
             }
             cursor = connection.execute(
                 """
@@ -1347,53 +1427,38 @@ def generate_hybrid_predictions(
     return results
 
 
-def register_hybrid_model(
-    *,
-    base_model_name: str,
-    base_model_version: str,
-    alpha: float,
-    temperature: float,
-    model_name: str,
-    version: str,
-) -> int:
+def register_hybrid_model(*, alpha: float, temperature: float, version: str) -> int:
     feature_schema = {
-        "base_model": f"{base_model_name}/{base_model_version}",
+        "base_model": f"{DEFAULT_MODEL_NAME}/{DEFAULT_MODEL_VERSION}",
         "market_signal": "average no-vig probability from latest bookmaker odds",
         "formula": "alpha * temperature(base_model_probability) + (1-alpha) * market_probability",
         "historical_reference": "EXP-032/EXP-033/EXP-041 model-market hybrid experiments",
     }
     params = {"alpha": alpha, "temperature": temperature}
-    schema_json = json.dumps(feature_schema, ensure_ascii=False, sort_keys=True)
-    params_json = json.dumps(params, ensure_ascii=False, sort_keys=True)
     with transaction() as connection:
         connection.execute(
             """
             INSERT INTO model_artifacts(
                 model_name, model_version, feature_schema_json, model_params_json, status
             ) VALUES (?, ?, ?, ?, 'active')
-            ON CONFLICT(model_name, model_version) DO NOTHING
+            ON CONFLICT(model_name, model_version) DO UPDATE SET
+                feature_schema_json = excluded.feature_schema_json,
+                model_params_json = excluded.model_params_json,
+                status = 'active'
             """,
-            (model_name, version, schema_json, params_json),
+            (
+                DEFAULT_HYBRID_MODEL_NAME,
+                version,
+                json.dumps(feature_schema, ensure_ascii=False, sort_keys=True),
+                json.dumps(params, ensure_ascii=False, sort_keys=True),
+            ),
         )
         row = connection.execute(
-            """
-            SELECT id, feature_schema_json, model_params_json, status
-            FROM model_artifacts
-            WHERE model_name = ? AND model_version = ?
-            """,
-            (model_name, version),
+            "SELECT id FROM model_artifacts WHERE model_name = ? AND model_version = ?",
+            (DEFAULT_HYBRID_MODEL_NAME, version),
         ).fetchone()
-    if row is None:
-        raise RuntimeError("hybrid model artifact was not persisted")
-    if (
-        row["feature_schema_json"] != schema_json
-        or row["model_params_json"] != params_json
-        or row["status"] != "active"
-    ):
-        raise ValueError(
-            f"existing hybrid artifact {model_name}/{version} does not match its base-model contract"
-        )
-    return int(row["id"])
+        return int(row["id"])
+
 
 def generate_model_ev_signals(
     *,
@@ -1432,7 +1497,6 @@ def generate_model_ev_signals(
                  AND lo.scraped_at = os.scraped_at
         )
         SELECT lp.id AS prediction_id, lp.canonical_match_id, lp.prob_a, lp.prob_b,
-               lp.diagnostics_json,
                cm.team_a_name, cm.team_b_name, cm.normalized_team_a, cm.normalized_team_b,
                os.id AS odds_snapshot_id, os.bookmaker_id, b.name AS bookmaker,
                os.raw_team_a, os.raw_team_b, os.odds_a, os.odds_b, os.offer_url, os.scraped_at
@@ -1480,28 +1544,10 @@ def generate_model_ev_signals(
                 ("b", float(row["prob_b"]), odds_b, market_b),
             ]
             for side, prob, odds, market_prob in candidates:
-                bounds = conformal_bounds_for_side(
-                    row.get("diagnostics_json"), side
-                )
-                if bounds is None:
-                    continue
-                p_low, p_upper = bounds
-                # The contract's uncertainty threshold matches
-                # ConformalRiskGater; heuristic probability haircuts are not
-                # a substitute for a calibrated interval.
-                if p_upper - p_low > 0.08:
-                    continue
                 ev = expected_value(prob, odds, tax_rate)
-                ev_conformal = expected_value(p_low, odds, tax_rate)
-                if ev_conformal < min_ev:
+                if ev < min_ev:
                     continue
-                stake = fractional_kelly_stake(
-                    bankroll,
-                    p_low,
-                    odds,
-                    fraction=0.25,
-                    tax_rate=tax_rate,
-                )
+                stake = fractional_kelly_stake(bankroll, prob, odds, fraction=0.05, tax_rate=tax_rate)
                 cursor = connection.execute(
                     """
                     INSERT INTO model_ev_signals(
@@ -1518,7 +1564,7 @@ def generate_model_ev_signals(
                         odds,
                         prob,
                         market_prob,
-                        ev_conformal,
+                        ev,
                         tax_rate,
                         stake,
                     ),
@@ -1533,7 +1579,7 @@ def generate_model_ev_signals(
                         "odds": odds,
                         "model_prob": prob,
                         "market_prob": market_prob,
-                        "ev": ev_conformal,
+                        "ev": ev,
                         "stake_suggestion": stake,
                         "offer_url": row.get("offer_url"),
                     }

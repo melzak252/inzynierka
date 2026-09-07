@@ -35,6 +35,8 @@ export interface MatchBoardItem {
   recommended_bookmaker?: string | null;
   recommended_odds?: number | null;
   recommended_ev?: number | null;
+  has_props?: boolean;
+  prop_lines_count?: number;
   last_scraped_at: string | null;
 }
 
@@ -798,6 +800,122 @@ export interface ModelClvByHorizonResponse {
   bookmaker_breakdown?: BookmakerClvBreakdown[];
   odds_tier_breakdown?: OddsTierClvBreakdown[];
   skips: Record<string, number>;
+}
+
+export interface AuditOddsBracket {
+  bracket_label: string;
+  odds_min: number;
+  odds_max: number;
+  n_bets: number;
+  n_wins: number;
+  win_rate_pct: number;
+  avg_odds: number;
+  avg_model_prob_pct: number;
+  avg_market_prob_pct: number;
+  calibration_bias_pp: number;
+  expected_net_roi_pct: number;
+  realized_net_roi_pct: number;
+  realized_gross_roi_pct: number;
+  pnl_units: number;
+  avg_clv_pct: number;
+  status: 'RECOMMENDED' | 'QUARANTINE' | 'NORMAL';
+  flags: string[];
+}
+
+export interface AuditSeriesFormat {
+  format_label: string;
+  n_bets: number;
+  n_wins: number;
+  win_rate_pct: number;
+  avg_odds: number;
+  avg_model_prob_pct: number;
+  avg_market_prob_pct: number;
+  calibration_bias_pp: number;
+  realized_net_roi_pct: number;
+  pnl_units: number;
+}
+
+export interface AuditLeague {
+  league: string;
+  n_bets: number;
+  n_wins: number;
+  win_rate_pct: number;
+  avg_odds: number;
+  avg_model_prob_pct: number;
+  avg_market_prob_pct: number;
+  calibration_bias_pp: number;
+  realized_net_roi_pct: number;
+  pnl_units: number;
+}
+
+export interface AuditAnomaly {
+  match_id: number;
+  match_title: string;
+  bet_side: string;
+  team_selected: string;
+  date: string;
+  league: string;
+  best_of: string;
+  odds: number;
+  odds_close: number;
+  model_prob_pct: number;
+  market_prob_pct: number;
+  discrepancy_pp: number;
+  player_consensus_pct: number | null;
+  team_consensus_pct: number | null;
+  idi_pct: number | null;
+  won: boolean;
+  pnl_net: number;
+  reasons: string[];
+}
+
+export interface ModelProfitabilityAuditResponse {
+  model_key: string;
+  model_title: string;
+  parameters: {
+    tax_rate: number;
+    min_ev: number;
+    max_days_back: number;
+    timing_window: string;
+  };
+  overall: {
+    total_bets: number;
+    n_wins: number;
+    win_rate_pct: number;
+    avg_odds: number;
+    avg_model_prob_pct: number;
+    avg_market_prob_pct: number;
+    calibration_bias_pp: number;
+    realized_net_roi_pct: number;
+    realized_gross_roi_pct: number;
+    expected_net_roi_pct: number;
+    pnl_net_units: number;
+    max_drawdown_units: number;
+    brier_score: number;
+    market_brier_score: number;
+    log_loss: number;
+    market_log_loss: number;
+    positive_clv_pct: number;
+    avg_clv_pct: number;
+  } | null;
+  filter_impact: {
+    raw_bets: number;
+    raw_roi_net_pct: number;
+    raw_pnl_units: number;
+    quarantined_bets: number;
+    quarantined_roi_net_pct: number;
+    quarantined_pnl_units: number;
+    filtered_bets: number;
+    filtered_roi_net_pct: number;
+    filtered_pnl_units: number;
+    pnl_improvement_units: number;
+  } | null;
+  odds_brackets: AuditOddsBracket[];
+  series_formats: AuditSeriesFormat[];
+  leagues: AuditLeague[];
+  anomalies: AuditAnomaly[];
+  operational_rules: string[];
+  error?: string;
 }
 
 // Prediction & EV history timeline

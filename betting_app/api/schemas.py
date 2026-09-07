@@ -80,6 +80,9 @@ class MatchBoardItem(BaseModel):
     recommended_odds: float | None = None
     recommended_ev: float | None = None
 
+    has_props: bool = False
+    prop_lines_count: int = 0
+
     last_scraped_at: str | None = None
 
 class MatchBoardResponse(BaseModel):

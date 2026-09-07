@@ -27,15 +27,17 @@ router = APIRouter(prefix="/financial", tags=["financial"])
 TAX_RATE = 0.12
 BACKTEST_FEATURES_VERSION = "exp060-db-backfill-v1"
 LEGACY_FEATURES_VERSION = "thesis-exp039"
-THESIS_MODEL_NAME = thesis_inference.THESIS_MODEL_NAME
-THESIS_MODEL_VERSION = thesis_inference.THESIS_MODEL_VERSION
+from betting_app.core.models import get_thesis_hybrid, get_thesis_model
+
+THESIS_MODEL_NAME = get_thesis_model().name
+THESIS_MODEL_VERSION = get_thesis_model().version
 THESIS_BASE_ARTIFACT_VERSION = getattr(
     thesis_inference, "THESIS_BASE_ARTIFACT_VERSION", THESIS_MODEL_VERSION
 )
 THESIS_FEATURES_VERSION = getattr(
     thesis_inference, "THESIS_FEATURES_VERSION", LEGACY_FEATURES_VERSION
 )
-THESIS_HYBRID_MODEL_NAME = thesis_inference.THESIS_HYBRID_MODEL_NAME
+THESIS_HYBRID_MODEL_NAME = get_thesis_hybrid().hybrid_model_name
 THESIS_HYBRID_ALPHA = thesis_inference.THESIS_HYBRID_ALPHA
 THESIS_HYBRID_TEMPERATURE = thesis_inference.THESIS_HYBRID_TEMPERATURE
 THESIS_HYBRID_VERSION_SUFFIX = getattr(

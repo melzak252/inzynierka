@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import sys
 from datetime import datetime, UTC
 from sqlalchemy import text
@@ -21,6 +22,11 @@ from betting_app.services.prop_odds_service import (
     get_latest_prop_odds,
     get_prop_odds_timeline,
     save_prop_snapshots,
+)
+from betting_app.services.prop_scraper_service import (
+    PropScraperService,
+    SCRAPERS_REGISTRY,
+    run_all_prop_scrapers,
 )
 from betting_app.api.routers.props import get_cached_pace_tracker
 
@@ -152,19 +158,29 @@ def main():
     parser = argparse.ArgumentParser(description="Collect, ingest, and analyze proposition odds across bookmakers.")
     parser.add_argument("--match-id", type=int, help="Specific canonical match ID")
     parser.add_argument("--demo", action="store_true", help="Ingest realistic demo prop odds for upcoming matches")
+    parser.add_argument("--scrape", choices=list(SCRAPERS_REGISTRY.keys()), help="Scrape props from a specific bookmaker (sts, efortuna, betclic, superbet)")
+    parser.add_argument("--scrape-all", action="store_true", help="Scrape props from all supported Polish bookmakers")
+    parser.add_argument("--max-matches", type=int, default=10, help="Maximum matches to scrape per bookmaker (default: 10)")
+    parser.add_argument("--headless", action="store_true", default=True, help="Run browser in headless mode")
     parser.add_argument("--evaluate-only", action="store_true", help="Evaluate existing prop odds without new ingestion")
     parser.add_argument("--tax-rate", type=float, default=0.12, help="Betting tax rate (default: 0.12)")
-
     args = parser.parse_args()
 
-    if args.demo:
+    if args.scrape_all:
+        print("=== Running Prop Odds Scraping Across All Supported Polish Bookmakers ===")
+        results = asyncio.run(run_all_prop_scrapers(max_matches_per_bookmaker=args.max_matches, headless=args.headless))
+        print("Scraping results:", results)
+    elif args.scrape:
+        print(f"=== Running Prop Odds Scraping for {args.scrape.upper()} ===")
+        results = asyncio.run(run_all_prop_scrapers(bookmakers=[args.scrape], max_matches_per_bookmaker=args.max_matches, headless=args.headless))
+        print("Scraping results:", results)
+    elif args.demo:
         match_ids = run_demo_ingestion(canonical_match_id=args.match_id)
         for m_id in match_ids:
             print_match_analysis(m_id, tax_rate=args.tax_rate)
     elif args.match_id:
         print_match_analysis(args.match_id, tax_rate=args.tax_rate)
     else:
-        # Default: evaluate first upcoming match or show usage
         sess = get_session()
         try:
             m = sess.execute(text("SELECT id FROM canonical_matches WHERE status = 'upcoming' LIMIT 1")).fetchone()

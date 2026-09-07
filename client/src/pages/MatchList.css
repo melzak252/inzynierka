@@ -58,6 +58,34 @@
   box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.08);
 }
 
+.filter-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.84rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  margin-left: 0.5rem;
+}
+
+.filter-checkbox-label:hover {
+  background: rgba(168, 85, 247, 0.08);
+  border-color: rgba(168, 85, 247, 0.25);
+  color: var(--text);
+}
+
+.filter-checkbox-label.active {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: rgba(168, 85, 247, 0.45);
+  color: #d8b4fe;
+}
+
 .matches-grid {
   display: flex;
   flex-direction: column;
@@ -156,6 +184,22 @@
   padding: 0.18rem 0.55rem;
   margin-left: 0.5rem;
 }
+.props-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.18rem 0.55rem;
+  margin-left: 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  background: rgba(168, 85, 247, 0.16);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 
 .best-of-badge {
   color: #dbeafe;

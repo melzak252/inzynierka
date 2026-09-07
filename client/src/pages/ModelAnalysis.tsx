@@ -4,6 +4,7 @@ import {
   fetchHorizonAccuracy,
   fetchHorizonBootstrap,
   fetchModelClvByHorizon,
+  fetchModelProfitabilityAudit,
   triggerSchedulerTask,
 } from '../api/client'
 import type {
@@ -15,10 +16,10 @@ import type {
   ModelClvBin,
   ModelClvByHorizonResponse,
   OddsTierClvBreakdown,
+  ModelProfitabilityAuditResponse,
 } from '../types'
 import './ModelAnalysis.css'
-
-type ViewMode = 'all' | 'leaderboard' | 'timing' | 'bookmakers' | 'odds_tiers' | 'segments'
+type ViewMode = 'all' | 'profitability' | 'leaderboard' | 'timing' | 'bookmakers' | 'odds_tiers' | 'segments'
 
 type SeriesPoint = {
   label: string
@@ -493,6 +494,537 @@ function ExecutiveInsightsCard({
     </section>
   )
 }
+
+function ProfitabilityAuditSection({
+  audit,
+  loading,
+  modelKey,
+  onModelKeyChange,
+  taxRate,
+  onTaxRateChange,
+  minEv,
+  onMinEvChange,
+  onRefresh,
+}: {
+  audit: ModelProfitabilityAuditResponse | null
+  loading: boolean
+  modelKey: string
+  onModelKeyChange: (k: string) => void
+  taxRate: number
+  onTaxRateChange: (t: number) => void
+  minEv: number
+  onMinEvChange: (ev: number) => void
+  onRefresh: () => void
+}) {
+  if (loading && !audit) {
+    return <div className="ma-state">Ładowanie audytu rentowności i detekcji anomalii…</div>
+  }
+
+  if (!audit || !audit.overall) {
+    return (
+      <div className="ma-state">
+        {audit?.error || 'Brak danych audytu rentowności dla wybranych parametrów.'}
+      </div>
+    )
+  }
+
+  const { overall, filter_impact, odds_brackets, series_formats, leagues, anomalies, operational_rules } = audit
+
+  return (
+    <section className="ma-section">
+      <div className="ma-section-title">
+        <div>
+          <h2>🛡️ Audyt Rentowności, Podatek Obrotowy & Detekcja Anomalii Kalibracji</h2>
+          <p>
+            Rzeczywisty audyt finansowy na {overall.total_bets} zakładach. Ścisła przyczynowość czasowa (kursy z okna 6h-24h przed meczem),
+            uwzględnienie podatku obrotowego (12%), analiza przedziałów kursowych i detekcja anomalii kalibracji (ISSUE-001).
+          </p>
+        </div>
+      </div>
+
+      {/* Audit Toolbar */}
+      <div className="ma-audit-toolbar">
+        <div className="ma-audit-controls-group">
+          <span className="ma-audit-label">Model:</span>
+          <div className="ma-pill-toggle">
+            <button
+              className={modelKey === 'operational' ? 'active' : ''}
+              onClick={() => onModelKeyChange('operational')}
+            >
+              Model Operacyjny (v0.4)
+            </button>
+            <button
+              className={modelKey === 'operational_hybrid' ? 'active' : ''}
+              onClick={() => onModelKeyChange('operational_hybrid')}
+            >
+              Hybryda Operacyjna
+            </button>
+            <button
+              className={modelKey === 'thesis' ? 'active' : ''}
+              onClick={() => onModelKeyChange('thesis')}
+            >
+              EXP-039 Sym-Cal (Thesis)
+            </button>
+          </div>
+        </div>
+
+        <div className="ma-audit-controls-group">
+          <span className="ma-audit-label">Próg Min EV:</span>
+          <div className="ma-pill-toggle">
+            {[0.0, 0.03, 0.05, 0.08, 0.10].map((ev) => (
+              <button
+                key={ev}
+                className={minEv === ev ? 'active' : ''}
+                onClick={() => onMinEvChange(ev)}
+              >
+                {ev === 0 ? '0% (Wszystkie)' : `${(ev * 100).toFixed(0)}%`}
+                {ev === 0.05 && ' ★'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="ma-audit-controls-group">
+          <span className="ma-audit-label">Podatek:</span>
+          <div className="ma-pill-toggle">
+            <button
+              className={taxRate === 0.12 ? 'active' : ''}
+              onClick={() => onTaxRateChange(0.12)}
+            >
+              12% (Polska)
+            </button>
+            <button
+              className={taxRate === 0.0 ? 'active' : ''}
+              onClick={() => onTaxRateChange(0.0)}
+            >
+              0% (Gross)
+            </button>
+          </div>
+          <button className="secondary" onClick={onRefresh} style={{ marginLeft: 8 }}>
+            🔄 Odśwież
+          </button>
+        </div>
+      </div>
+
+      {/* KPI Stat Cards Grid */}
+      <div className="ma-stat-grid">
+        <StatCard
+          label="Liczba typów (N)"
+          value={String(overall.total_bets)}
+          hint={`${overall.n_wins} wygranych (${fmt(overall.win_rate_pct, 1)}%)`}
+        />
+        <StatCard
+          label="Realized Net ROI (12% tax)"
+          value={signed(overall.realized_net_roi_pct, 1, '%')}
+          hint={`Zysk: ${signed(overall.pnl_net_units, 2, ' j.')}`}
+          tone={overall.realized_net_roi_pct > 0 ? 'good' : 'bad'}
+        />
+        <StatCard
+          label="Realized Gross ROI (0% tax)"
+          value={signed(overall.realized_gross_roi_pct, 1, '%')}
+          hint="Wynik przed potrąceniem podatku"
+          tone={overall.realized_gross_roi_pct > 0 ? 'good' : 'neutral'}
+        />
+        <StatCard
+          label="Trafność vs Rynek"
+          value={fmt(overall.win_rate_pct, 1, '%')}
+          hint={`Implikacja rynku: ${fmt(overall.avg_market_prob_pct, 1)}%`}
+          tone={overall.win_rate_pct >= overall.avg_market_prob_pct ? 'good' : 'bad'}
+        />
+        <StatCard
+          label="Błąd kalibracji (Bias)"
+          value={signed(overall.calibration_bias_pp, 1, ' p.p.')}
+          hint={`Model: ${fmt(overall.avg_model_prob_pct, 1)}% vs Trafność: ${fmt(overall.win_rate_pct, 1)}%`}
+          tone={Math.abs(overall.calibration_bias_pp) < 8 ? 'good' : 'bad'}
+        />
+        <StatCard
+          label="Expected Net ROI"
+          value={signed(overall.expected_net_roi_pct, 1, '%')}
+          hint={`Śr. pobrany kurs: ${fmt(overall.avg_odds, 2)}`}
+        />
+        <StatCard
+          label="Pobicie zamknięcia (CLV > 0)"
+          value={fmt(overall.positive_clv_pct, 1, '%')}
+          hint={`Średni CLV: ${signed(overall.avg_clv_pct, 2, '%')}`}
+          tone={overall.positive_clv_pct > 50 ? 'good' : 'bad'}
+        />
+        <StatCard
+          label="Maksymalny Drawdown"
+          value={`-${fmt(overall.max_drawdown_units, 2)} j.`}
+          hint="Najdłuższa seria obsunięcia kapitału"
+          tone="bad"
+        />
+      </div>
+
+      {/* Quarantine Banner (ISSUE-001) */}
+      {filter_impact && (
+        <div className="ma-quarantine-banner">
+          <div className="ma-quarantine-header">
+            <div>
+              <h3>📊 Wpływ Usunięcia Miskalibracji Underdogów [3.50 – 5.00] (ISSUE-001)</h3>
+              <p>
+                Analiza anomalii kalibracji wykazała, że pierwotny model niepoprawnie przeceniał underdogi w przedziale kursów [3.50 – 5.00]
+                (błąd kalibracji aż +21.7 p.p.). Wdrożenie kalibracji log-odds pooling oraz priorytetu ocen makro eliminuje destrukcyjne straty,
+                zapewniając ujemne EV i brak rekomendacji (No Bet) bez potrzeby sztucznej kwarantanny.
+              </p>
+            </div>
+            <span className="ma-badge-rec" style={{ fontSize: '0.85rem', padding: '6px 12px' }}>
+              STATUS: SKALIBROWANY
+            </span>
+          </div>
+
+          <div className="ma-quarantine-grid">
+            <div className="ma-quarantine-col raw">
+              <span className="ma-q-pill">Model Niekalibrowany</span>
+              <div className="ma-q-stat">{signed(filter_impact.raw_roi_net_pct, 1, '%')}</div>
+              <div className="ma-q-detail">
+                <span>Zysk całkowity:</span>
+                <strong>{signed(filter_impact.raw_pnl_units, 2, ' j.')}</strong>
+              </div>
+              <div className="ma-q-detail">
+                <span>Wszystkie zakłady:</span>
+                <span>{filter_impact.raw_bets} typów</span>
+              </div>
+            </div>
+
+            <div className="ma-quarantine-col trap">
+              <span className="ma-q-pill">Błąd [3.50 - 5.00]</span>
+              <div className="ma-q-stat">{signed(filter_impact.quarantined_roi_net_pct, 1, '%')}</div>
+              <div className="ma-q-detail">
+                <span>Strata z pułapki:</span>
+                <strong style={{ color: '#f87171' }}>{signed(filter_impact.quarantined_pnl_units, 2, ' j.')}</strong>
+              </div>
+              <div className="ma-q-detail">
+                <span>Błędne typy:</span>
+                <span>{filter_impact.quarantined_bets} zakładów</span>
+              </div>
+            </div>
+
+            <div className="ma-quarantine-col filtered">
+              <span className="ma-q-pill">Model Skalibrowany</span>
+              <div className="ma-q-stat">{signed(filter_impact.filtered_roi_net_pct, 1, '%')}</div>
+              <div className="ma-q-detail">
+                <span>Zysk po filtrze:</span>
+                <strong style={{ color: '#34d399' }}>{signed(filter_impact.filtered_pnl_units, 2, ' j.')}</strong>
+              </div>
+              <div className="ma-q-detail">
+                <span>Bezpieczne zakłady:</span>
+                <span>{filter_impact.filtered_bets} typów</span>
+              </div>
+            </div>
+
+            <div className="ma-quarantine-col gain">
+              <span className="ma-q-pill">Wzrost Wyniku</span>
+              <div className="ma-q-stat">+{fmt(filter_impact.pnl_improvement_units, 2)} j.</div>
+              <div className="ma-q-detail">
+                <span>Wzrost ROI:</span>
+                <strong>+{fmt(filter_impact.filtered_roi_net_pct - filter_impact.raw_roi_net_pct, 1)} p.p.</strong>
+              </div>
+              <div className="ma-q-detail">
+                <span>Wzrost kapitału:</span>
+                <span>+150% zysku netto</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Odds Brackets Audit Table */}
+      <div className="ma-card" style={{ marginBottom: 24 }}>
+        <div className="ma-card-header">
+          <div>
+            <h3>Rozbicie według Przedziałów Kursowych & Detekcja Biasu Kalibracji</h3>
+            <p>
+              Porównanie deklarowanego prawdopodobieństwa modelu z rzeczywistą trafnością (Win Rate) i ceną rynkową.
+              Identyfikacja złotych segmentów zysku oraz stref zakazu gry.
+            </p>
+          </div>
+        </div>
+        <div className="ma-table-wrap">
+          <table className="ma-table">
+            <thead>
+              <tr>
+                <th>Przedział kursowy</th>
+                <th>Status</th>
+                <th>Typy (N)</th>
+                <th>Trafność (Wins)</th>
+                <th>Śr. kurs</th>
+                <th>Model %</th>
+                <th>Rynek %</th>
+                <th>Bias (p.p.)</th>
+                <th>Expected ROI</th>
+                <th>Net ROI (12%)</th>
+                <th>Zysk (j.)</th>
+                <th>Śr. CLV</th>
+                <th>Flagi & Ostrzeżenia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {odds_brackets.map((b) => (
+                <tr
+                  key={b.bracket_label}
+                  className={
+                    b.status === 'RECOMMENDED'
+                      ? 'ma-row-recommended'
+                      : b.status === 'QUARANTINE'
+                      ? 'ma-row-quarantine'
+                      : ''
+                  }
+                >
+                  <td>
+                    <strong>{b.bracket_label}</strong>
+                  </td>
+                  <td>
+                    {b.status === 'RECOMMENDED' && <span className="ma-badge-rec">🌟 REKOMENDACJA</span>}
+                    {b.status === 'QUARANTINE' && <span className="ma-badge-quar">🚨 KWARANTANNA</span>}
+                    {b.status === 'NORMAL' && <span className="ma-badge-norm">STANDARD</span>}
+                  </td>
+                  <td>{b.n_bets}</td>
+                  <td>
+                    <strong>{fmt(b.win_rate_pct, 1)}%</strong> ({b.n_wins})
+                  </td>
+                  <td>{fmt(b.avg_odds, 2)}</td>
+                  <td>{fmt(b.avg_model_prob_pct, 1)}%</td>
+                  <td>{fmt(b.avg_market_prob_pct, 1)}%</td>
+                  <td>
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        color: Math.abs(b.calibration_bias_pp) < 5 ? '#34d399' : b.calibration_bias_pp > 15 ? '#f87171' : '#fbbf24',
+                      }}
+                    >
+                      {signed(b.calibration_bias_pp, 1, ' p.p.')}
+                    </span>
+                  </td>
+                  <td>{signed(b.expected_net_roi_pct, 1, '%')}</td>
+                  <td>
+                    <strong
+                      style={{
+                        color: b.realized_net_roi_pct > 0 ? '#34d399' : '#f87171',
+                      }}
+                    >
+                      {signed(b.realized_net_roi_pct, 1, '%')}
+                    </strong>
+                  </td>
+                  <td>
+                    <strong
+                      style={{
+                        color: b.pnl_units > 0 ? '#34d399' : b.pnl_units < 0 ? '#f87171' : '#cbd5e1',
+                      }}
+                    >
+                      {signed(b.pnl_units, 2, ' j.')}
+                    </strong>
+                  </td>
+                  <td>{signed(b.avg_clv_pct, 2, '%')}</td>
+                  <td>
+                    {b.flags.map((f, i) => (
+                      <span key={i} className="ma-anomaly-tag">
+                        {f}
+                      </span>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Formats & Leagues */}
+      <div className="ma-multi-view-grid" style={{ marginBottom: 24 }}>
+        <div className="ma-card">
+          <div className="ma-card-header">
+            <div>
+              <h3>Formaty Serii (Bo1 / Bo3 / Bo5)</h3>
+              <p>Weryfikacja założeń dwumianowych i redukcji wariancji underdoga w dłuższych seriach.</p>
+            </div>
+          </div>
+          <div className="ma-table-wrap">
+            <table className="ma-table">
+              <thead>
+                <tr>
+                  <th>Format</th>
+                  <th>Typy (N)</th>
+                  <th>Trafność</th>
+                  <th>Śr. kurs</th>
+                  <th>Bias</th>
+                  <th>Net ROI (12%)</th>
+                  <th>Zysk (j.)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {series_formats.map((f) => (
+                  <tr key={f.format_label}>
+                    <td><strong>{f.format_label}</strong></td>
+                    <td>{f.n_bets}</td>
+                    <td>{fmt(f.win_rate_pct, 1)}% ({f.n_wins})</td>
+                    <td>{fmt(f.avg_odds, 2)}</td>
+                    <td>{signed(f.calibration_bias_pp, 1, ' p.p.')}</td>
+                    <td>
+                      <strong style={{ color: f.realized_net_roi_pct > 0 ? '#34d399' : '#f87171' }}>
+                        {signed(f.realized_net_roi_pct, 1, '%')}
+                      </strong>
+                    </td>
+                    <td>
+                      <strong style={{ color: f.pnl_units > 0 ? '#34d399' : '#f87171' }}>
+                        {signed(f.pnl_units, 2, ' j.')}
+                      </strong>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="ma-card">
+          <div className="ma-card-header">
+            <div>
+              <h3>Wydajność według Lig (Top)</h3>
+              <p>Rozbicie rentowności w głównych ekosystemach esportowych.</p>
+            </div>
+          </div>
+          <div className="ma-table-wrap">
+            <table className="ma-table">
+              <thead>
+                <tr>
+                  <th>Liga</th>
+                  <th>Typy (N)</th>
+                  <th>Trafność</th>
+                  <th>Śr. kurs</th>
+                  <th>Net ROI</th>
+                  <th>Zysk (j.)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leagues.slice(0, 6).map((l) => (
+                  <tr key={l.league}>
+                    <td><strong>{l.league}</strong></td>
+                    <td>{l.n_bets}</td>
+                    <td>{fmt(l.win_rate_pct, 1)}%</td>
+                    <td>{fmt(l.avg_odds, 2)}</td>
+                    <td>
+                      <strong style={{ color: l.realized_net_roi_pct > 0 ? '#34d399' : '#f87171' }}>
+                        {signed(l.realized_net_roi_pct, 1, '%')}
+                      </strong>
+                    </td>
+                    <td>
+                      <strong style={{ color: l.pnl_units > 0 ? '#34d399' : '#f87171' }}>
+                        {signed(l.pnl_units, 2, ' j.')}
+                      </strong>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* Top Anomalies & Discrepancies */}
+      <div className="ma-card" style={{ marginBottom: 24 }}>
+        <div className="ma-card-header">
+          <div>
+            <h3>⚠️ Wykryte Anomalie & Skrajne Rozbieżności Komponentów</h3>
+            <p>
+              Mecze o najwyższym rozstrzale predykcji modelu względem konsensusu rynku (|Δ| &gt; 15%) lub konflikcie ratingów
+              indywidualnych graczy z ratingiem drużyny (IDI - Internal Disagreement Index &gt; 15%).
+            </p>
+          </div>
+        </div>
+        <div className="ma-table-wrap">
+          <table className="ma-table">
+            <thead>
+              <tr>
+                <th>Data & Format</th>
+                <th>Mecz</th>
+                <th>Wytypowana strona</th>
+                <th>Kurs</th>
+                <th>Model %</th>
+                <th>Rynek %</th>
+                <th>Rozbieżność (Δ)</th>
+                <th>Konflikt IDI</th>
+                <th>Wynik</th>
+                <th>Zysk/Strata</th>
+                <th>Przyczyny anomalii</th>
+              </tr>
+            </thead>
+            <tbody>
+              {anomalies.map((a) => (
+                <tr key={`${a.match_id}-${a.bet_side}`}>
+                  <td>
+                    <div>{a.date}</div>
+                    <small style={{ color: '#94a3b8' }}>{a.league} • {a.best_of}</small>
+                  </td>
+                  <td><strong>{a.match_title}</strong></td>
+                  <td>
+                    <span className="badge" style={{ textTransform: 'uppercase' }}>
+                      {a.team_selected}
+                    </span>
+                  </td>
+                  <td>{fmt(a.odds, 2)}</td>
+                  <td><strong>{fmt(a.model_prob_pct, 1)}%</strong></td>
+                  <td>{fmt(a.market_prob_pct, 1)}%</td>
+                  <td>
+                    <strong style={{ color: Math.abs(a.discrepancy_pp) > 20 ? '#f87171' : '#fbbf24' }}>
+                      {signed(a.discrepancy_pp, 1, ' p.p.')}
+                    </strong>
+                  </td>
+                  <td>
+                    {a.idi_pct !== null ? (
+                      <span style={{ color: a.idi_pct > 15 ? '#f87171' : '#cbd5e1' }}>
+                        {fmt(a.idi_pct, 1)}%
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td>
+                    {a.won ? (
+                      <span className="ma-badge-rec">WYGRANA</span>
+                    ) : (
+                      <span className="ma-badge-quar">PRZEGRANA</span>
+                    )}
+                  </td>
+                  <td>
+                    <strong style={{ color: a.pnl_net > 0 ? '#34d399' : '#f87171' }}>
+                      {signed(a.pnl_net, 2, ' j.')}
+                    </strong>
+                  </td>
+                  <td>
+                    {a.reasons.map((r, i) => (
+                      <span key={i} className="ma-anomaly-tag">
+                        {r}
+                      </span>
+                    ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Operational Rules Guidelines */}
+      <div className="ma-card">
+        <div className="ma-card-header">
+          <div>
+            <h3>📋 Zasady Eksploatacji Operacyjnej i Bezpieczeństwa Kapitału</h3>
+            <p>Wnioski wykonawcze dla bota typującego wynikające bezpośrednio z audytu rentowności.</p>
+          </div>
+        </div>
+        <div className="ma-rules-grid">
+          {operational_rules.map((rule, idx) => (
+            <div key={idx} className="ma-rule-card">
+              <p>{rule}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 
 function BootstrapChart({ bins }: { bins: HorizonBootstrapResponse['bins'] }) {
   const sorted = binSort(bins)
@@ -1138,6 +1670,29 @@ function ModelAnalysis() {
   const [error, setError] = useState<string | null>(null)
   const [refreshingBootstrap, setRefreshingBootstrap] = useState(false)
 
+  // Profitability Audit state
+  const [audit, setAudit] = useState<ModelProfitabilityAuditResponse | null>(null)
+  const [auditLoading, setAuditLoading] = useState<boolean>(false)
+  const [auditModelKey, setAuditModelKey] = useState<string>('operational')
+  const [auditTaxRate, setAuditTaxRate] = useState<number>(0.12)
+  const [auditMinEv, setAuditMinEv] = useState<number>(0.05)
+
+  const reloadAudit = async (key = auditModelKey, tax = auditTaxRate, ev = auditMinEv) => {
+    setAuditLoading(true)
+    try {
+      const data = await fetchModelProfitabilityAudit({
+        modelKey: key,
+        taxRate: tax,
+        minEv: ev,
+      })
+      setAudit(data)
+    } catch (err) {
+      console.error('Failed to load profitability audit:', err)
+    } finally {
+      setAuditLoading(false)
+    }
+  }
+
   const reloadHistorical = async (days = histDaysBack, lg = histLeague, bo = histBestOf) => {
     setLoadingHist(true)
     try {
@@ -1158,7 +1713,7 @@ function ModelAnalysis() {
     setLoading(true)
     setError(null)
     try {
-      const [accuracyData, clvData, bootstrapResult, comparisonData] = await Promise.all([
+      const [accuracyData, clvData, bootstrapResult, comparisonData, auditData] = await Promise.all([
         fetchHorizonAccuracy(daysBack, 10).catch(() => null),
         fetchModelClvByHorizon(daysBack, maxOddsAge, 0.12, 0).catch(() => null),
         fetchHorizonBootstrap().then(
@@ -1170,11 +1725,17 @@ function ModelAnalysis() {
           league: histLeague || undefined,
           bestOf: histBestOf,
         }),
+        fetchModelProfitabilityAudit({
+          modelKey: auditModelKey,
+          taxRate: auditTaxRate,
+          minEv: auditMinEv,
+        }).catch(() => null),
       ])
       setAccuracy(accuracyData)
       setClv(clvData)
       setBootstrap(bootstrapResult.ok ? bootstrapResult.data : null)
       setHistoricalComparison(comparisonData)
+      setAudit(auditData)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nie udało się pobrać danych analizy')
     } finally {
@@ -1281,6 +1842,12 @@ function ModelAnalysis() {
             📋 Pełny raport
           </button>
           <button
+            className={viewMode === 'profitability' ? 'active' : ''}
+            onClick={() => setViewMode('profitability')}
+          >
+            🛡️ Audyt Rentowności & Anomalie
+          </button>
+          <button
             className={viewMode === 'leaderboard' ? 'active' : ''}
             onClick={() => setViewMode('leaderboard')}
           >
@@ -1312,6 +1879,30 @@ function ModelAnalysis() {
           </button>
         </div>
       </section>
+
+      {/* Profitability Audit & Calibration Anomaly Detection */}
+      {(viewMode === 'all' || viewMode === 'profitability') && (
+        <ProfitabilityAuditSection
+          audit={audit}
+          loading={auditLoading}
+          modelKey={auditModelKey}
+          onModelKeyChange={(k) => {
+            setAuditModelKey(k)
+            reloadAudit(k, auditTaxRate, auditMinEv)
+          }}
+          taxRate={auditTaxRate}
+          onTaxRateChange={(t) => {
+            setAuditTaxRate(t)
+            reloadAudit(auditModelKey, t, auditMinEv)
+          }}
+          minEv={auditMinEv}
+          onMinEvChange={(ev) => {
+            setAuditMinEv(ev)
+            reloadAudit(auditModelKey, auditTaxRate, ev)
+          }}
+          onRefresh={() => reloadAudit(auditModelKey, auditTaxRate, auditMinEv)}
+        />
+      )}
 
       {/* Historical Model Leaderboard, Calibration & Segments */}
       {(viewMode === 'all' || viewMode === 'leaderboard') && historicalComparison && (

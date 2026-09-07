@@ -1339,6 +1339,12 @@ section h2 {
   border: 1px solid #ff9800;
 }
 
+.recommendation-section.quarantine-card {
+  background: linear-gradient(135deg, rgba(60, 20, 20, 0.95) 0%, rgba(35, 15, 15, 0.95) 100%);
+  border: 1.5px solid #ff4d4d;
+  box-shadow: 0 4px 24px rgba(255, 77, 77, 0.2);
+}
+
 .recommendation-header {
   display: flex;
   justify-content: space-between;
@@ -1377,6 +1383,12 @@ section h2 {
   border: 1px solid rgba(255, 152, 0, 0.4);
 }
 
+.recommendation-badge.quarantine-badge {
+  background: rgba(255, 77, 77, 0.2);
+  color: #ff6b6b;
+  border: 1px solid rgba(255, 77, 77, 0.4);
+}
+
 .recommendation-summary-pill {
   font-size: 0.82rem;
   padding: 0.25rem 0.75rem;
@@ -1392,6 +1404,13 @@ section h2 {
 .recommendation-summary-pill.neutral {
   background: rgba(255, 255, 255, 0.05);
   color: #8888aa;
+}
+
+.recommendation-summary-pill.quarantine-pill {
+  background: rgba(255, 77, 77, 0.15);
+  color: #ff9999;
+  border: 1px solid rgba(255, 77, 77, 0.3);
+  font-weight: 600;
 }
 
 .recommendation-main-grid {

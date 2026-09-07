@@ -152,6 +152,24 @@ def scrape_all() -> dict:
     }
 
 
+def scrape_prop_odds() -> dict:
+    """Scrape proposition odds across supported bookmakers (IDEA-018)."""
+    logger.info("Starting proposition odds scraping cycle")
+    start = datetime.now(UTC)
+    cleanup = cleanup_browser_leftovers(min_age_seconds=900)
+    if cleanup["processes_killed"] or cleanup["temp_dirs_removed"]:
+        logger.warning("Cleaned stale browser leftovers before prop scraping: %s", cleanup)
+
+    success = _run_module("betting_app.scripts.collect_prop_odds", ["--scrape-all"], timeout=600)
+    duration = (datetime.now(UTC) - start).total_seconds()
+    logger.info(f"Proposition odds scrape: {'OK' if success else 'FAIL'} ({duration:.1f}s)")
+    return {
+        "task": "scrape_prop_odds",
+        "success": success,
+        "duration_s": duration,
+        "timestamp": start.isoformat(),
+    }
+
 def cleanup_browser_artifacts(max_age_minutes: int = 15) -> dict:
     """Remove stale browser processes/temp dirs left by interrupted scrapes."""
 

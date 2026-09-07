@@ -18,27 +18,39 @@ from betting_app.services.thesis_inference_service import (
     generate_thesis_hybrid_predictions,
     predict_upcoming_with_thesis_model,
 )
+from betting_app.core.models import (
+    get_active_hybrid,
+    get_active_model,
+    get_model,
+    list_registered_models,
+    set_active_model,
+)
 from betting_app.services.upcoming_inference_service import (
-    DEFAULT_FEATURE_VERSION,
-    DEFAULT_HYBRID_ALPHA,
-    DEFAULT_HYBRID_MODEL_NAME,
-    DEFAULT_HYBRID_TEMPERATURE,
-    DEFAULT_MODEL_NAME,
-    DEFAULT_MODEL_VERSION,
-    DEFAULT_RATINGS_VERSION,
-    DEFAULT_W20_VERSION,
     build_all_upcoming_features,
     generate_hybrid_predictions,
     generate_model_ev_signals,
     predict_all_upcoming,
 )
 
+DEFAULT_FEATURE_VERSION = get_active_model().feature_version
+DEFAULT_RATINGS_VERSION = get_active_model().ratings_version
+DEFAULT_W20_VERSION = get_active_model().w20_version
+DEFAULT_MODEL_NAME = get_active_model().name
+DEFAULT_MODEL_VERSION = get_active_model().version
+DEFAULT_HYBRID_MODEL_NAME = get_active_hybrid().hybrid_model_name
+DEFAULT_HYBRID_ALPHA = get_active_hybrid().alpha
+DEFAULT_HYBRID_TEMPERATURE = get_active_hybrid().temperature
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--feature-version", default=DEFAULT_FEATURE_VERSION)
     parser.add_argument("--ratings-version", default=DEFAULT_RATINGS_VERSION)
     parser.add_argument("--w20-version", default=DEFAULT_W20_VERSION)
+    parser.add_argument(
+        "--model",
+        default=None,
+        help="Specific model to run (e.g. EXP-081, EXP-078, EXP-039). Defaults to active operational model.",
+    )
     parser.add_argument(
         "--operational-hybrid",
         action="store_true",
@@ -78,6 +90,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.model:
+        spec = get_model(args.model)
+        if spec is None:
+            valid_names = [m["name"] for m in list_registered_models()]
+            parser.error(f"Unknown model '{args.model}'. Registered models: {valid_names}")
+        set_active_model(spec)
+        print(f"Selected model: {spec.name} ({spec.version})")
     init_db()
     features = build_all_upcoming_features(
         feature_version=args.feature_version,
@@ -96,26 +115,28 @@ def main() -> None:
     )
     print(f"Operational predictions: {len(operational_preds)}")
 
-    ev_model_name = DEFAULT_MODEL_NAME
-    ev_model_version = DEFAULT_MODEL_VERSION
+    active_model = get_active_model()
+    active_hybrid = get_active_hybrid()
+    ev_model_name = active_model.name
+    ev_model_version = active_model.version
     if args.operational_hybrid:
-        operational_hybrid_version = (
-            f"{DEFAULT_MODEL_VERSION}-a{DEFAULT_HYBRID_ALPHA:.2f}"
-            f"-t{DEFAULT_HYBRID_TEMPERATURE:.2f}"
-        )
+        operational_hybrid_version = active_hybrid.hybrid_model_version
         operational_hybrid_preds = generate_hybrid_predictions(
-            alpha=DEFAULT_HYBRID_ALPHA,
-            temperature=DEFAULT_HYBRID_TEMPERATURE,
+            base_model_name=active_model.name,
+            base_model_version=active_model.version,
+            alpha=active_hybrid.alpha,
+            temperature=active_hybrid.temperature,
+            hybrid_model_name=active_hybrid.hybrid_model_name,
             hybrid_model_version=operational_hybrid_version,
+            blending_mode=active_hybrid.blending_mode,
         )
         print(
             "Operational hybrid predictions: "
             f"{len(operational_hybrid_preds)} | "
-            f"alpha={DEFAULT_HYBRID_ALPHA:.2f} T={DEFAULT_HYBRID_TEMPERATURE:.2f}"
+            f"alpha={active_hybrid.alpha:.2f} T={active_hybrid.temperature:.2f}"
         )
-        ev_model_name = DEFAULT_HYBRID_MODEL_NAME
+        ev_model_name = active_hybrid.hybrid_model_name
         ev_model_version = operational_hybrid_version
-
     if args.thesis:
         thesis_preds = predict_upcoming_with_thesis_model(
             ratings_version=args.ratings_version,

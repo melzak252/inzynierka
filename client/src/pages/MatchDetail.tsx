@@ -942,7 +942,9 @@ export default function MatchDetail() {
             {match.recommendation.threshold_info && (
               <div
                 className={`recommendation-summary-pill ${
-                  match.recommendation.has_value ? 'highlight' : 'neutral'
+                  match.recommendation.has_value
+                    ? 'highlight'
+                    : 'neutral'
                 }`}
               >
                 {match.recommendation.threshold_info}

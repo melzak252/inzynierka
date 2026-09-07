@@ -11,7 +11,20 @@ import math
 import re
 from typing import Any, Literal
 
-MarketType = Literal["total_kills", "team_kills", "handicap_kills", "duration"]
+MarketType = Literal[
+    "total_kills",
+    "team_kills",
+    "handicap_kills",
+    "duration",
+    "map_winner",
+    "first_blood",
+    "first_dragon",
+    "first_baron",
+    "first_tower",
+    "total_maps",
+    "map_handicap",
+    "race_to_kills",
+]
 
 LINE_RE = re.compile(r"([+-]?\d+(?:[.,]\d+)?)")
 
@@ -74,6 +87,27 @@ class ParsedMatchProps:
 
     def get_duration_lines(self) -> list[ParsedPropLine]:
         return [l for l in self.lines if l.market_type == "duration"]
+
+    def get_first_blood_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "first_blood"]
+
+    def get_first_dragon_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "first_dragon"]
+
+    def get_first_baron_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "first_baron"]
+
+    def get_first_tower_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "first_tower"]
+
+    def get_map_winner_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "map_winner"]
+
+    def get_total_maps_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "total_maps"]
+
+    def get_map_handicap_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "map_handicap"]
 
 
 def extract_line_number(text: str) -> float | None:
