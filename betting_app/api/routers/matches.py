@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from betting_app.api.deps import get_db, query_df, query_one
+from betting_app.services.canonical_match_service import canonical_team_key
 from betting_app.services.current_roster_service import clean_player_name
 from betting_app.api.schemas import (
     BettingRecommendation,
@@ -1812,6 +1813,122 @@ def get_parlay_recommendations(
         limit=limit,
     )
 
+def _load_historical_match_rosters(
+    db: Any,
+    match_id: int,
+    team_a_name: str | None,
+    team_b_name: str | None,
+) -> tuple[RosterInfo | None, RosterInfo | None]:
+    mapping = query_df(
+        db,
+        "SELECT golgg_match_id FROM golgg_match_mappings WHERE canonical_match_id = :mid LIMIT 1",
+        {"mid": match_id},
+    )
+    if not mapping or not mapping[0].get("golgg_match_id"):
+        return None, None
+
+    golgg_match_id = str(mapping[0]["golgg_match_id"])
+    game_players = query_df(
+        db,
+        """
+        SELECT game_id, team_name, role, player_id, player_name, champion_name
+        FROM golgg_game_players
+        WHERE match_id = :mid
+        ORDER BY CAST(game_id AS INTEGER) ASC, role ASC
+        """,
+        {"mid": golgg_match_id},
+    )
+    if not game_players:
+        return None, None
+
+    first_game_id = game_players[0].get("game_id")
+    lineup_rows = [r for r in game_players if r.get("game_id") == first_game_id]
+    if not lineup_rows:
+        lineup_rows = game_players[:10]
+
+    key_a = canonical_team_key(team_a_name) if team_a_name else ""
+    key_b = canonical_team_key(team_b_name) if team_b_name else ""
+
+    distinct_teams = list(dict.fromkeys(r.get("team_name") for r in lineup_rows if r.get("team_name")))
+    team_a_actual = distinct_teams[0] if len(distinct_teams) > 0 else (team_a_name or "")
+    team_b_actual = distinct_teams[1] if len(distinct_teams) > 1 else (team_b_name or "")
+
+    if len(distinct_teams) >= 2:
+        k0 = canonical_team_key(distinct_teams[0])
+        k1 = canonical_team_key(distinct_teams[1])
+        if k0 == key_b or k1 == key_a:
+            team_a_actual, team_b_actual = distinct_teams[1], distinct_teams[0]
+
+    all_player_ids = [str(r.get("player_id")) for r in lineup_rows if r.get("player_id")]
+    ratings_by_pid: dict[str, dict[str, Any]] = {}
+    if all_player_ids:
+        placeholders = ", ".join(f":p{i}" for i in range(len(all_player_ids)))
+        params = {f"p{i}": pid for i, pid in enumerate(all_player_ids)}
+        rating_rows = query_df(
+            db,
+            f"""
+            SELECT normalized_entity_name, rating_system, rating_value, rd, games_played
+            FROM entity_ratings
+            WHERE entity_type = 'PLAYER'
+              AND normalized_entity_name IN ({placeholders})
+              AND ratings_version = 'v2_composite'
+            """,
+            params,
+        )
+        for rr in rating_rows:
+            p_id = str(rr.get("normalized_entity_name"))
+            if p_id not in ratings_by_pid:
+                ratings_by_pid[p_id] = {}
+            ratings_by_pid[p_id][str(rr.get("rating_system"))] = rr
+
+    players_a: list[RosterPlayer] = []
+    players_b: list[RosterPlayer] = []
+
+    for r in lineup_rows:
+        tname = r.get("team_name")
+        p_id = str(r.get("player_id") or "")
+        p_ratings = ratings_by_pid.get(p_id, {})
+        gl = p_ratings.get("Glicko", {})
+        elo = p_ratings.get("Elo", {})
+        ts = p_ratings.get("TrueSkill", {})
+        gp = none_or_float(gl.get("games_played") or elo.get("games_played"))
+        rp = RosterPlayer(
+            player_id=p_id or None,
+            player_name=clean_player_name(r.get("player_name") or p_id),
+            role=r.get("role"),
+            champion_name=r.get("champion_name"),
+            elo_rating=_finite_float(elo.get("rating_value")),
+            glicko_rating=_finite_float(gl.get("rating_value")),
+            glicko_rd=_finite_float(gl.get("rd")),
+            trueskill_rating=_finite_float(ts.get("rating_value")),
+            rating_uncertainty=_finite_float(ts.get("sigma")),
+            games_played=int(gp) if gp is not None else None,
+        )
+        if tname == team_a_actual:
+            players_a.append(rp)
+        else:
+            players_b.append(rp)
+
+    def make_roster_info(p_list: list[RosterPlayer], t_name: Any) -> RosterInfo:
+        gl_values = [p.glicko_rating for p in p_list if p.glicko_rating is not None]
+        elo_values = [p.elo_rating for p in p_list if p.elo_rating is not None]
+        rd_values = [p.glicko_rd for p in p_list if p.glicko_rd is not None]
+        return RosterInfo(
+            team_name=t_name,
+            source_match_id=golgg_match_id,
+            source_tournament="GOL.GG match history",
+            roster_source="golgg_match",
+            avg_elo=sum(elo_values) / len(elo_values) if elo_values else None,
+            avg_glicko=sum(gl_values) / len(gl_values) if gl_values else None,
+            avg_glicko_rd=sum(rd_values) / len(rd_values) if rd_values else None,
+            players_with_rating=len(gl_values),
+            players=p_list,
+        )
+
+    roster_a_out = make_roster_info(players_a, team_a_name) if players_a else None
+    roster_b_out = make_roster_info(players_b, team_b_name) if players_b else None
+    return roster_a_out, roster_b_out
+
 # ── GET /matches/{id} ───────────────────────────────────────────────────────
 
 
@@ -2200,7 +2317,8 @@ def match_detail(
 
                     gp = none_or_float(gl.get("games_played") or elo.get("games_played"))
                     canonical_ign = gl.get("entity_name") or elo.get("entity_name") or ts.get("entity_name")
-                    display_player_name = clean_player_name(canonical_ign or pl.get("player_name") or pid)
+                    ign_candidate = str(pl.get("player_id")) if pl.get("player_id") and not str(pl.get("player_id")).isdigit() else None
+                    display_player_name = clean_player_name(canonical_ign or ign_candidate or pl.get("player_name") or pid)
                     resolved_pid = str(gl.get("player_id") or elo.get("player_id") or pid)
 
                     players.append(RosterPlayer(
@@ -2263,6 +2381,11 @@ def match_detail(
         roster_a = manual_roster_info("a", m.get("team_a_name"))
     if roster_b is None and roster_b_is_manual:
         roster_b = manual_roster_info("b", m.get("team_b_name"))
+    if roster_a is None and roster_b is None and not has_unmapped_teams:
+        hist_a, hist_b = _load_historical_match_rosters(db, match_id, m.get("team_a_name"), m.get("team_b_name"))
+        if hist_a is not None or hist_b is not None:
+            roster_a = hist_a
+            roster_b = hist_b
     operational_pred = next((p for p in preds if p.get("model_name") == DEFAULT_MODEL_NAME), None)
     pure_prob_a = none_or_float(operational_pred.get("prob_a")) if operational_pred else None
     pure_prob_b = none_or_float(operational_pred.get("prob_b")) if operational_pred else None
