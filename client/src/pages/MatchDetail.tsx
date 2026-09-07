@@ -810,7 +810,7 @@ export default function MatchDetail() {
             {roster.players.map((player, idx) => (
               <div key={`${player.player_id || player.player_name || idx}`} className="players-row">
                 <span className="role-pill">{player.role || '—'}</span>
-                <span className="player-name">{player.player_name || player.player_id || '—'}</span>
+                <span className="player-name">{(player.player_name || player.player_id || '—').replace(/&nbsp;/g, ' ').replace(/\u00a0/g, ' ')}</span>
                 <span>{fmtNum(player.elo_rating, 0)}</span>
                 <span>{fmtNum(player.glicko_rating, 0)}</span>
                 <span>{fmtNum(player.glicko_rd, 0)}</span>

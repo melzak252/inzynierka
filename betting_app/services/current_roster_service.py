@@ -1,7 +1,7 @@
 """Durable current team rosters, shared by GOL.GG ingestion and manual edits."""
 
-from __future__ import annotations
-
+import html
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,6 +13,85 @@ from betting_app.core.matching import normalize_team_name
 ROLE_ORDER = {"TOP": 1, "JUNGLE": 2, "MID": 3, "ADC": 4, "SUPPORT": 5}
 
 
+def clean_player_name(text_val: Any) -> str:
+    """Clean HTML entities and whitespace from player names and handles."""
+    if not text_val:
+        return ""
+    val = str(text_val)
+    # Double unescape handles cases like &amp;nbsp; or nested entities
+    val = html.unescape(html.unescape(val))
+    val = val.replace("\xa0", " ").replace("&nbsp;", " ")
+    val = re.sub(r"\s+", " ", val).strip()
+    return val
+
+
+def resolve_golgg_player_id(
+    db: Any,
+    player_name: str,
+    expected_team: str | None = None,
+) -> tuple[str, str] | None:
+    """Resolve a player handle or name to a numeric GOL.GG player_id if available in database."""
+    cleaned = clean_player_name(player_name)
+    if not cleaned:
+        return None
+    try:
+        # If it's already a numeric GOL.GG ID, verify it exists and return canonical name
+        if cleaned.isdigit():
+            row = db.execute(
+                text(
+                    """
+                    SELECT player_id, player_name FROM golgg_game_players
+                    WHERE player_id = :pid AND player_name IS NOT NULL AND TRIM(player_name) != ''
+                    ORDER BY match_date DESC NULLS LAST, game_id DESC NULLS LAST LIMIT 1
+                    """
+                ),
+                {"pid": cleaned},
+            ).mappings().first()
+            if row:
+                return str(row["player_id"]), str(row["player_name"])
+            return cleaned, cleaned
+
+        squashed = re.sub(r"[^a-zA-Z0-9]", "", cleaned).lower()
+        # Search 1: exact case-insensitive match on player_name
+        rows = db.execute(
+            text(
+                """
+                SELECT player_id, player_name, team_name FROM golgg_game_players
+                WHERE LOWER(player_name) = :pname AND player_id IS NOT NULL AND TRIM(player_id) != ''
+                ORDER BY
+                    CASE WHEN :expected_team IS NOT NULL AND LOWER(COALESCE(team_name, '')) = LOWER(:expected_team) THEN 0 ELSE 1 END,
+                    match_date DESC NULLS LAST, game_id DESC NULLS LAST
+                LIMIT 5
+                """
+            ),
+            {"pname": cleaned.lower(), "expected_team": (expected_team or "").lower()},
+        ).mappings().fetchall()
+
+        if rows:
+            return str(rows[0]["player_id"]), str(rows[0]["player_name"])
+
+        # Search 2: alphanumeric-squashed match (e.g. 'Blind Walker' vs 'BlindWalker')
+        if squashed:
+            rows = db.execute(
+                text(
+                    """
+                    SELECT player_id, player_name, team_name FROM golgg_game_players
+                    WHERE REPLACE(LOWER(player_name), ' ', '') = :squashed
+                      AND player_id IS NOT NULL AND TRIM(player_id) != ''
+                    ORDER BY
+                        CASE WHEN :expected_team IS NOT NULL AND LOWER(COALESCE(team_name, '')) = LOWER(:expected_team) THEN 0 ELSE 1 END,
+                        match_date DESC NULLS LAST, game_id DESC NULLS LAST
+                    LIMIT 5
+                    """
+                ),
+                {"squashed": squashed, "expected_team": (expected_team or "").lower()},
+            ).mappings().fetchall()
+            if rows:
+                return str(rows[0]["player_id"]), str(rows[0]["player_name"])
+    except Exception:
+        return None
+
+    return None
 def upsert_current_roster(
     db: Any,
     *,
@@ -32,15 +111,27 @@ def upsert_current_roster(
     replace it, which is exactly the desired automatic behaviour.
     """
     normalized = normalize_team_name(team_name)
-    normalized_players = [
-        {
-            "player_id": str(player.get("player_id") or ""),
-            "player_name": player.get("player_name"),
-            "role": str(player.get("role") or "").upper(),
-        }
-        for player in players
-        if player.get("player_id") and str(player.get("role") or "").upper() in ROLE_ORDER
-    ]
+    normalized_players = []
+    for player in players:
+        role = str(player.get("role") or "").upper()
+        if role not in ROLE_ORDER:
+            continue
+        raw_pid = clean_player_name(player.get("player_id"))
+        raw_pname = clean_player_name(player.get("player_name"))
+        # Determine lookup name and handle
+        lookup_name = raw_pid if not raw_pid.isdigit() else raw_pname
+        resolved = resolve_golgg_player_id(db, lookup_name or raw_pid, expected_team=team_name)
+        if resolved:
+            pid, pname = resolved
+        else:
+            pid = raw_pid or raw_pname
+            pname = raw_pname or raw_pid
+        if pid:
+            normalized_players.append({
+                "player_id": str(pid),
+                "player_name": pname,
+                "role": role,
+            })
     if len(normalized_players) != 5 or len({p["role"] for p in normalized_players}) != 5:
         return False
     stamp = source_match_date or datetime.now(UTC).isoformat()

@@ -131,7 +131,7 @@ def test_fandom_fetch_active_roster_success():
 
         top = next(p for p in result.players if p["role"] == "TOP")
         assert top["player_id"] == "Doran"
-        assert top["player_name"] == "Choi Hyeon-jun"
+        assert top["player_name"] == "Doran"
 
 
 def test_fandom_fetch_active_roster_handles_missing_team():

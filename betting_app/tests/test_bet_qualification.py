@@ -20,18 +20,17 @@ def test_positive_ev_eligible_standard() -> None:
     assert diag["ev_net"] > 0.05
 
 
-def test_issue_001_transition_zone_quarantine() -> None:
-    # High underdog: odds 4.00 (implied ~25%), model predicts 0.40 (transition zone [0.30, 0.50))
-    # EV_net = 0.40 * 4.00 * 0.88 - 1.0 = 1.408 - 1.0 = +0.408 (appears high EV, but it's a phantom trap)
+def test_high_underdog_positive_ev_eligible() -> None:
+    # High underdog: odds 4.00, model predicts 0.40 (e.g. risk-gated P_low from Siamese MLP)
+    # EV_net = 0.40 * 4.00 * 0.88 - 1.0 = 1.408 - 1.0 = +0.408 (mathematical EV >= +5%)
     eligible, reason, diag = is_bet_eligible(
         prob_model=0.40,
         odds=4.00,
         prob_market_novig=0.25,
     )
-    assert not eligible
-    assert reason == "quarantine_trap_issue_001"
-    assert diag["quarantine"] is True
-
+    assert eligible
+    assert reason == "eligible"
+    assert diag["quarantine"] is False
 
 def test_issue_001_strong_contrarian_permitted() -> None:
     # High underdog: odds 4.00, but model has high conviction (prob >= 0.50)
@@ -58,22 +57,22 @@ def test_issue_001_modest_edge_permitted() -> None:
     assert reason == "eligible"
 
 
-def test_odds_boundaries() -> None:
-    # Just below 3.50 boundary: odds 3.49 is in the golden tier (2.80-3.50), not quarantined
-    # prob=0.40, odds=3.49 -> EV = 0.40 * 3.49 * 0.88 - 1.0 = +0.228
+def test_odds_boundaries_consistent_ev() -> None:
+    # Across odds 3.49, 3.50, and 5.01: eligibility is strictly driven by net EV
+    # prob=0.40, odds=3.49 -> EV = 0.40 * 3.49 * 0.88 - 1.0 = +0.228 (> 0.05)
     eligible_below, reason_below, _ = is_bet_eligible(prob_model=0.40, odds=3.49)
     assert eligible_below
     assert reason_below == "eligible"
 
-    # Exactly 3.50 boundary: quarantined if in transition zone [0.30, 0.50)
+    # At 3.50: EV = 0.40 * 3.50 * 0.88 - 1.0 = +0.232 (> 0.05) -> eligible
     eligible_at, reason_at, _ = is_bet_eligible(prob_model=0.40, odds=3.50)
-    assert not eligible_at
-    assert reason_at == "quarantine_trap_issue_001"
+    assert eligible_at
+    assert reason_at == "eligible"
 
-    # Just above 5.00 boundary: odds 5.01
+    # Above 5.00: odds 5.01 -> eligible
     eligible_above, reason_above, _ = is_bet_eligible(prob_model=0.40, odds=5.01)
     assert eligible_above
-
+    assert reason_above == "eligible"
 
 def test_invalid_arguments() -> None:
     with pytest.raises(ValueError, match="odds must be > 1.0"):

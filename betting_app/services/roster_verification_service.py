@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from betting_app.core.db import get_session
 from betting_app.core.matching import normalize_team_name
-from betting_app.services.current_roster_service import upsert_current_roster
+from betting_app.services.current_roster_service import clean_player_name, upsert_current_roster
 from betting_app.services.liquipedia_service import LiquipediaClient
 
 logger = logging.getLogger(__name__)
@@ -236,19 +236,19 @@ class FandomRosterClient:
             candidates = by_role.get(role, [])
             if not candidates:
                 if role in recent_starters:
+                    starter_handle = clean_player_name(recent_starters[role])
                     starting_five.append({
-                        "player_id": recent_starters[role],
-                        "player_name": recent_starters[role],
+                        "player_id": starter_handle,
+                        "player_name": starter_handle,
                         "role": role,
                     })
                 continue
 
             if len(candidates) == 1:
-                raw_name = str(candidates[0].get("Name") or candidates[0]["ID"])
-                cleaned_name = html.unescape(raw_name).replace("\xa0", " ").strip()
+                handle = clean_player_name(candidates[0].get("ID") or candidates[0].get("Name") or "")
                 starting_five.append({
-                    "player_id": str(candidates[0]["ID"]),
-                    "player_name": cleaned_name,
+                    "player_id": handle,
+                    "player_name": handle,
                     "role": role,
                 })
             else:
@@ -267,11 +267,10 @@ class FandomRosterClient:
                     non_subs = [c for c in candidates if c.get("IsSubstitute") == 0]
                     chosen = non_subs[0] if non_subs else candidates[0]
 
-                raw_chosen_name = str(chosen.get("Name") or chosen["ID"])
-                cleaned_chosen_name = html.unescape(raw_chosen_name).replace("\xa0", " ").strip()
+                chosen_handle = clean_player_name(chosen.get("ID") or chosen.get("Name") or "")
                 starting_five.append({
-                    "player_id": str(chosen["ID"]),
-                    "player_name": cleaned_chosen_name,
+                    "player_id": chosen_handle,
+                    "player_name": chosen_handle,
                     "role": role,
                 })
 
@@ -309,8 +308,8 @@ class LiquipediaRosterAdapter:
 
             formatted = [
                 {
-                    "player_id": str(p.player_id),
-                    "player_name": str(p.player_name or p.player_id),
+                    "player_id": clean_player_name(str(p.player_id or p.player_name)),
+                    "player_name": clean_player_name(str(p.player_id or p.player_name)),
                     "role": str(role),
                 }
                 for role, p in by_role.items()

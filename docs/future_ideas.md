@@ -635,7 +635,7 @@ Apply pure logit-space Bayesian Market Shrinkage ($z_{\text{shrunk}} = (1 - \alp
 
 1. Core ML: In `betting_app/services/upcoming_inference_service.py`, upgrade `generate_hybrid_predictions` to use logit-space Bayesian blending instead of linear probability averaging.
 2. Cold-start fallback: When pre-match quotes are unavailable, fall back to global temperature calibration ($T=1.13$).
-3. Capital gate: Maintain the strict quarantine filter in `is_bet_eligible` for odds $[3.50 - 5.00]$.
+3. Capital gate: Decommissioned the artificial bracket quarantine in `is_bet_eligible`; eligibility is strictly mathematical ($\text{EV}_{\text{net}} \ge +5\%$) protected upstream by EXP-081 epistemic uncertainty gating ($P_{\text{low}}$).
 4. Prerequisite weryfikacyjny: Audyt z 2026-09-06 ujawnił brak implementacji funkcji `is_bet_eligible` w repozytorium. Wymagane jest rzeczywiste zaimplementowanie i otestowanie bramki kapitałowej w `betting_app/services/`.
 
 ### Affected areas

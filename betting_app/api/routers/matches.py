@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from betting_app.api.deps import get_db, query_df, query_one
+from betting_app.services.current_roster_service import clean_player_name
 from betting_app.api.schemas import (
     BettingRecommendation,
     ParlayRecommendationsResponse,
@@ -2136,9 +2137,24 @@ def match_detail(
                 for player in raw_players:
                     if not isinstance(player, dict):
                         continue
-                    pid = str(player.get("normalized_entity_name") or player.get("player_id") or player.get("entity_name") or "")
-                    if pid:
-                        out[pid] = player
+                    candidates = [
+                        player.get("normalized_entity_name"),
+                        player.get("player_id"),
+                        player.get("entity_name"),
+                        player.get("player_name"),
+                    ]
+                    for c in candidates:
+                        if not c:
+                            continue
+                        str_c = str(c)
+                        clean_c = clean_player_name(str_c)
+                        out[str_c] = player
+                        if clean_c:
+                            out[clean_c] = player
+                            out[clean_c.lower()] = player
+                            squashed = re.sub(r"[^a-zA-Z0-9]", "", clean_c).lower()
+                            if squashed:
+                                out[squashed] = player
             return out
 
         for side_key, side_label, out in [
@@ -2160,13 +2176,36 @@ def match_detail(
                     if not isinstance(pl, dict):
                         continue
                     pid = str(pl.get("player_id") or pl.get("normalized_entity_name") or pl.get("player_name") or "")
-                    gl = gl_by_id.get(pid) or gl_by_id.get(str(pl.get("player_name") or "")) or {}
-                    elo = elo_by_id.get(pid) or elo_by_id.get(str(pl.get("player_name") or "")) or {}
-                    ts = ts_by_id.get(pid) or ts_by_id.get(str(pl.get("player_name") or "")) or {}
+                    keys = [
+                        pl.get("player_id"),
+                        pl.get("player_name"),
+                        pl.get("normalized_entity_name"),
+                    ]
+                    gl: dict[str, Any] = {}
+                    elo: dict[str, Any] = {}
+                    ts: dict[str, Any] = {}
+                    for k in keys:
+                        if not k:
+                            continue
+                        str_k = str(k)
+                        clean_k = clean_player_name(str_k)
+                        squashed_k = re.sub(r"[^a-zA-Z0-9]", "", clean_k).lower()
+                        for test_k in (str_k, clean_k, clean_k.lower(), squashed_k):
+                            if not gl and test_k in gl_by_id:
+                                gl = gl_by_id[test_k]
+                            if not elo and test_k in elo_by_id:
+                                elo = elo_by_id[test_k]
+                            if not ts and test_k in ts_by_id:
+                                ts = ts_by_id[test_k]
+
                     gp = none_or_float(gl.get("games_played") or elo.get("games_played"))
+                    canonical_ign = gl.get("entity_name") or elo.get("entity_name") or ts.get("entity_name")
+                    display_player_name = clean_player_name(canonical_ign or pl.get("player_name") or pid)
+                    resolved_pid = str(gl.get("player_id") or elo.get("player_id") or pid)
+
                     players.append(RosterPlayer(
-                        player_id=pid or None,
-                        player_name=pl.get("player_name") or gl.get("entity_name") or elo.get("entity_name"),
+                        player_id=resolved_pid or None,
+                        player_name=display_player_name,
                         role=pl.get("role"),
                         champion_name=pl.get("champion_name"),
                         elo_rating=_finite_float(elo.get("rating_value")),
@@ -2566,6 +2605,22 @@ def _resolve_roster_player(
         """,
         {"player_name": player_name.strip(), "role": str(role or "").strip() or None, "expected_team": expected_team},
     )
+    if not candidates:
+        squashed = re.sub(r"[^a-zA-Z0-9]", "", clean_player_name(player_name)).lower()
+        if squashed:
+            candidates = query_df(
+                db,
+                """
+                SELECT DISTINCT ON (player_id) player_id, player_name, role, team_name
+                FROM golgg_game_players
+                WHERE REPLACE(LOWER(player_name), ' ', '') = :squashed
+                  AND (:role IS NULL OR UPPER(COALESCE(role, ''))=UPPER(:role))
+                ORDER BY player_id,
+                    CASE WHEN LOWER(COALESCE(team_name, ''))=LOWER(COALESCE(:expected_team, '')) THEN 0 ELSE 1 END,
+                    match_id DESC, game_id DESC
+                """,
+                {"squashed": squashed, "role": str(role or "").strip() or None, "expected_team": expected_team},
+            )
     if not candidates:
         raise HTTPException(
             status_code=422,

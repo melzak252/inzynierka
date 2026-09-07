@@ -57,14 +57,4 @@ def is_bet_eligible(
     if ev_net < min_ev_net:
         return False, "insufficient_ev", diag
 
-    # ISSUE-001 Underdog Transition Zone Quarantine:
-    # High underdogs (odds in [3.50, 5.00]) where model probability is in the
-    # unreliably overconfident transition zone [0.30, 0.50).
-    if 3.50 <= odds <= 5.00 and 0.30 <= prob_model < 0.50:
-        # If market is missing, or model strongly disagrees with market consensus (> 5 pp)
-        if prob_market_novig is None or (prob_model - prob_market_novig) > 0.05:
-            diag["quarantine"] = True
-            diag["quarantine_reason"] = "issue_001_underdog_transition_zone"
-            return False, "quarantine_trap_issue_001", diag
-
     return True, "eligible", diag

@@ -14,7 +14,7 @@ from typing import Any, Sequence
 
 from betting_app.core.db import connect, get_session, transaction
 from betting_app.services.canonical_match_service import canonical_team_key
-from betting_app.services.current_roster_service import upsert_current_roster
+from betting_app.services.current_roster_service import clean_player_name, upsert_current_roster
 
 logger = logging.getLogger(__name__)
 
@@ -24,11 +24,10 @@ DEFAULT_USER_AGENT = "EnsembleLegendsResearch/1.0 (academic research; melzacki.j
 ROLE_MAP = {
     "top": "TOP",
     "jungle": "JUNGLE",
-    "jungler": "JUNGLE",
+    "jg": "JUNGLE",
     "mid": "MID",
     "middle": "MID",
     "bot": "ADC",
-    "bottom": "ADC",
     "ad": "ADC",
     "adc": "ADC",
     "support": "SUPPORT",
@@ -352,8 +351,8 @@ def sync_liquipedia_team_rosters(team_names: Sequence[str] | None = None) -> dic
 
             payload = [
                 {
-                    "player_id": p.player_id,
-                    "player_name": p.player_name or p.player_id,
+                    "player_id": clean_player_name(p.player_id or p.player_name),
+                    "player_name": clean_player_name(p.player_id or p.player_name),
                     "role": role,
                 }
                 for role, p in by_role.items()

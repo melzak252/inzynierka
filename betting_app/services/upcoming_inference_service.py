@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -19,7 +20,9 @@ from trueskill import TrueSkill
 from betting_app.core.db import query_df, transaction
 from betting_app.core.ev import expected_value, fair_market_probabilities
 from betting_app.core.matching import normalize_team_name
+from betting_app.services.current_roster_service import clean_player_name
 from betting_app.core.staking import fractional_kelly_stake
+from betting_app.services.bet_qualification_service import is_bet_eligible
 from betting_app.services.canonical_match_service import (
     align_snapshot_odds,
     canonical_team_key,
@@ -38,6 +41,16 @@ from src.models.siamese_series import (
     MODEL_NAME as EXP081_MODEL_NAME,
     MODEL_VERSION as EXP081_MODEL_VERSION,
     SiameseSeriesModel,
+)
+from src.models.competition_tiers import (
+    CompetitionScope,
+    CompetitionTier,
+    classify_competition,
+)
+from src.ratings.competition_adjustment import (
+    CompetitionAdjustment,
+    NEUTRAL_COMPETITION_ADJUSTMENT,
+    adjust_probability,
 )
 
 
@@ -408,29 +421,58 @@ def load_player_ratings(player_names: list[str], ratings_version: str) -> dict[s
     if not player_names:
         return {}
 
-    placeholders = ", ".join(["?"] * len(player_names))
+    cleaned_names = [clean_player_name(p) for p in player_names if clean_player_name(p)]
+    if not cleaned_names:
+        return {}
+
+    norm_names = list(dict.fromkeys(normalize_team_name(p) for p in cleaned_names))
+    lower_names = list(dict.fromkeys(p.lower() for p in cleaned_names))
+    squashed_names = list(dict.fromkeys(re.sub(r"[^a-zA-Z0-9]", "", p).lower() for p in cleaned_names if p))
+
+    norm_ph = ", ".join(["?"] * len(norm_names))
+    lower_ph = ", ".join(["?"] * len(lower_names))
+    squashed_clause = ""
+    extra_params: list[str] = []
+    if squashed_names:
+        squashed_ph = ", ".join(["?"] * len(squashed_names))
+        squashed_clause = f"OR REPLACE(LOWER(entity_name), ' ', '') IN ({squashed_ph})"
+        extra_params = squashed_names
+
     frame = query_df(
         f"""
-        SELECT normalized_entity_name, rating_system, rating_value, rd, sigma, games_played, last_match_at
+        SELECT normalized_entity_name, entity_name, rating_system, rating_value, rd, sigma, games_played, last_match_at
         FROM entity_ratings
-        WHERE ratings_version = ? AND entity_type = 'player' AND normalized_entity_name IN ({placeholders})
+        WHERE ratings_version = ? AND entity_type = 'player'
+          AND (
+              normalized_entity_name IN ({norm_ph})
+              OR LOWER(entity_name) IN ({lower_ph})
+              {squashed_clause}
+          )
         """,
-        (ratings_version, *[normalize_team_name(p) for p in player_names]),
+        (ratings_version, *norm_names, *lower_names, *extra_params),
     )
 
     result: dict[str, dict[str, dict[str, Any]]] = {}
     for row in frame.to_dict("records"):
-        p_name = str(row["normalized_entity_name"])
+        norm_name = str(row["normalized_entity_name"])
+        ent_name = str(row.get("entity_name") or "")
+        clean_ent = clean_player_name(ent_name)
+        squashed_ent = re.sub(r"[^a-zA-Z0-9]", "", clean_ent).lower()
         system = str(row["rating_system"])
-        if p_name not in result:
-            result[p_name] = {}
-        result[p_name][system] = {
+        data = {
             "rating_value": none_or_float(row.get("rating_value")),
             "rd": none_or_float(row.get("rd")),
             "sigma": none_or_float(row.get("sigma")),
             "games_played": int(row.get("games_played") or 0),
             "last_match_at": row.get("last_match_at"),
+            "entity_name": ent_name,
+            "normalized_entity_name": norm_name,
         }
+        for k in (norm_name, ent_name, clean_ent, clean_ent.lower(), squashed_ent):
+            if k:
+                if k not in result:
+                    result[k] = {}
+                result[k][system] = data
     return result
 
 
@@ -595,14 +637,96 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
     }
 
 
-def load_regional_adjustment(*args: Any, **kwargs: Any) -> Any:
-    """Backward compatibility hook for regional adjustments."""
+_REGIONAL_ENGINE_CACHE: dict[str, Any] = {}
+
+
+def resolve_team_affiliation(
+    rating: dict[str, Any] | None,
+    tournament_name: str | None = None,
+) -> tuple[str, str] | None:
+    """Resolve (family, tier) affiliation from state_json or tournament name."""
+    if isinstance(rating, dict):
+        state_json = rating.get("state_json")
+        if state_json:
+            try:
+                state = json.loads(str(state_json))
+                if isinstance(state, dict):
+                    family = state.get("family")
+                    tier = state.get("tier")
+                    if isinstance(family, str) and isinstance(tier, str):
+                        return family, tier
+            except Exception:
+                pass
+
+    if tournament_name:
+        identity = classify_competition(tournament_name)
+        if (
+            identity.scope != CompetitionScope.CROSS_LEAGUE
+            and identity.tier != CompetitionTier.UNKNOWN
+        ):
+            return identity.family, identity.tier.value
+
     return None
 
 
-def regional_adjustment_state(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    """Backward compatibility hook for regional adjustment state."""
-    return {}
+def load_regional_adjustment(
+    ratings_a: dict[str, Any],
+    ratings_b: dict[str, Any],
+    ratings_version: str = DEFAULT_RATINGS_VERSION,
+    tournament_a: str | None = None,
+    tournament_b: str | None = None,
+) -> CompetitionAdjustment:
+    """Load the one persisted regional posterior for a matchup."""
+    left = ratings_a.get("gl") if isinstance(ratings_a, dict) else None
+    right = ratings_b.get("gl") if isinstance(ratings_b, dict) else None
+    affiliation_a = resolve_team_affiliation(left, tournament_a)
+    affiliation_b = resolve_team_affiliation(right, tournament_b)
+    if affiliation_a is None or affiliation_b is None:
+        return NEUTRAL_COMPETITION_ADJUSTMENT
+
+    engine = _REGIONAL_ENGINE_CACHE.get(ratings_version)
+    if engine is None:
+        runs = query_df(
+            """
+            SELECT systems_json
+            FROM rating_runs
+            WHERE ratings_version = ? AND status = 'completed'
+            ORDER BY finished_at DESC, id DESC
+            LIMIT 1
+            """,
+            (ratings_version,),
+        )
+        if runs.empty:
+            return NEUTRAL_COMPETITION_ADJUSTMENT
+        try:
+            payload = json.loads(str(runs.iloc[0]["systems_json"]))
+            regional = payload["gl"]
+            from src.ratings.family_calibrated_glicko2 import FamilyCalibratedGlicko2
+
+            engine = FamilyCalibratedGlicko2.from_state(regional["state"])
+            _REGIONAL_ENGINE_CACHE[ratings_version] = engine
+        except Exception:
+            return NEUTRAL_COMPETITION_ADJUSTMENT
+
+    location = engine.get_location_difference(
+        affiliation_a[0],
+        affiliation_a[1],
+        affiliation_b[0],
+        affiliation_b[1],
+    )
+    return CompetitionAdjustment(
+        mean=float(location.mean), variance=float(location.variance)
+    )
+
+
+def regional_adjustment_state(adjustment: CompetitionAdjustment) -> dict[str, Any]:
+    """Return serializable representation of a regional adjustment."""
+    return {
+        "engine": "family-calibrated-glicko2-v1",
+        "mean": adjustment.mean,
+        "variance": adjustment.variance,
+        "applies_to": list(RATING_SYSTEMS),
+    }
 
 
 def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: str) -> dict[str, dict[str, Any]]:
@@ -620,10 +744,18 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
     for player in roster_players.values():
         for identity in (player.get("player_id"), player.get("player_name")):
             if identity:
+                cleaned_id = clean_player_name(identity)
                 roster_players_by_identity.setdefault(
                     normalize_team_name(str(identity)),
                     player,
                 )
+                roster_players_by_identity.setdefault(
+                    cleaned_id.lower(),
+                    player,
+                )
+                squashed = re.sub(r"[^a-zA-Z0-9]", "", cleaned_id).lower()
+                if squashed:
+                    roster_players_by_identity.setdefault(squashed, player)
 
     player_ids = list(roster_players)
     player_names = list(
@@ -634,8 +766,23 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
             if identity
         )
     )
+    squashed_names = list(
+        dict.fromkeys(
+            re.sub(r"[^a-zA-Z0-9]", "", str(identity)).casefold()
+            for player in roster_players.values()
+            for identity in (player.get("player_id"), player.get("player_name"))
+            if identity and re.sub(r"[^a-zA-Z0-9]", "", str(identity))
+        )
+    )
     id_placeholders = ",".join("?" for _ in player_ids)
     name_placeholders = ",".join("?" for _ in player_names)
+    squashed_clause = ""
+    extra_params: list[str] = []
+    if squashed_names:
+        squashed_ph = ",".join("?" for _ in squashed_names)
+        squashed_clause = f"OR REPLACE(LOWER(entity_name), ' ', '') IN ({squashed_ph})"
+        extra_params = squashed_names
+
     frame = query_df(
         f"""
         SELECT rating_system, entity_name, normalized_entity_name, rating_value, rd, sigma, games_played, last_match_at
@@ -644,9 +791,10 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
           AND (
               normalized_entity_name IN ({id_placeholders})
               OR LOWER(entity_name) IN ({name_placeholders})
+              {squashed_clause}
           )
         """,
-        (ratings_version, *player_ids, *player_names),
+        (ratings_version, *player_ids, *player_names, *extra_params),
     )
     if frame.empty or "rating_system" not in frame.columns:
         return {}
@@ -654,11 +802,20 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
     for system, group in frame.groupby("rating_system"):
         matched_players: dict[str, dict[str, Any]] = {}
         for player in group.to_dict("records"):
-            roster_player = roster_players.get(str(player["normalized_entity_name"]))
+            norm_entity = str(player.get("normalized_entity_name") or "")
+            ent_name = str(player.get("entity_name") or "")
+            clean_ent = clean_player_name(ent_name)
+            squashed_ent = re.sub(r"[^a-zA-Z0-9]", "", clean_ent).lower()
+
+            roster_player = roster_players.get(norm_entity)
             if roster_player is None:
-                roster_player = roster_players_by_identity.get(
-                    normalize_team_name(str(player.get("entity_name") or ""))
-                )
+                roster_player = roster_players_by_identity.get(normalize_team_name(norm_entity))
+            if roster_player is None:
+                roster_player = roster_players_by_identity.get(normalize_team_name(ent_name))
+            if roster_player is None:
+                roster_player = roster_players_by_identity.get(clean_ent.lower())
+            if roster_player is None and squashed_ent:
+                roster_player = roster_players_by_identity.get(squashed_ent)
             if roster_player is None:
                 continue
             player_id = str(roster_player["player_id"])
@@ -669,7 +826,7 @@ def load_roster_player_ratings(roster: dict[str, Any] | None, ratings_version: s
                 matched_players[player_id] = {
                     **player,
                     "player_id": player_id,
-                    "player_name": roster_player.get("player_name") or player.get("entity_name"),
+                    "player_name": clean_player_name(roster_player.get("player_name") or player.get("entity_name")),
                     "role": roster_player.get("role"),
                 }
         player_records = list(matched_players.values())
@@ -762,8 +919,29 @@ def _state_probability(
     return float(model.predict_win([left, right])[0])
 
 
+def _rating_probability(system: str, left: float, right: float) -> float:
+    diff = left - right
+    if system in {"elo", "gl"}:
+        return 1.0 / (1.0 + 10 ** (-diff / 400.0))
+    if system == "os":
+        return sigmoid(diff / 5.0)
+    return sigmoid(diff / 8.333)
+
+
+def _with_regional_adjustment(
+    system: str,
+    probability: float,
+    adjustment: CompetitionAdjustment,
+) -> float:
+    if system == "gl":
+        return probability
+    return adjust_probability(probability, adjustment)
+
+
 def rating_probabilities(
-    ratings_a: dict[str, Any], ratings_b: dict[str, Any]
+    ratings_a: dict[str, Any],
+    ratings_b: dict[str, Any],
+    adjustment: CompetitionAdjustment = NEUTRAL_COMPETITION_ADJUSTMENT,
 ) -> dict[str, float]:
     probs: dict[str, float] = {}
     for system in RATING_SYSTEMS:
@@ -771,25 +949,57 @@ def rating_probabilities(
         right = ratings_b.get(system)
         if left is None or right is None:
             continue
-        probs[system] = _state_probability(system, [left], [right])
+        val_left = left.get("rating_value") if isinstance(left, dict) else left
+        val_right = right.get("rating_value") if isinstance(right, dict) else right
+        if val_left is None or val_right is None:
+            continue
+        prob = _rating_probability(system, float(val_left), float(val_right))
+        probs[system] = _with_regional_adjustment(system, prob, adjustment)
     if probs:
         probs["consensus"] = sum(probs.values()) / len(probs)
     return probs
 
 
 def player_rating_probabilities(
-    ratings_a: dict[str, Any], ratings_b: dict[str, Any]
+    ratings_a: dict[str, Any],
+    ratings_b: dict[str, Any],
+    adjustment: CompetitionAdjustment = NEUTRAL_COMPETITION_ADJUSTMENT,
 ) -> dict[str, float]:
     probs: dict[str, float] = {}
     for system in RATING_SYSTEMS:
-        left = ratings_a.get(system, {}).get("players", [])
-        right = ratings_b.get(system, {}).get("players", [])
-        if not left or not right:
+        left = ratings_a.get(system, {})
+        right = ratings_b.get(system, {})
+        left_players = left.get("players", []) if isinstance(left, dict) else []
+        right_players = right.get("players", []) if isinstance(right, dict) else []
+        if (
+            left_players
+            and right_players
+            and all("rating_value" in p for p in (*left_players, *right_players))
+            and (system != "gl" or all("rd" in p for p in (*left_players, *right_players)))
+            and (system in {"elo", "gl"} or all("sigma" in p for p in (*left_players, *right_players)))
+        ):
+            raw_prob = _state_probability(system, left_players, right_players)
+            probs[system] = _with_regional_adjustment(system, raw_prob, adjustment)
             continue
-        probs[system] = _state_probability(system, left, right)
+
+        val_left = (
+            left.get("avg_rating_value")
+            if isinstance(left, dict)
+            else None
+        )
+        val_right = (
+            right.get("avg_rating_value")
+            if isinstance(right, dict)
+            else None
+        )
+        if val_left is None or val_right is None:
+            continue
+        prob = _rating_probability(system, float(val_left), float(val_right))
+        probs[system] = _with_regional_adjustment(system, prob, adjustment)
     if probs:
         probs["consensus"] = sum(probs.values()) / len(probs)
     return probs
+
 
 
 
@@ -1574,7 +1784,14 @@ def generate_model_ev_signals(
         ]
         for side, prob, odds, cons_prob in candidates:
             ev = expected_value(prob, odds, tax_rate)
-            if ev < min_ev:
+            eligible, reason, _ = is_bet_eligible(
+                prob_model=prob,
+                odds=odds,
+                prob_market_novig=cons_prob,
+                tax_rate=tax_rate,
+                min_ev_net=min_ev,
+            )
+            if not eligible:
                 continue
             market_edge = (odds * cons_prob) - 1.0
             candidate_signals.append({
