@@ -20,12 +20,16 @@ def _parse_dt(value: Any) -> datetime | None:
     except TypeError:
         pass
     if isinstance(value, datetime):
-        return value
-    text = str(value)
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+    text = str(value).strip()
     if not text or text.lower() in {"nan", "nat", "none", "null"}:
         return None
-    return datetime.fromisoformat(text.replace("Z", "+00:00"))
-
+    dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 def load_finished_match_labels(
     *,

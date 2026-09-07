@@ -276,6 +276,14 @@ def load_csv_predictions(
     return predictions, records, source
 
 
+def _as_utc(dt: datetime | None) -> datetime | None:
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
+
+
 def _validate_temporal_prediction_contract(
     predictions: list[HistoricalPrediction],
     labels: list[MatchLabel],
@@ -288,14 +296,15 @@ def _validate_temporal_prediction_contract(
     missing_timestamps: list[int] = []
     invalid_order: list[int] = []
     for prediction in predictions:
-        predicted_at = prediction.predicted_at
-        data_cutoff_at = prediction.data_cutoff_at
+        predicted_at = _as_utc(prediction.predicted_at)
+        data_cutoff_at = _as_utc(prediction.data_cutoff_at)
         if predicted_at is None or data_cutoff_at is None:
             missing_timestamps.append(prediction.canonical_match_id)
             continue
         label = labels_by_id[prediction.canonical_match_id]
+        start_time = _as_utc(label.start_time)
         if data_cutoff_at > predicted_at or (
-            label.start_time is not None and predicted_at >= label.start_time
+            start_time is not None and predicted_at >= start_time
         ):
             invalid_order.append(prediction.canonical_match_id)
     if missing_timestamps or invalid_order:
@@ -304,7 +313,6 @@ def _validate_temporal_prediction_contract(
             f"missing timestamps={missing_timestamps[:10]}, "
             f"invalid order={invalid_order[:10]}"
         )
-
 
 def load_benchmark_inputs(args: argparse.Namespace) -> BenchmarkInputs:
     if args.allow_retrospective_proxy and args.input is None:
