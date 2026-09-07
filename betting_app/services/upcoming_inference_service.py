@@ -1106,7 +1106,7 @@ def _player_metric(group: dict[str, Any], metric: str, label: str) -> float:
 def _days_since_last(features: dict[str, Any], side: str) -> float:
     start = parse_iso(features.get("canonical", {}).get("start_time_normalized"))
     if start is None:
-        raise ValueError("EXP-078 requires a valid canonical start time")
+        start = datetime.now(UTC)
     dates = [
         parse_iso(str(state.get("last_match_at")))
         for state in features.get("ratings", {}).get(side, {}).values()
@@ -1114,16 +1114,13 @@ def _days_since_last(features: dict[str, Any], side: str) -> float:
     ]
     valid_dates = [value for value in dates if value is not None]
     if not valid_dates:
-        raise ValueError(f"EXP-078 requires {side} last-match time")
+        return 7.0
     return max(0.0, (start - max(valid_dates)).total_seconds() / 86_400.0)
 
 
 def _exp078_snapshot_from_features(features: dict[str, Any]) -> tuple[dict[str, float], int]:
     canonical = features.get("canonical", {})
-    best_of_raw = canonical.get("best_of")
-    if best_of_raw is None:
-        raise ValueError("EXP-078 requires canonical best_of")
-    best_of = int(best_of_raw)
+    best_of = _normalized_best_of(canonical.get("best_of") or features.get("best_of"))
     ratings = features.get("ratings", {})
     team_a = ratings.get("team_a", {})
     team_b = ratings.get("team_b", {})
