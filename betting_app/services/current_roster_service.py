@@ -42,7 +42,7 @@ def resolve_golgg_player_id(
                     """
                     SELECT player_id, player_name FROM golgg_game_players
                     WHERE player_id = :pid AND player_name IS NOT NULL AND TRIM(player_name) != ''
-                    ORDER BY match_date DESC NULLS LAST, game_id DESC NULLS LAST LIMIT 1
+                    ORDER BY match_id DESC, game_id DESC LIMIT 1
                     """
                 ),
                 {"pid": cleaned},
@@ -60,7 +60,7 @@ def resolve_golgg_player_id(
                 WHERE LOWER(player_name) = :pname AND player_id IS NOT NULL AND TRIM(player_id) != ''
                 ORDER BY
                     CASE WHEN :expected_team IS NOT NULL AND LOWER(COALESCE(team_name, '')) = LOWER(:expected_team) THEN 0 ELSE 1 END,
-                    match_date DESC NULLS LAST, game_id DESC NULLS LAST
+                    match_id DESC, game_id DESC
                 LIMIT 5
                 """
             ),
@@ -80,7 +80,7 @@ def resolve_golgg_player_id(
                       AND player_id IS NOT NULL AND TRIM(player_id) != ''
                     ORDER BY
                         CASE WHEN :expected_team IS NOT NULL AND LOWER(COALESCE(team_name, '')) = LOWER(:expected_team) THEN 0 ELSE 1 END,
-                        match_date DESC NULLS LAST, game_id DESC NULLS LAST
+                        match_id DESC, game_id DESC
                     LIMIT 5
                     """
                 ),
@@ -89,6 +89,11 @@ def resolve_golgg_player_id(
             if rows:
                 return str(rows[0]["player_id"]), str(rows[0]["player_name"])
     except Exception:
+        if hasattr(db, "rollback"):
+            try:
+                db.rollback()
+            except Exception:
+                pass
         return None
 
     return None
