@@ -483,9 +483,15 @@ export interface HistoricalModelComparison {
     warning: string;
     temporal_rule: string;
   };
+  target_model_key?: string;
   models: HistoricalModelMetrics[];
   common_cohort: {
     n_matches: number;
+    target_model_key?: string;
+    target_model_title?: string;
+    target_model?: MetricSummary | null;
+    target_minus_exp039_logloss?: number | null;
+    target_minus_exp039_brier?: number | null;
     exp039: MetricSummary | null;
     operational_regional: MetricSummary | null;
     market_closing?: MetricSummary | null;
@@ -505,11 +511,13 @@ export interface HistoricalModelComparison {
     segments?: {
       tier_1: {
         n_matches: number;
+        target_model?: MetricSummary | null;
         exp039: MetricSummary | null;
         operational_regional: MetricSummary | null;
       };
       regional_erl: {
         n_matches: number;
+        target_model?: MetricSummary | null;
         exp039: MetricSummary | null;
         operational_regional: MetricSummary | null;
       };
@@ -699,7 +707,7 @@ export interface HorizonAccuracyResponse {
   market_close_comparison: MarketCloseComparison;
 }
 
-export type ModelAnalysisKey = 'thesis' | 'hybrid' | 'operational' | 'operational_hybrid';
+export type ModelAnalysisKey = 'exp081' | 'operational_hybrid' | 'operational' | 'hybrid' | 'thesis';
 
 export interface ModelClvBin {
   model_key: ModelAnalysisKey | string;

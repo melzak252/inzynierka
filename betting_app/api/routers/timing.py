@@ -850,9 +850,10 @@ def historical_model_comparison(
     max_days_back: int = 3650,
     league: str | None = None,
     best_of: int | None = None,
+    target_model: str = "exp081",
     db=Depends(get_db),
 ):
-    """Compare EXP-039, regional operational BoN replay, and baselines on common and eligible matches.
+    """Compare EXP-081, EXP-039, regional operational BoN replay, and baselines on common and eligible matches.
 
     This endpoint is intentionally retrospective: both series are restricted to
     predictions whose reconstructed cutoff precedes the synthetic prediction
@@ -862,12 +863,20 @@ def historical_model_comparison(
     cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
     specifications = (
         {
-            "key": "exp039",
-            "label": "EXP-039 thesis baseline",
-            "description": "Sym-Cal LR-ElasticNet-W20-Binomial (model referencyjny pracy)",
-            "model_name": THESIS_MODEL_NAME,
-            "model_version": THESIS_MODEL_VERSION,
-            "features_version": ANALYSIS_FEATURES_VERSION,
+            "key": "exp081",
+            "label": "EXP-081 Siamese Series",
+            "description": "Symmetrized-Siamese-Series-EXP081 (MLP z Focal Loss i niepewnością epistemiczną)",
+            "model_name": "Symmetrized-Siamese-Series-EXP081",
+            "model_version": "exp081-siamese-series-v1",
+            "features_version": "ratings-w20-symmetric-series-v1",
+        },
+        {
+            "key": "operational_hybrid",
+            "label": "Hybryda Operacyjna (EXP-081 + Rynek)",
+            "description": "Hybrid-Operational-Market (50% Siamese Series + 50% Rynek No-Vig)",
+            "model_name": "Hybrid-Operational-Market",
+            "model_version": "exp081-siamese-series-v1-a0.50-t0.80",
+            "features_version": "ratings-w20-symmetric-series-v1",
         },
         {
             "key": "operational_regional",
@@ -876,6 +885,22 @@ def historical_model_comparison(
             "model_name": OPERATIONAL_MODEL_NAME,
             "model_version": OPERATIONAL_BACKFILL_MODEL_VERSION,
             "features_version": OPERATIONAL_BACKFILL_FEATURE_VERSION,
+        },
+        {
+            "key": "exp039",
+            "label": "EXP-039 thesis baseline",
+            "description": "Sym-Cal LR-ElasticNet-W20-Binomial (model referencyjny pracy)",
+            "model_name": THESIS_MODEL_NAME,
+            "model_version": THESIS_MODEL_VERSION,
+            "features_version": ANALYSIS_FEATURES_VERSION,
+        },
+        {
+            "key": "thesis_hybrid",
+            "label": "Hybrid model (EXP-039 + Rynek)",
+            "description": "Hybrid-Thesis-Market (35% EXP-039 + 65% Rynek)",
+            "model_name": "Hybrid-Thesis-Market",
+            "model_version": "a0.35-t0.80",
+            "features_version": ANALYSIS_FEATURES_VERSION,
         },
     )
     predictions_by_key: dict[str, dict[int, dict[str, Any]]] = {}
@@ -906,11 +931,11 @@ def historical_model_comparison(
                   AND cp.model_version = :model_version
                   AND cp.features_version = :features_version
                   AND CASE
-                      WHEN cp.data_cutoff_at ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}[ T][0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}'
+                      WHEN cp.data_cutoff_at ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
                       THEN cp.data_cutoff_at::timestamptz
                   END <= cp.predicted_at
                   AND cp.predicted_at < CASE
-                      WHEN cm.start_time_normalized ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}[ T][0-9]{{2}}:[0-9]{{2}}:[0-9]{{2}}'
+                      WHEN cm.start_time_normalized ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
                       THEN cm.start_time_normalized::timestamptz
                   END
                   AND cm.status IN ('finished', 'completed')
@@ -998,19 +1023,55 @@ def historical_model_comparison(
             }
         )
 
+    valid_keys = {s["key"] for s in specifications}
+    target_alias = {
+        "operational": "operational_regional",
+        "thesis": "exp039",
+        "hybrid": "thesis_hybrid",
+        "exp081": "exp081",
+        "operational_hybrid": "operational_hybrid",
+    }
+    requested_key = target_alias.get(target_model, target_model)
+    if requested_key in valid_keys:
+        target_key = requested_key
+    elif "exp081" in predictions_by_key and len(predictions_by_key["exp081"]) > 0:
+        target_key = "exp081"
+    elif "operational_regional" in predictions_by_key and len(predictions_by_key["operational_regional"]) > 0:
+        target_key = "operational_regional"
+    else:
+        target_key = "exp039"
     old = predictions_by_key.get("exp039", {})
-    new = predictions_by_key.get("operational_regional", {})
-    common_ids = sorted(set(old).intersection(new))
-    old_y = [old[match_id]["y_true"] for match_id in common_ids]
-    old_probabilities = [old[match_id]["prob_a"] for match_id in common_ids]
-    new_probabilities = [new[match_id]["prob_a"] for match_id in common_ids]
-    naive_probabilities = [0.5 for _ in common_ids]
-    common_leagues = [old[match_id]["league"] for match_id in common_ids]
-    common_best_ofs = [old[match_id]["best_of"] for match_id in common_ids]
+    target_preds = predictions_by_key.get(target_key, {})
+    operational_preds = predictions_by_key.get("operational_regional", {})
 
-    exp039_common = _metric_summary(old_y, old_probabilities) if old_y else None
-    operational_common = _metric_summary(old_y, new_probabilities) if old_y else None
-    naive_common = _metric_summary(old_y, naive_probabilities) if old_y else None
+    if target_key != "exp039" and target_preds and old:
+        common_ids = sorted(set(old).intersection(target_preds))
+        primary_preds = target_preds
+    elif target_preds:
+        common_ids = sorted(target_preds.keys())
+        primary_preds = target_preds
+    else:
+        common_ids = sorted(set(old).intersection(operational_preds))
+        primary_preds = operational_preds
+
+    old_y = [old[mid]["y_true"] for mid in common_ids if mid in old]
+    target_probabilities = [primary_preds[mid]["prob_a"] for mid in common_ids if mid in primary_preds]
+    naive_probabilities = [0.5 for _ in common_ids]
+    common_leagues = [primary_preds[mid]["league"] for mid in common_ids if mid in primary_preds]
+    common_best_ofs = [primary_preds[mid]["best_of"] for mid in common_ids if mid in primary_preds]
+
+    target_y = [primary_preds[mid]["y_true"] for mid in common_ids if mid in primary_preds]
+    target_common = _metric_summary(target_y, target_probabilities) if target_y else None
+
+    exp039_common_y = [old[mid]["y_true"] for mid in common_ids if mid in old]
+    exp039_common_p = [old[mid]["prob_a"] for mid in common_ids if mid in old]
+    exp039_common = _metric_summary(exp039_common_y, exp039_common_p) if exp039_common_y else None
+
+    op_common_ids = sorted(set(old).intersection(operational_preds))
+    op_y = [old[mid]["y_true"] for mid in op_common_ids]
+    op_p = [operational_preds[mid]["prob_a"] for mid in op_common_ids]
+    operational_common = _metric_summary(op_y, op_p) if op_y else None
+    naive_common = _metric_summary(target_y, naive_probabilities[:len(target_y)]) if target_y else None
 
     # Segments on common cohort
     c_t1_idx = [i for i, l in enumerate(common_leagues) if _is_tier_1_league(l)]
@@ -1019,13 +1080,15 @@ def historical_model_comparison(
     common_segments = {
         "tier_1": {
             "n_matches": len(c_t1_idx),
-            "exp039": _metric_summary([old_y[i] for i in c_t1_idx], [old_probabilities[i] for i in c_t1_idx]) if c_t1_idx else None,
-            "operational_regional": _metric_summary([old_y[i] for i in c_t1_idx], [new_probabilities[i] for i in c_t1_idx]) if c_t1_idx else None,
+            "target_model": _metric_summary([target_y[i] for i in c_t1_idx], [target_probabilities[i] for i in c_t1_idx]) if c_t1_idx and target_y else None,
+            "exp039": _metric_summary([old[common_ids[i]]["y_true"] for i in c_t1_idx if common_ids[i] in old], [old[common_ids[i]]["prob_a"] for i in c_t1_idx if common_ids[i] in old]) if c_t1_idx and old else None,
+            "operational_regional": _metric_summary([op_y[i] for i in range(len(op_y))], [op_p[i] for i in range(len(op_p))]) if op_y else None,
         },
         "regional_erl": {
             "n_matches": len(c_reg_idx),
-            "exp039": _metric_summary([old_y[i] for i in c_reg_idx], [old_probabilities[i] for i in c_reg_idx]) if c_reg_idx else None,
-            "operational_regional": _metric_summary([old_y[i] for i in c_reg_idx], [new_probabilities[i] for i in c_reg_idx]) if c_reg_idx else None,
+            "target_model": _metric_summary([target_y[i] for i in c_reg_idx], [target_probabilities[i] for i in c_reg_idx]) if c_reg_idx and target_y else None,
+            "exp039": _metric_summary([old[common_ids[i]]["y_true"] for i in c_reg_idx if common_ids[i] in old], [old[common_ids[i]]["prob_a"] for i in c_reg_idx if common_ids[i] in old]) if c_reg_idx and old else None,
+            "operational_regional": _metric_summary([op_y[i] for i in range(len(op_y))], [op_p[i] for i in range(len(op_p))]) if op_y else None,
         },
     }
 
@@ -1053,26 +1116,26 @@ def historical_model_comparison(
             params,
         )
         odds_by_match = {int(r["canonical_match_id"]): r for r in odds_rows}
-        m_common_ids = [mid for mid in common_ids if mid in odds_by_match]
+        m_common_ids = [mid for mid in common_ids if mid in odds_by_match and mid in primary_preds]
         if m_common_ids:
-            m_y = [old[mid]["y_true"] for mid in m_common_ids]
+            m_y = [primary_preds[mid]["y_true"] for mid in m_common_ids]
             m_probs: list[float] = []
-            op_on_m: list[float] = []
+            target_on_m: list[float] = []
             for mid in m_common_ids:
                 oa = float(odds_by_match[mid]["odds_a"])
                 ob = float(odds_by_match[mid]["odds_b"])
                 pa_novig = (1.0 / oa) / ((1.0 / oa) + (1.0 / ob))
                 m_probs.append(pa_novig)
-                op_on_m.append(new[mid]["prob_a"])
+                target_on_m.append(primary_preds[mid]["prob_a"])
 
             market_common = _metric_summary(m_y, m_probs)
 
             disagreements = []
-            for y_val, op_p, m_p in zip(m_y, op_on_m, m_probs):
-                op_fav_a = op_p >= 0.5
+            for y_val, t_p, m_p in zip(m_y, target_on_m, m_probs):
+                t_fav_a = t_p >= 0.5
                 m_fav_a = m_p >= 0.5
-                if op_fav_a != m_fav_a:
-                    model_won = (op_fav_a and y_val == 1) or (not op_fav_a and y_val == 0)
+                if t_fav_a != m_fav_a:
+                    model_won = (t_fav_a and y_val == 1) or (not t_fav_a and y_val == 0)
                     market_won = (m_fav_a and y_val == 1) or (not m_fav_a and y_val == 0)
                     disagreements.append({
                         "model_won": model_won,
@@ -1092,85 +1155,86 @@ def historical_model_comparison(
                     "market_win_rate": round(market_wins / n_disagreements, 4),
                 }
 
+    target_minus_exp_ll = None
+    target_minus_exp_br = None
+    if target_common and exp039_common and target_common.get("avg_logloss") is not None and exp039_common.get("avg_logloss") is not None:
+        target_minus_exp_ll = round(float(target_common["avg_logloss"]) - float(exp039_common["avg_logloss"]), 6)
+        target_minus_exp_br = round(float(target_common["avg_brier"]) - float(exp039_common["avg_brier"]), 6)
+
+    op_minus_exp_ll = None
+    op_minus_exp_br = None
+    if operational_common and exp039_common and operational_common.get("avg_logloss") is not None and exp039_common.get("avg_logloss") is not None:
+        op_minus_exp_ll = round(float(operational_common["avg_logloss"]) - float(exp039_common["avg_logloss"]), 6)
+        op_minus_exp_br = round(float(operational_common["avg_brier"]) - float(exp039_common["avg_brier"]), 6)
+
     common = {
         "n_matches": len(common_ids),
+        "target_model_key": target_key,
+        "target_model": target_common,
         "exp039": exp039_common,
         "operational_regional": operational_common,
         "market_closing": market_common,
         "disagreement": disagreement_analysis,
         "naive_50_50": naive_common,
         "segments": common_segments,
+        "target_minus_exp039_logloss": target_minus_exp_ll,
+        "target_minus_exp039_brier": target_minus_exp_br,
+        "operational_minus_exp039_logloss": op_minus_exp_ll,
+        "operational_minus_exp039_brier": op_minus_exp_br,
     }
-    if common["exp039"] and common["operational_regional"]:
-        common["operational_minus_exp039_logloss"] = round(
-            float(common["operational_regional"]["avg_logloss"])
-            - float(common["exp039"]["avg_logloss"]),
-            6,
-        )
-        common["operational_minus_exp039_brier"] = round(
-            float(common["operational_regional"]["avg_brier"])
-            - float(common["exp039"]["avg_brier"]),
-            6,
-        )
-        if naive_common and naive_common.get("avg_logloss") is not None:
-            common["exp039_vs_naive_logloss"] = round(
-                float(common["exp039"]["avg_logloss"]) - float(naive_common["avg_logloss"]),
-                6,
-            )
-            common["operational_vs_naive_logloss"] = round(
-                float(common["operational_regional"]["avg_logloss"]) - float(naive_common["avg_logloss"]),
-                6,
-            )
-    else:
-        common["operational_minus_exp039_logloss"] = None
-        common["operational_minus_exp039_brier"] = None
+    if target_minus_exp_ll is not None:
+        common["model_minus_exp039_logloss"] = target_minus_exp_ll
+    elif op_minus_exp_ll is not None:
+        common["model_minus_exp039_logloss"] = op_minus_exp_ll
 
     # Dynamic, evidence-grounded insights
     executive_insights: list[dict[str, Any]] = []
-    op_ll = float(common["operational_regional"]["avg_logloss"]) if common["operational_regional"] and common["operational_regional"]["avg_logloss"] is not None else None
-    exp_ll = float(common["exp039"]["avg_logloss"]) if common["exp039"] and common["exp039"]["avg_logloss"] is not None else None
-    op_acc = float(common["operational_regional"]["accuracy"]) if common["operational_regional"] and common["operational_regional"]["accuracy"] is not None else None
-    exp_acc = float(common["exp039"]["accuracy"]) if common["exp039"] and common["exp039"]["accuracy"] is not None else None
-    m_ll = float(market_common["avg_logloss"]) if market_common and market_common["avg_logloss"] is not None else None
-    m_acc = float(market_common["accuracy"]) if market_common and market_common["accuracy"] is not None else None
-    op_ece = float(common["operational_regional"]["ece"]) if common["operational_regional"] and common["operational_regional"]["ece"] is not None else None
+    target_summary = next((s for s in summaries if s["key"] == target_key), None)
+    target_label = target_summary["label"] if target_summary else "Model"
 
-    if op_ll is not None and exp_ll is not None:
-        delta_ll = op_ll - exp_ll
-        delta_acc = (op_acc or 0) - (exp_acc or 0)
+    t_ll = float(target_common["avg_logloss"]) if target_common and target_common.get("avg_logloss") is not None else None
+    exp_ll = float(exp039_common["avg_logloss"]) if exp039_common and exp039_common.get("avg_logloss") is not None else None
+    t_acc = float(target_common["accuracy"]) if target_common and target_common.get("accuracy") is not None else None
+    exp_acc = float(exp039_common["accuracy"]) if exp039_common and exp039_common.get("accuracy") is not None else None
+    m_ll = float(market_common["avg_logloss"]) if market_common and market_common.get("avg_logloss") is not None else None
+    m_acc = float(market_common["accuracy"]) if market_common and market_common.get("accuracy") is not None else None
+    t_ece = float(target_summary["ece"]) if target_summary and target_summary.get("ece") is not None else None
+
+    if t_ll is not None and exp_ll is not None:
+        delta_ll = t_ll - exp_ll
+        delta_acc = (t_acc or 0) - (exp_acc or 0)
         if delta_ll <= 0:
             executive_insights.append({
-                "id": "operational_advantage",
+                "id": "model_advantage",
                 "type": "positive",
-                "title": "Przewaga modelu regionalnego nad EXP-039",
+                "title": f"Przewaga {target_label} nad EXP-039",
                 "text": (
-                    f"Na wspólnej próbie {len(common_ids)} meczów model regionalny osiąga LogLoss = {op_ll:.4f} "
+                    f"Na wspólnej próbie {len(common_ids)} meczów {target_label} osiąga LogLoss = {t_ll:.4f} "
                     f"względem {exp_ll:.4f} dla EXP-039 (zysk {delta_ll:+.4f}) oraz wyższą trafność "
-                    f"{(op_acc or 0):.1%} vs {(exp_acc or 0):.1%} ({delta_acc:+.1%} p.p.). "
-                    "Hierarchiczne ratingi regionalne i wskaźniki W20 skutecznie redukują błąd predykcji."
+                    f"{(t_acc or 0):.1%} vs {(exp_acc or 0):.1%} ({delta_acc:+.1%} p.p.). "
                 ),
             })
         else:
             executive_insights.append({
                 "id": "thesis_baseline_edge",
                 "type": "neutral",
-                "title": "Baza referencyjna EXP-039 zachowuje przewagę",
+                "title": f"Baza referencyjna EXP-039 zachowuje przewagę nad {target_label}",
                 "text": (
                     f"Na wspólnej próbie {len(common_ids)} meczów EXP-039 ma niższy LogLoss "
-                    f"({exp_ll:.4f} vs {op_ll:.4f}). Symetryczna kalibracja Platt ogranicza błąd przy niespodziankach."
+                    f"({exp_ll:.4f} vs {t_ll:.4f}). Symetryczna kalibracja Platt ogranicza błąd przy niespodziankach."
                 ),
             })
 
-    if market_common and op_ll is not None and m_ll is not None:
-        delta_market_ll = op_ll - m_ll
+    if market_common and t_ll is not None and m_ll is not None:
+        delta_market_ll = t_ll - m_ll
         is_market_level = abs(delta_market_ll) < 0.015
         executive_insights.append({
             "id": "market_reality_check",
             "type": "positive" if (delta_market_ll <= 0 or is_market_level) else "neutral",
-            "title": "Konkurencyjność względem rynku bukmacherskiego",
+            "title": f"Konkurencyjność {target_label} względem rynku bukmacherskiego",
             "text": (
                 f"Względem no-vig kursów zamykających (LogLoss = {m_ll:.4f}, Accuracy = {(m_acc or 0):.1%}), "
-                f"model operacyjny osiąga LogLoss = {op_ll:.4f} i trafność {(op_acc or 0):.1%}. "
+                f"{target_label} osiąga LogLoss = {t_ll:.4f} i trafność {(t_acc or 0):.1%}. "
                 + ("Model dorównuje rynkowi zamykającemu w trafności wyboru faworytów spotkań!" if is_market_level or delta_market_ll <= 0 else "Rynek zamykający zachowuje lekką przewagę informacyjną.")
             ),
         })
@@ -1191,15 +1255,15 @@ def historical_model_comparison(
             ),
         })
 
-    if op_ece is not None:
-        status_text = "Dobra" if op_ece < 0.08 else "Wymaga dopracowania"
+    if t_ece is not None:
+        status_text = "Dobra" if t_ece < 0.08 else "Wymaga dopracowania"
         executive_insights.append({
             "id": "calibration_health",
-            "type": "positive" if op_ece < 0.08 else "warning",
-            "title": f"Kalibracja probabilistyczna (ECE = {op_ece:.4f} · {status_text})",
+            "type": "positive" if t_ece < 0.08 else "warning",
+            "title": f"Kalibracja probabilistyczna ({target_label}: ECE = {t_ece:.4f} · {status_text})",
             "text": (
-                f"Błąd kalibracji wynosi {op_ece:.4f}. Prawdopodobieństwa w poszczególnych decylach "
-                "odpowiadają rzeczywistym częstościom wygranych drużyn, eliminując dawny problem overconfidence."
+                f"Błąd kalibracji wynosi {t_ece:.4f}. Prawdopodobieństwa w poszczególnych decylach "
+                "odpowiadają rzeczywistym częstościom wygranych drużyn."
             ),
         })
 
@@ -1213,6 +1277,7 @@ def historical_model_comparison(
             ),
             "temporal_rule": "data_cutoff_at <= predicted_at < match_start_at",
         },
+        "target_model_key": target_key,
         "models": summaries,
         "common_cohort": common,
         "executive_insights": executive_insights,
@@ -3160,15 +3225,21 @@ def model_profitability_audit(
     tax_mult = 1.0 - tax_rate
 
     model_configs = {
+        "exp081": {
+            "name": "Symmetrized-Siamese-Series-EXP081",
+            "version": "exp081-siamese-series-v1",
+            "title": "EXP-081 Siamese Series (Aktywny)",
+        },
+        "operational_hybrid": {
+            "name": OPERATIONAL_HYBRID_MODEL_NAME,
+            "version": "exp081-siamese-series-v1-a0.50-t0.80",
+            "fallback_version": "v0.4-binom-series-a0.50-t1.00",
+            "title": "Hybryda Operacyjna (EXP-081 + Rynek alpha=0.50)",
+        },
         "operational": {
             "name": OPERATIONAL_MODEL_NAME,
             "version": OPERATIONAL_BACKFILL_MODEL_VERSION,
             "title": "Model Operacyjny (Regional BoN v0.4)",
-        },
-        "operational_hybrid": {
-            "name": OPERATIONAL_HYBRID_MODEL_NAME,
-            "version": "v0.4-binom-series-a0.50-t1.00",
-            "title": "Hybryda Operacyjna (v0.4 + Rynek alpha=0.50)",
         },
         "thesis": {
             "name": THESIS_MODEL_NAME,
@@ -3181,7 +3252,7 @@ def model_profitability_audit(
             "title": "Thesis Hybrid (EXP-039 + Rynek alpha=0.50)",
         },
     }
-    cfg = model_configs.get(model_key, model_configs["operational"])
+    cfg = model_configs.get(model_key, model_configs["exp081" if "exp081" in model_configs else "operational"])
     cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
 
     matches_sql = """
@@ -3227,6 +3298,8 @@ def model_profitability_audit(
         FROM ranked WHERE rn = 1
     """
     preds = query_df(db, preds_sql, {"mname": cfg["name"], "mver": cfg["version"], "cutoff": cutoff})
+    if len(preds) == 0 and "fallback_version" in cfg:
+        preds = query_df(db, preds_sql, {"mname": cfg["name"], "mver": cfg["fallback_version"], "cutoff": cutoff})
     pred_dict = {}
     for p in preds:
         mid = int(p["canonical_match_id"])

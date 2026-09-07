@@ -19,7 +19,7 @@ import type {
   ModelProfitabilityAuditResponse,
 } from '../types'
 import './ModelAnalysis.css'
-type ViewMode = 'all' | 'profitability' | 'leaderboard' | 'timing' | 'bookmakers' | 'odds_tiers' | 'segments'
+type ViewMode = 'overview' | 'leaderboard' | 'profitability' | 'timing' | 'bookmakers' | 'odds_tiers' | 'segments' | 'all'
 
 type SeriesPoint = {
   label: string
@@ -28,30 +28,41 @@ type SeriesPoint = {
   matches: number
   entries?: number
 }
-const MODEL_LABELS: Record<ModelAnalysisKey, { title: string; short: string; description: string; accent: string }> = {
+const MODEL_LABELS: Record<ModelAnalysisKey, { title: string; short: string; description: string; accent: string; badge?: string }> = {
+  exp081: {
+    title: 'EXP-081 Siamese Series (Aktywny Produkcyjny)',
+    short: 'EXP-081 Siamese',
+    description: 'Antysymetryczna Sieć Syjamska MLP z wagami focal loss, bramkowaniem epistemicznej niepewności i serią BoN.',
+    accent: '#8b5cf6',
+    badge: 'Produkcja',
+  },
   operational_hybrid: {
-    title: 'Hybryda Operacyjna (Regional BoN + Rynek)',
+    title: 'Hybryda Operacyjna (EXP-081 / Regional + Rynek)',
     short: 'Hybrid (Operacyjny)',
     description: 'Połączenie modelu operacyjnego z rynkiem — najniższy LogLoss we wszystkich horyzontach.',
     accent: '#0d9488',
+    badge: 'Hybryda',
   },
   operational: {
-    title: 'Model Operacyjny (Regional BoN)',
-    short: 'Operacyjny',
-    description: 'Czysty model operacyjny z ogonem dwumianowym (LogLoss 0.561).',
+    title: 'Model Operacyjny (Regional BoN v0.4)',
+    short: 'Regional BoN v0.4',
+    description: 'Poprzednik produkcyjny: model ratingowy z oknem W20 i analitycznym ogonem dwumianowym.',
     accent: '#059669',
+    badge: 'Poprzednik',
   },
   hybrid: {
-    title: 'Hybrid model (EXP-039 + Rynek)',
+    title: 'Thesis Hybrid (EXP-039 + Rynek)',
     short: 'Hybrid (EXP-039)',
-    description: 'Połączenie modelu referencyjnego EXP-039 z informacją rynkową/kursami.',
+    description: 'Połączenie modelu referencyjnego pracy dyplomowej EXP-039 z informacją rynkową/kursami.',
     accent: '#7c3aed',
+    badge: 'Teza',
   },
   thesis: {
-    title: 'Thesis model (EXP-039)',
+    title: 'Thesis Baseline (EXP-039 Sym-Cal)',
     short: 'Thesis (EXP-039)',
-    description: 'Czysty model referencyjny pracy (niższy LogLoss niż rynek w 48h+ i 24-48h).',
+    description: 'Zamrożona baza referencyjna pracy: Sym-Cal ElasticNet z oknem W20 i serią dwumianową.',
     accent: '#2563eb',
+    badge: 'Baza',
   },
 }
 
@@ -84,6 +95,7 @@ function binSort<T extends { label: string }>(rows: T[]): T[] {
 
 function modelKeyFromName(name: string): ModelAnalysisKey {
   const lower = name.toLowerCase()
+  if (lower.includes('exp081') || lower.includes('exp-081') || lower.includes('siamese')) return 'exp081'
   if (lower.includes('operational') && lower.includes('hybrid')) return 'operational_hybrid'
   if (lower.includes('operational') || lower.includes('v0.4-binom')) return 'operational'
   if (lower.includes('hybrid')) return 'hybrid'
@@ -102,6 +114,130 @@ function StatCard({ label, value, hint, tone }: { label: string; value: string; 
       <span>{label}</span>
       <strong>{value}</strong>
       {hint && <small>{hint}</small>}
+    </div>
+  )
+}
+
+function ModelHeroScorecard({
+  selectedKey,
+  comparison,
+}: {
+  selectedKey: ModelAnalysisKey
+  comparison: HistoricalModelComparison | null
+}) {
+  const keyAliases: Record<string, string> = {
+    exp081: 'exp081',
+    operational: 'operational_regional',
+    operational_hybrid: 'operational_hybrid',
+    hybrid: 'thesis_hybrid',
+    thesis: 'exp039',
+  }
+  const lookupKey = keyAliases[selectedKey] || selectedKey
+  const modelMetrics = comparison?.models.find((m) => m.key === lookupKey) || comparison?.models.find((m) => m.key === selectedKey)
+  const common = comparison?.common_cohort
+  const targetCommon = common?.target_model || (selectedKey === 'thesis' ? common?.exp039 : common?.operational_regional)
+  const info = MODEL_LABELS[selectedKey] || { title: selectedKey, short: selectedKey, description: '', accent: '#8b5cf6' }
+
+  const nMatches = modelMetrics?.n_matches ?? targetCommon?.n_matches ?? 0
+  const acc = modelMetrics?.accuracy ?? targetCommon?.accuracy
+  const logLoss = modelMetrics?.avg_logloss ?? targetCommon?.avg_logloss
+  const brier = modelMetrics?.avg_brier ?? targetCommon?.avg_brier
+  const auc = modelMetrics?.avg_auc ?? targetCommon?.avg_auc
+  const ece = modelMetrics?.ece ?? targetCommon?.ece
+  const calStatus = modelMetrics?.calibration_status ?? targetCommon?.calibration_status
+
+  const isWellCalibrated = calStatus === 'well_calibrated' || (ece !== null && ece !== undefined && ece <= 0.05)
+  const isOverconfident = calStatus === 'overconfident_miscalibrated' || (ece !== null && ece !== undefined && ece > 0.08)
+
+  return (
+    <div className="ma-hero-scorecard-card">
+      <div className="ma-scorecard-header">
+        <div className="ma-scorecard-titles">
+          <div className="ma-scorecard-badge-row">
+            <span
+              className="ma-scorecard-model-badge"
+              style={{ backgroundColor: `${info.accent}20`, color: info.accent, borderColor: `${info.accent}60` }}
+            >
+              ★ {info.badge || 'Model'}
+            </span>
+            <span className="ma-scorecard-eval-rule">
+              Reguła temporalna: data_cutoff &le; predicted_at &lt; match_start
+            </span>
+          </div>
+          <h3>{info.title}</h3>
+          <p>{info.description}</p>
+        </div>
+        <div className="ma-scorecard-sample-box">
+          <span className="sample-label">Próba ewaluacyjna</span>
+          <span className="sample-count">{nMatches.toLocaleString()}</span>
+          <span className="sample-unit">zakończonych meczów</span>
+        </div>
+      </div>
+
+      <div className="ma-scorecard-metrics-grid">
+        <div className="ma-metric-tile">
+          <div className="tile-head">
+            <span>Trafność (Accuracy)</span>
+            <span className="tile-icon">🎯</span>
+          </div>
+          <div className="tile-value">{fmtPctRate(acc)}</div>
+          <div className="tile-sub">Symmetric threshold P &ge; 0.50</div>
+        </div>
+
+        <div className="ma-metric-tile">
+          <div className="tile-head">
+            <span>LogLoss (BCE)</span>
+            <span className="tile-icon">📉</span>
+          </div>
+          <div className={`tile-value ${(logLoss ?? 1) < 0.60 ? 'positive' : ''}`}>
+            {fmt(logLoss, 4)}
+          </div>
+          <div className="tile-sub">
+            {logLoss != null ? `${signed(logLoss - 0.6931, 4)} vs rzut monetą` : 'Niższy = lepszy'}
+          </div>
+        </div>
+
+        <div className="ma-metric-tile">
+          <div className="tile-head">
+            <span>Brier Score</span>
+            <span className="tile-icon">📐</span>
+          </div>
+          <div className={`tile-value ${(brier ?? 1) < 0.20 ? 'positive' : ''}`}>
+            {fmt(brier, 4)}
+          </div>
+          <div className="tile-sub">
+            {brier != null ? `${signed(brier - 0.2500, 4)} vs 50/50` : 'Błąd kwadratowy'}
+          </div>
+        </div>
+
+        <div className="ma-metric-tile">
+          <div className="tile-head">
+            <span>Dyskryminacja (ROC-AUC)</span>
+            <span className="tile-icon">⚡</span>
+          </div>
+          <div className="tile-value">{fmt(auc, 3)}</div>
+          <div className="tile-sub">Rozróżnianie faworyta od underdoga</div>
+        </div>
+
+        <div className="ma-metric-tile">
+          <div className="tile-head">
+            <span>Kalibracja (ECE)</span>
+            <span className="tile-icon">⚖️</span>
+          </div>
+          <div className="tile-value">
+            {fmt(ece, 3)}
+          </div>
+          <div className="tile-sub">
+            {isWellCalibrated ? (
+              <span className="ma-pill-status green">🟢 Dobrze skalibrowany</span>
+            ) : isOverconfident ? (
+              <span className="ma-pill-status red">🔴 Overconfident</span>
+            ) : (
+              <span className="ma-pill-status yellow">🟡 W normie</span>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1063,11 +1199,13 @@ function BootstrapChart({ bins }: { bins: HorizonBootstrapResponse['bins'] }) {
 }
 
 function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComparison }) {
+  const targetKey = comparison.target_model_key || comparison.common_cohort.target_model_key || 'exp081'
   const oldModel = comparison.models.find((m) => m.key === 'exp039')
-  const opModel = comparison.models.find((m) => m.key === 'operational_regional')
+  const targetModel = comparison.models.find((m) => m.key === targetKey) || comparison.models.find((m) => m.key === 'operational_regional')
+  const targetLabel = targetModel?.label || (targetKey === 'exp081' ? 'EXP-081 Siamese' : 'Regional BoN')
 
   const oldBins = oldModel?.calibration_bins ?? []
-  const opBins = opModel?.calibration_bins ?? []
+  const targetBins = targetModel?.calibration_bins ?? []
 
   const mapX = (prob: number) => 55 + prob * 390
   const mapY = (rate: number) => 330 - rate * 300
@@ -1081,9 +1219,9 @@ function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComp
   }
 
   const oldPath = buildPath(oldBins)
-  const opPath = buildPath(opBins)
+  const targetPath = buildPath(targetBins)
 
-  const [activeModel, setActiveModel] = useState<'both' | 'exp039' | 'operational_regional'>('both')
+  const [activeModel, setActiveModel] = useState<'both' | 'target' | 'exp039'>('both')
 
   return (
     <div className="ma-calibration-grid">
@@ -1104,16 +1242,16 @@ function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComp
               Oba
             </button>
             <button
+              className={`secondary small ${activeModel === 'target' ? 'active' : ''}`}
+              onClick={() => setActiveModel('target')}
+            >
+              {targetLabel}
+            </button>
+            <button
               className={`secondary small ${activeModel === 'exp039' ? 'active' : ''}`}
               onClick={() => setActiveModel('exp039')}
             >
-              EXP-039
-            </button>
-            <button
-              className={`secondary small ${activeModel === 'operational_regional' ? 'active' : ''}`}
-              onClick={() => setActiveModel('operational_regional')}
-            >
-              Regional BoN
+              EXP-039 (Baza)
             </button>
           </div>
         </div>
@@ -1158,26 +1296,26 @@ function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComp
             strokeDasharray="5 5"
           />
 
-          {/* Operational Curve & Points */}
-          {(activeModel === 'both' || activeModel === 'operational_regional') && opPath && (
-            <path d={opPath} fill="none" stroke="#a855f7" strokeWidth="3" />
+          {/* Target Model Curve & Points */}
+          {(activeModel === 'both' || activeModel === 'target') && targetPath && (
+            <path d={targetPath} fill="none" stroke="#8b5cf6" strokeWidth="3" />
           )}
-          {(activeModel === 'both' || activeModel === 'operational_regional') &&
-            opBins
+          {(activeModel === 'both' || activeModel === 'target') &&
+            targetBins
               .filter((b) => b.avg_predicted !== null && b.empirical_rate !== null && b.count > 0)
               .map((b) => (
-                <g key={`op-${b.bin_index}`}>
+                <g key={`target-${b.bin_index}`}>
                   <circle
                     cx={mapX(b.avg_predicted!)}
                     cy={mapY(b.empirical_rate!)}
                     r={Math.min(10, Math.max(4, Math.sqrt(b.count) * 1.1))}
-                    fill="#a855f7"
+                    fill="#8b5cf6"
                     fillOpacity="0.85"
                     stroke="#ffffff"
                     strokeWidth="1.5"
                   >
                     <title>
-                      {`Regional BoN [${b.label}]: p̂=${((b.avg_predicted ?? 0) * 100).toFixed(1)}%, win=${((b.empirical_rate ?? 0) * 100).toFixed(1)}%, n=${b.count}`}
+                      {`${targetLabel} [${b.label}]: p̂=${((b.avg_predicted ?? 0) * 100).toFixed(1)}%, win=${((b.empirical_rate ?? 0) * 100).toFixed(1)}%, n=${b.count}`}
                     </title>
                   </circle>
                 </g>
@@ -1221,7 +1359,7 @@ function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComp
             fontWeight="700"
             fill="#cbd5e1"
           >
-            Rzeczywisty win-rate (Empirical frequency)
+            Rzeczywista częstość wygranych (Empirical win rate y)
           </text>
         </svg>
 
@@ -1231,12 +1369,12 @@ function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComp
             <span>Idealna kalibracja (y = x)</span>
           </div>
           <div className="ma-cal-legend-item">
-            <span className="ma-cal-legend-line exp039" />
-            <span>EXP-039 Sym-Cal (ECE: {fmt(oldModel?.ece, 3)})</span>
+            <span className="ma-cal-legend-line" style={{ background: '#8b5cf6', width: '20px', height: '3px' }} />
+            <span>{targetLabel} (ECE: {fmt(targetModel?.ece, 3)})</span>
           </div>
           <div className="ma-cal-legend-item">
-            <span className="ma-cal-legend-line operational" />
-            <span>Regional BoN Replay (ECE: {fmt(opModel?.ece, 3)})</span>
+            <span className="ma-cal-legend-line exp039" />
+            <span>EXP-039 Sym-Cal (ECE: {fmt(oldModel?.ece, 3)})</span>
           </div>
         </div>
       </div>
@@ -1259,6 +1397,24 @@ function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComp
             </thead>
             <tbody>
               <tr>
+                <td><strong>{targetLabel}</strong></td>
+                <td><strong className={(targetModel?.ece ?? 0) > 0.08 ? 'negative' : ''}>{fmt(targetModel?.ece, 3)}</strong></td>
+                <td>
+                  <span className={`ma-status-tag ${targetModel?.calibration_status || 'unknown'}`}>
+                    {targetModel?.calibration_status === 'well_calibrated'
+                      ? '🟢 Dobrze skalibrowany'
+                      : targetModel?.calibration_status === 'overconfident_miscalibrated'
+                      ? '🔴 Overconfident'
+                      : targetModel?.calibration_status || '—'}
+                  </span>
+                </td>
+                <td style={{ fontSize: '12px' }}>
+                  {(targetModel?.ece ?? 0) <= 0.05
+                    ? 'Stabilne oszacowania prawdopodobieństw zbliżone do empirycznych wyników.'
+                    : 'Wymaga uwagi przy pozycjach skrajnych (pułapka kursowa).'}
+                </td>
+              </tr>
+              <tr>
                 <td><strong>EXP-039</strong></td>
                 <td><strong>{fmt(oldModel?.ece, 3)}</strong></td>
                 <td>
@@ -1268,20 +1424,9 @@ function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComp
                 </td>
                 <td style={{ fontSize: '12px' }}>Symetryczna kalibracja skutecznie ściąga skrajności.</td>
               </tr>
-              <tr>
-                <td><strong>Regional BoN</strong></td>
-                <td><strong className="negative">{fmt(opModel?.ece, 3)}</strong></td>
-                <td>
-                  <span className={`ma-status-tag ${opModel?.calibration_status || 'unknown'}`}>
-                    {opModel?.calibration_status === 'overconfident_miscalibrated' ? '🔴 Overconfident' : opModel?.calibration_status || '—'}
-                  </span>
-                </td>
-                <td style={{ fontSize: '12px' }}>Ogon dwumianowy w seriach zawyża prawdopodobieństwo faworytów.</td>
-              </tr>
             </tbody>
           </table>
         </div>
-
         <div style={{ marginTop: '10px' }}>
           <h5 style={{ margin: '0 0 6px', fontSize: '0.9rem', color: '#e2e8f0' }}>Porównanie koszyków probabilistycznych (EXP-039):</h5>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '8px' }}>
@@ -1305,13 +1450,21 @@ function CalibrationCurveChart({ comparison }: { comparison: HistoricalModelComp
 
 function ModelLeaderboardSection({ comparison }: { comparison: HistoricalModelComparison }) {
   const common = comparison.common_cohort
-  const isOpBetter = (common.operational_minus_exp039_logloss ?? 0) <= 0
+  const targetKey = comparison.target_model_key || common.target_model_key || 'exp081'
+  const targetSummary = common.target_model || common.operational_regional
+  const targetModelMeta = comparison.models.find((m) => m.key === targetKey)
+  const targetTitle = common.target_model_title || targetModelMeta?.label || (targetKey === 'exp081' ? 'EXP-081 Siamese Series' : 'Regional BoN Replay')
+
+  const deltaLogLoss = common.target_minus_exp039_logloss ?? common.operational_minus_exp039_logloss
+  const deltaBrier = common.target_minus_exp039_brier ?? common.operational_minus_exp039_brier
+  const isTargetBetter = deltaLogLoss !== null && deltaLogLoss !== undefined ? deltaLogLoss <= 0 : false
+
   const marketDelta =
     common.market_closing?.avg_logloss !== undefined &&
-    common.operational_regional?.avg_logloss !== undefined &&
+    targetSummary?.avg_logloss !== undefined &&
     common.market_closing?.avg_logloss !== null &&
-    common.operational_regional?.avg_logloss !== null
-      ? common.operational_regional.avg_logloss - common.market_closing.avg_logloss
+    targetSummary?.avg_logloss !== null
+      ? targetSummary.avg_logloss - common.market_closing.avg_logloss
       : null
 
   return (
@@ -1332,55 +1485,55 @@ function ModelLeaderboardSection({ comparison }: { comparison: HistoricalModelCo
         </div>
 
         <div className="ma-cohort-grid">
-          {/* Operational Regional Card */}
-          <div className={`ma-cohort-card ${isOpBetter ? 'champion' : 'overconfident'}`}>
+          {/* Target Model Card */}
+          <div className={`ma-cohort-card ${isTargetBetter ? 'champion' : 'overconfident'}`}>
             <div className="ma-card-top">
-              <strong>Regional BoN Replay</strong>
-              <span className={`ma-card-pill ${isOpBetter ? 'green' : 'red'}`}>
-                {isOpBetter ? 'Lepszy od EXP-039' : 'Overconfident'}
+              <strong>{targetTitle}</strong>
+              <span className={`ma-card-pill ${isTargetBetter ? 'green' : 'red'}`}>
+                {isTargetBetter ? 'Lepszy od EXP-039' : 'Do kalibracji'}
               </span>
             </div>
             <div className="ma-metric-row">
               <span>LogLoss</span>
-              <strong className={isOpBetter ? 'positive' : 'negative'}>
-                {fmt(common.operational_regional?.avg_logloss, 4)}
+              <strong className={isTargetBetter ? 'positive' : 'negative'}>
+                {fmt(targetSummary?.avg_logloss, 4)}
               </strong>
             </div>
             <div className="ma-metric-row">
               <span>Brier Score</span>
-              <strong className={(common.operational_minus_exp039_brier ?? 0) <= 0 ? 'positive' : 'negative'}>
-                {fmt(common.operational_regional?.avg_brier, 4)}
+              <strong className={(deltaBrier ?? 0) <= 0 ? 'positive' : 'negative'}>
+                {fmt(targetSummary?.avg_brier, 4)}
               </strong>
             </div>
             <div className="ma-metric-row">
               <span>AUC</span>
-              <strong>{fmt(common.operational_regional?.avg_auc, 3)}</strong>
+              <strong>{fmt(targetSummary?.avg_auc, 3)}</strong>
             </div>
             <div className="ma-metric-row">
               <span>Accuracy</span>
-              <strong>{fmtPctRate(common.operational_regional?.accuracy)}</strong>
+              <strong>{fmtPctRate(targetSummary?.accuracy)}</strong>
             </div>
             <div className="ma-metric-row">
               <span>ECE</span>
-              <strong>{fmt(common.operational_regional?.ece, 3)}</strong>
+              <strong>{fmt(targetSummary?.ece, 3)}</strong>
             </div>
           </div>
 
           {/* EXP-039 Card */}
-          <div className={`ma-cohort-card ${!isOpBetter ? 'champion' : 'baseline'}`}>
+          <div className={`ma-cohort-card ${!isTargetBetter ? 'champion' : 'baseline'}`}>
             <div className="ma-card-top">
               <strong>EXP-039 Thesis</strong>
-              <span className={`ma-card-pill ${!isOpBetter ? 'green' : 'blue'}`}>
-                {!isOpBetter ? 'Wygrywa (Referencyjny)' : 'Baza referencyjna'}
+              <span className={`ma-card-pill ${!isTargetBetter ? 'green' : 'blue'}`}>
+                {!isTargetBetter ? 'Wygrywa (Referencyjny)' : 'Baza referencyjna'}
               </span>
             </div>
             <div className="ma-metric-row">
               <span>LogLoss</span>
-              <strong className={!isOpBetter ? 'positive' : ''}>{fmt(common.exp039?.avg_logloss, 4)}</strong>
+              <strong className={!isTargetBetter ? 'positive' : ''}>{fmt(common.exp039?.avg_logloss, 4)}</strong>
             </div>
             <div className="ma-metric-row">
               <span>Brier Score</span>
-              <strong className={!isOpBetter ? 'positive' : ''}>{fmt(common.exp039?.avg_brier, 4)}</strong>
+              <strong className={!isTargetBetter ? 'positive' : ''}>{fmt(common.exp039?.avg_brier, 4)}</strong>
             </div>
             <div className="ma-metric-row">
               <span>AUC</span>
@@ -1457,25 +1610,25 @@ function ModelLeaderboardSection({ comparison }: { comparison: HistoricalModelCo
 
         {/* Delta Callout Box */}
         <div className="ma-delta-summary-box" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {common.operational_minus_exp039_logloss !== null && (
+          {deltaLogLoss !== null && deltaLogLoss !== undefined && (
             <div>
-              <strong>Różnica LogLoss (Regionalny − EXP-039):</strong>{' '}
-              <span className={common.operational_minus_exp039_logloss > 0 ? 'negative' : 'positive'}>
-                {signed(common.operational_minus_exp039_logloss, 4)}
+              <strong>Różnica LogLoss ({targetTitle} − EXP-039):</strong>{' '}
+              <span className={deltaLogLoss > 0 ? 'negative' : 'positive'}>
+                {signed(deltaLogLoss, 4)}
               </span>
-              . {common.operational_minus_exp039_logloss <= 0
-                ? 'Model regionalny z hierarchicznymi ratingami i oknem W20 osiąga niższy błąd predykcji niż praca dyplomowa EXP-039.'
-                : 'Model regionalny generuje wyższy błąd LogLoss ze względu na nadmierną pewność w seriach Bo3/Bo5.'}
+              . {deltaLogLoss <= 0
+                ? `${targetTitle} osiąga niższy błąd predykcji niż baza referencyjna pracy dyplomowej EXP-039.`
+                : `${targetTitle} generuje wyższy błąd LogLoss ze względu na rozkalibrowanie lub za małą próbę.`}
             </div>
           )}
 
-          {marketDelta !== null && common.operational_regional?.avg_logloss !== undefined && common.market_closing?.avg_logloss !== undefined && (
+          {marketDelta !== null && targetSummary?.avg_logloss !== undefined && common.market_closing?.avg_logloss !== undefined && (
             <div>
               <strong>Delta względem Rynku Zamykającego (No-Vig):</strong>{' '}
               <span className={marketDelta <= 0 ? 'positive' : 'negative'}>
                 {signed(marketDelta, 4)}
               </span>{' '}
-              LogLoss (Model: {fmt(common.operational_regional.avg_logloss, 4)} vs Rynek: {fmt(common.market_closing.avg_logloss, 4)}).
+              LogLoss ({targetTitle}: {fmt(targetSummary.avg_logloss, 4)} vs Rynek: {fmt(common.market_closing.avg_logloss, 4)}).
             </div>
           )}
 
@@ -1548,8 +1701,10 @@ function ModelLeaderboardSection({ comparison }: { comparison: HistoricalModelCo
 }
 
 function SegmentsAndFormatsSection({ comparison }: { comparison: HistoricalModelComparison }) {
+  const targetKey = comparison.target_model_key || comparison.common_cohort.target_model_key || 'exp081'
   const oldModel = comparison.models.find((m) => m.key === 'exp039')
-  const opModel = comparison.models.find((m) => m.key === 'operational_regional')
+  const targetModel = comparison.models.find((m) => m.key === targetKey) || comparison.models.find((m) => m.key === 'operational_regional')
+  const targetLabel = targetModel?.label || (targetKey === 'exp081' ? 'EXP-081 Siamese' : 'Regional BoN')
 
   return (
     <div className="ma-breakdown-section">
@@ -1561,20 +1716,20 @@ function SegmentsAndFormatsSection({ comparison }: { comparison: HistoricalModel
             <span className="ma-segment-tag">LCK, LPL, LEC, LCS, MSI, Worlds</span>
           </div>
           <div className="ma-metric-row">
+            <span>{targetLabel} LogLoss</span>
+            <strong>{fmt(targetModel?.segments?.tier_1?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
             <span>EXP-039 LogLoss</span>
             <strong>{fmt(oldModel?.segments?.tier_1?.avg_logloss, 4)}</strong>
           </div>
           <div className="ma-metric-row">
-            <span>Regional BoN LogLoss</span>
-            <strong>{fmt(opModel?.segments?.tier_1?.avg_logloss, 4)}</strong>
-          </div>
-          <div className="ma-metric-row">
-            <span>EXP-039 AUC</span>
-            <strong>{fmt(oldModel?.segments?.tier_1?.avg_auc, 3)}</strong>
+            <span>{targetLabel} AUC</span>
+            <strong>{fmt(targetModel?.segments?.tier_1?.avg_auc, 3)}</strong>
           </div>
           <div className="ma-metric-row">
             <span>Meczów w próbie</span>
-            <span>{oldModel?.segments?.tier_1?.n_matches ?? '—'}</span>
+            <span>{targetModel?.segments?.tier_1?.n_matches ?? '—'}</span>
           </div>
         </div>
 
@@ -1585,20 +1740,20 @@ function SegmentsAndFormatsSection({ comparison }: { comparison: HistoricalModel
             <span className="ma-segment-tag">Prime League, LFL, Ultraliga itp.</span>
           </div>
           <div className="ma-metric-row">
+            <span>{targetLabel} LogLoss</span>
+            <strong>{fmt(targetModel?.segments?.regional_erl?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
             <span>EXP-039 LogLoss</span>
             <strong>{fmt(oldModel?.segments?.regional_erl?.avg_logloss, 4)}</strong>
           </div>
           <div className="ma-metric-row">
-            <span>Regional BoN LogLoss</span>
-            <strong>{fmt(opModel?.segments?.regional_erl?.avg_logloss, 4)}</strong>
-          </div>
-          <div className="ma-metric-row">
-            <span>EXP-039 AUC</span>
-            <strong>{fmt(oldModel?.segments?.regional_erl?.avg_auc, 3)}</strong>
+            <span>{targetLabel} AUC</span>
+            <strong>{fmt(targetModel?.segments?.regional_erl?.avg_auc, 3)}</strong>
           </div>
           <div className="ma-metric-row">
             <span>Meczów w próbie</span>
-            <span>{oldModel?.segments?.regional_erl?.n_matches ?? '—'}</span>
+            <span>{targetModel?.segments?.regional_erl?.n_matches ?? '—'}</span>
           </div>
         </div>
 
@@ -1609,16 +1764,16 @@ function SegmentsAndFormatsSection({ comparison }: { comparison: HistoricalModel
             <span className="ma-segment-tag">Pojedyncza mapa</span>
           </div>
           <div className="ma-metric-row">
+            <span>{targetLabel} LogLoss</span>
+            <strong>{fmt(targetModel?.formats?.bo1?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
             <span>EXP-039 LogLoss</span>
             <strong>{fmt(oldModel?.formats?.bo1?.avg_logloss, 4)}</strong>
           </div>
           <div className="ma-metric-row">
-            <span>Regional BoN LogLoss</span>
-            <strong>{fmt(opModel?.formats?.bo1?.avg_logloss, 4)}</strong>
-          </div>
-          <div className="ma-metric-row">
             <span>Meczów</span>
-            <span>{oldModel?.formats?.bo1?.n_matches ?? '—'}</span>
+            <span>{targetModel?.formats?.bo1?.n_matches ?? '—'}</span>
           </div>
         </div>
 
@@ -1629,30 +1784,29 @@ function SegmentsAndFormatsSection({ comparison }: { comparison: HistoricalModel
             <span className="ma-segment-tag">Serie meczowe (Ogon potęgowy)</span>
           </div>
           <div className="ma-metric-row">
+            <span>{targetLabel} Bo3 LogLoss</span>
+            <strong>{fmt(targetModel?.formats?.bo3?.avg_logloss, 4)}</strong>
+          </div>
+          <div className="ma-metric-row">
             <span>EXP-039 Bo3 LogLoss</span>
             <strong>{fmt(oldModel?.formats?.bo3?.avg_logloss, 4)}</strong>
           </div>
           <div className="ma-metric-row">
-            <span>Regional BoN Bo3 LogLoss</span>
-            <strong className="negative">{fmt(opModel?.formats?.bo3?.avg_logloss, 4)}</strong>
+            <span>{targetLabel} Bo5 LogLoss</span>
+            <strong>{fmt(targetModel?.formats?.bo5?.avg_logloss, 4)}</strong>
           </div>
           <div className="ma-metric-row">
             <span>EXP-039 Bo5 LogLoss</span>
             <strong>{fmt(oldModel?.formats?.bo5?.avg_logloss, 4)}</strong>
-          </div>
-          <div className="ma-metric-row">
-            <span>Regional BoN Bo5 LogLoss</span>
-            <strong className="negative">{fmt(opModel?.formats?.bo5?.avg_logloss, 4)}</strong>
           </div>
         </div>
       </div>
     </div>
   )
 }
-
 function ModelAnalysis() {
-  const [selected, setSelected] = useState<ModelAnalysisKey>('operational_hybrid')
-  const [viewMode, setViewMode] = useState<ViewMode>('all')
+  const [selected, setSelected] = useState<ModelAnalysisKey>('exp081')
+  const [viewMode, setViewMode] = useState<ViewMode>('overview')
   const [daysBack] = useState(90)
   const [maxOddsAge] = useState(4)
 
@@ -1692,14 +1846,19 @@ function ModelAnalysis() {
       setAuditLoading(false)
     }
   }
-
-  const reloadHistorical = async (days = histDaysBack, lg = histLeague, bo = histBestOf) => {
+  const reloadHistorical = async (
+    days = histDaysBack,
+    lg = histLeague,
+    bo = histBestOf,
+    target = selected === 'operational' ? 'operational_regional' : 'exp081'
+  ) => {
     setLoadingHist(true)
     try {
       const data = await fetchHistoricalModelComparison({
         maxDaysBack: days,
         league: lg || undefined,
         bestOf: bo,
+        targetModel: target,
       })
       setHistoricalComparison(data)
     } catch (err) {
@@ -1724,6 +1883,7 @@ function ModelAnalysis() {
           maxDaysBack: histDaysBack,
           league: histLeague || undefined,
           bestOf: histBestOf,
+          targetModel: selected === 'operational' ? 'operational_regional' : 'exp081',
         }),
         fetchModelProfitabilityAudit({
           modelKey: auditModelKey,
@@ -1836,22 +1996,22 @@ function ModelAnalysis() {
       <section className="ma-controls">
         <div className="ma-view-mode-bar" role="tablist" aria-label="Perspektywa analizy">
           <button
-            className={viewMode === 'all' ? 'active' : ''}
-            onClick={() => setViewMode('all')}
+            className={viewMode === 'overview' ? 'active' : ''}
+            onClick={() => setViewMode('overview')}
           >
-            📋 Pełny raport
-          </button>
-          <button
-            className={viewMode === 'profitability' ? 'active' : ''}
-            onClick={() => setViewMode('profitability')}
-          >
-            🛡️ Audyt Rentowności & Anomalie
+            ⚡ Przegląd & Model Hero
           </button>
           <button
             className={viewMode === 'leaderboard' ? 'active' : ''}
             onClick={() => setViewMode('leaderboard')}
           >
             🏆 Leaderboard & Kalibracja
+          </button>
+          <button
+            className={viewMode === 'profitability' ? 'active' : ''}
+            onClick={() => setViewMode('profitability')}
+          >
+            🛡️ Audyt Rentowności & Anomalie
           </button>
           <button
             className={viewMode === 'segments' ? 'active' : ''}
@@ -1877,9 +2037,50 @@ function ModelAnalysis() {
           >
             📊 Przedziały kursowe ({oddsTierBreakdown.length})
           </button>
+          <button
+            className={viewMode === 'all' ? 'active' : ''}
+            onClick={() => setViewMode('all')}
+          >
+            📋 Pełny raport
+          </button>
         </div>
       </section>
 
+      {/* Model Selection Bar */}
+      <section className="ma-model-selector-bar">
+        {(Object.keys(MODEL_LABELS) as ModelAnalysisKey[]).map((key) => {
+          const m = MODEL_LABELS[key]
+          const isSelected = selected === key
+          return (
+            <button
+              key={key}
+              type="button"
+              className={`ma-model-select-card ${isSelected ? 'active' : ''}`}
+              onClick={() => {
+                setSelected(key)
+                const target = key === 'operational' ? 'operational_regional' : 'exp081'
+                reloadHistorical(histDaysBack, histLeague, histBestOf, target)
+              }}
+              style={{ borderColor: isSelected ? m.accent : undefined }}
+            >
+              <div className="ma-model-select-head">
+                <span className="ma-model-title">{m.short}</span>
+                {m.badge && (
+                  <span className="ma-badge" style={{ backgroundColor: `${m.accent}25`, color: m.accent }}>
+                    {m.badge}
+                  </span>
+                )}
+              </div>
+              <p className="ma-model-desc">{m.description}</p>
+            </button>
+          )
+        })}
+      </section>
+
+      {/* Hero Scorecard for Selected Model */}
+      {(viewMode === 'overview' || viewMode === 'all') && (
+        <ModelHeroScorecard selectedKey={selected} comparison={historicalComparison} />
+      )}
       {/* Profitability Audit & Calibration Anomaly Detection */}
       {(viewMode === 'all' || viewMode === 'profitability') && (
         <ProfitabilityAuditSection
@@ -1905,7 +2106,7 @@ function ModelAnalysis() {
       )}
 
       {/* Historical Model Leaderboard, Calibration & Segments */}
-      {(viewMode === 'all' || viewMode === 'leaderboard') && historicalComparison && (
+      {(viewMode === 'all' || viewMode === 'leaderboard' || viewMode === 'overview') && historicalComparison && (
         <section className="ma-section">
           <div className="ma-section-title">
             <div>
@@ -1996,7 +2197,7 @@ function ModelAnalysis() {
       )}
 
       {/* Segments & Formats View */}
-      {(viewMode === 'all' || viewMode === 'segments') && historicalComparison && (
+      {(viewMode === 'all' || viewMode === 'segments' || viewMode === 'overview') && historicalComparison && (
         <section className="ma-section">
           <div className="ma-section-title">
             <div>
@@ -2011,13 +2212,14 @@ function ModelAnalysis() {
         </section>
       )}
 
-      {/* Executive Strategic Insights */}
-      <ExecutiveInsightsCard
-        recommendations={recommendations}
-        bestHorizon={bestHorizonStr}
-        topBooks={topBooksStr}
-        bestTier={bestTierStr}
-      />
+      {(viewMode === 'all' || viewMode === 'overview') && (
+        <ExecutiveInsightsCard
+          recommendations={recommendations}
+          bestHorizon={bestHorizonStr}
+          topBooks={topBooksStr}
+          bestTier={bestTierStr}
+        />
+      )}
 
       {/* Timing & Market-oriented Analysis Controls */}
       {(viewMode === 'all' || viewMode === 'timing' || viewMode === 'bookmakers' || viewMode === 'odds_tiers') && (
