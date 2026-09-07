@@ -78,6 +78,15 @@ class BacktestResult:
     max_drawdown: float
     matches_seen: int
     matches_bet: int
+    matches_temporally_ineligible: int = 0
+    turnover: float = 0.0
+    expected_profit: float = 0.0
+    expected_yield: float = 0.0
+    bankroll_return: float = 0.0
+    max_drawdown_fraction: float = 0.0
+    max_open_stake: float = 0.0
+    max_open_bets: int = 0
+    bets_skipped_insufficient_funds: int = 0
 
 
 @dataclass(frozen=True)

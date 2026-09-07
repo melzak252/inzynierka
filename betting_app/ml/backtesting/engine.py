@@ -94,7 +94,19 @@ def run_backtest(
 
     total_staked = sum(b.stake for b in bets)
     total_profit = sum(b.profit for b in bets)
+    expected_profit = sum(b.expected_profit or (b.stake * b.ev) for b in bets)
     wins = sum(1 for b in bets if b.result == "won")
+    turnover = total_staked / config.bankroll_start if config.bankroll_start > 0 else 0.0
+    expected_yield = expected_profit / total_staked if total_staked > 0 else 0.0
+    bankroll_return = (bankroll - config.bankroll_start) / config.bankroll_start if config.bankroll_start > 0 else 0.0
+    peak = config.bankroll_start
+    dd_fraction = 0.0
+    for val in curve:
+        if val > peak:
+            peak = val
+        if peak > 0:
+            dd_fraction = max(dd_fraction, (peak - val) / peak)
+
     return BacktestResult(
         bets=bets,
         bankroll_start=config.bankroll_start,
@@ -106,4 +118,13 @@ def run_backtest(
         max_drawdown=max_drawdown(curve),
         matches_seen=matches_seen,
         matches_bet=len({b.canonical_match_id for b in bets}),
+        matches_temporally_ineligible=0,
+        turnover=turnover,
+        expected_profit=expected_profit,
+        expected_yield=expected_yield,
+        bankroll_return=bankroll_return,
+        max_drawdown_fraction=dd_fraction,
+        max_open_stake=max((b.stake for b in bets), default=0.0),
+        max_open_bets=1 if bets else 0,
+        bets_skipped_insufficient_funds=0,
     )

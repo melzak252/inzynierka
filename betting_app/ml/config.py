@@ -15,6 +15,7 @@ class StakingConfig:
     kelly_fraction: float = 0.25
     min_stake: float = 0.0
     max_stake: float | None = 100.0
+    max_bankroll_fraction: float | None = None
 
 
 @dataclass(frozen=True)

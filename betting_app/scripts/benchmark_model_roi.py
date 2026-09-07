@@ -654,7 +654,9 @@ def summarize_result(
             if staking.strategy == "fractional_kelly"
             else None
         ),
-        "max_stake_fraction": staking.max_bankroll_fraction,
+        "max_stake_fraction": getattr(
+            staking, "max_bankroll_fraction", getattr(staking, "bankroll_fraction", None)
+        ),
         "matches_seen": result.matches_seen,
         "matches_temporally_ineligible": result.matches_temporally_ineligible,
         "qualifying_bets": len(result.bets),
@@ -712,6 +714,7 @@ def _build_staking_config(args: argparse.Namespace) -> StakingConfig:
             strategy="fixed",
             fixed_stake=args.fixed_stake,
             max_stake=args.fixed_stake,
+            max_bankroll_fraction=args.max_stake_fraction,
         )
     return StakingConfig(
         strategy="fractional_kelly",
@@ -936,8 +939,9 @@ def main() -> None:
                 if staking.strategy == "fractional_kelly"
                 else None
             ),
-            "max_stake_fraction": staking.max_bankroll_fraction,
-            "ev_threshold": args.min_ev,
+            "max_stake_fraction": getattr(
+                staking, "max_bankroll_fraction", getattr(staking, "bankroll_fraction", None)
+            ),
             "max_bets_per_match": 1,
             "timings": args.timings,
             "tax_scenarios": TAX_SCENARIOS,
