@@ -32,6 +32,27 @@ def test_latest_pre_match_selects_latest_quote_per_bookmaker() -> None:
     assert {q.odds_snapshot_id for q in selected} == {102, 201}
 
 
+def test_open_and_mid_pre_match_selects_expected_snapshots() -> None:
+    label = MatchLabel(canonical_match_id=1, winner_side="a", start_time=dt(18))
+    quotes = [
+        OddsQuote(1, 10, "book-a", 2.10, 1.70, dt(10), 101),
+        OddsQuote(1, 10, "book-a", 2.15, 1.68, dt(12), 102),
+        OddsQuote(1, 10, "book-a", 2.20, 1.65, dt(14), 103),
+        OddsQuote(1, 11, "book-b", 2.05, 1.75, dt(11), 201),
+        OddsQuote(1, 11, "book-b", 2.00, 1.80, dt(15), 202),
+    ]
+
+    open_selected = select_quotes_for_match(
+        quotes, label, BacktestConfig(odds_policy="open_pre_match")
+    )
+    assert {q.odds_snapshot_id for q in open_selected} == {101, 201}
+
+    mid_selected = select_quotes_for_match(
+        quotes, label, BacktestConfig(odds_policy="mid_pre_match")
+    )
+    # For book-a (3 snapshots, idx (3-1)//2 = 1): 102; for book-b (2 snapshots, idx (2-1)//2 = 0): 201
+    assert {q.odds_snapshot_id for q in mid_selected} == {102, 201}
+
 def test_backtest_places_highest_ev_bet_and_settles_with_tax() -> None:
     result = run_backtest(
         predictions=[
