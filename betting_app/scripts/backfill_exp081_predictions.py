@@ -114,24 +114,6 @@ def load_market_prob_for_match(session, canonical_match_id: int) -> float | None
     row = session.execute(
         text(
             """
-            SELECT prob_a
-            FROM canonical_odds_snapshots
-            WHERE canonical_match_id = :match_id
-              AND prob_a IS NOT NULL
-            ORDER BY scraped_at DESC
-            LIMIT 1
-            """
-        ),
-        {"match_id": canonical_match_id},
-    ).fetchone()
-
-    if row and row[0] is not None:
-        return float(row[0])
-
-    # Fallback to odds_snapshots if canonical_odds_snapshots is empty
-    row = session.execute(
-        text(
-            """
             SELECT odds_a, odds_b
             FROM odds_snapshots
             WHERE canonical_match_id = :match_id
