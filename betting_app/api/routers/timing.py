@@ -3749,7 +3749,7 @@ def validation_report(
     if len(matches) == 0:
         return {"error": "Brak zakończonych meczów w wybranym okresie."}
 
-    m_ids = matches["canonical_match_id"].astype(int).tolist()
+    m_ids = [int(m["canonical_match_id"]) for m in matches]
     p_holders = ",".join(f":m_{i}" for i in range(len(m_ids)))
     m_params = {f"m_{i}": mid for i, mid in enumerate(m_ids)}
 
