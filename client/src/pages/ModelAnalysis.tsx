@@ -19,7 +19,7 @@ import type {
   ModelProfitabilityAuditResponse,
 } from '../types'
 import './ModelAnalysis.css'
-type ViewMode = 'overview' | 'leaderboard' | 'profitability' | 'timing' | 'bookmakers' | 'odds_tiers' | 'segments' | 'all'
+type ViewMode = 'accuracy' | 'reality_check' | 'timing' | 'all'
 
 type SeriesPoint = {
   label: string
@@ -29,19 +29,19 @@ type SeriesPoint = {
   entries?: number
 }
 const MODEL_LABELS: Record<ModelAnalysisKey, { title: string; short: string; description: string; accent: string; badge?: string }> = {
-  exp081: {
-    title: 'EXP-081 Siamese Series (Archiwalny)',
-    short: 'EXP-081 Siamese',
-    description: 'Antysymetryczna Sieć Syjamska MLP z wagami focal loss (model archiwalny).',
-    accent: '#8b5cf6',
-    badge: 'Archiwum',
-  },
   operational_hybrid: {
     title: 'Hybryda Operacyjna (Causal A0 + Rynek alpha=0.50)',
-    short: 'Hybrid (Causal A0)',
-    description: 'Połączenie modelu Causal A0 z rynkiem otwarcia — najniższy LogLoss (0.5608) we wszystkich horyzontach.',
+    short: 'Hybryda A0 + Rynek',
+    description: 'Aktywny model produkcyjny: Causal A0 połączony z rynkiem otwarcia (LogLoss 0.6113 na 834 meczach).',
     accent: '#0d9488',
     badge: 'Aktywny Produkcyjny',
+  },
+  exp081: {
+    title: 'EXP-081 Siamese Series (Czysto Sportowy)',
+    short: 'EXP-081 Siamese',
+    description: 'Antysymetryczna Sieć Syjamska MLP z wagami focal loss (czysty model sportowy).',
+    accent: '#8b5cf6',
+    badge: 'Model Sportowy',
   },
   operational: {
     title: 'Model Operacyjny (Regional BoN v0.4)',
@@ -50,19 +50,19 @@ const MODEL_LABELS: Record<ModelAnalysisKey, { title: string; short: string; des
     accent: '#059669',
     badge: 'Poprzednik',
   },
-  hybrid: {
-    title: 'Thesis Hybrid (EXP-039 + Rynek)',
-    short: 'Hybrid (EXP-039)',
-    description: 'Połączenie modelu referencyjnego pracy dyplomowej EXP-039 z informacją rynkową/kursami.',
-    accent: '#7c3aed',
-    badge: 'Teza',
-  },
   thesis: {
     title: 'Thesis Baseline (EXP-039 Sym-Cal)',
     short: 'Thesis (EXP-039)',
     description: 'Zamrożona baza referencyjna pracy: Sym-Cal ElasticNet z oknem W20 i serią dwumianową.',
     accent: '#2563eb',
-    badge: 'Baza',
+    badge: 'Baza Dyplomowa',
+  },
+  hybrid: {
+    title: 'Thesis Hybrid (EXP-039 + Rynek)',
+    short: 'Hybrid (EXP-039)',
+    description: 'Połączenie modelu referencyjnego pracy dyplomowej EXP-039 z informacją rynkową/kursami.',
+    accent: '#7c3aed',
+    badge: 'Teza Hybryda',
   },
 }
 
@@ -634,8 +634,6 @@ function ExecutiveInsightsCard({
 function ProfitabilityAuditSection({
   audit,
   loading,
-  modelKey,
-  onModelKeyChange,
   taxRate,
   onTaxRateChange,
   minEv,
@@ -643,9 +641,7 @@ function ProfitabilityAuditSection({
   onRefresh,
 }: {
   audit: ModelProfitabilityAuditResponse | null
-  loading: boolean
-  modelKey: string
-  onModelKeyChange: (k: string) => void
+  loading: boolean,
   taxRate: number
   onTaxRateChange: (t: number) => void
   minEv: number
@@ -680,30 +676,6 @@ function ProfitabilityAuditSection({
 
       {/* Audit Toolbar */}
       <div className="ma-audit-toolbar">
-        <div className="ma-audit-controls-group">
-          <span className="ma-audit-label">Model:</span>
-          <div className="ma-pill-toggle">
-            <button
-              className={modelKey === 'operational' ? 'active' : ''}
-              onClick={() => onModelKeyChange('operational')}
-            >
-              Model Operacyjny (v0.4)
-            </button>
-            <button
-              className={modelKey === 'operational_hybrid' ? 'active' : ''}
-              onClick={() => onModelKeyChange('operational_hybrid')}
-            >
-              Hybryda Operacyjna
-            </button>
-            <button
-              className={modelKey === 'thesis' ? 'active' : ''}
-              onClick={() => onModelKeyChange('thesis')}
-            >
-              EXP-039 Sym-Cal (Thesis)
-            </button>
-          </div>
-        </div>
-
         <div className="ma-audit-controls-group">
           <span className="ma-audit-label">Próg Min EV:</span>
           <div className="ma-pill-toggle">
@@ -1805,8 +1777,8 @@ function SegmentsAndFormatsSection({ comparison }: { comparison: HistoricalModel
   )
 }
 function ModelAnalysis() {
-  const [selected, setSelected] = useState<ModelAnalysisKey>('exp081')
-  const [viewMode, setViewMode] = useState<ViewMode>('overview')
+  const [selected, setSelected] = useState<ModelAnalysisKey>('operational_hybrid')
+  const [viewMode, setViewMode] = useState<ViewMode>('accuracy')
   const [daysBack] = useState(90)
   const [maxOddsAge] = useState(4)
 
@@ -1827,10 +1799,18 @@ function ModelAnalysis() {
   // Profitability Audit state
   const [audit, setAudit] = useState<ModelProfitabilityAuditResponse | null>(null)
   const [auditLoading, setAuditLoading] = useState<boolean>(false)
-  const [auditModelKey, setAuditModelKey] = useState<string>('operational')
+  const [auditModelKey, setAuditModelKey] = useState<string>('operational_hybrid')
   const [auditTaxRate, setAuditTaxRate] = useState<number>(0.12)
   const [auditMinEv, setAuditMinEv] = useState<number>(0.05)
 
+  const handleSelectModel = (key: ModelAnalysisKey) => {
+    setSelected(key)
+    const auditKey = key === 'exp081' ? 'exp081' : key === 'operational' ? 'operational' : key === 'thesis' ? 'thesis' : key === 'hybrid' ? 'hybrid' : 'operational_hybrid'
+    setAuditModelKey(auditKey)
+    reloadAudit(auditKey, auditTaxRate, auditMinEv)
+    const target = key === 'operational' ? 'operational_regional' : 'exp081'
+    reloadHistorical(histDaysBack, histLeague, histBestOf, target)
+  }
   const reloadAudit = async (key = auditModelKey, tax = auditTaxRate, ev = auditMinEv) => {
     setAuditLoading(true)
     try {
@@ -1996,48 +1976,28 @@ function ModelAnalysis() {
       <section className="ma-controls">
         <div className="ma-view-mode-bar" role="tablist" aria-label="Perspektywa analizy">
           <button
-            className={viewMode === 'overview' ? 'active' : ''}
-            onClick={() => setViewMode('overview')}
+            type="button"
+            className={viewMode === 'accuracy' ? 'active' : ''}
+            onClick={() => setViewMode('accuracy')}
           >
-            ⚡ Przegląd & Model Hero
+            🏆 1. Dokładność & LogLoss vs Bukmacherzy
           </button>
           <button
-            className={viewMode === 'leaderboard' ? 'active' : ''}
-            onClick={() => setViewMode('leaderboard')}
+            type="button"
+            className={viewMode === 'reality_check' ? 'active' : ''}
+            onClick={() => setViewMode('reality_check')}
           >
-            🏆 LogLoss vs Bukmacherzy & Kalibracja
+            🛡️ 2. Reality Check: Expected vs Reality & Kelly
           </button>
           <button
-            className={viewMode === 'profitability' ? 'active' : ''}
-            onClick={() => setViewMode('profitability')}
-          >
-            🛡️ Reality Check & Kelly (Expected vs Reality)
-          </button>
-          <button
+            type="button"
             className={viewMode === 'timing' ? 'active' : ''}
             onClick={() => setViewMode('timing')}
           >
-            ⏱️ Horyzonty czasowe & CLV
+            ⏱️ 3. Horyzonty czasowe & CLV
           </button>
           <button
-            className={viewMode === 'bookmakers' ? 'active' : ''}
-            onClick={() => setViewMode('bookmakers')}
-          >
-            🏢 Rozbicie na Bukmacherów ({bookmakerBreakdown.length})
-          </button>
-          <button
-            className={viewMode === 'odds_tiers' ? 'active' : ''}
-            onClick={() => setViewMode('odds_tiers')}
-          >
-            📊 Przedziały kursowe & Stawki ({oddsTierBreakdown.length})
-          </button>
-          <button
-            className={viewMode === 'segments' ? 'active' : ''}
-            onClick={() => setViewMode('segments')}
-          >
-            🌐 Segmenty (Tier 1 vs ERL, Bo1 vs Bo3 vs Bo5)
-          </button>
-          <button
+            type="button"
             className={viewMode === 'all' ? 'active' : ''}
             onClick={() => setViewMode('all')}
           >
@@ -2047,7 +2007,7 @@ function ModelAnalysis() {
       </section>
 
       {/* Model Selection Bar */}
-      <section className="ma-model-selector-bar">
+      <section className="ma-model-selector-cards">
         {(Object.keys(MODEL_LABELS) as ModelAnalysisKey[]).map((key) => {
           const m = MODEL_LABELS[key]
           const isSelected = selected === key
@@ -2055,42 +2015,28 @@ function ModelAnalysis() {
             <button
               key={key}
               type="button"
-              className={`ma-model-select-card ${isSelected ? 'active' : ''}`}
-              onClick={() => {
-                setSelected(key)
-                const target = key === 'operational' ? 'operational_regional' : 'exp081'
-                reloadHistorical(histDaysBack, histLeague, histBestOf, target)
-              }}
-              style={{ borderColor: isSelected ? m.accent : undefined }}
+              className={`ma-model-selector-btn ${isSelected ? 'active' : ''}`}
+              onClick={() => handleSelectModel(key)}
+              style={{ '--model-accent': m.accent } as React.CSSProperties}
             >
-              <div className="ma-model-select-head">
-                <span className="ma-model-title">{m.short}</span>
-                {m.badge && (
-                  <span className="ma-badge" style={{ backgroundColor: `${m.accent}25`, color: m.accent }}>
-                    {m.badge}
-                  </span>
-                )}
-              </div>
-              <p className="ma-model-desc">{m.description}</p>
+              <span className="model-tag" style={{ color: m.accent }}>{m.badge || 'Model'}</span>
+              <span className="model-title">{m.short}</span>
+              <span className="model-desc" title={m.description}>{m.description}</span>
             </button>
           )
         })}
       </section>
 
-      {/* Hero Scorecard for Selected Model */}
-      {(viewMode === 'overview' || viewMode === 'all') && (
+      {/* 1. ACCURACY & LOGLOSS VS BUKMACHERZY */}
+      {(viewMode === 'accuracy' || viewMode === 'all') && (
         <ModelHeroScorecard selectedKey={selected} comparison={historicalComparison} />
       )}
-      {/* Profitability Audit & Calibration Anomaly Detection */}
-      {(viewMode === 'all' || viewMode === 'profitability') && (
+
+      {/* 2. REALITY CHECK & KELLY (EXPECTED VS REALITY) */}
+      {(viewMode === 'reality_check' || viewMode === 'all') && (
         <ProfitabilityAuditSection
           audit={audit}
           loading={auditLoading}
-          modelKey={auditModelKey}
-          onModelKeyChange={(k) => {
-            setAuditModelKey(k)
-            reloadAudit(k, auditTaxRate, auditMinEv)
-          }}
           taxRate={auditTaxRate}
           onTaxRateChange={(t) => {
             setAuditTaxRate(t)
@@ -2105,8 +2051,8 @@ function ModelAnalysis() {
         />
       )}
 
-      {/* Historical Model Leaderboard, Calibration & Segments */}
-      {(viewMode === 'all' || viewMode === 'leaderboard' || viewMode === 'overview') && historicalComparison && (
+      {/* Accuracy Section: Leaderboard, Calibration Curve & Segments */}
+      {(viewMode === 'accuracy' || viewMode === 'all') && historicalComparison && (
         <section className="ma-section">
           <div className="ma-section-title">
             <div>
@@ -2196,8 +2142,7 @@ function ModelAnalysis() {
         </section>
       )}
 
-      {/* Segments & Formats View */}
-      {(viewMode === 'all' || viewMode === 'segments' || viewMode === 'overview') && historicalComparison && (
+      {(viewMode === 'accuracy' || viewMode === 'all') && historicalComparison && (
         <section className="ma-section">
           <div className="ma-section-title">
             <div>
@@ -2212,7 +2157,8 @@ function ModelAnalysis() {
         </section>
       )}
 
-      {(viewMode === 'all' || viewMode === 'overview') && (
+      {/* 3. TIMING & MARKET-ORIENTED CLV ANALYSIS */}
+      {(viewMode === 'timing' || viewMode === 'all') && (
         <ExecutiveInsightsCard
           recommendations={recommendations}
           bestHorizon={bestHorizonStr}
@@ -2221,32 +2167,14 @@ function ModelAnalysis() {
         />
       )}
 
-      {/* Timing & Market-oriented Analysis Controls */}
-      {(viewMode === 'all' || viewMode === 'timing' || viewMode === 'bookmakers' || viewMode === 'odds_tiers') && (
-        <>
-          <section className="ma-controls" style={{ marginTop: '32px' }}>
-            <div className="ma-model-toggle" role="tablist" aria-label="Model selector">
-              {(['operational_hybrid', 'operational', 'hybrid', 'thesis'] as ModelAnalysisKey[]).map((key) => (
-                <button key={key} className={selected === key ? 'active' : ''} onClick={() => setSelected(key)}>
-                  <strong>{MODEL_LABELS[key].title}</strong>
-                  <span>{MODEL_LABELS[key].description}</span>
-                </button>
-              ))}
-            </div>
-            <div className="ma-filter-row">
-              <span>Widok rynkowy (CLV & Horyzonty): ostatnie {daysBack} dni · max wiek kursu {maxOddsAge}h</span>
-              <button onClick={load}>Przeładuj analizę rynkową</button>
-            </div>
-          </section>
-
-          <section className="ma-summary">
-            <StatCard label="Model rynkowy" value={modelInfo.short} hint={modelInfo.description} />
-            <StatCard label="Najlepszy horyzont CLV" value={bestClv?.label ?? '—'} hint={bestClv ? `${signed(bestClv.avg_clv_odds_pct, 2, '%')} avg CLV, ${bestClv.match_count} meczów` : 'Brak pozycji'} tone={(bestClv?.avg_clv_odds_pct ?? 0) > 0 ? 'good' : 'neutral'} />
-            <StatCard label="Horyzonty z dodatnim CLV" value={`${positiveBins}/${clvBins.length || 0}`} hint={avgClv === null ? '—' : `${signed(avgClv, 2, '%')} średnio po oknach`} tone={positiveBins > clvBins.length / 2 ? 'good' : 'neutral'} />
-            <StatCard label="Istotność Bootstrap" value={`${significantPositive}/${bootstrapBins.length || 0}`} hint="Przedział ufności powyżej zera" tone={significantPositive > 0 ? 'good' : 'neutral'} />
-            <StatCard label="Przeanalizowane predykcje" value={clv ? clv.total_predictions_scanned.toLocaleString() : '—'} hint={clv ? `${clv.total_entries.toLocaleString()} pozycji EV` : undefined} />
-          </section>
-        </>
+      {(viewMode === 'timing' || viewMode === 'all') && (
+        <section className="ma-summary" style={{ marginTop: 24 }}>
+          <StatCard label="Model rynkowy" value={modelInfo.short} hint={modelInfo.description} />
+          <StatCard label="Najlepszy horyzont CLV" value={bestClv?.label ?? '—'} hint={bestClv ? `${signed(bestClv.avg_clv_odds_pct, 2, '%')} avg CLV, ${bestClv.match_count} meczów` : 'Brak pozycji'} tone={(bestClv?.avg_clv_odds_pct ?? 0) > 0 ? 'good' : 'neutral'} />
+          <StatCard label="Horyzonty z dodatnim CLV" value={`${positiveBins}/${clvBins.length || 0}`} hint={avgClv === null ? '—' : `${signed(avgClv, 2, '%')} średnio po oknach`} tone={positiveBins > clvBins.length / 2 ? 'good' : 'neutral'} />
+          <StatCard label="Istotność Bootstrap" value={`${significantPositive}/${bootstrapBins.length || 0}`} hint="Przedział ufności powyżej zera" tone={significantPositive > 0 ? 'good' : 'neutral'} />
+          <StatCard label="Przeanalizowane predykcje" value={clv ? clv.total_predictions_scanned.toLocaleString() : '—'} hint={clv ? `${clv.total_entries.toLocaleString()} pozycji EV` : undefined} />
+        </section>
       )}
 
       {(viewMode === 'all' || viewMode === 'timing') && accuracy && (
@@ -2341,7 +2269,7 @@ function ModelAnalysis() {
         </>
       )}
 
-      {(viewMode === 'all' || viewMode === 'bookmakers') && (
+      {(viewMode === 'all' || viewMode === 'timing') && (
         <section className="ma-section">
           <div className="ma-section-title">
             <div>
@@ -2353,7 +2281,7 @@ function ModelAnalysis() {
         </section>
       )}
 
-      {(viewMode === 'all' || viewMode === 'odds_tiers') && (
+      {(viewMode === 'all' || viewMode === 'timing') && (
         <section className="ma-section">
           <div className="ma-section-title">
             <div>
