@@ -3833,37 +3833,41 @@ def validation_report(
             })
 
     last_odds = df.sort_values("scraped_at").groupby(["canonical_match_id", "bookmaker"]).last().reset_index()
-    close_map_a = last_odds.groupby("canonical_match_id")["odds_a"].median().to_dict()
-    close_map_b = last_odds.groupby("canonical_match_id")["odds_b"].median().to_dict()
+    same_book_close = last_odds.set_index(["canonical_match_id", "bookmaker"])[["odds_a", "odds_b"]].to_dict("index")
 
     net_mult = 1.0 - tax_rate
     bets = []
     for _, r in first_odds.iterrows():
         mid = r["canonical_match_id"]
+        bm = r["bookmaker"]
         w_side = r["winner_side"]
         pa = r["prob_a"]
         pb = r["prob_b"]
         oa = r["odds_a"]
         ob = r["odds_b"]
-        cl_a = close_map_a.get(mid, oa)
-        cl_b = close_map_b.get(mid, ob)
+
+        bm_close = same_book_close.get((mid, bm), {})
+        cl_a = bm_close.get("odds_a") or oa
+        cl_b = bm_close.get("odds_b") or ob
+
+        clv_a = (oa / cl_a - 1.0) * 100.0 if cl_a and cl_a > 0 else 0.0
+        clv_b = (ob / cl_b - 1.0) * 100.0 if cl_b and cl_b > 0 else 0.0
 
         eva = pa * oa * net_mult - 1.0
         evb = pb * ob * net_mult - 1.0
 
         if eva >= min_ev and eva >= evb:
             bets.append({
-                "canonical_match_id": mid, "bookmaker": r["bookmaker"], "side": "team_a",
+                "canonical_match_id": mid, "bookmaker": bm, "side": "team_a",
                 "odds": oa, "odds_close": cl_a, "prob": pa, "ev_net": eva,
-                "won": w_side == "team_a", "clv": (oa / cl_a - 1.0) if cl_a else 0.0,
+                "won": w_side == "team_a", "clv": clv_a,
             })
         elif evb >= min_ev and evb > eva:
             bets.append({
-                "canonical_match_id": mid, "bookmaker": r["bookmaker"], "side": "team_b",
+                "canonical_match_id": mid, "bookmaker": bm, "side": "team_b",
                 "odds": ob, "odds_close": cl_b, "prob": pb, "ev_net": evb,
-                "won": w_side == "team_b", "clv": (ob / cl_b - 1.0) if cl_b else 0.0,
+                "won": w_side == "team_b", "clv": clv_b,
             })
-
     bdf = pd.DataFrame(bets)
     best_b = bdf.sort_values("odds", ascending=False).groupby(["canonical_match_id", "side"]).first().reset_index() if len(bdf) else pd.DataFrame()
 
@@ -3935,11 +3939,14 @@ def validation_report(
             ll_m_h = -np.mean(y_h * np.log(ph_m) + (1 - y_h) * np.log(1 - ph_m))
             ll_k_h = -np.mean(y_h * np.log(ph_k) + (1 - y_h) * np.log(1 - ph_k))
 
-            close_a_sub = [close_map_a.get(mid) for mid in sub_h["canonical_match_id"]]
-            clv_sub = (sub_h["odds_a"] / close_a_sub - 1.0)
-            clv_sub = clv_sub[np.isfinite(clv_sub)]
-            avg_clv_h = float(np.mean(clv_sub) * 100.0) if len(clv_sub) else 0.0
-            pos_clv_h = float(np.mean(clv_sub > 0) * 100.0) if len(clv_sub) else 0.0
+            clv_sub = []
+            for _, r_h in sub_h.iterrows():
+                c_entry = same_book_close.get((r_h["canonical_match_id"], r_h["bookmaker"]), {})
+                c_odds = c_entry.get("odds_a")
+                if c_odds and c_odds > 0:
+                    clv_sub.append((r_h["odds_a"] / c_odds - 1.0) * 100.0)
+            avg_clv_h = float(np.mean(clv_sub)) if len(clv_sub) else 0.0
+            pos_clv_h = float(np.mean(np.array(clv_sub) > 0) * 100.0) if len(clv_sub) else 0.0
 
             horizons_data.append({
                 "label": label,
@@ -3957,7 +3964,7 @@ def validation_report(
     total_pnl = float(best_b["pnl"].sum()) if total_bets else 0.0
     total_staked = total_bets * 100.0
     total_roi = (total_pnl / total_staked * 100.0) if total_staked else 0.0
-    avg_clv_tot = float(best_b["clv"].mean() * 100.0) if total_bets else 0.0
+    avg_clv_tot = float(best_b["clv"].mean()) if total_bets else 0.0
     pos_clv_tot = float((best_b["clv"] > 0).mean() * 100.0) if total_bets else 0.0
 
     return {
