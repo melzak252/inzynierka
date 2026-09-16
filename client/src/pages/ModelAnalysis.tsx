@@ -174,9 +174,9 @@ export default function ModelAnalysis() {
           </div>
 
           <div className="kpi-box">
-            <span className="kpi-label">Średni CLV (Pobicie rynku)</span>
+            <span className="kpi-label">Mediana CLV (Ruch kursu)</span>
             <strong className={`kpi-val ${b.avg_clv_pct >= 0 ? 'good' : 'bad'}`}>
-              +{b.avg_clv_pct.toFixed(1)}%
+              {b.avg_clv_pct > 0 ? '+' : ''}{b.avg_clv_pct.toFixed(1)}%
             </strong>
             <span className="kpi-sub">
               Pobicie zamknięcia: <strong>{b.pos_clv_pct.toFixed(1)}%</strong> zakładów
@@ -206,7 +206,7 @@ export default function ModelAnalysis() {
                   <th className="num">Oczekiwane EV Netto</th>
                   <th className="num">Rzeczywisty ROI Netto</th>
                   <th className="num">Zysk Netto (100 zł/bet)</th>
-                  <th className="num">Średni CLV</th>
+                  <th className="num">Mediana CLV</th>
                 </tr>
               </thead>
               <tbody>
@@ -227,7 +227,7 @@ export default function ModelAnalysis() {
                       <strong>{row.pnl_pln > 0 ? '+' : ''}{row.pnl_pln.toFixed(2)} zł</strong>
                     </td>
                     <td className={`num ${row.clv_pct >= 0 ? 'good' : 'bad'}`}>
-                      +{row.clv_pct.toFixed(1)}%
+                      {row.clv_pct > 0 ? '+' : ''}{row.clv_pct.toFixed(1)}%
                     </td>
                   </tr>
                 ))}
@@ -277,7 +277,7 @@ export default function ModelAnalysis() {
                       <strong>{row.roi_pct > 0 ? '+' : ''}{row.roi_pct.toFixed(1)}%</strong>
                     </td>
                     <td className={`num ${row.clv_pct >= 0 ? 'good' : 'bad'}`}>
-                      +{row.clv_pct.toFixed(1)}%
+                      {row.clv_pct > 0 ? '+' : ''}{row.clv_pct.toFixed(1)}%
                     </td>
                   </tr>
                 ))}
@@ -324,7 +324,7 @@ export default function ModelAnalysis() {
                       <strong>{row.delta_logloss > 0 ? '+' : ''}{row.delta_logloss.toFixed(4)}</strong>
                     </td>
                     <td className={`num ${row.avg_clv_pct >= 0 ? 'good' : 'bad'}`}>
-                      +{row.avg_clv_pct.toFixed(1)}%
+                      {row.avg_clv_pct > 0 ? '+' : ''}{row.avg_clv_pct.toFixed(1)}%
                     </td>
                     <td className="num">{row.pos_clv_pct.toFixed(1)}%</td>
                   </tr>
