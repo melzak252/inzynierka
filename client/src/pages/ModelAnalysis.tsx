@@ -5,7 +5,6 @@ import {
   fetchHorizonBootstrap,
   fetchModelClvByHorizon,
   fetchModelProfitabilityAudit,
-  triggerSchedulerTask,
 } from '../api/client'
 import type {
   BookmakerClvBreakdown,
@@ -764,76 +763,10 @@ function ProfitabilityAuditSection({
         />
       </div>
 
-      {/* Quarantine Banner (ISSUE-001) */}
+      {/* Compact Filter Impact Indicator */}
       {filter_impact && (
-        <div className="ma-quarantine-banner">
-          <div className="ma-quarantine-header">
-            <div>
-              <h3>📊 Wpływ Usunięcia Miskalibracji Underdogów [3.50 – 5.00] (ISSUE-001)</h3>
-              <p>
-                Analiza anomalii kalibracji wykazała, że pierwotny model niepoprawnie przeceniał underdogi w przedziale kursów [3.50 – 5.00]
-                (błąd kalibracji aż +21.7 p.p.). Wdrożenie kalibracji log-odds pooling oraz priorytetu ocen makro eliminuje destrukcyjne straty,
-                zapewniając ujemne EV i brak rekomendacji (No Bet) bez potrzeby sztucznej kwarantanny.
-              </p>
-            </div>
-            <span className="ma-badge-rec" style={{ fontSize: '0.85rem', padding: '6px 12px' }}>
-              STATUS: SKALIBROWANY
-            </span>
-          </div>
-
-          <div className="ma-quarantine-grid">
-            <div className="ma-quarantine-col raw">
-              <span className="ma-q-pill">Model Niekalibrowany</span>
-              <div className="ma-q-stat">{signed(filter_impact.raw_roi_net_pct, 1, '%')}</div>
-              <div className="ma-q-detail">
-                <span>Zysk całkowity:</span>
-                <strong>{signed(filter_impact.raw_pnl_units, 2, ' j.')}</strong>
-              </div>
-              <div className="ma-q-detail">
-                <span>Wszystkie zakłady:</span>
-                <span>{filter_impact.raw_bets} typów</span>
-              </div>
-            </div>
-
-            <div className="ma-quarantine-col trap">
-              <span className="ma-q-pill">Błąd [3.50 - 5.00]</span>
-              <div className="ma-q-stat">{signed(filter_impact.quarantined_roi_net_pct, 1, '%')}</div>
-              <div className="ma-q-detail">
-                <span>Strata z pułapki:</span>
-                <strong style={{ color: '#f87171' }}>{signed(filter_impact.quarantined_pnl_units, 2, ' j.')}</strong>
-              </div>
-              <div className="ma-q-detail">
-                <span>Błędne typy:</span>
-                <span>{filter_impact.quarantined_bets} zakładów</span>
-              </div>
-            </div>
-
-            <div className="ma-quarantine-col filtered">
-              <span className="ma-q-pill">Model Skalibrowany</span>
-              <div className="ma-q-stat">{signed(filter_impact.filtered_roi_net_pct, 1, '%')}</div>
-              <div className="ma-q-detail">
-                <span>Zysk po filtrze:</span>
-                <strong style={{ color: '#34d399' }}>{signed(filter_impact.filtered_pnl_units, 2, ' j.')}</strong>
-              </div>
-              <div className="ma-q-detail">
-                <span>Bezpieczne zakłady:</span>
-                <span>{filter_impact.filtered_bets} typów</span>
-              </div>
-            </div>
-
-            <div className="ma-quarantine-col gain">
-              <span className="ma-q-pill">Wzrost Wyniku</span>
-              <div className="ma-q-stat">+{fmt(filter_impact.pnl_improvement_units, 2)} j.</div>
-              <div className="ma-q-detail">
-                <span>Wzrost ROI:</span>
-                <strong>+{fmt(filter_impact.filtered_roi_net_pct - filter_impact.raw_roi_net_pct, 1)} p.p.</strong>
-              </div>
-              <div className="ma-q-detail">
-                <span>Wzrost kapitału:</span>
-                <span>+150% zysku netto</span>
-              </div>
-            </div>
-          </div>
+        <div className="ma-quarantine-compact-note" style={{ margin: '12px 0 16px', padding: '10px 14px', background: 'rgba(15, 23, 42, 0.6)', border: '1px solid rgba(148, 163, 184, 0.2)', borderRadius: '8px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+          🛡️ <strong>Filtr Jakościowy:</strong> Po wyeliminowaniu nieszczelnych underdogów zysk wynosi <strong>{signed(filter_impact.filtered_pnl_units, 2, ' j.')}</strong> (ROI: <strong style={{ color: filter_impact.filtered_roi_net_pct > 0 ? '#34d399' : '#f87171' }}>{signed(filter_impact.filtered_roi_net_pct, 1, '%')}</strong> vs pierwotne {signed(filter_impact.raw_roi_net_pct, 1, '%')}).
         </div>
       )}
 
@@ -1778,7 +1711,7 @@ function SegmentsAndFormatsSection({ comparison }: { comparison: HistoricalModel
 }
 function ModelAnalysis() {
   const [selected, setSelected] = useState<ModelAnalysisKey>('operational_hybrid')
-  const [viewMode, setViewMode] = useState<ViewMode>('accuracy')
+  const [viewMode, setViewMode] = useState<ViewMode>('all')
   const [daysBack] = useState(90)
   const [maxOddsAge] = useState(4)
 
@@ -1794,7 +1727,6 @@ function ModelAnalysis() {
   const [historicalComparison, setHistoricalComparison] = useState<HistoricalModelComparison | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [refreshingBootstrap, setRefreshingBootstrap] = useState(false)
 
   // Profitability Audit state
   const [audit, setAudit] = useState<ModelProfitabilityAuditResponse | null>(null)
@@ -1949,27 +1881,13 @@ function ModelAnalysis() {
 
   return (
     <div className="model-analysis-page">
-      <header className="ma-hero">
-        <div>
-          <p className="ma-eyebrow">Centrum Walidacji Modeli & Reality Check</p>
-          <h1>Walidacja Modeli & Analiza Rynkowa</h1>
-          <p>
-            Kompleksowa weryfikacja empiryczna na danych z bazy: LogLoss i Brier vs bukmacherzy, krzywe kalibracji (Reliability Diagram),
-            CLV by horizon, zachowanie stawek Kelly'ego w przedziałach kursowych oraz porównanie Expected EV vs Rzeczywisty ROI.
-          </p>
+      <header className="ma-hero compact-hero">
+        <div className="ma-hero-text">
+          <h1 style={{ fontSize: '1.4rem', margin: '0 0 4px', fontWeight: 800 }}>📊 Raport Walidacji Modeli & Reality Check</h1>
+          <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Ewaluacja empiryczna na danych meczowych bazy: LogLoss vs rynek, CLV by horizon, stawki Kelly oraz Expected vs Realized ROI.</span>
         </div>
         <div className="ma-actions">
-          <button onClick={load}>Refresh all</button>
-          <button
-            className="secondary"
-            disabled={refreshingBootstrap}
-            onClick={async () => {
-              setRefreshingBootstrap(true)
-              try { await triggerSchedulerTask('horizon_bootstrap') } finally { setRefreshingBootstrap(false) }
-            }}
-          >
-            {refreshingBootstrap ? 'Running…' : 'Run bootstrap'}
-          </button>
+          <button onClick={load}>🔄 Odśwież dane</button>
         </div>
       </header>
 
@@ -1977,31 +1895,31 @@ function ModelAnalysis() {
         <div className="ma-view-mode-bar" role="tablist" aria-label="Perspektywa analizy">
           <button
             type="button"
-            className={viewMode === 'accuracy' ? 'active' : ''}
-            onClick={() => setViewMode('accuracy')}
+            className={viewMode === 'all' ? 'active' : ''}
+            onClick={() => setViewMode('all')}
           >
-            🏆 1. Dokładność & LogLoss vs Bukmacherzy
+            📋 Pełny Raport Zbiorczy
           </button>
           <button
             type="button"
             className={viewMode === 'reality_check' ? 'active' : ''}
             onClick={() => setViewMode('reality_check')}
           >
-            🛡️ 2. Reality Check: Expected vs Reality & Kelly
+            🛡️ Reality Check: Expected vs Reality
+          </button>
+          <button
+            type="button"
+            className={viewMode === 'accuracy' ? 'active' : ''}
+            onClick={() => setViewMode('accuracy')}
+          >
+            🏆 LogLoss & Modele vs Rynek
           </button>
           <button
             type="button"
             className={viewMode === 'timing' ? 'active' : ''}
             onClick={() => setViewMode('timing')}
           >
-            ⏱️ 3. Horyzonty czasowe & CLV
-          </button>
-          <button
-            type="button"
-            className={viewMode === 'all' ? 'active' : ''}
-            onClick={() => setViewMode('all')}
-          >
-            📋 Pełny raport zbiorczy
+            ⏱️ Horyzonty CLV & Bukmacherzy
           </button>
         </div>
       </section>
