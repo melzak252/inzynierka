@@ -7,6 +7,13 @@ model.
 
 from __future__ import annotations
 
+import os
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 import argparse
 from collections import Counter
 
@@ -31,6 +38,7 @@ from betting_app.services.upcoming_inference_service import (
     generate_model_ev_signals,
     predict_all_upcoming,
 )
+from betting_app.services.bet_qualification_service import DEFAULT_BASE_MIN_EV
 
 DEFAULT_FEATURE_VERSION = get_active_model().feature_version
 DEFAULT_RATINGS_VERSION = get_active_model().ratings_version
@@ -53,8 +61,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--operational-hybrid",
-        action="store_true",
-        help="Generate the ratings-v2 operational+market hybrid.",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Generate the ratings-v2 operational+market Bayesian shrinkage hybrid (default: True).",
     )
     parser.add_argument(
         "--thesis",
@@ -73,7 +82,7 @@ def main() -> None:
         "--thesis-hybrid-temperature", type=float, default=THESIS_HYBRID_TEMPERATURE
     )
     parser.add_argument("--tax-rate", type=float, default=0.12)
-    parser.add_argument("--min-ev", type=float, default=0.0)
+    parser.add_argument("--min-ev", type=float, default=DEFAULT_BASE_MIN_EV)
     parser.add_argument("--bankroll", type=float, default=100.0)
     parser.add_argument("--include-past", action="store_true")
     parser.add_argument(
@@ -120,23 +129,29 @@ def main() -> None:
     ev_model_name = active_model.name
     ev_model_version = active_model.version
     if args.operational_hybrid:
-        operational_hybrid_version = active_hybrid.hybrid_model_version
-        operational_hybrid_preds = generate_hybrid_predictions(
-            base_model_name=active_model.name,
-            base_model_version=active_model.version,
-            alpha=active_hybrid.alpha,
-            temperature=active_hybrid.temperature,
-            hybrid_model_name=active_hybrid.hybrid_model_name,
-            hybrid_model_version=operational_hybrid_version,
-            blending_mode=active_hybrid.blending_mode,
-        )
-        print(
-            "Operational hybrid predictions: "
-            f"{len(operational_hybrid_preds)} | "
-            f"alpha={active_hybrid.alpha:.2f} T={active_hybrid.temperature:.2f}"
-        )
-        ev_model_name = active_hybrid.hybrid_model_name
-        ev_model_version = operational_hybrid_version
+        if active_model.family == "bayesian_market_hybrid":
+            print(
+                f"Active model '{active_model.name}' is already an operational Bayesian Shrunk hybrid "
+                f"({active_model.version}) with integrated market odds. Preserving active model version."
+            )
+        else:
+            operational_hybrid_version = active_hybrid.hybrid_model_version
+            operational_hybrid_preds = generate_hybrid_predictions(
+                base_model_name=active_model.name,
+                base_model_version=active_model.version,
+                alpha=active_hybrid.alpha,
+                temperature=active_hybrid.temperature,
+                hybrid_model_name=active_hybrid.hybrid_model_name,
+                hybrid_model_version=operational_hybrid_version,
+                blending_mode=active_hybrid.blending_mode,
+            )
+            print(
+                "Operational hybrid predictions: "
+                f"{len(operational_hybrid_preds)} | "
+                f"alpha={active_hybrid.alpha:.2f} T={active_hybrid.temperature:.2f}"
+            )
+            ev_model_name = active_hybrid.hybrid_model_name
+            ev_model_version = operational_hybrid_version
     if args.thesis:
         thesis_preds = predict_upcoming_with_thesis_model(
             ratings_version=args.ratings_version,
@@ -164,17 +179,33 @@ def main() -> None:
         ev_model_name = THESIS_HYBRID_MODEL_NAME
         ev_model_version = thesis_hybrid_version
 
-    signals = generate_model_ev_signals(
+    signals, stats = generate_model_ev_signals(
         model_name=ev_model_name,
         model_version=ev_model_version,
         tax_rate=args.tax_rate,
         min_ev=args.min_ev,
         bankroll=args.bankroll,
+        return_stats=True,
     )
     print(
-        f"EV signals: {len(signals)} | tax={args.tax_rate:.2%} | "
+        f"\nEV signals: {len(signals)} | tax={args.tax_rate:.2%} | "
         f"min_ev={args.min_ev:.2%}"
     )
+    print("\n--- Diagnostic Qualification Breakdown ---")
+    print(f"Total fixtures evaluated: {stats['total_fixtures_evaluated']}")
+    print(f"Total predictions written/active: {len(operational_preds)}")
+    print(f"Candidate bet sides evaluated: {stats['candidate_sides_evaluated']}")
+    print(f"Value bets qualified: {stats['value_bets_qualified']}")
+    print(f"Total bets quarantined: {stats['total_quarantined']}")
+    if stats.get('quarantined_breakdown'):
+        print("Quarantined reasons:")
+        for reason, count in stats['quarantined_breakdown'].items():
+            print(f"  - {reason}: {count}")
+    if stats.get('disqualified_breakdown'):
+        print("Disqualified reasons (non-quarantine):")
+        for reason, count in stats['disqualified_breakdown'].items():
+            print(f"  - {reason}: {count}")
+    print("------------------------------------------\n")
     for row in signals[: args.signals_limit]:
         side = "A" if row["side"] == "a" else "B"
         print(

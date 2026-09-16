@@ -95,3 +95,11 @@ class UnifiedPredictionResult:
             raise ValueError(f"prob_b must be in [0, 1], got {self.prob_b}")
         if not math.isclose(self.prob_a + self.prob_b, 1.0, abs_tol=1e-3):
             raise ValueError(f"prob_a + prob_b must equal 1.0, got {self.prob_a + self.prob_b}")
+        uncertainty = (self.p_low_a, self.p_low_b, self.epistemic_sigma_z)
+        if self.diagnostics.get("uncertainty_required") or any(value is not None for value in uncertainty):
+            if any(value is None or not math.isfinite(value) for value in uncertainty):
+                raise ValueError("both side bounds and finite epistemic uncertainty are required")
+            if self.epistemic_sigma_z < 0:
+                raise ValueError("epistemic uncertainty must be nonnegative")
+            if not (0 <= self.p_low_a <= self.prob_a and 0 <= self.p_low_b <= self.prob_b):
+                raise ValueError("side bounds must lie between zero and their own means")
