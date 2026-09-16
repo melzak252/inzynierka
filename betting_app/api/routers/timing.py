@@ -3892,7 +3892,7 @@ def validation_report(
             real_roi = (sub_b["pnl"].sum() / (n * 100.0)) * 100.0
             pnl_val = sub_b["pnl"].sum()
             avg_o = sub_b["odds"].mean()
-            clv_val = sub_b["clv"].mean() * 100.0
+            clv_val = sub_b["clv"].mean()
             brackets_data.append({
                 "label": label, "bets": int(n), "wins": int(wins),
                 "win_rate_pct": round(float(wr), 1), "avg_odds": round(float(avg_o), 2),
@@ -3914,7 +3914,7 @@ def validation_report(
                 "avg_odds": round(float(r["avg_odds"]), 2),
                 "pnl_pln": round(float(r["pnl"]), 2),
                 "roi_pct": round(float(r["pnl"] / (r["bets"] * 100.0) * 100.0), 1),
-                "clv_pct": round(float(r["clv"] * 100.0), 1),
+                "clv_pct": round(float(r["clv"]), 1),
             })
 
     horizons_data = []
