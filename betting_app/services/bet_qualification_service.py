@@ -347,7 +347,14 @@ def qualification_tier(league: str | None, match_date: Any = None) -> str:
     from datetime import date
     from src.models.competition_tiers import CompetitionTier, classify_competition
 
-    effective_date = date.fromisoformat(str(match_date)[:10]) if match_date else None
+    effective_date = None
+    if match_date is not None and not (isinstance(match_date, float) and math.isnan(match_date)):
+        s = str(match_date).strip()[:10]
+        if s and s.lower() not in ("nan", "none"):
+            try:
+                effective_date = date.fromisoformat(s)
+            except ValueError:
+                effective_date = None
     tier = classify_competition(league, effective_date).tier
     return {
         CompetitionTier.INTERNATIONAL: "Tier-1 International",
