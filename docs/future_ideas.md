@@ -685,3 +685,61 @@ where $\mathcal{L}_{\text{KD}}$ is Kullback-Leibler divergence or soft binary cr
 - `reports/pinnacle_vs_model_benchmark_2026.md`
 - `docs/04_experiments/02_produkcja_i_nastepcy/EXP-081_siamese_focal_uncertainty_gating.md`
 - `data/oddspapi_lol_2026_model_audit/selected_pre_match_quotes.csv`
+
+---
+
+## IDEA-023 — Advanced Correlation and Shrunk-Hybrid Parlay Engine (SGP & Tax-Amortized Multi-Bets)
+
+- **Status:** proposed
+- **Created:** 2026-09-16
+- **Updated:** 2026-09-16
+
+### Problem
+
+Recreational accumulator bets (3+ legs) are mathematically toxic due to multiplicative vig compounding: a 6% bookmaker margin on single bets compounds into a 17% margin on 3 legs and 26.6% on 5 legs. Conversely, under the Polish 12% turnover tax, single bets face a heavy tax penalty on every rollover.
+
+While IDEA-019 established a prototype 2-leg favorite dubel, it lacks integration with the verified Bayesian Shrunk Hybrid ($\alpha = 0.50$), composite risk gating (Rules A, B, C), and does not capitalize on intra-match correlation (Same-Game Parlays / SGP).
+
+### Proposed Solution
+
+1. **Shrunk Hybrid Leg Valuation**: Evaluate individual leg probabilities using the Bayesian Shrunk Hybrid ($z = 0.50 z_{\text{A0}} + 0.50 z_{\text{mkt}}$) rather than unconstrained raw models. This eliminates overconfident phantom edges before tickets are generated.
+2. **Same-Game Parlay (SGP) Correlation Exploitation**: Model bivariate joint dependencies between match winner and in-game props (from IDEA-018):
+   - Match Winner + Over/Under Kills
+   - Match Winner + First Baron / First Blood
+   - Map 1 Winner + Match Series Winner
+   When commercial sportsbooks price SGP legs as conditionally independent ($P(A \cap B) = P(A) \cdot P(B)$) while positive correlation exists ($P(A \cap B) > P(A) \cdot P(B)$), mathematically exploit the correlation arbitrage.
+3. **Two-Leg Tax Amortization**: Strictly limit tickets to two legs with combined odds between $2.20$ and $4.50$. Compounding gross odds before tax friction is paid once on the stake provides a $+5\%$ to $+8\%$ net yield boost over sequential single bets.
+4. **Fractional Kelly Sizing**: Dynamically size tickets using conservative Eighth-Kelly ($0.125 \times f^*$) or Quarter-Kelly ($0.25 \times f^*$), capped at 3% maximum bankroll per ticket.
+
+### Non-goals and Safety Boundaries
+
+- Strictly prohibit 3+ leg accumulator tickets (no "taśmy").
+- Strictly prohibit underdogs in parlay legs (maximum odds per leg $\le 2.20$, minimum win probability $\ge 50\%$).
+- Never allow a negative-EV leg to ride along with a positive-EV leg.
+- Strictly enforce the same-bookmaker constraint with verified simultaneous quote timestamps.
+
+### Implementation Outline
+
+1. Service Extension: Upgrade `betting_app/services/parlay_service.py` to consume the active `Hybrid-Bayesian-Shrunk-A0-Market` model.
+2. Risk Gate Binding: Enforce Rules A (EV cap), B (Bo1 quarantine), and C (negative CLV drift filter) on candidate parlay legs.
+3. SGP Joint Modeling: Implement empirical copula or contingency tables in `betting_app/services/prop_correlation_service.py`.
+4. API & UI: Expose SGP and Dubel recommendations in `GET /matches/recommendations/parlays` and `client/src/pages/MatchList.tsx`.
+
+### Acceptance Criteria
+
+1. Backtested net yield $\ge +25.0\%$ after the 12% Polish turnover tax on verified historical opening lines.
+2. Maximum bankroll drawdown kept strictly under $8.0\%$ across rolling 3-month backtests.
+3. Correlation coefficients between match outcomes and prop targets verified on historical GOL.GG game data ($N \ge 5{,}000$ maps) with statistically significant Pearson/Spearman $p < 0.01$.
+
+### Affected Areas
+
+- `betting_app/services/parlay_service.py`
+- `betting_app/services/bet_qualification_service.py`
+- `betting_app/api/routers/matches.py`
+- `client/src/pages/MatchList.tsx`
+
+### References
+
+- `reports/production_readiness_and_market_benchmark_report_2026.md`
+- `ideas/IDEA-019_tax_amortized_favorite_parlays.md`
+- `reports/eda_prop_markets_idea018.md`
