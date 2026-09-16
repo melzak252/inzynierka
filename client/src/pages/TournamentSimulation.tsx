@@ -90,6 +90,52 @@ export default function TournamentSimulation() {
   const [encLoading, setEncLoading] = useState<boolean>(false);
   const [encSimulating, setEncSimulating] = useState<boolean>(false);
   const [encSimCount, setEncSimCount] = useState<number>(1000);
+  const [simElapsed, setSimElapsed] = useState<number>(0);
+  const [worldsElapsed, setWorldsElapsed] = useState<number>(0);
+  const [encElapsed, setEncElapsed] = useState<number>(0);
+
+  const LEAGUE_PILLS = [
+    { id: 'lck_2026_playoffs', region: 'LCK', name: 'LCK Play-offs', flag: '🇰🇷' },
+    { id: 'lec_2026_summer_playoffs', region: 'LEC', name: 'LEC Summer', flag: '🇪🇺' },
+    { id: 'lpl_2026_split3_playoffs', region: 'LPL', name: 'LPL Split 3', flag: '🇨🇳' },
+    { id: 'lcs_2026_championship', region: 'LCS', name: 'LCS Championship', flag: '🇺🇸' },
+  ];
+
+  useEffect(() => {
+    if (!simulating) {
+      setSimElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    const interval = setInterval(() => {
+      setSimElapsed((Date.now() - start) / 1000);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [simulating]);
+
+  useEffect(() => {
+    if (!worldsSimulating) {
+      setWorldsElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    const interval = setInterval(() => {
+      setWorldsElapsed((Date.now() - start) / 1000);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [worldsSimulating]);
+
+  useEffect(() => {
+    if (!encSimulating) {
+      setEncElapsed(0);
+      return;
+    }
+    const start = Date.now();
+    const interval = setInterval(() => {
+      setEncElapsed((Date.now() - start) / 1000);
+    }, 100);
+    return () => clearInterval(interval);
+  }, [encSimulating]);
   useEffect(() => {
     fetchTournaments()
       .then((list) => {
@@ -275,9 +321,12 @@ export default function TournamentSimulation() {
     ...playInWorldsTeams,
   ].every((team) => team.team.trim());
 
-  if (loading && activeTab === 'regional') {
-    return <div className="tournament-container"><div className="loading-state">Ładowanie drabinki i symulatora...</div></div>;
-  }
+  useEffect(() => {
+    if (activeTab === 'worlds' && !worldsData && !worldsSimulating && worldsReady) {
+      handleSimulateWorlds();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, worldsData, worldsSimulating, worldsReady]);
 
   const bracket = data?.bracket || {};
   const allMatches = Object.values(bracket);
@@ -346,7 +395,7 @@ export default function TournamentSimulation() {
             className={`tab-btn ${activeTab === 'regional' ? 'active' : ''}`}
             onClick={() => setActiveTab('regional')}
           >
-            Drabinki Regionalne (LCK / LEC / LPL)
+            Drabinki Regionalne (LCK / LEC / LPL / LCS)
           </button>
           <button
             className={`tab-btn ${activeTab === 'worlds' ? 'active' : ''}`}
@@ -365,6 +414,20 @@ export default function TournamentSimulation() {
         {activeTab === 'regional' ? (
           <>
             <div className="tournament-controls">
+              <div className="league-quick-pills">
+                {LEAGUE_PILLS.map((pill) => (
+                  <button
+                    key={pill.id}
+                    type="button"
+                    className={`league-pill ${selectedId === pill.id ? 'active' : ''}`}
+                    onClick={() => setSelectedId(pill.id)}
+                    title={`Przełącz na ${pill.name}`}
+                  >
+                    <span className="pill-flag">{pill.flag}</span>
+                    <span className="pill-region">{pill.region}</span>
+                  </button>
+                ))}
+              </div>
               <select
                 value={selectedId}
                 onChange={(e) => setSelectedId(e.target.value)}
@@ -635,8 +698,54 @@ export default function TournamentSimulation() {
         </div>
       )}
       {activeTab === 'regional' ? (
-        <div className="regional-stacked-layout">
-          {/* 1. STANDINGS TABLE ALWAYS AT THE TOP */}
+        loading && !data ? (
+          <div className="regional-skeleton-container">
+            <div className="simulation-loading-banner">
+              <div className="computing-spinner" />
+              <div className="loading-text">
+                <strong>Wczytywanie drabinki {tournaments.find((t) => t.id === selectedId)?.name || 'regionalnej'} i ratingów GL...</strong>
+                <span>Łączenie węzłów bracketu, pobieranie aktualnego stanu meczów i generowanie rozkładów Monte Carlo</span>
+              </div>
+            </div>
+            <div className="standings-skeleton-card">
+              <div className="skeleton-header-bar" />
+              <div className="skeleton-table">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <div key={i} className="skeleton-table-row">
+                    <div className="skeleton-cell rank" />
+                    <div className="skeleton-cell team" />
+                    <div className="skeleton-cell prob" />
+                    <div className="skeleton-cell prob" />
+                    <div className="skeleton-cell prob" />
+                    <div className="skeleton-cell prob" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className={`regional-stacked-layout ${simulating ? 'simulating-active' : ''}`}>
+            {simulating && (
+              <div className="simulation-computing-banner">
+                <div className="computing-header-row">
+                  <div className="computing-spinner" />
+                  <div className="computing-meta">
+                    <strong>Trwa symulacja Monte Carlo ({simCount.toLocaleString('pl-PL')} prób)...</strong>
+                    <span className="computing-sub">
+                      Obliczanie losowań match-upów, przepływu Upper/Lower bracket i prawdopodobieństw tytułu
+                    </span>
+                  </div>
+                  <div className="computing-timer-chip">
+                    ⏱️ <strong>{simElapsed.toFixed(1)} s</strong>
+                  </div>
+                </div>
+                <div className="computing-progress-track">
+                  <div className="computing-progress-bar" />
+                </div>
+              </div>
+            )}
+            <div className={simulating ? 'simulating-dimmed' : ''}>
+              {/* 1. STANDINGS TABLE ALWAYS AT THE TOP */}
           <section className="standings-panel full-width">
             <div className="standings-panel-header">
               <h2>📊 Szanse na końcowy wynik ({data?.simulations.toLocaleString('pl-PL')} symulacji)</h2>
@@ -804,7 +913,9 @@ export default function TournamentSimulation() {
 
             </div>
           </section>
-        </div>
+            </div>
+          </div>
+        )
       ) : activeTab === 'worlds' ? (
         <div className={`worlds-layout ${worldsView}`}>
           {(worldsView === 'editor' || worldsView === 'split') && (
@@ -959,8 +1070,53 @@ export default function TournamentSimulation() {
                   </button>
                 )}
               </div>
+
+              {worldsSimulating && (
+                <div className="worlds-computing-dashboard">
+                  <div className="worlds-computing-header">
+                    <div className="computing-spinner large" />
+                    <div className="worlds-computing-title-wrap">
+                      <h3>Trwa symulacja Mistrzostw Świata Worlds 2026 ({worldsSimCount.toLocaleString('pl-PL')} prób)</h3>
+                      <p>Format Riot Games: Play-In Bo5 → 16-drużynowy Swiss Bo1/Bo3 → Faza pucharowa Bo5</p>
+                    </div>
+                    <div className="computing-timer-chip large">
+                      ⏱️ Czas obliczeń: <strong>{worldsElapsed.toFixed(1)} s</strong>
+                    </div>
+                  </div>
+                  <div className="worlds-stage-indicators">
+                    <div className={`worlds-stage-pill ${worldsElapsed >= 0 ? 'active' : ''}`}>
+                      <span className="stage-num">1</span>
+                      <span className="stage-icon">⚔️</span>
+                      <div className="stage-info">
+                        <strong>Play-In Stage</strong>
+                        <small>4 pretendentów, podwójna eliminacja Bo5</small>
+                      </div>
+                    </div>
+                    <div className={`worlds-stage-pill ${worldsElapsed >= 0.5 ? 'active' : ''}`}>
+                      <span className="stage-num">2</span>
+                      <span className="stage-icon">🔄</span>
+                      <div className="stage-info">
+                        <strong>Swiss Stage (5 rund)</strong>
+                        <small>System Buchholza, mecze awansu/odpadnięcia Bo3</small>
+                      </div>
+                    </div>
+                    <div className={`worlds-stage-pill ${worldsElapsed >= 1.2 ? 'active' : ''}`}>
+                      <span className="stage-num">3</span>
+                      <span className="stage-icon">🏆</span>
+                      <div className="stage-info">
+                        <strong>Faza Pucharowa (Knockout)</strong>
+                        <small>Single Elimination Bo5 do Pucharu Świata</small>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="computing-progress-track">
+                    <div className="computing-progress-bar" />
+                  </div>
+                </div>
+              )}
+
               {worldsData ? (
-                <>
+                <div className={worldsSimulating ? 'simulating-dimmed' : ''}>
                   <div className="summary-cards-grid">
                     <div className="summary-card gold-border">
                       <span className="card-label">Główny faworyt</span>
@@ -1033,7 +1189,23 @@ export default function TournamentSimulation() {
                       </tbody>
                     </table>
                   </div>
-                </>
+                </div>
+              ) : worldsSimulating ? (
+                <div className="standings-skeleton-card">
+                  <div className="skeleton-header-bar" />
+                  <div className="skeleton-table">
+                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((i) => (
+                      <div key={i} className="skeleton-table-row">
+                        <div className="skeleton-cell rank" />
+                        <div className="skeleton-cell team" />
+                        <div className="skeleton-cell prob" />
+                        <div className="skeleton-cell prob" />
+                        <div className="skeleton-cell prob" />
+                        <div className="skeleton-cell prob" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
               ) : (
                 <div className="empty-state">
                   <p>
@@ -1153,8 +1325,29 @@ export default function TournamentSimulation() {
                   </button>
                 )}
               </div>
+
+              {encSimulating && (
+                <div className="simulation-computing-banner">
+                  <div className="computing-header-row">
+                    <div className="computing-spinner" />
+                    <div className="computing-meta">
+                      <strong>Trwa symulacja European Nations Cup ({encSimCount.toLocaleString('pl-PL')} prób)...</strong>
+                      <span className="computing-sub">
+                        Faza grupowa 32 nacji (8 grup po 4) → Drabinka pucharowa 16 reprezentacji
+                      </span>
+                    </div>
+                    <div className="computing-timer-chip">
+                      ⏱️ <strong>{encElapsed.toFixed(1)} s</strong>
+                    </div>
+                  </div>
+                  <div className="computing-progress-track">
+                    <div className="computing-progress-bar" />
+                  </div>
+                </div>
+              )}
+
               {encData ? (
-                <>
+                <div className={encSimulating ? 'simulating-dimmed' : ''}>
                   <div className="summary-cards-grid">
                     <div className="summary-card gold-border">
                       <span className="card-label">Główny faworyt ENC</span>
@@ -1230,7 +1423,23 @@ export default function TournamentSimulation() {
                       </tbody>
                     </table>
                   </div>
-                </>
+                </div>
+              ) : encSimulating ? (
+                <div className="standings-skeleton-card">
+                  <div className="skeleton-header-bar" />
+                  <div className="skeleton-table">
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                      <div key={i} className="skeleton-table-row">
+                        <div className="skeleton-cell rank" />
+                        <div className="skeleton-cell team" />
+                        <div className="skeleton-cell prob" />
+                        <div className="skeleton-cell prob" />
+                        <div className="skeleton-cell prob" />
+                        <div className="skeleton-cell prob" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
               ) : (
                 <div className="empty-state">
                   <p>

@@ -538,10 +538,166 @@ def get_lpl_2026_split3_playoffs_bracket() -> TournamentBracket:
         teams=teams,
     )
 
+
+def get_lcs_2026_championship_bracket() -> TournamentBracket:
+    """Construct the curated 6-team LCS 2026 Championship fixed playoff graph."""
+    teams = ["FlyQuest", "Team Liquid", "Cloud9", "100 Thieves", "Dignitas", "Shopify Rebellion"]
+
+    matches: dict[str, BracketMatchNode] = {
+        # Upper Quarterfinal 1
+        "UB_R1_M1": BracketMatchNode(
+            id="UB_R1_M1",
+            name="Upper Quarterfinal 1",
+            round_name="Upper Round 1",
+            bracket_section="upper",
+            best_of=5,
+            team1="Cloud9",
+            team2="Shopify Rebellion",
+            winner=None,
+            next_match_winner_id="UB_R2_M1",
+            next_match_winner_slot=2,
+            next_match_loser_id="LB_R1",
+            next_match_loser_slot=1,
+        ),
+        # Upper Quarterfinal 2
+        "UB_R1_M2": BracketMatchNode(
+            id="UB_R1_M2",
+            name="Upper Quarterfinal 2",
+            round_name="Upper Round 1",
+            bracket_section="upper",
+            best_of=5,
+            team1="100 Thieves",
+            team2="Dignitas",
+            winner=None,
+            next_match_winner_id="UB_R2_M2",
+            next_match_winner_slot=2,
+            next_match_loser_id="LB_R1",
+            next_match_loser_slot=2,
+        ),
+        # Upper Semifinal 1
+        "UB_R2_M1": BracketMatchNode(
+            id="UB_R2_M1",
+            name="Upper Semifinal 1",
+            round_name="Upper Round 2",
+            bracket_section="upper",
+            best_of=5,
+            team1="FlyQuest",
+            team2=None,
+            winner=None,
+            next_match_winner_id="UB_Final",
+            next_match_winner_slot=1,
+            next_match_loser_id="LB_R2",
+            next_match_loser_slot=1,
+        ),
+        # Upper Semifinal 2
+        "UB_R2_M2": BracketMatchNode(
+            id="UB_R2_M2",
+            name="Upper Semifinal 2",
+            round_name="Upper Round 2",
+            bracket_section="upper",
+            best_of=5,
+            team1="Team Liquid",
+            team2=None,
+            winner=None,
+            next_match_winner_id="UB_Final",
+            next_match_winner_slot=2,
+            next_match_loser_id="LB_R3",
+            next_match_loser_slot=1,
+        ),
+        # Lower Round 1
+        "LB_R1": BracketMatchNode(
+            id="LB_R1",
+            name="Lower Round 1",
+            round_name="Lower Round 1",
+            bracket_section="lower",
+            best_of=5,
+            team1=None,
+            team2=None,
+            winner=None,
+            next_match_winner_id="LB_R2",
+            next_match_winner_slot=2,
+        ),
+        # Lower Round 2
+        "LB_R2": BracketMatchNode(
+            id="LB_R2",
+            name="Lower Round 2",
+            round_name="Lower Round 2",
+            bracket_section="lower",
+            best_of=5,
+            team1=None,
+            team2=None,
+            winner=None,
+            next_match_winner_id="LB_R3",
+            next_match_winner_slot=2,
+        ),
+        # Upper Final
+        "UB_Final": BracketMatchNode(
+            id="UB_Final",
+            name="Upper Bracket Final",
+            round_name="Upper Final",
+            bracket_section="upper",
+            best_of=5,
+            team1=None,
+            team2=None,
+            winner=None,
+            next_match_winner_id="Grand_Final",
+            next_match_winner_slot=1,
+            next_match_loser_id="LB_Final",
+            next_match_loser_slot=1,
+        ),
+        # Lower Semifinal
+        "LB_R3": BracketMatchNode(
+            id="LB_R3",
+            name="Lower Bracket Semifinal",
+            round_name="Lower Round 3",
+            bracket_section="lower",
+            best_of=5,
+            team1=None,
+            team2=None,
+            winner=None,
+            next_match_winner_id="LB_Final",
+            next_match_winner_slot=2,
+        ),
+        # Lower Final
+        "LB_Final": BracketMatchNode(
+            id="LB_Final",
+            name="Lower Bracket Final",
+            round_name="Lower Final",
+            bracket_section="lower",
+            best_of=5,
+            team1=None,
+            team2=None,
+            winner=None,
+            next_match_winner_id="Grand_Final",
+            next_match_winner_slot=2,
+        ),
+        # Grand Final
+        "Grand_Final": BracketMatchNode(
+            id="Grand_Final",
+            name="LCS Grand Final",
+            round_name="Grand Final",
+            bracket_section="final",
+            best_of=5,
+            team1=None,
+            team2=None,
+            winner=None,
+        ),
+    }
+
+    return TournamentBracket(
+        id="lcs_2026_championship",
+        name="LCS 2026 Championship",
+        region="LCS",
+        format="double_elimination",
+        matches=matches,
+        teams=teams,
+    )
+
 SUPPORTED_BRACKETS = {
     "lck_2026_playoffs": get_lck_2026_playoffs_bracket,
     "lec_2026_summer_playoffs": get_lec_2026_summer_playoffs_bracket,
     "lpl_2026_split3_playoffs": get_lpl_2026_split3_playoffs_bracket,
+    "lcs_2026_championship": get_lcs_2026_championship_bracket,
 }
 
 class TournamentSimulator:

@@ -92,6 +92,18 @@ TOURNAMENT_METADATA: dict[str, dict[str, Any]] = {
             "Grand_Final",
         ],
     },
+    "lcs_2026_championship": {
+        "name": "LCS 2026 Championship",
+        "liquipedia_page": "LCS/2026_Season/Championship",
+        "fandom_overview": "LCS/2026 Season/Championship",
+        "region": "LCS",
+        "format": "double_elimination",
+        "teams": ["FlyQuest", "Team Liquid", "Cloud9", "100 Thieves", "Dignitas", "Shopify Rebellion"],
+        "round_order": [
+            "UB_R1_M1", "UB_R1_M2", "UB_R2_M1", "UB_R2_M2",
+            "LB_R1", "LB_R2", "UB_Final", "LB_R3", "LB_Final", "Grand_Final",
+        ],
+    },
 }
 
 
