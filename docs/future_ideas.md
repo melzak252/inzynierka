@@ -37,6 +37,24 @@ Every entry should contain:
 - affected repository paths and persisted contracts;
 - follow-up commit, issue, or experiment references when promoted.
 
+## Master Status Matrix (Rejestr i stan realizacji pomysłów)
+
+| ID | Tytuł / Obszar | Status | Gdzie wdrożono / Kluczowe pliki | Wynik / Wniosek |
+|:---|:---|:---:|:---|:---|
+| **IDEA-001** | Read-only foreign LoL market reference feeds | 🔍 `researched` | `reports/pinnacle_vs_model_benchmark_2026.md`, Oddspapi scripts | Zbadano Pinnacle ($N=447$), potwierdzono efektywność rynku sharp i wartość do shrinkingu. |
+| **IDEA-011** | Calibrated player-contribution rating updates | ❌ `rejected` | `docs/04_experiments/EXP-043_pandaskill_like_backtest.md` | Odrzucone: boxscore KDA/DPM zniekształca równowagę ratingu Glicko-2 ($\Delta\text{LogLoss} +0.00068$). |
+| **IDEA-015** | Adaptive horizon market blending ($\alpha(t)$) | ⏳ `in-progress` | `scripts/benchmark_adaptive_hybrid_alpha.py`, `upcoming_inference_service.py` | Przebadano na $N=4\,528$ meczach. Ustalono stałe $\alpha=0.50$ jako optymalne operacyjnie. |
+| **IDEA-016** | Horizon-gated and Tier-calibrated EV Signal Filtering | ✅ `completed` | `betting_app/services/bet_qualification_service.py`, `matches.py` | Wdrożono: `qualification_tier()`, gating niepewności $P_{\text{low}}$, filtr negatywnego driftu CLV i progi EV. |
+| **IDEA-017** | Dynamic Blue/Red Side-Selection Advantage | 💡 `proposed` | `betting_app/ml/features/`, `docs/03_methodology/` | Backlog: modelowanie przewagi strony (Blue/Red) zależnie od patcha i ligi. |
+| **IDEA-018** | In-game prop models (Total Kills, Duration, Objectives) | 🔍 `researched` | `reports/eda_prop_markets_idea018.md`, `ideas/plan_modelowania_props_*.md` | Przebadano $N=64\,663$ map: udowodniono overdispersion NegBin ($\text{AIC} -9018$) i sygnał tempa ($r=+0.40$). |
+| **IDEA-019** | Tax-amortized two-leg favorite parlay (Safe Dubel) | ✅ `completed` | `betting_app/services/parlay_service.py`, `client/src/pages/MatchList.tsx` | Wdrożono: silnik rekomendacji 2-leg dubli na faworytów amortyzujący 12% podatku (ROI $+35.97\%$). |
+| **IDEA-020** | Regional meta-ratings (Meta-OpenSkill) | ❌ `rejected` | `ideas/IDEA-020_*.md`, `docs/04_experiments/EXP-071_*.md` | Odrzucone: Meta-OpenSkill zbędne. Problem inflacji rozwiązany czystymi offsetami Glicko-2 (`ratings-v2`). |
+| **IDEA-021** | Bayesian Market Shrinkage & Tail Gating | ✅ `completed` | `betting_app/core/models/`, `upcoming_inference_service.py` | Wdrożono i wdrożono na serwer: aktywny model produkcyjny `Hybrid-Bayesian-Shrunk-A0-Market` ($\alpha=0.50$). |
+| **IDEA-022** | Knowledge Distillation from Sharp Closing Lines | 💡 `proposed` | `reports/pinnacle_vs_model_benchmark_2026.md` | Backlog: destylacja wiedzy z linii Pinnacle do sieci syjamskich EXP-082. |
+| **IDEA-023** | Advanced Shrunk-Hybrid SGP Engine | 💡 `proposed` | `docs/future_ideas.md` | Backlog: Same-Game Parlays z korelacją między rynkiem głównym a statystykami map. |
+| **IDEA-024** | Automated Market Outlier & Rogue Line Engine | 💡 `proposed` | `docs/future_ideas.md`, skrypty analityczne bazy danych | Backlog: automatyczny radar śpiących buków (STS/Betfan/Betclic) z $\frac{1}{4}$ Kelly i capem $2.5\%$. |
+| **IDEA-025** | LoL Secondary Prop Markets Engine | 💡 `proposed` | `docs/future_ideas.md` | Backlog: rynki poboczne (handicapy, dokładny wynik, czas gry, kille) przyspieszające obrót bankrolla. |
+
 ## Entry template
 
 ```markdown
@@ -321,9 +339,10 @@ Team-outcome rating updates give every player on the winning side the same direc
 
 ## IDEA-016 — Horizon-gated and Tier-calibrated EV Signal Filtering
 
-- **Status:** proposed
+- **Status:** completed
 - **Created:** 2026-09-04
-- **Updated:** 2026-09-04
+- **Updated:** 2026-09-16
+- **Delivered:** `betting_app/services/bet_qualification_service.py`, `betting_app/api/routers/matches.py`, `betting_app/api/routers/predictions.py`
 
 ### Problem
 
@@ -603,9 +622,10 @@ Local PandaSkill experiments (`EXP-068` and `EXP-071`):
 
 ## IDEA-021 — Bayesian Market Shrinkage and Tail Gating (Successor to Operational Hybrid)
 
-- **Status:** researched
+- **Status:** completed
 - **Created:** 2026-09-06
-- **Updated:** 2026-09-06
+- **Updated:** 2026-09-16
+- **Delivered:** `betting_app/core/models/registry.py`, `betting_app/core/models/engine.py`, `betting_app/services/upcoming_inference_service.py`, `betting_app/services/bet_qualification_service.py`
 
 ### Problem
 
