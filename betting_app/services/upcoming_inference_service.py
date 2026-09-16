@@ -7,8 +7,9 @@ than predicted from neutral fallback values.
 """
 
 from __future__ import annotations
-
+from collections import Counter
 import json
+import logging
 import math
 import re
 from datetime import UTC, datetime
@@ -17,12 +18,24 @@ from typing import Any
 from openskill.models import PlackettLuce, ThurstoneMostellerFull
 from trueskill import TrueSkill
 
-from betting_app.core.db import query_df, transaction
+from betting_app.core.db import get_session, query_df, transaction
 from betting_app.core.ev import expected_value, fair_market_probabilities
 from betting_app.core.matching import normalize_team_name
-from betting_app.services.current_roster_service import clean_player_name
+from betting_app.services.current_roster_service import clean_player_name, upsert_current_roster
 from betting_app.core.staking import fractional_kelly_stake
-from betting_app.services.bet_qualification_service import is_bet_eligible
+from betting_app.scrapers.lineup_scraper import (
+    ROLE_ORDER as LINEUP_ROLE_ORDER,
+    check_confirmed_lineup,
+    detect_lineup_substitution,
+    normalize_player_id,
+)
+from betting_app.services.bet_qualification_service import (
+    is_bet_eligible,
+    DEFAULT_BASE_MIN_EV,
+    qualification_tier,
+    model_requires_uncertainty,
+    prediction_safety_diagnostics,
+)
 from betting_app.services.canonical_match_service import (
     align_snapshot_odds,
     canonical_team_key,
@@ -31,10 +44,14 @@ from betting_app.services.canonical_match_service import (
 from betting_app.services.mapping_service import suggest_mapping
 from betting_app.services.mapping_service import golgg_name_from_id
 from betting_app.core.models import (
+    HybridSpec,
     PredictionEngine,
+    UnifiedPredictionResult,
     get_active_hybrid,
     get_active_model,
+    get_model,
 )
+from betting_app.core.models.engine import apply_temperature_scaling
 from src.models.siamese_series import (
     ARTIFACT_PATH as EXP081_ARTIFACT_PATH,
     FEATURE_VERSION as EXP081_FEATURE_VERSION,
@@ -97,6 +114,7 @@ _PLACKETT_LUCE_PROBABILITY_MODEL = PlackettLuce(
 _THURSTONE_PROBABILITY_MODEL = ThurstoneMostellerFull(
     mu=25.0, sigma=8.333, beta=18.75, tau=0.05
 )
+logger = logging.getLogger(__name__)
 
 
 def utc_now_iso() -> str:
@@ -115,9 +133,7 @@ def logit(probability: float) -> float:
 def apply_temperature_probability(probability: float, temperature: float) -> float:
     """Apply binary temperature scaling to one probability."""
 
-    if temperature <= 0:
-        raise ValueError("temperature must be positive")
-    return sigmoid(logit(probability) / temperature)
+    return apply_temperature_scaling(probability, temperature)
 
 
 def build_all_upcoming_features(
@@ -128,6 +144,7 @@ def build_all_upcoming_features(
     min_mapping_confidence: float = 0.72,
     include_past: bool = False,
     limit: int | None = None,
+    is_lineup_confirmed: bool = False,
 ) -> list[dict[str, Any]]:
     """Build and upsert feature vectors for canonical upcoming matches."""
 
@@ -140,6 +157,7 @@ def build_all_upcoming_features(
             ratings_version=ratings_version,
             w20_version=w20_version,
             min_mapping_confidence=min_mapping_confidence,
+            is_lineup_confirmed=is_lineup_confirmed,
         )
         results.append(result)
     return results
@@ -254,6 +272,7 @@ def build_features_for_match(
     team_a_roster_override: dict[str, Any] | None = None,
     team_b_roster_override: dict[str, Any] | None = None,
     persist: bool = True,
+    is_lineup_confirmed: bool = False,
 ) -> dict[str, Any]:
     """Build one canonical match feature vector and upsert it."""
 
@@ -344,8 +363,10 @@ def build_features_for_match(
     except ValueError as error:
         missing.append(str(error))
         player_probs = {}
+    lineup_confirmed_flag = is_lineup_confirmed or bool(match.get("is_lineup_confirmed", False))
     features = {
         "canonical_match_id": canonical_match_id,
+        "is_lineup_confirmed": lineup_confirmed_flag,
         "canonical": {
             "team_a_name": team_a_raw,
             "team_b_name": team_b_raw,
@@ -353,6 +374,7 @@ def build_features_for_match(
             "best_of": match.get("best_of"),
             "league": match.get("league"),
             "bookmaker_count": match.get("bookmaker_count"),
+            "is_lineup_confirmed": lineup_confirmed_flag,
         },
         "mapping": {
             "team_a_golgg_name": team_a_golgg,
@@ -369,12 +391,14 @@ def build_features_for_match(
             "team_a": player_ratings_a,
             "team_b": player_ratings_b,
             "probabilities": player_probs,
-            "roster_source": "current_team_roster",
+            "roster_source": "confirmed_lineup" if lineup_confirmed_flag else "current_team_roster",
+            "is_lineup_confirmed": lineup_confirmed_flag,
         },
         "w20": {"team_a": w20_a, "team_b": w20_b},
         "diagnostics": {
             "missing": missing,
             "missing_player_roster": not roster_a or not roster_b,
+            "is_lineup_confirmed": lineup_confirmed_flag,
             "note": "Upcoming rosters use the durable current team roster; it is refreshed from the latest GOL.GG game or manually confirmed.",
         },
     }
@@ -1091,9 +1115,6 @@ def player_rating_probabilities(
     return probs
 
 
-
-
-
 def upsert_upcoming_features(**kwargs: Any) -> None:
     with transaction() as connection:
         connection.execute(
@@ -1354,6 +1375,7 @@ def predict_operational_match(
     team_a_roster_override: dict[str, Any] | None = None,
     team_b_roster_override: dict[str, Any] | None = None,
     persist: bool = True,
+    is_lineup_confirmed: bool = False,
 ) -> dict[str, Any]:
     """Build features and predict one upcoming match using the default operational model."""
     feature_result = build_features_for_match(
@@ -1365,6 +1387,7 @@ def predict_operational_match(
         team_a_roster_override=team_a_roster_override,
         team_b_roster_override=team_b_roster_override,
         persist=persist,
+        is_lineup_confirmed=is_lineup_confirmed,
     )
     if feature_result["status"] != "ready_player" and not include_partial:
         raise ValueError(
@@ -1381,6 +1404,247 @@ def predict_operational_match(
         "features": features,
     }
 
+def _format_roster_five(roster: Sequence[Any], team_name: str) -> list[dict[str, Any]]:
+    """Format a 5-player roster sequence into dictionaries with canonical roles."""
+    roles = list(LINEUP_ROLE_ORDER)
+    formatted: list[dict[str, Any]] = []
+    for idx, item in enumerate(roster[:5]):
+        if isinstance(item, dict):
+            pid = normalize_player_id(item)
+            pname = str(item.get("player_name") or item.get("name") or pid)
+            role = str(item.get("role") or (roles[idx] if idx < len(roles) else "FLEX")).upper()
+        else:
+            pid = normalize_player_id(item)
+            pname = str(item).strip()
+            role = roles[idx] if idx < len(roles) else "FLEX"
+        formatted.append({
+            "player_id": pid,
+            "player_name": pname,
+            "role": role,
+            "team_name": team_name,
+        })
+    return formatted
+
+
+def process_confirmed_lineup_update(
+    match: dict[str, Any],
+    *,
+    confirmed_roster_a: Sequence[Any] | None = None,
+    confirmed_roster_b: Sequence[Any] | None = None,
+    feature_version: str = DEFAULT_FEATURE_VERSION,
+    ratings_version: str = DEFAULT_RATINGS_VERSION,
+    w20_version: str = DEFAULT_W20_VERSION,
+    model_name: str = DEFAULT_MODEL_NAME,
+    model_version: str = DEFAULT_MODEL_VERSION,
+    current_time: Any = None,
+    force_re_infer: bool = False,
+    session: Any = None,
+) -> dict[str, Any]:
+    """Check confirmed lineup, detect substitutions, update starting 5, and force re-inference.
+
+    If substitution is detected against the baseline/previous starting five:
+    1. Updates the starting five in `team_current_roster_players` and feature mapping.
+    2. Rebuilds match features with `is_lineup_confirmed=True`.
+    3. Forces re-inference before bet qualification (marking prior predictions stale).
+
+    If no substitution is detected (same starters):
+    1. Updates match features with `is_lineup_confirmed=True`.
+    2. Does not force re-inference (re_inference_triggered=False).
+    """
+    match_id = match.get("id") or match.get("canonical_match_id")
+    start_at = match.get("start_time_normalized") or match.get("start_at") or match.get("start_time")
+
+    lineup_check = check_confirmed_lineup(
+        match_id=match_id,
+        match_start_at=start_at,
+        canonical_match=match,
+        current_time=current_time,
+        session=session,
+    )
+
+    conf_a = confirmed_roster_a or lineup_check.get("team_a_roster")
+    conf_b = confirmed_roster_b or lineup_check.get("team_b_roster")
+
+    if not lineup_check.get("window_valid", True) and not force_re_infer:
+        return {
+            "status": lineup_check.get("status", "outside_window"),
+            "canonical_match_id": match_id,
+            "window_valid": False,
+            "is_lineup_confirmed": False,
+            "substitution_detected": False,
+            "re_inference_triggered": False,
+            "substituted_players": {"team_a": [], "team_b": []},
+            "substituted_player_ids": [],
+            "reason": lineup_check.get("reason", "Outside confirmed lineup window"),
+        }
+
+    if not conf_a and not conf_b and not force_re_infer:
+        return {
+            "status": "unconfirmed",
+            "canonical_match_id": match_id,
+            "window_valid": True,
+            "is_lineup_confirmed": False,
+            "substitution_detected": False,
+            "re_inference_triggered": False,
+            "substituted_players": {"team_a": [], "team_b": []},
+            "substituted_player_ids": [],
+            "reason": "No confirmed rosters available",
+        }
+
+    team_a_name = str(match.get("team_a_name") or match.get("team_a_golgg_name") or "")
+    team_b_name = str(match.get("team_b_name") or match.get("team_b_golgg_name") or "")
+
+    prev_a = match.get("previous_roster_a")
+    if prev_a is None and team_a_name:
+        prev_a = load_last_roster(team_a_name)
+    prev_b = match.get("previous_roster_b")
+    if prev_b is None and team_b_name:
+        prev_b = load_last_roster(team_b_name)
+
+    prev_a_ids = [
+        normalize_player_id(p)
+        for p in (prev_a.get("players", []) if isinstance(prev_a, dict) else (prev_a or []))
+        if normalize_player_id(p)
+    ]
+    prev_b_ids = [
+        normalize_player_id(p)
+        for p in (prev_b.get("players", []) if isinstance(prev_b, dict) else (prev_b or []))
+        if normalize_player_id(p)
+    ]
+
+    has_sub_a, subs_a = detect_lineup_substitution(prev_a_ids, conf_a) if conf_a else (False, [])
+    has_sub_b, subs_b = detect_lineup_substitution(prev_b_ids, conf_b) if conf_b else (False, [])
+    substitution_detected = has_sub_a or has_sub_b
+
+    formatted_a = _format_roster_five(conf_a, team_a_name) if conf_a else None
+    formatted_b = _format_roster_five(conf_b, team_b_name) if conf_b else None
+
+    # Update starting five in team_current_roster_players
+    for team_name, formatted_roster in [(team_a_name, formatted_a), (team_b_name, formatted_b)]:
+        if not team_name or not formatted_roster or len(formatted_roster) < 5:
+            continue
+        try:
+            if session is not None:
+                upsert_current_roster(session, team_name=team_name, players=formatted_roster, source="confirmed_lineup", force=True)
+            else:
+                with get_session() as db_session:
+                    upsert_current_roster(db_session, team_name=team_name, players=formatted_roster, source="confirmed_lineup", force=True)
+                    db_session.commit()
+        except Exception as err:
+            logger.debug("upsert_current_roster session update skipped/fallback: %s", err)
+
+        try:
+            with transaction() as conn:
+                for p in formatted_roster:
+                    conn.execute(
+                        """
+                        INSERT INTO team_current_roster_players(
+                            team_name, normalized_team_name, player_id, player_name, role, source, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, 'confirmed_lineup', ?)
+                        ON CONFLICT(normalized_team_name, role) DO UPDATE SET
+                            player_id=excluded.player_id, player_name=excluded.player_name,
+                            source=excluded.source, updated_at=excluded.updated_at
+                        """,
+                        (team_name, normalize_team_name(team_name), p["player_id"], p["player_name"], p["role"], utc_now_iso()),
+                    )
+        except Exception as err:
+            logger.debug("Raw transaction update to team_current_roster_players skipped: %s", err)
+
+    # Feature mapping overrides
+    team_a_override = {"team_name": team_a_name, "players": formatted_a} if formatted_a else None
+    team_b_override = {"team_name": team_b_name, "players": formatted_b} if formatted_b else None
+
+    # Rebuild features with confirmed lineup flag
+    feature_result = build_features_for_match(
+        match,
+        feature_version=feature_version,
+        ratings_version=ratings_version,
+        w20_version=w20_version,
+        team_a_roster_override=team_a_override,
+        team_b_roster_override=team_b_override,
+        is_lineup_confirmed=True,
+        persist=True,
+    )
+
+    canonical_match_id = int(match_id) if match_id is not None else 0
+
+    if substitution_detected or force_re_infer:
+        try:
+            with transaction() as conn:
+                conn.execute(
+                    """
+                    UPDATE canonical_predictions
+                    SET prediction_status = 'stale'
+                    WHERE canonical_match_id = ? AND model_name = ? AND model_version = ?
+                    """,
+                    (canonical_match_id, model_name, model_version),
+                )
+        except Exception as err:
+            logger.debug("Marking prior prediction stale skipped: %s", err)
+
+        features = feature_result["features"]
+        prob_a, diagnostics = predict_probability_from_features(features)
+        diagnostics["lineup_substitution_detected"] = True
+        diagnostics["substituted_players"] = {"team_a": subs_a, "team_b": subs_b}
+
+        pred_id = None
+        try:
+            model_artifact_id = register_operational_model(model_name=model_name, model_version=model_version)
+            with transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO canonical_predictions(
+                        canonical_match_id, model_artifact_id, model_name, model_version, predicted_at,
+                        prob_a, prob_b, features_version, ratings_version, data_cutoff_at, diagnostics_json,
+                        prediction_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+                    """,
+                    (
+                        canonical_match_id,
+                        model_artifact_id,
+                        model_name,
+                        model_version,
+                        utc_now_iso(),
+                        prob_a,
+                        1.0 - prob_a,
+                        feature_version,
+                        ratings_version,
+                        feature_result.get("data_cutoff_at"),
+                        json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+                pred_id = getattr(cursor, "lastrowid", None)
+        except Exception as err:
+            logger.debug("Saving re-inferred canonical prediction skipped: %s", err)
+
+        return {
+            "status": "re_inferred",
+            "canonical_match_id": canonical_match_id,
+            "window_valid": True,
+            "is_lineup_confirmed": True,
+            "substitution_detected": True,
+            "re_inference_triggered": True,
+            "substituted_players": {"team_a": subs_a, "team_b": subs_b},
+            "substituted_player_ids": subs_a + subs_b,
+            "prob_a": prob_a,
+            "prob_b": 1.0 - prob_a,
+            "prediction_id": pred_id,
+            "features": features,
+            "diagnostics": diagnostics,
+        }
+    else:
+        # Same starters -> no re-inference
+        return {
+            "status": "confirmed_no_change",
+            "canonical_match_id": canonical_match_id,
+            "window_valid": True,
+            "is_lineup_confirmed": True,
+            "substitution_detected": False,
+            "re_inference_triggered": False,
+            "substituted_players": {"team_a": [], "team_b": []},
+            "substituted_player_ids": [],
+            "features": feature_result["features"],
+        }
 
 
 def _required_float(value: Any, label: str) -> float:
@@ -1529,7 +1793,177 @@ def _exp078_snapshot_from_features(features: dict[str, Any]) -> tuple[dict[str, 
     return snapshot, best_of
 
 
-def predict_probability_from_features(features: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+def fetch_opening_no_vig_market_prob(
+    canonical_match_id: int | None,
+    normalized_team_a: str | None = None,
+    normalized_team_b: str | None = None,
+) -> float | None:
+    """Fetch the earliest/latest available pre-match no-vig opening odds from odds_snapshots."""
+    if canonical_match_id is None:
+        return None
+    try:
+        rows = query_df(
+            """
+            SELECT os.raw_team_a, os.raw_team_b, os.odds_a, os.odds_b, os.scraped_at,
+                   cm.normalized_team_a, cm.normalized_team_b
+            FROM odds_snapshots os
+            JOIN canonical_matches cm ON cm.id = os.canonical_match_id
+            WHERE os.canonical_match_id = ?
+              AND os.market_type = 'match_winner'
+              AND COALESCE(os.is_live, 0) = 0
+              AND os.odds_a IS NOT NULL AND os.odds_b IS NOT NULL
+              AND os.odds_a > 1.0 AND os.odds_b > 1.0
+            ORDER BY os.scraped_at ASC
+            """,
+            (int(canonical_match_id),),
+        )
+        if rows.empty:
+            return None
+        market_probs: list[float] = []
+        for row in rows.to_dict("records"):
+            norm_a = normalized_team_a or str(row.get("normalized_team_a") or "")
+            norm_b = normalized_team_b or str(row.get("normalized_team_b") or "")
+            raw_a = str(row.get("raw_team_a") or "")
+            raw_b = str(row.get("raw_team_b") or "")
+            aligned = align_snapshot_odds(norm_a, norm_b, raw_a, raw_b, row.get("odds_a"), row.get("odds_b"))
+            if aligned is None:
+                continue
+            oa, ob = aligned
+            if oa > 1.0 and ob > 1.0:
+                p_a, _ = fair_market_probabilities(float(oa), float(ob))
+                market_probs.append(p_a)
+        if market_probs:
+            return sum(market_probs) / len(market_probs)
+    except Exception as exc:
+        logger.debug("Failed to fetch opening market prob for match %s: %s", canonical_match_id, exc)
+    return None
+
+
+def evaluate_bayesian_market_hybrid(
+    features: dict[str, Any],
+    spec: Any,
+) -> UnifiedPredictionResult:
+    """Evaluate Bayesian Shrunk Hybrid model on an upcoming fixture.
+
+    1. Compute base sports probability p_sports (from A0 / symmetric ratings).
+    2. Fetch latest pre-match no-vig opening odds p_market_novig from odds_snapshots.
+    3. In logit space: z_hybrid = 0.50 * logit(p_sports) + 0.50 * logit(p_market_novig), p = expit(z_hybrid).
+    4. If no bookmaker odds exist yet (> 48h prior), fall back gracefully to p_sports.
+    """
+    canonical_match_id = features.get("canonical_match_id") or features.get("canonical", {}).get("id")
+    canonical = features.get("canonical", {})
+    best_of = _normalized_best_of(canonical.get("best_of") or features.get("best_of"))
+
+    # Step 1: Base sports probability p_sports
+    p_sports: float
+    sigma_z: float | None = None
+    p_low: float | None = None
+    p_low_b: float | None = None
+    try:
+        snapshot, _ = _exp078_snapshot_from_features(features)
+        from src.models.siamese_series import SiameseSeriesModel
+        model = SiameseSeriesModel.load_default()
+        p_sports, sigma_z, p_low, p_low_b = model.predict_with_uncertainty(snapshot, best_of=best_of)
+    except Exception:
+        # Fallback to symmetric rating consensus
+        p_player = features.get("player_ratings", {}).get("probabilities", {}).get("consensus")
+        p_team = features.get("ratings", {}).get("probabilities", {}).get("consensus")
+        p_w20 = features.get("w20", {}).get("probability")
+        weights = []
+        if p_player is not None:
+            weights.append((0.70, float(p_player)))
+        if p_team is not None:
+            weights.append((0.20, float(p_team)))
+        if p_w20 is not None:
+            weights.append((0.10, float(p_w20)))
+        if weights:
+            tot = sum(w for w, _ in weights)
+            raw = sum((w / tot) * v for w, v in weights)
+            map_prob_a = max(0.01, min(0.99, raw))
+        else:
+            map_prob_a = 0.50
+        from betting_app.core.models.engine import _series_probability_binomial
+        p_sports = _series_probability_binomial(map_prob_a, best_of)
+
+    p_sports = max(1e-6, min(1.0 - 1e-6, float(p_sports)))
+
+    # Step 2: Fetch pre-match no-vig opening odds
+    p_market_novig = features.get("market_novig_prob_a") or features.get("market_prob_a")
+    if p_market_novig is None:
+        team_a_name = canonical.get("team_a_name")
+        team_b_name = canonical.get("team_b_name")
+        p_market_novig = fetch_opening_no_vig_market_prob(
+            canonical_match_id,
+            normalized_team_a=team_a_name,
+            normalized_team_b=team_b_name,
+        )
+
+    # Step 3: Blend in logit space or fallback
+    alpha = float(spec.metadata.get("alpha", 0.50)) if hasattr(spec, "metadata") else 0.50
+    if p_market_novig is not None and math.isfinite(p_market_novig) and 0.0 < p_market_novig < 1.0:
+        p_mkt = max(1e-6, min(1.0 - 1e-6, float(p_market_novig)))
+        z_sports = logit(p_sports)
+        z_market = logit(p_mkt)
+        z_hybrid = alpha * z_sports + (1.0 - alpha) * z_market
+        prob_a = sigmoid(z_hybrid)
+        market_used = True
+    else:
+        prob_a = p_sports
+        market_used = False
+
+    # Clamp to valid open interval (0, 1) and guarantee exact symmetry
+    prob_a = max(1e-6, min(1.0 - 1e-6, float(prob_a)))
+    prob_b = 1.0 - prob_a
+
+    # If conservative bounds exist, scale them symmetrically
+    if p_low is not None and p_low_b is not None and market_used and p_market_novig is not None:
+        z_low_a = alpha * logit(max(1e-6, min(1.0 - 1e-6, p_low))) + (1.0 - alpha) * logit(p_mkt)
+        z_low_b = alpha * logit(max(1e-6, min(1.0 - 1e-6, p_low_b))) + (1.0 - alpha) * logit(1.0 - p_mkt)
+        p_low_a_final = min(prob_a, sigmoid(z_low_a))
+        p_low_b_final = min(prob_b, sigmoid(z_low_b))
+    elif p_low is not None and p_low_b is not None:
+        p_low_a_final = min(prob_a, p_low)
+        p_low_b_final = min(prob_b, p_low_b)
+    else:
+        p_low_a_final = None
+        p_low_b_final = None
+
+    diagnostics = {
+        "family": spec.family,
+        "p_sports": p_sports,
+        "p_market_novig": p_market_novig,
+        "alpha": alpha,
+        "market_features_used": market_used,
+        "side_symmetric": True,
+    }
+    if sigma_z is not None:
+        diagnostics.update(
+            epistemic_sigma_z=sigma_z,
+            p_low_a=p_low_a_final,
+            p_low_b=p_low_b_final,
+            uncertainty_required=True,
+        )
+
+    return UnifiedPredictionResult(
+        canonical_match_id=canonical_match_id,
+        prob_a=prob_a,
+        prob_b=prob_b,
+        map_prob_a=prob_a if best_of == 1 else None,
+        map_prob_b=prob_b if best_of == 1 else None,
+        p_low_a=p_low_a_final,
+        p_low_b=p_low_b_final,
+        epistemic_sigma_z=sigma_z,
+        model_name=spec.name,
+        model_version=spec.version,
+        feature_version=spec.feature_version,
+        best_of=best_of,
+        diagnostics=diagnostics,
+    )
+
+
+def predict_probability_from_features(
+    features: dict[str, Any],
+) -> tuple[float, dict[str, Any]]:
     """Evaluate model prediction via the unified PredictionEngine."""
     result = PredictionEngine.predict_from_features(features)
     diag = {
@@ -1540,34 +1974,32 @@ def predict_probability_from_features(features: dict[str, Any]) -> tuple[float, 
         "market_features_used": False,
         "side_symmetric": True,
         "epistemic_sigma_z": result.epistemic_sigma_z,
-        "prob_risk_adjusted_p_low": result.p_low_a,
+        "p_low_a": result.p_low_a,
+        "p_low_b": result.p_low_b,
     }
+    ratings = features.get("ratings", {}).get("probabilities", {})
+    player_ratings = features.get("player_ratings", {}).get("probabilities", {})
     diag.update(result.diagnostics)
+    if ratings and player_ratings:
+        try:
+            team_probs = [float(ratings[system]) for system in RATING_SYSTEMS]
+            player_probs = [float(player_ratings[system]) for system in RATING_SYSTEMS]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                "all six team/player rating probabilities are required"
+            ) from exc
+        if any(not 0.0 <= value <= 1.0 for value in (*team_probs, *player_probs)):
+            raise ValueError("rating probabilities must be finite and in [0, 1]")
+        diag["rating_disagreement"] = abs(sum(player_probs) - sum(team_probs)) / len(
+            RATING_SYSTEMS
+        )
+    diag = prediction_safety_diagnostics(
+        diag,
+        result.prob_a,
+        result.prob_b,
+        uncertainty_required=model_requires_uncertainty(result.model_name),
+    )
     return result.prob_a, diag
-
-def bayesian_logit_shrinkage(
-    prob_model: float,
-    prob_market: float,
-    model_weight: float = 0.65,
-    eps: float = 1e-6,
-) -> float:
-    """Blend model and market probabilities in log-odds (logit) space.
-
-    Formula:
-        logit(p_hybrid) = model_weight * logit(p_model) + (1 - model_weight) * logit(p_market)
-
-    Guarantees:
-        P_hybrid(A, B) + P_hybrid(B, A) = 1.0 (strict side symmetry).
-    """
-    if not 0.0 <= model_weight <= 1.0:
-        raise ValueError(f"model_weight must be in [0, 1], got {model_weight}")
-    p_m = max(eps, min(1.0 - eps, float(prob_model)))
-    p_k = max(eps, min(1.0 - eps, float(prob_market)))
-    z_m = math.log(p_m / (1.0 - p_m))
-    z_k = math.log(p_k / (1.0 - p_k))
-    z_hybrid = model_weight * z_m + (1.0 - model_weight) * z_k
-    p_hybrid = 1.0 / (1.0 + math.exp(-z_hybrid))
-    return max(eps, min(1.0 - eps, p_hybrid))
 
 
 def generate_hybrid_predictions(
@@ -1580,26 +2012,39 @@ def generate_hybrid_predictions(
     hybrid_model_version: str | None = None,
     blending_mode: str | None = None,
 ) -> list[dict[str, Any]]:
+    """Blend validated base means and sidewise safety scores with the latest market."""
     active = get_active_model()
     active_hybrid = get_active_hybrid()
     base_model_name = base_model_name or active.name
-    base_model_version = base_model_version or active.version
+    base_spec = get_model(base_model_name)
+    if base_spec is None:
+        raise ValueError(f"unknown hybrid base model: {base_model_name}")
+    base_model_version = base_model_version or base_spec.version
     alpha = active_hybrid.alpha if alpha is None else alpha
     temperature = active_hybrid.temperature if temperature is None else temperature
     hybrid_model_name = hybrid_model_name or active_hybrid.hybrid_model_name
     blending_mode = blending_mode or active_hybrid.blending_mode
-    """Blend latest model probabilities with average no-vig bookmaker market.
 
-    Formula mirrors the thesis financial experiments:
-
-    ``p_hybrid = alpha * temperature(model_prob, T) + (1-alpha) * p_market``.
-    """
-
-    if not 0 <= alpha <= 1:
-        raise ValueError("alpha must be in [0, 1]")
+    hybrid_spec = HybridSpec(
+        base_model=base_spec,
+        alpha=alpha,
+        hybrid_model_name=hybrid_model_name,
+        temperature=temperature,
+        blending_mode=blending_mode,
+    )
+    # Validate configuration before persistence, even when there are no input rows.
+    PredictionEngine.blend_with_market(0.5, 0.5, hybrid_spec)
     if hybrid_model_version is None:
-        hybrid_model_version = f"a{alpha:.2f}-t{temperature:.2f}"
-    model_artifact_id = register_hybrid_model(alpha=alpha, temperature=temperature, version=hybrid_model_version)
+        hybrid_model_version = (
+            active_hybrid.hybrid_model_version
+            if hybrid_spec == active_hybrid
+            else f"{base_model_version}-a{alpha:.2f}-t{temperature:.2f}-{blending_mode}"
+        )
+    model_artifact_id = register_hybrid_model(
+        spec=hybrid_spec,
+        base_version=base_model_version,
+        version=hybrid_model_version,
+    )
     rows = query_df(
         """
         WITH latest_predictions AS (
@@ -1627,7 +2072,7 @@ def generate_hybrid_predictions(
                  AND lo.scraped_at = os.scraped_at
         )
         SELECT lp.id AS base_prediction_id, lp.canonical_match_id, lp.prob_a AS model_prob_a,
-               lp.features_version, lp.ratings_version, lp.data_cutoff_at,
+               lp.features_version, lp.ratings_version, lp.data_cutoff_at, lp.diagnostics_json,
                cm.normalized_team_a, cm.normalized_team_b,
                os.raw_team_a, os.raw_team_b, os.odds_a, os.odds_b
         FROM latest_predictions lp
@@ -1636,8 +2081,6 @@ def generate_hybrid_predictions(
         """,
         (base_model_name, base_model_version),
     )
-    if rows.empty:
-        return []
     results: list[dict[str, Any]] = []
     with transaction() as connection:
         connection.execute(
@@ -1648,6 +2091,8 @@ def generate_hybrid_predictions(
             """,
             (hybrid_model_name, hybrid_model_version),
         )
+        if rows.empty:
+            return []
         for canonical_match_id, group in rows.groupby("canonical_match_id"):
             market_probs: list[float] = []
             first = group.iloc[0].to_dict()
@@ -1663,21 +2108,36 @@ def generate_hybrid_predictions(
                 if aligned is None:
                     continue
                 odds_a, odds_b = aligned
-                if odds_a is None or odds_b is None or float(odds_a) <= 1.0 or float(odds_b) <= 1.0:
+                if any(
+                    value is None
+                    or not math.isfinite(float(value))
+                    or float(value) <= 1.0
+                    for value in (odds_a, odds_b)
+                ):
                     continue
                 market_a, _ = fair_market_probabilities(float(odds_a), float(odds_b))
                 market_probs.append(market_a)
             if not market_probs:
                 continue
-            model_prob = float(first["model_prob_a"])
+            try:
+                model_prob = float(first["model_prob_a"])
+                base_diagnostics = prediction_safety_diagnostics(
+                    first.get("diagnostics_json"),
+                    model_prob,
+                    1.0 - model_prob,
+                    uncertainty_required=model_requires_uncertainty(base_model_name),
+                )
+            except (TypeError, ValueError) as exc:
+                logger.warning(
+                    "Skipping hybrid prediction %s: %s", canonical_match_id, exc
+                )
+                continue
             model_t = apply_temperature_probability(model_prob, temperature)
             market_prob = sum(market_probs) / len(market_probs)
-            if blending_mode == "logit_shrinkage":
-                hybrid_prob = bayesian_logit_shrinkage(model_t, market_prob, model_weight=alpha)
-                formula_name = "bayesian_logit_shrinkage: alpha*logit(temp(model)) + (1-alpha)*logit(market)"
-            else:
-                hybrid_prob = max(0.001, min(0.999, alpha * model_t + (1.0 - alpha) * market_prob))
-                formula_name = "linear: alpha * temp(model) + (1-alpha) * average_no_vig_market"
+            hybrid_prob = PredictionEngine.blend_with_market(
+                model_prob, market_prob, hybrid_spec
+            )
+            formula_name = f"{blending_mode}: blend(temp(model), average_no_vig_market)"
             diagnostics = {
                 "base_model_name": base_model_name,
                 "base_model_version": base_model_version,
@@ -1690,13 +2150,33 @@ def generate_hybrid_predictions(
                 "market_prob_a_avg_no_vig": market_prob,
                 "bookmakers_used": len(market_probs),
                 "formula": formula_name,
+                "uncertainty_required": base_diagnostics["uncertainty_required"],
+                "rating_disagreement": base_diagnostics.get("rating_disagreement"),
             }
+            if base_diagnostics["uncertainty_required"]:
+                diagnostics.update(
+                    p_low_a=PredictionEngine.blend_with_market(
+                        base_diagnostics["p_low_a"],
+                        market_prob,
+                        hybrid_spec,
+                    ),
+                    p_low_b=min(
+                        1.0 - hybrid_prob,
+                        PredictionEngine.blend_with_market(
+                            base_diagnostics["p_low_b"],
+                            1.0 - market_prob,
+                            hybrid_spec,
+                        ),
+                    ),
+                    epistemic_sigma_z=base_diagnostics["epistemic_sigma_z"],
+                    uncertainty_semantics="sidewise transformed conservative scores; no coverage guarantee",
+                )
             cursor = connection.execute(
                 """
                 INSERT INTO canonical_predictions(
                     canonical_match_id, model_artifact_id, model_name, model_version, predicted_at,
                     prob_a, prob_b, features_version, ratings_version, data_cutoff_at, diagnostics_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id
                 """,
                 (
                     int(canonical_match_id),
@@ -1714,7 +2194,7 @@ def generate_hybrid_predictions(
             )
             results.append(
                 {
-                    "prediction_id": int(cursor.lastrowid),
+                    "prediction_id": int(cursor.fetchone()["id"]),
                     "canonical_match_id": int(canonical_match_id),
                     "prob_a": hybrid_prob,
                     "prob_b": 1.0 - hybrid_prob,
@@ -1724,14 +2204,18 @@ def generate_hybrid_predictions(
     return results
 
 
-def register_hybrid_model(*, alpha: float, temperature: float, version: str) -> int:
+def register_hybrid_model(*, spec: HybridSpec, base_version: str, version: str) -> int:
     feature_schema = {
-        "base_model": f"{DEFAULT_MODEL_NAME}/{DEFAULT_MODEL_VERSION}",
+        "base_model": f"{spec.base_model.name}/{base_version}",
         "market_signal": "average no-vig probability from latest bookmaker odds",
-        "formula": "alpha * temperature(base_model_probability) + (1-alpha) * market_probability",
-        "historical_reference": "EXP-032/EXP-033/EXP-041 model-market hybrid experiments",
+        "blending_mode": spec.blending_mode,
+        "uncertainty": "sidewise transformed scores; no statistical coverage guarantee",
     }
-    params = {"alpha": alpha, "temperature": temperature}
+    params = {
+        "alpha": spec.alpha,
+        "temperature": spec.temperature,
+        "blending_mode": spec.blending_mode,
+    }
     with transaction() as connection:
         connection.execute(
             """
@@ -1744,7 +2228,7 @@ def register_hybrid_model(*, alpha: float, temperature: float, version: str) -> 
                 status = 'active'
             """,
             (
-                DEFAULT_HYBRID_MODEL_NAME,
+                spec.hybrid_model_name,
                 version,
                 json.dumps(feature_schema, ensure_ascii=False, sort_keys=True),
                 json.dumps(params, ensure_ascii=False, sort_keys=True),
@@ -1752,7 +2236,7 @@ def register_hybrid_model(*, alpha: float, temperature: float, version: str) -> 
         )
         row = connection.execute(
             "SELECT id FROM model_artifacts WHERE model_name = ? AND model_version = ?",
-            (DEFAULT_HYBRID_MODEL_NAME, version),
+            (spec.hybrid_model_name, version),
         ).fetchone()
         return int(row["id"])
 
@@ -1762,25 +2246,52 @@ def generate_model_ev_signals(
     model_name: str = DEFAULT_MODEL_NAME,
     model_version: str = DEFAULT_MODEL_VERSION,
     tax_rate: float = 0.12,
-    min_ev: float = 0.0,
+    min_ev: float = DEFAULT_BASE_MIN_EV,
     bankroll: float = 100.0,
     reserved_bankroll: float | None = None,
-) -> list[dict[str, Any]]:
+    check_confirmed_lineups: bool = False,
+    lineup_current_time: Any = None,
+    return_stats: bool = False,
+) -> list[dict[str, Any]] | tuple[list[dict[str, Any]], dict[str, Any]]:
     """Generate EV rows for latest predictions and latest odds per bookmaker.
 
     Calculates multi-bookmaker consensus fair market probabilities, identifies
     bookmaker market edges/outliers, and sizes stakes taking into account currently
     open bets and portfolio risk limits.
     """
-    try:
-        open_bets_df = query_df(
-            "SELECT COALESCE(SUM(stake), 0.0) AS open_stake FROM bets WHERE status = 'open'"
-        )
-        existing_reserved = float(open_bets_df.iloc[0]["open_stake"]) if not open_bets_df.empty else 0.0
-    except Exception:
-        existing_reserved = 0.0
+    if check_confirmed_lineups:
+        try:
+            upcoming_matches = load_canonical_matches(include_past=False)
+            for u_match in upcoming_matches:
+                try:
+                    process_confirmed_lineup_update(
+                        dict(u_match),
+                        current_time=lineup_current_time,
+                        model_name=model_name,
+                        model_version=model_version,
+                    )
+                except Exception as exc:
+                    logger.warning("Lineup check failed for match %s: %s", u_match.get("id"), exc)
+        except Exception as exc:
+            logger.warning("Failed to check upcoming match lineups before EV generation: %s", exc)
+    if not math.isfinite(tax_rate) or not 0.0 <= tax_rate < 1.0:
+        raise ValueError("tax_rate must be finite and in [0, 1)")
+    if not math.isfinite(min_ev) or min_ev < 0.0:
+        raise ValueError("min_ev must be finite and nonnegative")
+    if not math.isfinite(bankroll) or bankroll < 0.0:
+        raise ValueError("bankroll must be finite and nonnegative")
+    open_bets_df = query_df(
+        "SELECT COALESCE(SUM(stake), 0.0) AS open_stake FROM bets WHERE status = 'open'"
+    )
+    existing_reserved = (
+        float(open_bets_df.iloc[0]["open_stake"]) if not open_bets_df.empty else 0.0
+    )
 
-    effective_reserved = existing_reserved if reserved_bankroll is None else float(reserved_bankroll)
+    effective_reserved = (
+        existing_reserved if reserved_bankroll is None else float(reserved_bankroll)
+    )
+    if not math.isfinite(effective_reserved) or effective_reserved < 0.0:
+        raise ValueError("reserved_bankroll must be finite and nonnegative")
 
     rows = query_df(
         """
@@ -1808,8 +2319,8 @@ def generate_model_ev_signals(
                  AND lo.bookmaker_id = os.bookmaker_id
                  AND lo.scraped_at = os.scraped_at
         )
-        SELECT lp.id AS prediction_id, lp.canonical_match_id, lp.prob_a, lp.prob_b,
-               cm.team_a_name, cm.team_b_name, cm.normalized_team_a, cm.normalized_team_b,
+        SELECT lp.id AS prediction_id, lp.canonical_match_id, lp.prob_a, lp.prob_b, lp.diagnostics_json,
+               cm.team_a_name, cm.team_b_name, cm.normalized_team_a, cm.normalized_team_b, cm.league, cm.start_time_normalized, cm.best_of,
                os.id AS odds_snapshot_id, os.bookmaker_id, b.name AS bookmaker,
                os.raw_team_a, os.raw_team_b, os.odds_a, os.odds_b, os.offer_url, os.scraped_at
         FROM latest_predictions lp
@@ -1838,26 +2349,92 @@ def generate_model_ev_signals(
         if aligned is None:
             continue
         odds_a, odds_b = aligned
-        if odds_a is None or odds_b is None or float(odds_a) <= 1.0 or float(odds_b) <= 1.0:
+        if any(
+            value is None or not math.isfinite(float(value)) or float(value) <= 1.0
+            for value in (odds_a, odds_b)
+        ):
             continue
         oa = float(odds_a)
         ob = float(odds_b)
         ma, mb = fair_market_probabilities(oa, ob)
         cm_id = int(row["canonical_match_id"])
         match_market_probs.setdefault(cm_id, []).append(ma)
-        parsed_rows.append({
-            "row": row,
-            "odds_a": oa,
-            "odds_b": ob,
-            "single_market_a": ma,
-            "single_market_b": mb,
-        })
+        parsed_rows.append(
+            {
+                "row": row,
+                "odds_a": oa,
+                "odds_b": ob,
+                "single_market_a": ma,
+                "single_market_b": mb,
+            }
+        )
 
-    # Consensus market probability for Team A across all bookmaker observations
+    # Consensus market probability for Team A across all latest bookmaker observations
     consensus_market_p_a: dict[int, float] = {
         cm_id: sum(probs) / len(probs)
         for cm_id, probs in match_market_probs.items()
         if probs
+    }
+
+    # Consensus market probability for Team A from earliest/opening bookmaker observations
+    cm_ids = list(set(int(r["canonical_match_id"]) for r in rows.to_dict("records")))
+    opening_market_probs: dict[int, list[float]] = {}
+    if cm_ids:
+        placeholders = ", ".join("?" for _ in cm_ids)
+        try:
+            earliest_rows = query_df(
+                f"""
+                SELECT os.canonical_match_id, os.raw_team_a, os.raw_team_b, os.odds_a, os.odds_b,
+                       cm.normalized_team_a, cm.normalized_team_b
+                FROM odds_snapshots os
+                JOIN (
+                    SELECT canonical_match_id, bookmaker_id, MIN(scraped_at) AS scraped_at
+                    FROM odds_snapshots
+                    WHERE market_type = 'match_winner' AND COALESCE(is_live, 0) = 0
+                      AND canonical_match_id IN ({placeholders})
+                    GROUP BY canonical_match_id, bookmaker_id
+                ) eo ON eo.canonical_match_id = os.canonical_match_id
+                     AND eo.bookmaker_id = os.bookmaker_id
+                     AND eo.scraped_at = os.scraped_at
+                JOIN canonical_matches cm ON cm.id = os.canonical_match_id
+                WHERE os.canonical_match_id IN ({placeholders})
+                  AND os.market_type = 'match_winner' AND COALESCE(is_live, 0) = 0
+                """,
+                tuple(cm_ids) + tuple(cm_ids),
+            )
+            for erow in earliest_rows.to_dict("records"):
+                cm_id = int(erow["canonical_match_id"])
+                aligned = align_snapshot_odds(
+                    str(erow.get("normalized_team_a") or ""),
+                    str(erow.get("normalized_team_b") or ""),
+                    str(erow.get("raw_team_a") or ""),
+                    str(erow.get("raw_team_b") or ""),
+                    erow.get("odds_a"),
+                    erow.get("odds_b"),
+                )
+                if aligned is None:
+                    continue
+                oa, ob = aligned
+                if oa > 1.0 and ob > 1.0:
+                    ma, _ = fair_market_probabilities(float(oa), float(ob))
+                    opening_market_probs.setdefault(cm_id, []).append(ma)
+        except Exception as exc:
+            logger.debug("Failed to fetch opening odds snapshots: %s", exc)
+
+    consensus_open_market_p_a: dict[int, float] = {
+        cm_id: sum(probs) / len(probs)
+        for cm_id, probs in opening_market_probs.items()
+        if probs
+    }
+
+    stats: dict[str, Any] = {
+        "total_fixtures_evaluated": len(cm_ids),
+        "predictions_evaluated": len(rows),
+        "candidate_sides_evaluated": 0,
+        "value_bets_qualified": 0,
+        "total_quarantined": 0,
+        "quarantined_breakdown": Counter(),
+        "disqualified_breakdown": Counter(),
     }
 
     # 2. Collect candidate signals across both sides
@@ -1867,33 +2444,77 @@ def generate_model_ev_signals(
         cm_id = int(row["canonical_match_id"])
         cons_a = consensus_market_p_a.get(cm_id, item["single_market_a"])
         cons_b = 1.0 - cons_a
+        open_a = consensus_open_market_p_a.get(cm_id, cons_a)
+        open_b = 1.0 - open_a
+
+        # Extract tier, best_of, and rating disagreement for safety gating
+        tier_str = qualification_tier(
+            row.get("league"), row.get("start_time_normalized")
+        )
+        effective_best_of = row.get("best_of")
+
+        try:
+            diag_data = prediction_safety_diagnostics(
+                row.get("diagnostics_json"),
+                float(row["prob_a"]),
+                float(row["prob_b"]),
+                uncertainty_required=model_requires_uncertainty(model_name),
+            )
+        except (TypeError, ValueError) as exc:
+            logger.warning("Skipping EV prediction %s: %s", row["prediction_id"], exc)
+            continue
+        disag = diag_data.get("rating_disagreement")
+        if effective_best_of is None:
+            effective_best_of = diag_data.get("best_of")
 
         candidates = [
-            ("a", float(row["prob_a"]), item["odds_a"], cons_a),
-            ("b", float(row["prob_b"]), item["odds_b"], cons_b),
+            ("a", float(row["prob_a"]), item["odds_a"], cons_a, open_a),
+            ("b", float(row["prob_b"]), item["odds_b"], cons_b, open_b),
         ]
-        for side, prob, odds, cons_prob in candidates:
-            ev = expected_value(prob, odds, tax_rate)
-            eligible, reason, _ = is_bet_eligible(
+        for side, prob, odds, cons_prob, open_prob in candidates:
+            stats["candidate_sides_evaluated"] += 1
+            conservative_prob = (
+                diag_data.get(f"p_low_{side}")
+                if diag_data["uncertainty_required"]
+                else prob
+            )
+            eligible, reason, diag_res = is_bet_eligible(
                 prob_model=prob,
                 odds=odds,
-                prob_market_novig=cons_prob,
+                prob_market_novig=open_prob,
                 tax_rate=tax_rate,
                 min_ev_net=min_ev,
+                rating_disagreement=disag,
+                competition_tier=tier_str,
+                prob_conservative=conservative_prob,
+                uncertainty_required=diag_data["uncertainty_required"],
+                best_of=int(effective_best_of) if effective_best_of else None,
+                prob_market_close_novig=cons_prob,
             )
             if not eligible:
+                stats["disqualified_breakdown"][reason] += 1
+                if diag_res.get("quarantine"):
+                    q_reason = diag_res.get("quarantine_reason", reason)
+                    stats["quarantined_breakdown"][q_reason] += 1
+                    stats["total_quarantined"] += 1
                 continue
+            stats["value_bets_qualified"] += 1
+            ev = expected_value(conservative_prob, odds, tax_rate)
             market_edge = (odds * cons_prob) - 1.0
-            candidate_signals.append({
-                "row": row,
-                "side": side,
-                "odds": odds,
-                "prob": prob,
-                "market_prob": cons_prob,
-                "ev": ev,
-                "market_edge": market_edge,
-                "outlier_ratio": odds * cons_prob,
-            })
+            candidate_signals.append(
+                {
+                    "row": row,
+                    "side": side,
+                    "odds": odds,
+                    "prob": prob,
+                    "prob_conservative": conservative_prob,
+                    "competition_tier": tier_str,
+                    "market_prob": cons_prob,
+                    "ev": ev,
+                    "market_edge": market_edge,
+                    "outlier_ratio": odds * cons_prob,
+                }
+            )
 
     # Sort candidates by EV descending so highest-value bets receive allocation priority
     candidate_signals.sort(key=lambda x: x["ev"], reverse=True)
@@ -1924,7 +2545,7 @@ def generate_model_ev_signals(
 
             stake = fractional_kelly_stake(
                 bankroll,
-                prob,
+                sig["prob_conservative"],
                 odds,
                 fraction=0.05,
                 tax_rate=tax_rate,
@@ -1939,7 +2560,7 @@ def generate_model_ev_signals(
                 INSERT INTO model_ev_signals(
                     canonical_match_id, canonical_prediction_id, odds_snapshot_id, bookmaker_id,
                     side, odds, model_prob, market_prob, ev, tax_rate, stake_suggestion, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new')
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new') RETURNING id
                 """,
                 (
                     cm_id,
@@ -1957,13 +2578,15 @@ def generate_model_ev_signals(
             )
             generated.append(
                 {
-                    "signal_id": int(cursor.lastrowid),
+                    "signal_id": int(cursor.fetchone()["id"]),
                     "canonical_match_id": cm_id,
                     "match": f"{row.get('team_a_name')} vs {row.get('team_b_name')}",
                     "bookmaker": row.get("bookmaker"),
                     "side": side,
                     "odds": odds,
                     "model_prob": prob,
+                    "prob_conservative": sig["prob_conservative"],
+                    "competition_tier": sig["competition_tier"],
                     "market_prob": market_prob,
                     "market_edge": round(sig["market_edge"], 4),
                     "outlier_ratio": round(sig["outlier_ratio"], 4),
@@ -1972,7 +2595,11 @@ def generate_model_ev_signals(
                     "offer_url": row.get("offer_url"),
                 }
             )
-    return sorted(generated, key=lambda item: item["ev"], reverse=True)
+    res = sorted(generated, key=lambda item: item["ev"], reverse=True)
+    setattr(generate_model_ev_signals, "last_stats", stats)
+    if return_stats:
+        return res, stats
+    return res
 
 
 def none_or_float(value: Any) -> float | None:

@@ -60,11 +60,37 @@ EXP039_THESIS = ModelSpec(
     metadata={"frozen": True, "academic_baseline": True},
 )
 
+ACTIVE_MODEL_NAME = "Hybrid-Bayesian-Shrunk-A0-Market"
+ACTIVE_MODEL_VERSION = "hybrid-a0-mkt-v1-a0.50"
+ACTIVE_MODEL_FAMILY = "bayesian_market_hybrid"
+
+BAYESIAN_SHRUNK_HYBRID = ModelSpec(
+    name=ACTIVE_MODEL_NAME,
+    version=ACTIVE_MODEL_VERSION,
+    feature_version="ratings-w20-symmetric-series-v1",
+    ratings_version="latest-full",
+    w20_version="w20-latest",
+    prediction_target="series",
+    has_uncertainty=True,
+    family=ACTIVE_MODEL_FAMILY,
+    description="Bayesian Shrunk Hybrid combining pre-match sports signal with no-vig market odds in logit space (alpha=0.50).",
+    metadata={
+        "alpha": 0.50,
+        "temperature": 1.0,
+        "risk_kappa": 0.75,
+        "symmetric": True,
+    },
+)
+
 REGISTERED_MODELS: dict[str, ModelSpec] = {
+    BAYESIAN_SHRUNK_HYBRID.name: BAYESIAN_SHRUNK_HYBRID,
     EXP081_SIAMESE.name: EXP081_SIAMESE,
     EXP078_LINEAR.name: EXP078_LINEAR,
     EXP039_THESIS.name: EXP039_THESIS,
     # Shorthand aliases
+    "shrunk_hybrid": BAYESIAN_SHRUNK_HYBRID,
+    "bayesian_hybrid": BAYESIAN_SHRUNK_HYBRID,
+    "a0_market": BAYESIAN_SHRUNK_HYBRID,
     "exp081": EXP081_SIAMESE,
     "exp078": EXP078_LINEAR,
     "exp039": EXP039_THESIS,
@@ -75,14 +101,15 @@ REGISTERED_MODELS: dict[str, ModelSpec] = {
 # -----------------------------------------------------------------------------
 
 # Default active operational model: EXP-081
-_ACTIVE_MODEL: ModelSpec = EXP081_SIAMESE
+# Default active operational model: Bayesian Shrunk Hybrid
+_ACTIVE_MODEL: ModelSpec = BAYESIAN_SHRUNK_HYBRID
 
 # Default active operational hybrid
 _ACTIVE_HYBRID: HybridSpec = HybridSpec(
     base_model=_ACTIVE_MODEL,
-    hybrid_model_name="Hybrid-Operational-Market",
+    hybrid_model_name=ACTIVE_MODEL_NAME,
     alpha=0.50,
-    temperature=0.80,
+    temperature=1.0,
     blending_mode="logit_shrinkage",
 )
 
@@ -109,6 +136,11 @@ def get_active_model() -> ModelSpec:
     return _ACTIVE_MODEL
 
 
+def get_active_model_spec() -> ModelSpec:
+    """Return the active operational model specification."""
+    return get_active_model()
+
+
 def set_active_model(model_or_name: ModelSpec | str) -> None:
     """Switch the active operational model."""
     global _ACTIVE_MODEL, _ACTIVE_HYBRID
@@ -119,14 +151,15 @@ def set_active_model(model_or_name: ModelSpec | str) -> None:
         _ACTIVE_MODEL = spec
     else:
         _ACTIVE_MODEL = model_or_name
-    # Update base model in hybrid, preserving custom_version if set
+    # Update base model in hybrid, resetting custom_version unless keeping same model
+    custom_ver = _ACTIVE_HYBRID.custom_version if _ACTIVE_HYBRID.base_model == _ACTIVE_MODEL else None
     _ACTIVE_HYBRID = HybridSpec(
         base_model=_ACTIVE_MODEL,
         hybrid_model_name=_ACTIVE_HYBRID.hybrid_model_name,
         alpha=_ACTIVE_HYBRID.alpha,
         temperature=_ACTIVE_HYBRID.temperature,
         blending_mode=_ACTIVE_HYBRID.blending_mode,
-        custom_version=_ACTIVE_HYBRID.custom_version,
+        custom_version=custom_ver,
     )
 
 
@@ -140,7 +173,7 @@ def get_active_hybrid() -> HybridSpec:
             alpha=_ACTIVE_HYBRID.alpha,
             temperature=_ACTIVE_HYBRID.temperature,
             blending_mode=_ACTIVE_HYBRID.blending_mode,
-            custom_version=_ACTIVE_HYBRID.custom_version,
+            custom_version=None,
         )
     return _ACTIVE_HYBRID
 
@@ -180,7 +213,7 @@ def list_registered_models() -> list[dict[str, Any]]:
     active = get_active_model()
     seen = set()
     result = []
-    for model in (EXP081_SIAMESE, EXP078_LINEAR, EXP039_THESIS):
+    for model in (BAYESIAN_SHRUNK_HYBRID, EXP081_SIAMESE, EXP078_LINEAR, EXP039_THESIS):
         if model.name in seen:
             continue
         seen.add(model.name)
