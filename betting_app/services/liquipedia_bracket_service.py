@@ -93,12 +93,12 @@ TOURNAMENT_METADATA: dict[str, dict[str, Any]] = {
         ],
     },
     "lcs_2026_championship": {
-        "name": "LCS 2026 Championship",
-        "liquipedia_page": "LCS/2026_Season/Championship",
-        "fandom_overview": "LCS/2026 Season/Championship",
+        "name": "LCS 2026 Summer - Playoffs",
+        "liquipedia_page": "LCS/2026/Summer/Playoffs",
+        "fandom_overview": "LCS/2026 Season/Summer Playoffs",
         "region": "LCS",
         "format": "double_elimination",
-        "teams": ["FlyQuest", "Team Liquid", "Cloud9", "100 Thieves", "Dignitas", "Shopify Rebellion"],
+        "teams": ["Team Liquid", "LYON", "Cloud9", "FlyQuest", "Sentinels", "Shopify Rebellion"],
         "round_order": [
             "UB_R1_M1", "UB_R1_M2", "UB_R2_M1", "UB_R2_M2",
             "LB_R1", "LB_R2", "UB_Final", "LB_R3", "LB_Final", "Grand_Final",
@@ -168,8 +168,8 @@ class LiquipediaBracketService:
                 data = json.loads(resp.read().decode("utf-8"))
                 parsed: list[dict[str, Any]] = []
                 for m in data:
-                    t1 = m.get("Team1")
-                    t2 = m.get("Team2")
+                    t1 = self.clean_team_name(m.get("Team1") or "")
+                    t2 = self.clean_team_name(m.get("Team2") or "")
                     if not t1 or not t2 or t1 == "TBD" or t2 == "TBD":
                         continue
                     s1 = int(m["Team1Score"]) if m.get("Team1Score") is not None else None
@@ -240,6 +240,7 @@ class LiquipediaBracketService:
         text = re.sub(r"\{\{[^}]*\}\}", "", raw)
         text = re.sub(r"\[\[(?:[^|\]]*\|)?([^\]]+)\]\]", r"\1", text)
         text = re.sub(r"<[^>]+>", "", text)
+        text = re.sub(r"\s*\([^)]*\)", "", text)
         text = " ".join(text.split())
         return text
 

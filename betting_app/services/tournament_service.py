@@ -540,8 +540,8 @@ def get_lpl_2026_split3_playoffs_bracket() -> TournamentBracket:
 
 
 def get_lcs_2026_championship_bracket() -> TournamentBracket:
-    """Construct the curated 6-team LCS 2026 Championship fixed playoff graph."""
-    teams = ["FlyQuest", "Team Liquid", "Cloud9", "100 Thieves", "Dignitas", "Shopify Rebellion"]
+    """Construct the curated 6-team LCS 2026 Summer Playoff fixed graph."""
+    teams = ["Team Liquid", "LYON", "Cloud9", "FlyQuest", "Sentinels", "Shopify Rebellion"]
 
     matches: dict[str, BracketMatchNode] = {
         # Upper Quarterfinal 1
@@ -566,8 +566,8 @@ def get_lcs_2026_championship_bracket() -> TournamentBracket:
             round_name="Upper Round 1",
             bracket_section="upper",
             best_of=5,
-            team1="100 Thieves",
-            team2="Dignitas",
+            team1="Sentinels",
+            team2="FlyQuest",
             winner=None,
             next_match_winner_id="UB_R2_M2",
             next_match_winner_slot=2,
@@ -581,7 +581,7 @@ def get_lcs_2026_championship_bracket() -> TournamentBracket:
             round_name="Upper Round 2",
             bracket_section="upper",
             best_of=5,
-            team1="FlyQuest",
+            team1="LYON",
             team2=None,
             winner=None,
             next_match_winner_id="UB_Final",
@@ -686,7 +686,7 @@ def get_lcs_2026_championship_bracket() -> TournamentBracket:
 
     return TournamentBracket(
         id="lcs_2026_championship",
-        name="LCS 2026 Championship",
+        name="LCS 2026 Summer - Playoffs",
         region="LCS",
         format="double_elimination",
         matches=matches,
