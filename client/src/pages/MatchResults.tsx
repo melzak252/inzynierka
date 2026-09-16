@@ -7,10 +7,16 @@ import './MatchResults.css'
 const DAYS_OPTIONS = [7, 14, 30, 60, 90]
 const MODEL_OPTIONS = [
   {
-    label: 'Hybrid Operacyjna',
+    label: 'Hybrid Operacyjny (Causal A0)',
+    name: 'Hybrid-Bayesian-Shrunk-A0-Market',
+    version: 'hybrid-a0-mkt-v1-a0.50',
+    description: '50% Causal A0 + 50% rynek otwarcia (LogLoss 0.5608)',
+  },
+  {
+    label: 'Hybrid Operacyjny (EXP-081)',
     name: 'Hybrid-Operational-Market',
     version: 'exp081-siamese-series-v1-a0.50-t0.80',
-    description: '50% Siamese Series EXP-081 + 50% rynek',
+    description: '50% Siamese Series EXP-081 + 50% rynek (archiwalny)',
   },
   {
     label: 'Hybrid parity v2',

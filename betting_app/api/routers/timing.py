@@ -3228,13 +3228,13 @@ def model_profitability_audit(
         "exp081": {
             "name": "Symmetrized-Siamese-Series-EXP081",
             "version": "exp081-siamese-series-v1",
-            "title": "EXP-081 Siamese Series (Aktywny)",
+            "title": "EXP-081 Siamese Series (Archiwalny)",
         },
         "operational_hybrid": {
-            "name": OPERATIONAL_HYBRID_MODEL_NAME,
-            "version": "exp081-siamese-series-v1-a0.50-t0.80",
+            "name": "Hybrid-Bayesian-Shrunk-A0-Market",
+            "version": "hybrid-a0-mkt-v1-a0.50",
             "fallback_version": "v0.4-binom-series-a0.50-t1.00",
-            "title": "Hybryda Operacyjna (EXP-081 + Rynek alpha=0.50)",
+            "title": "Hybryda Operacyjna (Causal A0 + Rynek alpha=0.50)",
         },
         "operational": {
             "name": OPERATIONAL_MODEL_NAME,

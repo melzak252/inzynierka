@@ -76,6 +76,10 @@ from betting_app.services.market_service import (
     safe_json_get,
 )
 from betting_app.ml.calibration.conformal_contract import conformal_bounds_for_side
+from betting_app.services.bet_qualification_service import (
+    DEFAULT_MAX_EV_NET,
+    qualify_prediction_sides,
+)
 from betting_app.ml.model_lifecycle import RETIRED_PUBLIC_MODEL_NAME
 
 from betting_app.services.mapping_service import suggest_mapping
@@ -312,6 +316,7 @@ def list_matches(
         if p["model_name"] == HYBRID_MODEL_NAME:
             item["hybrid_prob_a"] = none_or_float(p.get("prob_a"))
             item["hybrid_prob_b"] = none_or_float(p.get("prob_b"))
+            item["hybrid_diagnostics"] = p.get("diagnostics_json")
         elif p["model_name"] == DEFAULT_MODEL_NAME:
             item["model_prob_a"] = none_or_float(p.get("prob_a"))
             item["model_prob_b"] = none_or_float(p.get("prob_b"))
@@ -336,7 +341,14 @@ def list_matches(
 
     items: list[MatchBoardItem] = []
     for mid, group in groups.items():
-        group = [g for g in group if g.get("_odds_a") is not None and g.get("_odds_b") is not None]
+        group = [
+            g
+            for g in group
+            if all(
+                g.get(key) is not None and math.isfinite(g[key]) and g[key] > 1.0
+                for key in ("_odds_a", "_odds_b")
+            )
+        ]
         if not group:
             continue
         books = len({g["bookmaker"] for g in group})
@@ -371,31 +383,62 @@ def list_matches(
 
         team_a_name = group[0].get("team_a_name")
         team_b_name = group[0].get("team_b_name")
-        team_a_golgg, team_a_conf, team_a_source = suggest_mapping(str(team_a_name)) if team_a_name else (None, 0.0, None)
-        team_b_golgg, team_b_conf, team_b_source = suggest_mapping(str(team_b_name)) if team_b_name else (None, 0.0, None)
+        team_a_golgg, team_a_conf, team_a_source = (
+            suggest_mapping(str(team_a_name)) if team_a_name else (None, 0.0, None)
+        )
+        team_b_golgg, team_b_conf, team_b_source = (
+            suggest_mapping(str(team_b_name)) if team_b_name else (None, 0.0, None)
+        )
         has_unmapped_teams = not team_a_golgg or not team_b_golgg
         # Match confidence = min of both team mapping confidences (0-1 scale)
-        match_confidence = min(team_a_conf, team_b_conf) if team_a_golgg and team_b_golgg else 0.0
+        match_confidence = (
+            min(team_a_conf, team_b_conf) if team_a_golgg and team_b_golgg else 0.0
+        )
 
         # Do not surface stale model probabilities/EV when either side is not
         # mapped to a GOL.GG team. Those predictions may have been computed
         # before mapping changed and would be misleading.
         p = {} if has_unmapped_teams else pred_map.get(mid, {})
-        hybrid_ev_a = (
-            expected_value(float(p["hybrid_prob_a"]), float(record["best_odds_a"]), tax_rate)
-            if p.get("hybrid_prob_a") is not None else None
+        valid_market = [
+            fair_market_probabilities(g["_odds_a"], g["_odds_b"])[0]
+            for g in group
+            if g.get("_odds_a") and g.get("_odds_b")
+        ]
+        market_a = sum(valid_market) / len(valid_market) if valid_market else None
+        prob_a = p.get("hybrid_prob_a")
+        prob_b = p.get("hybrid_prob_b")
+        if prob_a is None and p.get("model_prob_a") is not None and market_a is not None:
+            prob_a = PredictionEngine.blend_with_market(p["model_prob_a"], market_a)
+            prob_b = 1.0 - prob_a
+
+        decisions = qualify_prediction_sides(
+            prob_a=prob_a,
+            prob_b=prob_b,
+            diagnostics=p.get("hybrid_diagnostics") or p.get("model_diagnostics"),
+            model_name=HYBRID_MODEL_NAME,
+            odds_a=record["best_odds_a"],
+            odds_b=record["best_odds_b"],
+            market_prob_a=market_a,
+            tax_rate=tax_rate,
+            league=group[0].get("league"),
+            match_date=group[0].get("start_time_normalized"),
+            max_ev_net=None,
         )
-        hybrid_ev_b = (
-            expected_value(float(p["hybrid_prob_b"]), float(record["best_odds_b"]), tax_rate)
-            if p.get("hybrid_prob_b") is not None else None
-        )
+        hybrid_ev_a = decisions["a"][2].get("ev_net")
+        hybrid_ev_b = decisions["b"][2].get("ev_net")
         fusion_symaug_ev_a = (
-            expected_value(float(p["fusion_symaug_prob_a"]), float(record["best_odds_a"]), tax_rate)
-            if p.get("fusion_symaug_prob_a") is not None else None
+            expected_value(
+                float(p["fusion_symaug_prob_a"]), float(record["best_odds_a"]), tax_rate
+            )
+            if p.get("fusion_symaug_prob_a") is not None
+            else None
         )
         fusion_symaug_ev_b = (
-            expected_value(float(p["fusion_symaug_prob_b"]), float(record["best_odds_b"]), tax_rate)
-            if p.get("fusion_symaug_prob_b") is not None else None
+            expected_value(
+                float(p["fusion_symaug_prob_b"]), float(record["best_odds_b"]), tax_rate
+            )
+            if p.get("fusion_symaug_prob_b") is not None
+            else None
         )
         rec_side = None
         rec_team = None
@@ -403,10 +446,10 @@ def list_matches(
         rec_odds = None
         rec_ev = None
         if not has_unmapped_teams:
-            val_a = hybrid_ev_a is not None and hybrid_ev_a > 0.0
-            val_b = hybrid_ev_b is not None and hybrid_ev_b > 0.0
+            val_a = decisions["a"][0]
+            val_b = decisions["b"][0]
             if val_a or val_b:
-                if (hybrid_ev_a or -1.0) >= (hybrid_ev_b or -1.0):
+                if val_a and (not val_b or hybrid_ev_a >= hybrid_ev_b):
                     rec_side = "a"
                     rec_team = team_a_name
                     rec_bm = record.get("best_bookmaker_a")
@@ -418,7 +461,6 @@ def list_matches(
                     rec_bm = record.get("best_bookmaker_b")
                     rec_odds = record.get("best_odds_b")
                     rec_ev = hybrid_ev_b
-
 
         # Only a direct model prediction with persisted Venn-Abers bounds can
         # be marked conformal. Hybrid probabilities mix a market quote after
@@ -480,8 +522,8 @@ def list_matches(
             arb_margin_after_tax=record.get("arb_margin_after_tax"),
             model_prob_a=p.get("model_prob_a"),
             model_prob_b=p.get("model_prob_b"),
-            hybrid_prob_a=p.get("hybrid_prob_a"),
-            hybrid_prob_b=p.get("hybrid_prob_b"),
+            hybrid_prob_a=prob_a,
+            hybrid_prob_b=prob_b,
             hybrid_ev_a=hybrid_ev_a,
             hybrid_ev_b=hybrid_ev_b,
             fusion_symaug_prob_a=p.get("fusion_symaug_prob_a"),
@@ -1452,7 +1494,8 @@ def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
         "market_features_used": False,
         "side_symmetric": True,
         "epistemic_sigma_z": pred_res.epistemic_sigma_z,
-        "prob_risk_adjusted_p_low": pred_res.p_low_a,
+        "p_low_a": pred_res.p_low_a,
+        "p_low_b": pred_res.p_low_b,
         **pred_res.diagnostics,
     }
     # Extract rosters and comparison info
@@ -1629,6 +1672,10 @@ def _build_match_recommendation(
     pure_prob_a: float | None,
     pure_prob_b: float | None,
     diagnostics: Any = None,
+    hybrid_diagnostics: Any = None,
+    league: str | None = None,
+    match_date: Any = None,
+    best_of: int | None = None,
 ) -> BettingRecommendation:
     """Build a structured betting recommendation based on the latest model system."""
     name_a = team_a_name or "Drużyna A"
@@ -1640,18 +1687,34 @@ def _build_match_recommendation(
             verdict="unmapped",
             verdict_label="Wymagane mapowanie drużyn",
             summary="Przynajmniej jedna drużyna nie jest jeszcze powiązana z bazą GOL.GG. Przypisz alias, aby system mógł wyliczyć ratingi i wygenerować rekomendację.",
-            reasons=["Brak jednoznacznego powiązania nazwy bukmacherskiej ze statystykami GOL.GG."],
+            reasons=[
+                "Brak jednoznacznego powiązania nazwy bukmacherskiej ze statystykami GOL.GG."
+            ],
         )
 
-    valid_odds_a = [o for o in odds_rows if o.canonical_odds_a and o.canonical_odds_a > 1.0]
-    valid_odds_b = [o for o in odds_rows if o.canonical_odds_b and o.canonical_odds_b > 1.0]
+    valid_odds_a = [
+        o
+        for o in odds_rows
+        if o.canonical_odds_a
+        and math.isfinite(o.canonical_odds_a)
+        and o.canonical_odds_a > 1.0
+    ]
+    valid_odds_b = [
+        o
+        for o in odds_rows
+        if o.canonical_odds_b
+        and math.isfinite(o.canonical_odds_b)
+        and o.canonical_odds_b > 1.0
+    ]
     if not valid_odds_a or not valid_odds_b:
         return BettingRecommendation(
             has_value=False,
             verdict="no_odds",
             verdict_label="Brak aktualnych kursów",
             summary="Brak aktywnych kursów bukmacherskich dla tego spotkania. Rekomendacja pojawi się automatycznie po pobraniu oferty.",
-            reasons=["Brak kwotowań bukmacherskich spełniających warunki świeżości (maks. 24h)."],
+            reasons=[
+                "Brak kwotowań bukmacherskich spełniających warunki świeżości (maks. 24h)."
+            ],
         )
 
     best_row_a = max(valid_odds_a, key=lambda o: o.canonical_odds_a or 0.0)
@@ -1659,10 +1722,17 @@ def _build_match_recommendation(
     best_odds_a = float(best_row_a.canonical_odds_a or 1.0)
     best_odds_b = float(best_row_b.canonical_odds_b or 1.0)
 
-    try:
-        m_prob_a, m_prob_b = fair_market_probabilities(best_odds_a, best_odds_b)
-    except Exception:
-        m_prob_a, m_prob_b = None, None
+    market_pairs = [
+        fair_market_probabilities(o.canonical_odds_a, o.canonical_odds_b)
+        for o in odds_rows
+        if o in valid_odds_a and o in valid_odds_b
+    ]
+    m_prob_a = (
+        sum(pair[0] for pair in market_pairs) / len(market_pairs)
+        if market_pairs
+        else None
+    )
+    m_prob_b = 1.0 - m_prob_a if m_prob_a is not None else None
 
     eff_prob_a = hybrid_prob_a if hybrid_prob_a is not None else pure_prob_a
     eff_prob_b = hybrid_prob_b if hybrid_prob_b is not None else pure_prob_b
@@ -1673,7 +1743,9 @@ def _build_match_recommendation(
             verdict="no_prediction",
             verdict_label="Oczekiwanie na predykcję",
             summary="Brak wyliczonej predykcji dla tego meczu w systemie operacyjnym.",
-            reasons=["Model nie wygenerował jeszcze prawdopodobieństw dla tego zestawienia."],
+            reasons=[
+                "Model nie wygenerował jeszcze prawdopodobieństw dla tego zestawienia."
+            ],
         )
 
     bounds_a = conformal_bounds_for_side(diagnostics, "a")
@@ -1681,48 +1753,67 @@ def _build_match_recommendation(
     p_low_a = bounds_a[0] if bounds_a is not None else None
     p_low_b = bounds_b[0] if bounds_b is not None else None
 
-    min_odds_a = round(1.0 / (eff_prob_a * (1.0 - TAX_RATE)), 2) if eff_prob_a > 0 else None
-    min_odds_b = round(1.0 / (eff_prob_b * (1.0 - TAX_RATE)), 2) if eff_prob_b > 0 else None
+    uses_hybrid = hybrid_prob_a is not None
+    decisions = qualify_prediction_sides(
+        prob_a=eff_prob_a,
+        prob_b=eff_prob_b,
+        diagnostics=hybrid_diagnostics if uses_hybrid else diagnostics,
+        model_name=HYBRID_MODEL_NAME if uses_hybrid else DEFAULT_MODEL_NAME,
+        odds_a=best_odds_a,
+        odds_b=best_odds_b,
+        market_prob_a=m_prob_a,
+        league=league,
+        match_date=match_date,
+        best_of=best_of,
+    )
+    conservative_a = decisions["a"][2].get("prob_conservative")
+    conservative_b = decisions["b"][2].get("prob_conservative")
+    min_odds_a = (
+        round(1.0 / (conservative_a * (1.0 - TAX_RATE)), 2) if conservative_a else None
+    )
+    min_odds_b = (
+        round(1.0 / (conservative_b * (1.0 - TAX_RATE)), 2) if conservative_b else None
+    )
+    ev_a = decisions["a"][2].get("ev_net")
+    ev_b = decisions["b"][2].get("ev_net")
+    pure_ev_a = (
+        expected_value(pure_prob_a, best_odds_a, TAX_RATE)
+        if pure_prob_a is not None
+        else None
+    )
+    pure_ev_b = (
+        expected_value(pure_prob_b, best_odds_b, TAX_RATE)
+        if pure_prob_b is not None
+        else None
+    )
 
-    ev_a = expected_value(eff_prob_a, best_odds_a, TAX_RATE)
-    ev_b = expected_value(eff_prob_b, best_odds_b, TAX_RATE)
-    pure_ev_a = expected_value(pure_prob_a, best_odds_a, TAX_RATE) if pure_prob_a is not None else None
-    pure_ev_b = expected_value(pure_prob_b, best_odds_b, TAX_RATE) if pure_prob_b is not None else None
+    conf_ev_a = (
+        expected_value(p_low_a, best_odds_a, TAX_RATE) if p_low_a is not None else None
+    )
+    conf_ev_b = (
+        expected_value(p_low_b, best_odds_b, TAX_RATE) if p_low_b is not None else None
+    )
 
-    conf_ev_a = expected_value(p_low_a, best_odds_a, TAX_RATE) if p_low_a is not None else None
-    conf_ev_b = expected_value(p_low_b, best_odds_b, TAX_RATE) if p_low_b is not None else None
-
-    has_val_a = ev_a is not None and ev_a > 0.0
-    has_val_b = ev_b is not None and ev_b > 0.0
+    has_val_a = decisions["a"][0]
+    has_val_b = decisions["b"][0]
 
     if not has_val_a and not has_val_b:
-        reasons = []
-        if min_odds_a is not None and ev_a is not None:
-            reasons.append(
-                f"Na {name_a}: najwyższy kurs {best_odds_a:.2f} w {best_row_a.bookmaker} "
-                f"(wymagany próg opłacalności po podatku: {min_odds_a:.2f}, EV: {ev_a:+.1%})."
-            )
-        if min_odds_b is not None and ev_b is not None:
-            reasons.append(
-                f"Na {name_b}: najwyższy kurs {best_odds_b:.2f} w {best_row_b.bookmaker} "
-                f"(wymagany próg opłacalności po podatku: {min_odds_b:.2f}, EV: {ev_b:+.1%})."
-            )
-        reasons.append(
-            "Marża bukmacherska oraz polski podatek 12% sprawiają, że żaden dostępny kurs nie daje dodatniej wartości oczekiwanej."
-        )
         return BettingRecommendation(
             has_value=False,
             verdict="no_bet",
-            verdict_label="Brak opłacalnego typu (No Bet)",
+            verdict_label="Brak zakwalifikowanego typu",
             model_prob=pure_prob_a,
             hybrid_prob=hybrid_prob_a,
             market_prob=m_prob_a,
-            summary="Żaden bukmacher nie oferuje kursu powyżej progu opłacalności po uwzględnieniu 12% podatku obrotowego.",
-            reasons=reasons,
-            threshold_info=f"Wymagane minimalne kursy: {name_a} ≥ {min_odds_a or '—'}, {name_b} ≥ {min_odds_b or '—'}",
+            summary="Żadna strona nie spełnia wspólnej polityki EV, niepewności i bezpieczeństwa.",
+            reasons=[
+                f"{name_a}: {decisions['a'][1]}",
+                f"{name_b}: {decisions['b'][1]}",
+            ],
+            threshold_info="Dodatnie średnie EV nie wystarcza do rekomendacji.",
         )
 
-    pick_side = "a" if (ev_a or -1.0) >= (ev_b or -1.0) else "b"
+    pick_side = "a" if has_val_a and (not has_val_b or ev_a >= ev_b) else "b"
     team = name_a if pick_side == "a" else name_b
     opp = name_b if pick_side == "a" else name_a
     bm_row = best_row_a if pick_side == "a" else best_row_b
@@ -1739,14 +1830,21 @@ def _build_match_recommendation(
     bounds = bounds_a if pick_side == "a" else bounds_b
     is_conf = bool(bounds and (bounds[1] - bounds[0] <= 0.08) and c_ev and c_ev > 0)
 
-    half_k = kelly_fraction(h_prob, odds_val, TAX_RATE) if h_prob else None
+    conservative_prob = conservative_a if pick_side == "a" else conservative_b
+    half_k = kelly_fraction(conservative_prob, odds_val, TAX_RATE) / 2.0
     quarter_k = (half_k / 2.0) if half_k else None
-    edge_pts = (h_prob - m_prob) * 100.0 if h_prob is not None and m_prob is not None else None
+    edge_pts = (
+        (h_prob - m_prob) * 100.0 if h_prob is not None and m_prob is not None else None
+    )
 
     reasons = [
-        f"Kurs {odds_val:.2f} w {bm_row.bookmaker} oferuje {ev_val:+.1%} oczekiwanej wartości (EV) po potrąceniu 12% polskiego podatku obrotowego.",
+        f"Kurs {odds_val:.2f} w {bm_row.bookmaker}: konserwatywne EV {ev_val:+.1%} po podatku 12%; ocena użyta do kwalifikacji {conservative_prob:.1%}, bez gwarancji pokrycia.",
         f"Model hybrydowy szacuje prawdopodobieństwo wygranej na {h_prob:.1%}, podczas gdy rynek bez marży implikuje {m_prob:.1%}"
-        + (f" ({edge_pts:+.1f} p.p. przewagi nad rynkiem)." if edge_pts is not None else "."),
+        + (
+            f" ({edge_pts:+.1f} p.p. przewagi nad rynkiem)."
+            if edge_pts is not None
+            else "."
+        ),
     ]
     if p_prob is not None and pure_ev_val is not None:
         reasons.append(
@@ -1758,7 +1856,7 @@ def _build_match_recommendation(
         )
     if quarter_k is not None and quarter_k > 0:
         reasons.append(
-            f"Sugerowana ostrożna stawka wynosi {quarter_k:.2%} bankrolla (1/4 kryterium Kelly'ego chroniące kapitał przed wariancją)."
+            f"Ułamek Kelly'ego wyliczony z konserwatywnej oceny: {quarter_k:.2%}; to nie gwarancja ochrony kapitału ani kwota uwzględniająca otwarte zakłady.",
         )
 
     summary = f"Rekomendacja: typ na {team} po kursie {odds_val:.2f} w {bm_row.bookmaker} ({ev_val:+.1%} EV po podatku 12%)."
@@ -1791,6 +1889,7 @@ def _build_match_recommendation(
         threshold_info=f"Próg opłacalności kursu: ≥ {min_odds:.2f} | Najlepsza oferta: {odds_val:.2f} ({bm_row.bookmaker})",
     )
 
+
 # ── GET /matches/recommendations/parlays (IDEA-019) ─────────────────────────
 
 
@@ -1812,6 +1911,7 @@ def get_parlay_recommendations(
         min_parlay_ev=min_ev,
         limit=limit,
     )
+
 
 def _load_historical_match_rosters(
     db: Any,
@@ -1997,12 +2097,12 @@ def match_detail(
 
     n_a = m.get("normalized_team_a") or ""
     n_b = m.get("normalized_team_b") or ""
-    
+
     # Get hybrid prediction for EV/Kelly calculation
     hybrid_pred = query_df(
         db,
         """
-        SELECT prob_a, prob_b
+        SELECT prob_a, prob_b, diagnostics_json
         FROM canonical_predictions
         WHERE canonical_match_id=:mid AND prediction_status='active'
           AND model_name=:hn AND model_version=:hv
@@ -2011,39 +2111,74 @@ def match_detail(
         """,
         {"mid": match_id, "hn": HYBRID_MODEL_NAME, "hv": HYBRID_MODEL_VERSION},
     )
-    hybrid_prob_a = none_or_float(hybrid_pred[0].get("prob_a")) if hybrid_pred and not has_unmapped_teams else None
-    hybrid_prob_b = none_or_float(hybrid_pred[0].get("prob_b")) if hybrid_pred and not has_unmapped_teams else None
-    
+    hybrid_prob_a = (
+        none_or_float(hybrid_pred[0].get("prob_a"))
+        if hybrid_pred and not has_unmapped_teams
+        else None
+    )
+    hybrid_prob_b = (
+        none_or_float(hybrid_pred[0].get("prob_b"))
+        if hybrid_pred and not has_unmapped_teams
+        else None
+    )
+    hybrid_diagnostics = hybrid_pred[0].get("diagnostics_json") if hybrid_pred else None
+
     odds_rows: list[BookmakerOddsRow] = []
     for row in odds:
         aligned = _align(row, n_a, n_b)
         odds_a = aligned[0]
         odds_b = aligned[1]
-        
-        # Calculate EV and Kelly per bookmaker
-        ev_a = expected_value(hybrid_prob_a, odds_a, TAX_RATE) if hybrid_prob_a is not None and odds_a else None
-        ev_b = expected_value(hybrid_prob_b, odds_b, TAX_RATE) if hybrid_prob_b is not None and odds_b else None
-        kelly_a = kelly_fraction(hybrid_prob_a, odds_a, TAX_RATE) if hybrid_prob_a is not None and odds_a else None
-        kelly_b = kelly_fraction(hybrid_prob_b, odds_b, TAX_RATE) if hybrid_prob_b is not None and odds_b else None
-        
-        odds_rows.append(BookmakerOddsRow(
-            bookmaker=row["bookmaker"],
-            raw_team_a=row.get("raw_team_a"),
-            raw_team_b=row.get("raw_team_b"),
-            canonical_odds_a=odds_a,
-            canonical_odds_b=odds_b,
-            scraped_at=row.get("scraped_at"),
-            source_url=row.get("source_url"),
-            offer_url=row.get("offer_url"),
-            ev_a=ev_a,
-            ev_b=ev_b,
-            kelly_a=kelly_a,
-            kelly_b=kelly_b,
-        ))
 
-    preds = [] if has_unmapped_teams else query_df(
-        db,
-        """
+        # Calculate EV and Kelly per bookmaker
+        pair_market = (
+            fair_market_probabilities(odds_a, odds_b)[0]
+            if odds_a and odds_b and odds_a > 1 and odds_b > 1
+            else None
+        )
+        qualified = qualify_prediction_sides(
+            prob_a=hybrid_prob_a,
+            prob_b=hybrid_prob_b,
+            diagnostics=hybrid_diagnostics,
+            model_name=HYBRID_MODEL_NAME,
+            odds_a=odds_a,
+            odds_b=odds_b,
+            market_prob_a=pair_market,
+            league=m.get("league"),
+            match_date=m.get("start_time_normalized"),
+        )
+        ev_a, ev_b = (qualified[s][2].get("ev_net") for s in ("a", "b"))
+        kelly_a, kelly_b = (
+            (
+                kelly_fraction(qualified[s][2]["prob_conservative"], o, TAX_RATE)
+                if qualified[s][0]
+                else None
+            )
+            for s, o in (("a", odds_a), ("b", odds_b))
+        )
+
+        odds_rows.append(
+            BookmakerOddsRow(
+                bookmaker=row["bookmaker"],
+                raw_team_a=row.get("raw_team_a"),
+                raw_team_b=row.get("raw_team_b"),
+                canonical_odds_a=odds_a,
+                canonical_odds_b=odds_b,
+                scraped_at=row.get("scraped_at"),
+                source_url=row.get("source_url"),
+                offer_url=row.get("offer_url"),
+                ev_a=ev_a,
+                ev_b=ev_b,
+                kelly_a=kelly_a,
+                kelly_b=kelly_b,
+            )
+        )
+
+    preds = (
+        []
+        if has_unmapped_teams
+        else query_df(
+            db,
+            """
         SELECT * FROM (
             SELECT DISTINCT ON (model_name, model_version) *
             FROM canonical_predictions
@@ -2056,10 +2191,11 @@ def match_detail(
         ) sub
         ORDER BY CASE WHEN model_name LIKE 'Hybrid%' THEN 0 ELSE 1 END, model_name
         """,
-        {
-            "mid": match_id,
-            **get_active_prediction_db_params(),
-        },
+            {
+                "mid": match_id,
+                **get_active_prediction_db_params(),
+            },
+        )
     )
 
     best_a = max((o.canonical_odds_a or 1) for o in odds_rows) if odds_rows else None
@@ -2088,7 +2224,7 @@ def match_detail(
     recent_stats_a: TeamRecentStats | None = None
     recent_stats_b: TeamRecentStats | None = None
     team_comparison: TeamComparisonInfo | None = None
-    
+
     feat = query_df(
         db,
         """
@@ -2151,7 +2287,7 @@ def match_detail(
                 confidence=team_b_conf,
                 source=team_b_source,
             )
-            
+
             # Get team ratings for comparison
             ratings = safe_json_get(f, ["ratings"])
             team_a_rating = None
@@ -2162,7 +2298,7 @@ def match_detail(
             team_a_glicko_rd = team_b_glicko_rd = None
             team_a_games_played = team_b_games_played = None
             rating_probabilities: dict[str, float] = {}
-            
+
             if isinstance(ratings, dict):
                 team_a_ratings = ratings.get("team_a", {})
                 team_b_ratings = ratings.get("team_b", {})
@@ -2185,7 +2321,7 @@ def match_detail(
                     gp_b = none_or_float(safe_json_get(team_b_ratings, ["gl", "games_played"]))
                     team_a_games_played = int(gp_a) if gp_a is not None else None
                     team_b_games_played = int(gp_b) if gp_b is not None else None
-                
+
                 # Prefer Glicko rating system
                 if "gl" in team_a_ratings and "gl" in team_b_ratings:
                     team_a_rating = _finite_float(team_a_ratings["gl"].get("rating_value"))
@@ -2195,13 +2331,13 @@ def match_detail(
                     team_a_rating = _finite_float(team_a_ratings["elo"].get("rating_value"))
                     team_b_rating = _finite_float(team_b_ratings["elo"].get("rating_value"))
                     rating_system = "Elo"
-            
+
             # Don't show ratings for unmapped/blocked teams
             if team_a_golgg is None:
                 team_a_rating = None
             if team_b_golgg is None:
                 team_b_rating = None
-            
+
             team_comparison = TeamComparisonInfo(
                 team_a=team_a_info,
                 team_b=team_b_info,
@@ -2386,10 +2522,18 @@ def match_detail(
         if hist_a is not None or hist_b is not None:
             roster_a = hist_a
             roster_b = hist_b
-    operational_pred = next((p for p in preds if p.get("model_name") == DEFAULT_MODEL_NAME), None)
-    pure_prob_a = none_or_float(operational_pred.get("prob_a")) if operational_pred else None
-    pure_prob_b = none_or_float(operational_pred.get("prob_b")) if operational_pred else None
-    op_diagnostics = operational_pred.get("diagnostics_json") if operational_pred else None
+    operational_pred = next(
+        (p for p in preds if p.get("model_name") == DEFAULT_MODEL_NAME), None
+    )
+    pure_prob_a = (
+        none_or_float(operational_pred.get("prob_a")) if operational_pred else None
+    )
+    pure_prob_b = (
+        none_or_float(operational_pred.get("prob_b")) if operational_pred else None
+    )
+    op_diagnostics = (
+        operational_pred.get("diagnostics_json") if operational_pred else None
+    )
 
     rec = _build_match_recommendation(
         team_a_name=m.get("team_a_name"),
@@ -2401,6 +2545,10 @@ def match_detail(
         pure_prob_a=pure_prob_a,
         pure_prob_b=pure_prob_b,
         diagnostics=op_diagnostics,
+        hybrid_diagnostics=hybrid_diagnostics,
+        league=m.get("league"),
+        match_date=m.get("start_time_normalized"),
+        best_of=m.get("best_of"),
     )
 
     return MatchDetailResponse(

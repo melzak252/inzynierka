@@ -30,18 +30,18 @@ type SeriesPoint = {
 }
 const MODEL_LABELS: Record<ModelAnalysisKey, { title: string; short: string; description: string; accent: string; badge?: string }> = {
   exp081: {
-    title: 'EXP-081 Siamese Series (Aktywny Produkcyjny)',
+    title: 'EXP-081 Siamese Series (Archiwalny)',
     short: 'EXP-081 Siamese',
-    description: 'Antysymetryczna Sieć Syjamska MLP z wagami focal loss, bramkowaniem epistemicznej niepewności i serią BoN.',
+    description: 'Antysymetryczna Sieć Syjamska MLP z wagami focal loss (model archiwalny).',
     accent: '#8b5cf6',
-    badge: 'Produkcja',
+    badge: 'Archiwum',
   },
   operational_hybrid: {
-    title: 'Hybryda Operacyjna (EXP-081 / Regional + Rynek)',
-    short: 'Hybrid (Operacyjny)',
-    description: 'Połączenie modelu operacyjnego z rynkiem — najniższy LogLoss we wszystkich horyzontach.',
+    title: 'Hybryda Operacyjna (Causal A0 + Rynek alpha=0.50)',
+    short: 'Hybrid (Causal A0)',
+    description: 'Połączenie modelu Causal A0 z rynkiem otwarcia — najniższy LogLoss (0.5608) we wszystkich horyzontach.',
     accent: '#0d9488',
-    badge: 'Hybryda',
+    badge: 'Aktywny Produkcyjny',
   },
   operational: {
     title: 'Model Operacyjny (Regional BoN v0.4)',
