@@ -743,3 +743,107 @@ While IDEA-019 established a prototype 2-leg favorite dubel, it lacks integratio
 - `reports/production_readiness_and_market_benchmark_report_2026.md`
 - `ideas/IDEA-019_tax_amortized_favorite_parlays.md`
 - `reports/eda_prop_markets_idea018.md`
+
+## IDEA-024 — Automated Market Outlier & Consensus Discrepancy Engine (Rogue Line Exploitation)
+
+- **Status:** proposed
+- **Created:** 2026-09-16
+- **Updated:** 2026-09-16
+
+### Problem
+
+Retail domestic sportsbooks (particularly STS and Betfan) frequently update their esports lines with a 2 to 6-hour latency relative to global sharp consensus (Pinnacle/exchanges). While general model-versus-market value betting carries estimation error, single-bookmaker consensus outliers represent pure informational arbitrage where the rest of the market has already confirmed the mispricing.
+
+### Evidence
+
+Empirical audit of 200,846 pre-match odds snapshots across 785 multi-quoted fixtures (May–September 2026):
+1. **Frequency**: Consensus outliers ($\ge +10\%$ gross discrepancy against no-vig median) occur in 22.0% of all quoted fixtures (~5.8 opportunities/week, primarily Monday–Thursday regional leagues like LPL, ERLs, KeSPA Cup).
+2. **Bookmaker Vulnerability**: STS is responsible for over 50% of market outliers (13.5% of its entire esports catalog), with Betfan ranking second (6.2%).
+3. **Sweet Spot Profitability**: When constrained to realistic odds ($\le 3.50$ or $\le 4.00$) or dynamically sized via $\frac{1}{4}$ Kelly (capped at $2.5\%$), the strategy achieves positive net yield after the 12% Polish turnover tax (+4.61% to +10.10% ROI, Max Drawdown $\le 12.4\%$). Totalbet (+71.6% ROI) and Superbet (+72.9% ROI) produced the highest win rates when divergent. Betclic's ongoing 0% turnover tax promotion generates $+12.25\%$ net ROI on clean market outliers.
+
+### Non-goals and Safety Boundaries
+
+- Strictly exclude inverted lines / reversed mapping errors ($\text{Discrepancy} \ge 75\%$, which indicate void/palpable error risk).
+- Prohibit re-betting on the same stale line after initial placement to prevent account limiting (gubbing).
+- Cap single-match total portfolio exposure at $3.5\%$ of bankroll across all bookmakers.
+- Enforce $\text{EV}_{\text{net}} \ge +3.0\%$ after the 12% tax hurdle (gross consensus edge $\ge +17\%$) before qualifying an alert.
+
+### Implementation Outline
+
+1. **Detection Service**: Extend `betting_app/services/upcoming_inference_service.py` to calculate median no-vig consensus odds across $\ge 3$ active bookmaker feeds per fixture and compute `discrepancy_ratio = odds * p_consensus - 1`.
+2. **Real-time Alerting**: Add `consensus_outlier` flags to `model_ev_signals`, the `/predictions` router, and `AlertsCenter`.
+3. **UI Highlighting**: Add visual badges (`⚡ Odskocznia rynku`, `🔥 Rogue Line`) in `MatchList.tsx` and `MatchDetail.tsx`.
+4. **Automated Dynamic Staking**: Couple signals with Quarter-Kelly sizing capped at $2.5\%$ bankroll for odds up to $10.0$.
+
+### Acceptance Criteria
+
+1. Live consensus calculation latency under 200 ms per fixture across all 7 tracked Polish sportsbooks.
+2. False positive rate for inverted team names kept at $0.0\%$ via strict symmetry checks.
+3. Positive net ROI ($\ge +4.0\%$ after 12% tax) maintained across a prospective 100-bet paper-trading validation cohort.
+
+### Affected Areas
+
+- `betting_app/services/upcoming_inference_service.py`
+- `betting_app/services/bet_qualification_service.py`
+- `betting_app/api/routers/matches.py`
+- `betting_app/api/routers/predictions.py`
+- `client/src/pages/MatchList.tsx`
+- `client/src/pages/MatchDetail.tsx`
+
+---
+
+## IDEA-025 — LoL Secondary Prop Markets Engine (Series Handicaps, Total Maps, Game Pace & Objectives)
+
+* **Status:** proposed
+* **Created:** 2026-09-16
+* **Updated:** 2026-09-16
+
+### Problem
+
+Restricting betting exclusively to the primary Match Winner (1X2) market yields only 5 to 6 qualified bets per week (~250 bets per 10-month active season). Under strict Quarter-Kelly staking ($\le 2.5\%$ cap), compounding a 200 PLN bankroll to 1,000 PLN requires approximately 4.7 to 5.3 calendar years (~1,200 bets). Secondary derivative markets (Series Handicaps, Total Maps, Kills, Game Duration) offer 4x to 5x higher betting volume on the same matches, substantially accelerating capital turnover while exploiting less efficient bookmaker lines.
+
+### Proposed Solution
+
+1. **Series Derivative Props (Phase 1)**:
+   - **Map Handicap (-1.5 / +1.5 in Bo3; -2.5 / +2.5 in Bo5)**: Derive directly from existing binomial/multinomial series simulator using validated map-level probabilities $p_{\text{map}}$.
+   - **Correct Score (2:0, 2:1 in Bo3; 3:0, 3:1, 3:2 in Bo5)**: Exploit commercial bookmakers' fixed heuristic pricing tables against our calibrated map probability distribution.
+   - **Total Maps Over/Under 2.5 (Bo3) / 3.5 & 4.5 (Bo5)**: High-liquidity derivative market directly solvable from $p_{\text{map}}$.
+2. **Game Pace & Macro Regression Engine (Phase 2)**:
+   - **Total Kills Over/Under**: Bivariate Poisson or negative binomial regression trained on historical GOL.GG early-game aggression, combined kill rate (CKPM), and team macro tempo.
+   - **Game Duration (Minutes Over/Under)**: Log-normal regression on team average game time (AGT), objective control priority, and patch meta dynamics.
+   - **First Objectives (First Blood, First Dragon, First Tower, First Herald/Baron)**: Logistic regression on early-game gold differential at 15m (GD15), first blood rate (FB%), and first dragon rate (FD%).
+3. **Strategic Title Sequencing**:
+   - Strictly prioritize deep extraction of LoL derivative markets over pivoting to new titles (CS2 / Valorant). LoL derivatives leverage the existing feature bank, GOL.GG pipeline, and player ratings, whereas new titles require building separate scraper/rating infrastructure from scratch in highly efficient markets.
+
+### Non-goals and Safety Boundaries
+
+- Do not build live/in-play models during pre-match phase; pre-match props only.
+- Strictly prohibit micro-props with high randomness (e.g. Total Kills Odd/Even).
+- Do not expand to CS2 / Valorant until LoL derivative markets are fully operational and bookmaker liquidity limits are reached.
+
+### Implementation Outline
+
+1. **Pipeline & Modeling**: Extend `src/models/series_distribution.py` and `betting_app/services/prop_odds_service.py` to produce series handicap, correct score, and total maps probabilities.
+2. **Feature Extraction**: Ingest historical GOL.GG game duration, CKPM, and objective rates into `upcoming_match_features`.
+3. **Scraper Extension**: Ensure prop lines (handicaps, totals, first objectives) are regularly scraped from Fortuna, STS, Superbet, and Betclic in `betting_app/scrapers/`.
+4. **EV & Qualification**: Route secondary prop lines through `bet_qualification_service.py` with specific variance hurdles.
+
+### Acceptance Criteria
+
+1. Weekly qualified bet volume increased from ~5.8 bets/week to $\ge 20.0$ bets/week.
+2. Time to compound bankroll $5\times$ (from 200 PLN to 1,000 PLN) reduced from ~5.0 years to under 1.5 years at $\le 15\%$ maximum drawdown.
+3. Series handicap and correct score models calibrated on historical test cohorts with Brier score beating uniform and commercial bookmaker closing consensus.
+
+### Affected Areas
+
+- `betting_app/services/prop_odds_service.py`
+- `betting_app/services/upcoming_inference_service.py`
+- `betting_app/services/bet_qualification_service.py`
+- `betting_app/scrapers/`
+- `src/models/tournament_*.py` / `src/models/series_distribution.py`
+- `client/src/components/MatchPropsAnalysis.tsx`
+
+### References
+
+- `docs/future_ideas.md` (IDEA-018: In-Game Props, IDEA-023: Shrunk-Hybrid Parlays, IDEA-024: Market Outliers)
+- `reports/eda_prop_markets_idea018.md`
