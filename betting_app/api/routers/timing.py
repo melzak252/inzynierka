@@ -21,6 +21,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 import numpy as np
+import pandas as pd
 from sklearn.metrics import log_loss, roc_auc_score
 
 from betting_app.api.deps import get_db, query_df
