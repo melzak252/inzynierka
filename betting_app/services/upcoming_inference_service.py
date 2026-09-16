@@ -1930,7 +1930,8 @@ def evaluate_bayesian_market_hybrid(
         all_p = [p for p in (ratings_probs + player_probs) if isinstance(p, (int, float)) and 0.0 < p < 1.0]
         if all_p and len(all_p) >= 2:
             logits = [logit(p) for p in all_p]
-            sigma_z = float(np.std(logits))
+            mean_l = sum(logits) / len(logits)
+            sigma_z = math.sqrt(sum((x - mean_l) ** 2 for x in logits) / len(logits))
         else:
             sigma_z = 0.25
         sigma_z = max(0.05, min(2.0, sigma_z))
