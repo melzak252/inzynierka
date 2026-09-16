@@ -1971,11 +1971,11 @@ function ModelAnalysis() {
     <div className="model-analysis-page">
       <header className="ma-hero">
         <div>
-          <p className="ma-eyebrow">Model performance center</p>
-          <h1>Model Analysis</h1>
+          <p className="ma-eyebrow">Centrum Walidacji Modeli & Reality Check</p>
+          <h1>Walidacja Modeli & Analiza Rynkowa</h1>
           <p>
-            Kompleksowa ewaluacja modeli predykcyjnych EnsembleLegends: Leaderboard modeli, krzywe kalibracji (Reliability Diagram),
-            CLV by horizon, odporność statystyczna Bootstrap oraz przewaga nad bukmacherami.
+            Kompleksowa weryfikacja empiryczna na danych z bazy: LogLoss i Brier vs bukmacherzy, krzywe kalibracji (Reliability Diagram),
+            CLV by horizon, zachowanie stawek Kelly'ego w przedziałach kursowych oraz porównanie Expected EV vs Rzeczywisty ROI.
           </p>
         </div>
         <div className="ma-actions">
@@ -2005,43 +2005,43 @@ function ModelAnalysis() {
             className={viewMode === 'leaderboard' ? 'active' : ''}
             onClick={() => setViewMode('leaderboard')}
           >
-            🏆 Leaderboard & Kalibracja
+            🏆 LogLoss vs Bukmacherzy & Kalibracja
           </button>
           <button
             className={viewMode === 'profitability' ? 'active' : ''}
             onClick={() => setViewMode('profitability')}
           >
-            🛡️ Audyt Rentowności & Anomalie
-          </button>
-          <button
-            className={viewMode === 'segments' ? 'active' : ''}
-            onClick={() => setViewMode('segments')}
-          >
-            🌐 Segmenty & Formaty
+            🛡️ Reality Check & Kelly (Expected vs Reality)
           </button>
           <button
             className={viewMode === 'timing' ? 'active' : ''}
             onClick={() => setViewMode('timing')}
           >
-            ⏱️ Horyzonty czasowe (Timing)
+            ⏱️ Horyzonty czasowe & CLV
           </button>
           <button
             className={viewMode === 'bookmakers' ? 'active' : ''}
             onClick={() => setViewMode('bookmakers')}
           >
-            🏢 Bukmacherzy ({bookmakerBreakdown.length})
+            🏢 Rozbicie na Bukmacherów ({bookmakerBreakdown.length})
           </button>
           <button
             className={viewMode === 'odds_tiers' ? 'active' : ''}
             onClick={() => setViewMode('odds_tiers')}
           >
-            📊 Przedziały kursowe ({oddsTierBreakdown.length})
+            📊 Przedziały kursowe & Stawki ({oddsTierBreakdown.length})
+          </button>
+          <button
+            className={viewMode === 'segments' ? 'active' : ''}
+            onClick={() => setViewMode('segments')}
+          >
+            🌐 Segmenty (Tier 1 vs ERL, Bo1 vs Bo3 vs Bo5)
           </button>
           <button
             className={viewMode === 'all' ? 'active' : ''}
             onClick={() => setViewMode('all')}
           >
-            📋 Pełny raport
+            📋 Pełny raport zbiorczy
           </button>
         </div>
       </section>

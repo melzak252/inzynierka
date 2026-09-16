@@ -872,10 +872,12 @@ def historical_model_comparison(
         },
         {
             "key": "operational_hybrid",
-            "label": "Hybryda Operacyjna (EXP-081 + Rynek)",
-            "description": "Hybrid-Operational-Market (50% Siamese Series + 50% Rynek No-Vig)",
-            "model_name": "Hybrid-Operational-Market",
-            "model_version": "exp081-siamese-series-v1-a0.50-t0.80",
+            "label": "Hybryda Operacyjna (Causal A0 + Rynek alpha=0.50)",
+            "description": "Hybrid-Bayesian-Shrunk-A0-Market / Hybrid-Operational-Market (50% Model + 50% Rynek No-Vig)",
+            "model_name": "Hybrid-Bayesian-Shrunk-A0-Market",
+            "model_version": "hybrid-a0-mkt-v1-a0.50",
+            "fallback_model_name": "Hybrid-Operational-Market",
+            "fallback_model_version": "exp081-siamese-series-v1-a0.50-t0.80",
             "features_version": "ratings-w20-symmetric-series-v1",
         },
         {
@@ -908,6 +910,11 @@ def historical_model_comparison(
     for specification in specifications:
         extra_filters = ""
         query_params: dict[str, Any] = {**specification, "cutoff": cutoff}
+        fallback_sql = ""
+        if "fallback_model_name" in specification:
+            fallback_sql = " OR (cp.model_name = :fallback_model_name AND cp.model_version = :fallback_model_version)"
+            query_params["fallback_model_name"] = specification["fallback_model_name"]
+            query_params["fallback_model_version"] = specification["fallback_model_version"]
         if league:
             extra_filters += " AND cm.league = :league_filter"
             query_params["league_filter"] = league
@@ -927,8 +934,8 @@ def historical_model_comparison(
                        ) AS rn
                 FROM canonical_predictions cp
                 JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
-                WHERE cp.model_name = :model_name
-                  AND cp.model_version = :model_version
+                WHERE ((cp.model_name = :model_name AND cp.model_version = :model_version)
+                       {fallback_sql})
                   AND cp.features_version = :features_version
                   AND CASE
                       WHEN cp.data_cutoff_at ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
@@ -3233,7 +3240,8 @@ def model_profitability_audit(
         "operational_hybrid": {
             "name": "Hybrid-Bayesian-Shrunk-A0-Market",
             "version": "hybrid-a0-mkt-v1-a0.50",
-            "fallback_version": "v0.4-binom-series-a0.50-t1.00",
+            "fallback_name": "Hybrid-Operational-Market",
+            "fallback_version": "exp081-siamese-series-v1-a0.50-t0.80",
             "title": "Hybryda Operacyjna (Causal A0 + Rynek alpha=0.50)",
         },
         "operational": {
@@ -3288,8 +3296,10 @@ def model_profitability_audit(
                    ) AS rn
             FROM canonical_predictions cp
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
-            WHERE cp.model_name = :mname
-              AND cp.model_version = :mver
+            WHERE (
+                (cp.model_name = :mname AND cp.model_version = :mver)
+                OR (:has_fb = 1 AND cp.model_name = :fb_name AND cp.model_version = :fb_ver)
+            )
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IN ('team_a', 'team_b')
               AND cm.start_time_normalized >= :cutoff
@@ -3297,9 +3307,21 @@ def model_profitability_audit(
         SELECT canonical_match_id, prob_a, prob_b, diagnostics_json
         FROM ranked WHERE rn = 1
     """
-    preds = query_df(db, preds_sql, {"mname": cfg["name"], "mver": cfg["version"], "cutoff": cutoff})
-    if len(preds) == 0 and "fallback_version" in cfg:
-        preds = query_df(db, preds_sql, {"mname": cfg["name"], "mver": cfg["fallback_version"], "cutoff": cutoff})
+    has_fb = 1 if "fallback_name" in cfg else 0
+    fb_name = cfg.get("fallback_name", "")
+    fb_ver = cfg.get("fallback_version", "")
+    preds = query_df(
+        db,
+        preds_sql,
+        {
+            "mname": cfg["name"],
+            "mver": cfg["version"],
+            "has_fb": has_fb,
+            "fb_name": fb_name,
+            "fb_ver": fb_ver,
+            "cutoff": cutoff,
+        },
+    )
     pred_dict = {}
     for p in preds:
         mid = int(p["canonical_match_id"])

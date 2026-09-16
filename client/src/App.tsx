@@ -45,7 +45,7 @@ const NAV_ENTRIES: NavEntry[] = [
     items: [
       { to: '/financial', label: 'Finanse & Bankroll', desc: 'PnL, stawki Kelly, statystyki portfela' },
       { to: '/results', label: 'Wyniki & Backtest', desc: 'Historyczna skuteczność modeli i rynku' },
-      { to: '/horizon', label: 'Analiza modelu', desc: 'Kalibracja, horyzonty czasowe i bootstrap' },
+      { to: '/horizon', label: 'Walidacja Modelu & Reality Check', desc: 'LogLoss vs bukmacherzy, CLV, Kelly, Expected vs Reality' },
     ],
   },
   {
