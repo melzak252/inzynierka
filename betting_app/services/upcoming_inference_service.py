@@ -1925,9 +1925,18 @@ def evaluate_bayesian_market_hybrid(
         p_low_a_final = min(prob_a, p_low)
         p_low_b_final = min(prob_b, p_low_b)
     else:
-        p_low_a_final = None
-        p_low_b_final = None
-
+        ratings_probs = [float(v) for v in features.get("ratings", {}).get("probabilities", {}).values() if v is not None]
+        player_probs = [float(v) for v in features.get("player_ratings", {}).get("probabilities", {}).values() if v is not None]
+        all_p = [p for p in (ratings_probs + player_probs) if isinstance(p, (int, float)) and 0.0 < p < 1.0]
+        if all_p and len(all_p) >= 2:
+            logits = [logit(p) for p in all_p]
+            sigma_z = float(np.std(logits))
+        else:
+            sigma_z = 0.25
+        sigma_z = max(0.05, min(2.0, sigma_z))
+        kappa = float(spec.metadata.get("risk_kappa", 0.75)) if hasattr(spec, "metadata") else 0.75
+        p_low_a_final = min(prob_a, sigmoid(logit(prob_a) - kappa * sigma_z))
+        p_low_b_final = min(prob_b, sigmoid(logit(prob_b) - kappa * sigma_z))
     diagnostics = {
         "family": spec.family,
         "p_sports": p_sports,
