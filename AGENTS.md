@@ -1,473 +1,261 @@
-# AGENTS.md
+# Repository instructions
 
-## Scope
+Scope: the entire EnsembleLegends repository. Updated: 2026-09-15.
 
-This file applies to the entire repository.
+This project predicts League of Legends match outcomes and simulates tournament probability distributions. It also contains an application for collecting odds, betting research, and recording manual bets. The application does not place bets automatically.
 
-EnsembleLegends is both:
+## 1. Start with the current state
 
-1. an engineering-thesis research codebase for predicting professional League of Legends match outcomes; and
-2. a local betting-research application for collecting odds, comparing model probabilities with the market, and recording manual bets.
+1. Check the current branch and uncommitted changes. Do not reset, overwrite, or move someone else's work.
+2. For modeling, read `docs/RESEARCH.md` and `conf/base/research_benchmark.json`. These are the current entry points; do not select the leading model by folder name or modification date.
+3. For application work, read `betting_app/README.md` and the relevant service code. Configuration, the loaded artifact, and the actual inference path determine the running model; a Markdown description alone does not establish this.
+4. Before a new experiment, check previous results and rejected hypotheses referenced in `docs/RESEARCH.md`.
+5. Execute the agreed scope. The user's current request can authorize a previously deferred idea; do not ask for the same authorization again.
 
-The application does **not** place bets automatically. Preserve that boundary.
+The handoff snapshot below is dated. It explains the current research state, not the live server state. Verify manifests and artifacts before updating results, and keep this handoff current when the direction or canonical inputs change.
 
-Correctness and temporal integrity matter more than making an existing test pass. Do not hide data, migration, or model errors with fallbacks or special cases.
+## Current research handoff — read before starting work
 
-## Project map
+### What we are trying to achieve
+
+The user wants a strong pre-match probability model that can also produce trustworthy tournament distributions: wins, qualification, placements, and tournament winners. Matching or beating bookmakers' opening probabilities is a research objective, not an achieved production claim. Tournament forecasts must remain usable for new rosters and national teams without shared organization history. W20 is optional. Announced rosters may be known at tournament start; future draft and blue/red side generally are not.
+
+The immediate priority is to stop repeating small, unsuccessful corrections and use one reproducible benchmark. The user explicitly requested repository cleanup and a handoff that another agent can understand without reading the conversation. Do not launch another architecture search before understanding the experiments below.
+
+### What is complete, and what is not (Updated: 2026-09-16)
+
+- **Current research reference:** causal A0, a mixture of rating experts and neural player-history experts.
+- **Active operational model:** `Hybrid-Bayesian-Shrunk-A0-Market` (version `hybrid-a0-mkt-v1-a0.50`), combining A0 with opening bookmaker consensus in logit space. Standalone EXP-081 is retired from live inference.
+- **Completed:** Canonical match benchmark run under `data/08_reporting/benchmark/run_001/` ($N = 11{,}550$).
+- **Completed:** Bet qualification risk hardening in `betting_app/services/bet_qualification_service.py` (Rule A: EV ceiling cap $\le 0.25$ on odds $> 3.50$; Rule B: Bo1 discrepancy quarantine $|\Delta p| \ge 0.12$; Rule C: negative CLV drift quarantine $\le -0.015$). Yield after 12% Polish tax reaches $+32.35\%$ with $4.91\%$ max drawdown.
+- **Completed:** Regional rating discount factor ($\gamma = 0.70$) and Best-of series projection in `src/ratings/family_calibrated_glicko2.py`, cutting cross-regional Log Loss by $-0.0409$.
+- **Completed:** Production tournament simulation engine in `src/models/calibrated_tournament_model.py` with composite bracket calibration ($T = 1.12, \beta = 0.08, P_{\text{max}} = 0.88$), eliminating multi-round compounding and calibrating finals reach to $68.4\%$.
+- **Completed:** Pre-match confirmed lineup ingestion in `betting_app/scrapers/lineup_scraper.py` (30–45 min prior).
+- **Completed:** Full regression test suite passing: 303 tests in 9.49s.
+- **Remaining/Diagnostic:** Tournament phase simulator remains in diagnostic mode for commercial futures betting until independent point-in-time publication verification of historical rulebooks is completed across all legacy tiers.
+### Current numbers and why the cohorts differ
+
+The frozen source contains **41915 series and69370 maps**. The corrected feature bank has **40636 target rows**. Annual test forecasts cover **11550 matches in2024–2026**, including **2673 matches with verified archival OPEN odds**. These are match counts, not independent tournament editions.
+
+Original039 cannot predict every target because its native inputs require historical support and usable W20. On the **9907 common eligible test matches**, the latest rebuilt comparison is:
+
+| Model | Log loss | Losses with LL≥2.5 |
+|---|---:|---:|
+| Calibrated Elo players |0.591198|29|
+| Calibrated Glicko players |0.577998|36|
+| Annual039 research derivative |0.567337|16|
+| Causal A0 |0.559920|30|
+
+On the complete11550 cohort, A0 has LL0.551246 and calibrated Glicko0.575888.039 has1643 missing forecasts. Never compare039's9907-row metric with A0's11550-row metric as if they used the same matches. A0 improves average loss;039 has fewer deep losses. Neither observation alone selects a production model.
+
+### Where the actual research artifacts live
+
+Reusable work now belongs in this repository. Much of the earlier research code and data lives in a separate local research archive. Resolve its root from `data/research_root.txt`, `ENSEMBLE_RESEARCH_ROOT`, or `--research-root`; do not search the whole filesystem or hardcode a personal home directory.
+
+The following paths are **relative to that research root**, unless explicitly marked repository-relative:
+
+| Need | Location |
+|---|---|
+| Current ready-to-score joined cohort | `rating-foundation-20260915/data/08_reporting/paired.parquet` |
+| Current baseline report and audited metrics | `rating-foundation-20260915/RAPORT.md`, `data/08_reporting/metrics.json`, `data/08_reporting/numeric_audit.json` within that directory |
+| Rebuilt native039/rating features and eligibility reasons | `rating-foundation-20260915/data/04_feature/legacy.parquet` and `legacy_completed.json` |
+| Annual039 checkpoints and calibration records | `rating-foundation-20260915/data/06_models/` |
+| Annual baseline prediction output | `rating-foundation-20260915/data/07_model_output/predictions.parquet` |
+| Corrected canonical feature bank | `a0-phase-walkforward-20260914/data/04_feature/release_corrected_bank/` |
+| Bank contents | `metadata.parquet`, `arrays.npz`, `history.npy`, `mask.npy`, `champions.npy`, `release_days.json`, `completed.json` inside that bank |
+| Causal A0 checkpoints | `a0-phase-walkforward-20260914/data/06_models/causal_a0/` |
+| Causal inference adapter | `a0-phase-walkforward-20260914/code/causal_predictor.py` |
+| A0/player-history implementation used by the research runs | `nonlinear-history-20260912/code/src/models/` and `nonlinear-history-20260912/code/scripts/temporal_player_features.py` |
+| Rebuilt baseline training/replay recipe | `rating-foundation-20260915/code/baselines.py` and `code/build_legacy_features.py` |
+| Detailed next regional experiment audit | `rating-foundation-20260915/REGION_PLAN.md` |
+| Latest failed form/roster corrections | `roster-form-20260915/RAPORT.md` and `architecture-audit.md` |
+| Tournament coverage and limitations | `a0-phase-walkforward-20260914/RAPORT.md` |
+| Original frozen GOLGG source, repository-relative | `data/artifacts/golgg-database-recovery-20260909/matches.json` |
+
+The benchmark manifest pins the current scoring input and evidence hashes. Its joined table is the convenient scoring input, not a replacement for the feature bank or original source. Do not retrain from it as though its probabilities and labels were raw causal features.
+
+### What the model already knows
+
+A0 already receives player ratings, experience/inactivity information, roster coplay, optional organization/W20 context, and an attention representation of the last16 maps per player. Historical tokens include age, role, statistics, and opponent rating. Adding another feature with one of those names is not automatically new information.
+
+A specific limitation remains: historical W20 averages organization maps; it does not individually weight every historical map by similarity to the current five. However, a later correction to the final probability using roster-weighted form did not improve overall results. That failure does not prove a redesigned history encoder cannot help.
+
+### Experiments not to repeat blindly
+
+- `roster-form-20260915`: organization form, roster-overlap weighting, inactivity correction, and opponent-adjusted form on6908 matches across21 monthly windows. No overall improvement over A0; retain the negative result.
+- `unified-ratings-20260911/WYNIKI.md`: combining player ratings with an organization correction preserved much of the quality, but did not establish a general improvement over attention. Neural aggregation/performance improved its own new Glicko filter but still lost to the existing Glicko baseline.
+- `opponent-history-20260912/WYNIKI.md`: opponent-conditioned history retrieval was trained; results were not consistently better across full-history and timestamped market cohorts. Do not propose it as wholly untested.
+- Earlier pair effects, lineup smoothing, and local player GNN were tested. They did not establish a robust improvement. References are in `research-ratings-20260910/raport.md`; implementations also exist in repository `scripts/experiment_graph_relations.py` and `scripts/experiment_full_graph_glicko2.py`.
+- Repeated temperature/profile corrections and lower tail counts did not reliably improve total probabilistic error. Do not equate crossing the LL2.5 threshold with solving the underlying error.
+
+### Next concrete research task
+
+Continue with a controlled **player-only versus player-plus-competition-family** rating comparison using the corrected release policy, same target roster scenario, and identical player-update semantics.
+
+First read `rating-foundation-20260915/REGION_PLAN.md` and repository `src/ratings/family_calibrated_glicko2.py`, `src/ratings/glicko2_core.py`. The existing family bridge compares a map-level probability with a majority-series outcome; resolve this BO likelihood mismatch before claiming a coherent regional model. Also handle historical substitutes, mixed affiliations, inactivity queries, and transfers explicitly. A competition family is not a player's nationality.
+
+Freeze the control and regional variant before scoring. Test chronology, side symmetry, missing affiliations, and absence of future information first. Then generate forecasts and feed them into the canonical benchmark. Add roster/pair effects only after this comparison establishes what the regional component contributes. Integrating a candidate into tournament simulation requires a separate phase evaluation.
+
+## 2. Project map and sources of truth
 
 | Path | Purpose |
 |---|---|
-| `src/ratings/` | Elo, Glicko-2, TrueSkill, OpenSkill, Plackett–Luce, and Thurstone–Mosteller rating systems. |
-| `src/models/` | Shared model, symmetry, and feature utilities. |
-| `src/analysis/`, `src/simulations/` | Research metrics and simulations. |
-| `scripts/` | Historical thesis experiments, backtests, imports, and report generators. Many are one-off research scripts. |
-| `betting_app/api/` | FastAPI backend and REST routers. |
-| `betting_app/services/` | Canonical matching, odds persistence, mappings, inference, and automation logic. |
-| `betting_app/scrapers/` | GOL.GG and bookmaker scrapers. |
-| `betting_app/scheduler/` | APScheduler registry, task wrappers, and maintenance jobs. |
-| `betting_app/ml/` | Retraining, inference, evaluation, backtesting, model registry, and promotion gates. |
-| `betting_app/models/` | SQLAlchemy models and checked-in model artifacts. |
-| `betting_app/alembic/` | Alembic migrations. The current chain is not safely replayable; see Known hazards. |
-| `docker/timescale/init.sql` | A separate hand-written Timescale schema. It currently diverges from models and migrations. |
-| `client/` | React 18 + TypeScript + Vite frontend. |
-| `conf/base/` | Kedro and ML pipeline parameters. |
-| `docs/` | Thesis plan, methodology, data contract, and experiment notes. |
-| `docs/future_ideas.md` | Durable catalog of deferred proposals and their evidence, constraints, and promotion criteria. |
-| `reports/` | Generated or curated evaluation outputs. |
-| `data/` | Large local datasets and databases; normally ignored. Never commit them without explicit instruction. |
-
-Primary operational entry points:
-
-```text
-uvicorn betting_app.api.main:app
-python -m betting_app.scheduler
-python -m betting_app.scripts.run_upcoming_prediction_pipeline --include-partial --operational-hybrid
-python -m betting_app.scripts.rebuild_regional_ratings
-python -m betting_app.ml.pipelines.exp040_retrain_pipeline
-```
-
-## Model architecture & active contracts
-
-1. **Active operational prediction engine**:
-   - **Pure model**: `Operational-PlayerTeamRatings-W20` (`v0.4-binom-series`).
-     - Combines $70\%$ player rating consensus (Elo, Glicko-2 regional, TrueSkill, OpenSkill, Plackett–Luce, Thurstone–Mosteller for each 5-man roster), $20\%$ team rating consensus, and $10\%$ W20 rolling stats from GOL.GG.
-     - Evaluates map probabilities and computes series outcomes using binomial series simulation (`series_probability`).
-   - **Active betting hybrid**: `Hybrid-Operational-Market` (`v0.4-binom-series-a0.35-t0.80`).
-     - Blends operational model probabilities ($T=0.80, \alpha=0.35$) with consensus no-vig market closing line ($1-\alpha=0.65$).
-     - Powers the betting recommendations, EV signals, and live match boards.
-   - **Rating contract**: `ratings-v2` (`family-calibrated-glicko2-v1`), featuring regional offset projection and Bayesian shrinkage across international and regional leagues.
-
-2. **Historical thesis model (frozen baseline)**:
-   - `Sym-Cal LR-ElasticNet-W20-Binomial / exp-039`
-   - `exp-039` is frozen. Retained exclusively for retrospective, cohort-matched academic comparisons. Never overwrite or retrain this artifact.
-
-3. **Candidate successor architecture (EXP-040)**:
-   - `Hierarchical-Markov-VennAbers-EXP040` (`exp040-markov-va-v1`).
-   - Combines Venn–Abers conformal multi-probability calibration, hierarchical Markov series simulation with side rotation, and Conformal Risk Control ($P_{\text{low}}$ lower-bound gating under the $12\%$ Polish turnover tax).
-## Read before editing
-
-Choose the relevant context rather than reading the entire repository:
-
-- Project intent: `README.md`
-- Operational application: `betting_app/README.md`
-- Thesis scope: `docs/00_index.md`
-- Deferred ideas and future work: `docs/future_ideas.md`
-- Temporal data contract: `docs/02_data/01_data_sources_and_contract.md`
-- Research design: `docs/03_methodology/01_research_design.md`
-- Database layer: `betting_app/core/db.py`, SQLAlchemy models, Alembic revisions, and `docker/timescale/init.sql`
-- Model evaluation: `betting_app/ml/pipelines/evaluation.py` and `betting_app/ml/backtesting/`
-- EXP-039 retraining: `betting_app/ml/pipelines/exp039_weekly_retrain.py`
-
-Trace every caller before modifying an exported service, model field, schema, feature definition, side convention, or timestamp contract.
-
-## Future ideas catalog
-
-`docs/future_ideas.md` is the single durable registry for proposals that are worth preserving but are not part of the current task.
-
-- When the user asks to save, defer, catalog, or revisit an idea, add or update an entry there.
-- Use stable `IDEA-NNN` identifiers and the catalog's status vocabulary.
-- Record the problem, evidence, non-goals, prerequisites, affected contracts, implementation outline, acceptance criteria, and source links.
-- An idea entry does not expand the current task, approve implementation, or change the frozen thesis scope or model.
-- Update an existing entry rather than creating a competing note for the same proposal.
-- Before implementation, confirm that the idea was explicitly promoted, then trace current callers and contracts again because catalog evidence may be stale.
-- When work completes or is rejected, update the entry status and add the relevant commit, issue, or experiment reference.
-
-## Safety rules
-
-### Live database and secrets
-
-- `.env` is currently tracked and contains a database URL and machine-specific paths. Treat it as sensitive. Never print its contents or credentials.
-- Never use the configured database for tests, migration experiments, destructive scripts, or `init_db()`.
-- Do not run Alembic against the configured/live database without explicit user instruction and a reviewed backup/rollback plan.
-- Read-only inspection is acceptable only when the task requires it. Do not expose row payloads or secrets in reports.
-- Use a temporary SQLite database for isolated unit tests and an ephemeral PostgreSQL/Timescale instance for migration and dialect verification.
-- Local database dumps exist under `backups/`. Do not inspect, copy, commit, or include them in images unless explicitly required.
-- Do not add datasets, database files, dumps, credentials, browser profiles, or generated experiment artifacts to Git.
-
-### Network and automation
-
-- Do not trigger real bookmaker or GOL.GG scraping unless the user explicitly asks for it. Scraping can cause external requests, bans, and browser processes.
-- Do not start the scheduler for a test. Call the specific task or subprocess with a temporary database.
-- The API currently has no authentication. Never expose it beyond loopback during development.
-- Do not add another unauthenticated mutating or administrative endpoint.
-- `betting_app/utils/browser_cleanup.py` can kill unrelated Chromium/Playwright processes when run directly on a host. Do not execute it outside an isolated container.
-
-### Docker
-
-- `docker-compose.yml` currently requires `gpus: all` for the scheduler and the Python requirements select CUDA PyTorch. This does not work on CPU-only or non-Nvidia hosts.
-- Compose initializes Timescale with `docker/timescale/init.sql`; it does not run Alembic.
-- `.dockerignore` does not currently exclude every sensitive/local artifact. Review the build context before building or publishing an image.
-
-### Local-first deployment workflow
-
-The always-on application host is reachable as `melzak@192.168.1.17` with the default SSH identity under `~/.ssh/`.
-
-Verified server layout:
-
-```text
-/data/inzynierka/       operational data, backups, logs, and PostgreSQL storage
-/data/inzynierka/app/   Git checkout and Docker Compose project
-```
-
-Never develop or make ad hoc source edits in the server checkout. Use this promotion sequence:
-
-1. Make the change in the local checkout.
-2. Verify the exact behavior locally, including targeted backend checks and browser interaction for UI changes.
-3. Review the local diff, then commit and push through Git only after the local result is accepted.
-4. Before deployment, inspect the server branch, commit, working tree, containers, and database health. Preserve unexpected server changes; never reset or overwrite them.
-5. Update `/data/inzynierka/app` with a fast-forward Git pull.
-6. Rebuild or restart only the affected Compose services.
-7. Verify API health, frontend behavior, scheduler/container state, and relevant logs on the server.
-
-Do not use `git reset --hard`, `git clean`, direct file copying, or direct remote edits as a deployment shortcut. Do not pull or restart the server merely because local files changed; local verification and an intentional Git promotion happen first.
-
-### Branch workflow
-
-`dev` is the integration branch for all development work. Create working branches
-from `dev`, validate locally, then commit and push changes to `dev` or a branch
-that will merge into `dev`. Do not push new development commits directly to
-`main`.
-
-Promote `dev` to `main` only as an explicit, reviewed release step after the
-same local verification has passed. Keep `main` and `dev` intentionally
-synchronized through that promotion; do not treat a successful push to one
-branch as a push to the other.
-
-## Known hazards as of 2026-09-02
-
-Treat these as known defects, not intended behavior. If a change touches one, fix the source problem and add a regression check.
-
-### Schema divergence
-
-There are three incompatible schema definitions: SQLAlchemy models, Alembic, and `docker/timescale/init.sql`.
-
-- Many `Mapped[float]` fields are incorrectly declared with `mapped_column(Integer)`, including odds, probabilities, ratings, rolling statistics, EV, tax, and confidence.
-- `ModelEvSignal.tax_rate` has an incorrect model default of `12` rather than `0.12`.
-- Several string defaults include embedded SQL quotes and create literal values such as `"'upcoming'"` under SQLite.
-- Fresh `alembic upgrade head` currently fails in `6ff3a3de9d63_server_defaults.py` because it drops legacy tables absent from the initial revision.
-- That migration also attempts to convert continuous `REAL` fields to `INTEGER`.
-- The Timescale init schema has nullable `BIGINT` identifiers without identity/default generation for several tables.
-- The configured live schema has historically been advanced through a mixture of init SQL, `create_all`, migrations, and manual fixes. Never infer live structure solely from `alembic_version`.
-
-Desired direction: PostgreSQL/TimescaleDB as the authoritative operational schema, represented by one clean Alembic chain. Do not create a fourth schema path.
-
-### SQLite compatibility
-
-The README advertises SQLite, but important paths are not SQLite-safe:
-
-- the compatibility wrapper returns no SQLite `lastrowid`;
-- canonical matching uses PostgreSQL `GREATEST()`;
-- several API queries use PostgreSQL casts, `EXTRACT`, arrays, or lateral joins;
-- the documented dry-run scraper uses bookmaker `manual`, which the whitelist rejects.
-
-For a focused fix, either make the touched path genuinely cross-dialect and test both databases, or explicitly standardize it on PostgreSQL. Do not claim SQLite support based only on `Base.metadata.create_all()`.
-
-### Temporal leakage
-
-Current historical evaluation defaults include stale predictions, select the latest prediction per match, and do not require the prediction to precede the selected odds. Live data has contained post-start predictions and missing `data_cutoff_at` values.
-
-Every production or evaluation row must satisfy:
-
-```text
-feature/source time <= data_cutoff_at <= predicted_at <= quote_at < match_start_at
-```
-
-If no post-prediction quote is required by the experiment, document that exception and never call it executable/live betting performance. Missing timestamps make a row ineligible.
-
-Do not use closing odds as a sports-model input. They are a diagnostic market benchmark only.
-
-### Bankroll simulation
-
-The current backtest and financial API settle each bet immediately in iteration order. This can use outcomes before their real settlement time and reuse capital committed to overlapping matches.
-
-A valid ledger must:
-
-1. place bets using information available at the placement timestamp;
-2. reserve the stake;
-3. keep overlapping bets open;
-4. settle only after the corresponding match ends; and
-5. size later bets from capital actually available at that time.
-
-Do not present current ROI, drawdown, Kelly, or promotion results as financially executable until this is fixed.
-
-### Ratings and calibration
-
-- `src/ratings/glicko.py::GlickoRating.update_team` updates the second team against the already-mutated first team. Snapshot both pre-match states and update simultaneously.
-- EXP-039 weekly retraining currently fits the calibrator on all walk-forward predictions and reports calibrated metrics on those same rows. Use a separate chronological calibration/evaluation period or nested walk-forward calibration.
-- Any rating or feature fix that changes model inputs requires new artifacts and reevaluation; do not silently reuse old artifacts.
-
-### Financial transactions
-
-`betting_app/api/routers/bets.py` currently commits the bet before deducting the wallet and uses PostgreSQL `lastrowid`, which returns `0` rather than the inserted serial ID. Placement and settlement also lack concurrency guards.
-
-Required invariant:
-
-```text
-bet row + wallet balance + wallet transaction commit atomically, or none commit
-```
-
-Use `INSERT ... RETURNING id`, row locks or conditional updates, non-negative balance constraints, and idempotent settlement.
-
-### Scheduler
-
-- Scraping and prediction cron expressions are not actually 15 minutes apart despite the comment.
-- GOL.GG refresh, ratings rebuild, and feature rebuild are independent six-hour jobs even though they form an ordered dependency chain.
-- `_DEFAULT_TASK_TIMEOUT` is declared but not enforced.
-- Task failures frequently store an empty `automation_runs.error`; `automation_commands` may contain no diagnostics.
-- The API scheduler trigger uses a separate in-process executor and can overlap the real scheduler.
-
-Prefer explicit task dependencies and subprocess timeouts over independent interval jobs.
-
-### Timezones and canonical matches
-
-Unzoned Polish bookmaker labels must be interpreted in `Europe/Warsaw` and converted to UTC. Do not attach UTC directly to strings such as `14.06.2026 22:00`, `dziś 22:00`, or `jutro 18:00`.
-
-Inject a clock into relative-date parsing. Do not hardcode the current year in tests. Preserve academy/main-squad distinctions and side alignment when changing canonical matching.
-
-### Frontend
-
-- `npm run build` passes, but `npm run lint` currently fails.
-- `client/src/pages/MatchDetail.tsx` contains a conditional `useMemo` after an early return. Hooks must execute in the same order on every render.
-- The frontend has no test script.
-
-Do not treat a successful Vite build as a lint or runtime correctness check.
-
-## Domain invariants
-
-### Match sides
-
-Storage uses both `team_a`/`team_b` and `a`/`b` in different boundaries. Normalize explicitly at the boundary. Never infer side from display order after canonical alignment.
-
-For every probability pair:
-
-```text
-0 <= prob_a <= 1
-0 <= prob_b <= 1
-prob_a + prob_b ~= 1
-```
-
-For decimal odds used in analysis:
-
-```text
-odds_a > 1
-odds_b > 1
-```
-
-### Rating updates
-
-- Predict before applying the current game or match result.
-- Update opponents from the same pre-match state.
-- Apply time decay using the actual match date.
-- Do not let iteration order, canonical side, or bookmaker side change a symmetric prediction.
-
-### Model evaluation & promotion benchmark
-
-Every candidate model version or architectural modification must be evaluated against this standard before promotion or operational adoption. Do not optimize for cherry-picked splits, unrepresentative subsets, or isolated failure cases.
-
-#### 1. Walk-forward temporal protocol
-- **Strict chronologic evaluation**: expanding-window or rolling-window walk-forward validation; zero future information or cross-game shuffle.
-- **Time constraint**: `feature/source time <= data_cutoff_at <= predicted_at < match_start_at` for every evaluated row.
-- **Standard evaluation cohort (Modern LoL Holdout)**:
-  - Default locked evaluation cohort: matches from `2024-01-01` onward (minimum $N \ge 10\,000$ completed series).
-  - Frozen comparative baselines: `Sym-Cal LR-ElasticNet-W20-Binomial / exp-039` and active operational model `Operational-PlayerTeamRatings-W20 (v0.4-binom-series)`.
-  - Predictions must be recorded point-in-time on strictly earlier data.
-
-#### 2. Core performance metrics (all required)
-- **LogLoss (Binary Cross-Entropy)**: Primary proper scoring rule for probability accuracy ($\min$).
-- **Brier Score**: Quadratic loss $\frac{1}{N} \sum (p_i - y_i)^2$ ($\min$).
-- **Brier Decomposition**:
-  - *Reliability*: calibration error component ($\to 0$, threshold $< 0.010$).
-  - *Resolution*: discriminatory power ($\to \max$).
-  - *Uncertainty*: baseline variance $p_0 (1 - p_0)$.
-- **AUC (ROC-AUC)**: Pure ranking discrimination between match winners and losers ($\max$).
-- **Accuracy**: Threshold $P \ge 0.50$ symmetric classification rate, with strict side symmetry ($P(A, B) + P(B, A) = 1.0$).
-
-#### 3. Calibration and reliability diagnostics
-- **Expected Calibration Error (ECE)**: 10 equal-width bins (target $\le 0.030$).
-- **Platt / Logistic Calibration Parameters**: Fit $\text{logit}(y) = \alpha + \beta \cdot \text{logit}(p)$.
-  - *Calibration Slope* ($\beta$): ideal $1.0$. Slope $< 0.85$ indicates severe overconfidence; slope $> 1.15$ indicates underconfidence. Required range: $[0.85, 1.15]$.
-  - *Calibration Intercept* ($\alpha$): ideal $0.0$. Measures global team/side bias.
-- **Maximum Calibration Error (MCE)**: Maximum deviation in any populated confidence bin.
-
-#### 4. Statistical significance and uncertainty estimation
-- **Paired $\Delta \text{LogLoss}$ and $\Delta \text{Brier}$**: Calculated per match against the locked baseline:
-  $$\Delta \text{LogLoss}_i = \text{LogLoss}_{\text{candidate}, i} - \text{LogLoss}_{\text{baseline}, i}$$
-- **Monthly-block bootstrap**:
-  - Minimum 5,000 resamples drawn with replacement from monthly cohorts (to preserve temporal patch/meta autocorrelation).
-  - Report mean difference, **95% Confidence Interval ($[CI_{\text{low}}, CI_{\text{high}}]$)**, and one-sided p-value ($p = P(\Delta \ge 0)$).
-- **Hard decision rule**: A candidate cannot be claimed superior if the 95% bootstrap CI upper bound is $\ge 0.0$. Point-estimate improvements without CI are invalid.
-
-#### 5. Diagnostic failure-mode slices ("Gdzie model się myli")
-Every benchmark report must segment metrics across five mandatory risk dimensions to detect hidden miscalibration:
-1. **Odds / Confidence buckets**:
-   - Heavy Favorites ($P \ge 0.75$, market odds $< 1.33$)
-   - Moderate Favorites ($0.60 \le P < 0.75$, market odds $1.33 - 1.67$)
-   - Toss-up / Close Matches ($0.45 \le P \le 0.55$, market odds $1.80 - 2.20$)
-   - Underdogs ($P \le 0.40$, market odds $> 2.50$), with explicit auditing of the $[3.50, 5.00]$ odds tier to prevent false underdog favoritism.
-2. **Series format (BoN)**:
-   - Bo1 (high single-game variance) vs Bo3 (standard regular season) vs Bo5 (playoffs/internationals). Verifies binomial expansion accuracy.
-3. **Competition tiers**:
-   - Tier-1 International (Worlds, MSI)
-   - Tier-1 Domestic (LCK, LPL, LEC, LCS)
-   - Tier-2 / ERL (Prime League, LFL, Superliga, LDL, NACL, etc.). Confirms regional shrinkage does not distort sub-leagues.
-4. **Roster stability & prior experience**:
-   - Stable rosters (all 5 players with $\ge 10$ historical matches) vs rosters with $\ge 1$ rookie or substitute ($< 10$ matches or missing prior).
-5. **Internal signal disagreement**:
-   - Consensus agreement ($|P_{\text{player}} - P_{\text{team}}| \le 0.08$) vs severe disagreement ($|P_{\text{player}} - P_{\text{team}}| > 0.15$).
-
-#### 6. Market benchmark comparison
-On the common sample of finished matches with pre-match no-vig odds:
-- Report $\Delta \text{LogLoss}_{\text{market}} = \text{LogLoss}_{\text{model}} - \text{LogLoss}_{\text{market}}$.
-- Pearson and Spearman correlation with market consensus closing line ($r$).
-- Mean Absolute Deviation ($|P_{\text{model}} - P_{\text{market}}|$).
-- Hybridization curve: optimal $\alpha$ blending performance ($p_{\text{hybrid}} = \alpha p_{\text{model}} + (1 - \alpha) p_{\text{market}}$).
-
-#### 7. Promotion gate checklist
-A new model version is approved for promotion only when all criteria pass:
-- [ ] Temporal integrity: strictly chronologic, zero leakage, no post-match features.
-- [ ] Symmetry: $P(A, B) + P(B, A) = 1.0 \pm 10^{-6}$ everywhere.
-- [ ] Probabilistic superiority: 95% Monthly-block Bootstrap CI for $\Delta \text{LogLoss} < 0$ against production baseline.
-- [ ] Tier-1 safety: No degradation on Tier-1 matches ($\Delta \text{LogLoss}_{\text{Tier1}} \le +0.002$).
-- [ ] Calibration integrity: ECE $\le \text{ECE}_{\text{baseline}}$ and calibration slope $\in [0.85, 1.15]$.
-- [ ] Underdog safety: Underdog predictions in $[3.50, 5.00]$ odds tier do not predict $P > 0.50$ without market confirmation.
-
-### Financial calculations
-
-- Tax is a fraction such as `0.12`, never a percentage integer such as `12`.
-- Validate tax to `[0,1)`, positive odds, positive stake, and bounded staking multipliers.
-- Keep money in `Numeric`/`Decimal` at persistence boundaries.
-- Settlement must be idempotent.
-
-### Database changes
-
-- Use timezone-aware timestamps for real event times; avoid new timestamps stored as arbitrary strings.
-- Use `Float` for model measurements and `Numeric` for money.
-- Give every addressable row a real primary key/default.
-- Add foreign keys where the relationship is part of the audit trail.
-- Index actual filter/order patterns, especially match start, model/version/prediction time, and canonical match IDs.
-- Migration tests must begin from an empty PostgreSQL/Timescale database and reach head.
-
-## Coding conventions
-
-- Python target: 3.12.
-- Backend: FastAPI and SQLAlchemy 2.x.
-- Frontend: React 18, TypeScript, Vite.
-- Prefer SQLAlchemy `text()` with named parameters over new positional-`?` compatibility SQL.
-- Keep transactions in the service layer and make their boundaries explicit.
-- Do not catch broad exceptions merely to return success or an empty result.
-- Preserve raw external payloads for diagnostics, but never return secrets through API errors.
-- Reuse existing normalization and side-alignment helpers; do not add parallel implementations.
-- Keep frozen experiment/model versions immutable. New behavior gets a new version and metadata.
-- Avoid new top-level scratch scripts named `test_*.py`; pytest collects them.
-- Update existing documentation when behavior changes instead of creating a competing README.
-
-## Verification commands
-
-The system shell may not provide `python`; use the repository virtual environment explicitly.
-
-### Backend
-
-Default application tests:
+| `docs/RESEARCH.md` | Research status, current artifacts, limitations, completed experiments, and next steps. |
+| `conf/base/research_benchmark.json` | Versioned benchmark manifest: sources, hashes, models, and cohorts. |
+| `scripts/run_model_benchmark.py` | Main entry point for model comparisons. |
+| `src/analysis/` | Shared metric and evaluation definitions; extend these instead of copying them. |
+| `src/ratings/`, `src/models/` | Ratings, models, features, and prediction contracts. |
+| `src/models/tournament_*.py`, `scripts/simulate_tournament.py` | Tournament models and tools; inspect the scope of each module. |
+| `scripts/` | Pipelines and historical experiments, indexed in `scripts/README.md`. |
+| `betting_app/api/`, `betting_app/services/` | API and application logic. |
+| `betting_app/scrapers/`, `betting_app/scheduler/` | Data collection and operational jobs. |
+| `betting_app/ml/` | Application training, inference, and evaluation pipelines. |
+| `betting_app/models/`, `betting_app/alembic/` | Data models, artifacts, and migrations; inspect the specific file. |
+| `client/` | React/TypeScript frontend. |
+| `data/` | Local, usually ignored datasets and outputs. |
+| `docs/future_ideas.md` | Deferred ideas catalog, when relevant to the task. |
+
+### Distinguish model identities
+
+- **Causal A0**: the research reference model, not necessarily the model deployed in the application.
+- **Frozen EXP-039**: an immutable historical artifact. Never overwrite it through training.
+- **Annual039 derivative**: a retrained research recipe, separate from frozen039.
+- **Operational model and market hybrid**: identify them from current configuration, code, and artifacts. Do not attribute A0 results to them.
+- The label “Glicko” in older results may refer to a Glicko-2 implementation. Specify the engine version, update rules, roster aggregation, and calibration.
+
+## 3. One benchmark
+
+Run from the repository root:
 
 ```bash
+.venv/bin/python scripts/run_model_benchmark.py --suite --doctor
+.venv/bin/python scripts/run_model_benchmark.py --suite --output-dir data/08_reporting/benchmark/run_001
+```
+
+Replace `run_001` with a new, nonexistent run name. The research archive location is resolved from `--research-root`, then `ENSEMBLE_RESEARCH_ROOT`, then the ignored file `data/research_root.txt`.
+
+- Extend the existing runner, modules, manifest, and tests. Do not create another competing benchmark script inside a dated experiment directory.
+- Suite mode rescores stored match predictions. It does not train models or rerun walk-forward prediction generation.
+- Tournament phases, EV/CLV/Kelly, and prospective confirmation are currently `NOT_RUN`. A reference to an earlier report is not a new execution of that evaluation.
+- Neither a `DEVELOPMENT_ONLY` report nor an older automatic gate result authorizes production use.
+- A custom candidate must satisfy the contract and coverage described in `docs/RESEARCH.md`; do not silently reduce the cohort to a convenient intersection.
+- Do not change the manifest or hashes merely to pass validation. Changed data requires an explicit new version and an impact assessment.
+
+## 4. Running experiments
+
+Before training, record the hypothesis, control, fixed variants, budget, TRAIN/CAL/TEST partitions, and success criterion. Isolate changes sufficiently to attribute their effects; do not introduce a graph, a new rating engine, and new calibration simultaneously.
+
+- Evaluate chronologically using expanding or rolling walk-forward windows. State the rating-update, model-training, and calibration schedules separately.
+- Shuffling examples **within an already closed TRAIN partition** is allowed for a static model. Never introduce future information into TRAIN or reorder events that update rating state.
+- Use all valid, available historical matches; odds availability must not determine the training history.
+- Evaluate on identical populations and side orientations. Missing forecasts require explicit reasons and counts; they are not zero loss. Clearly label comparisons across different populations.
+- Select hyperparameters, calibration, and hybrid weights before the evaluated window. Parameters fitted diagnostically on TEST must not improve forecasts scored on that same TEST.
+- Individual failures are diagnostic examples. Do not create exceptions for team names, known outcomes, or a few selected tail losses.
+- Report negative results too. Update research status instead of repeating a rejected experiment under a new name.
+- Do not inspect protected prospective outcomes during development. Repeatedly examined historical years remain development data even when the split is chronological.
+
+### Metrics and uncertainty
+
+Use log loss and Brier as the primary metrics, supplemented by AUC, accuracy, calibration, sample counts, and tail losses. Apply the same explicit probability policy to headline metrics, paired differences, and profiles; do not hide extreme errors by clipping only part of a report.
+
+- Report slices by time, BO, league/family, experience, roster, confidence, and signal disagreement. Unknown profiles remain unknown.
+- For matches, use paired monthly-block bootstrap with at least 5000 resamples; report block counts, the match-weighted difference, and the equal-block difference. Check tournament sensitivity and name the actual blocking unit.
+- For simulations, aggregate and resample entire tournament editions. Origins, teams, and groups within one edition are not independent tournaments.
+- A difference interval containing zero establishes neither improvement nor equivalence. The fraction of resamples with Δ≥0 is not automatically a classical p-value.
+- ECE, calibration slope, and tail counts have no standalone universal “production” threshold. Predeclare project criteria and account for sample size and repeated development.
+- Negative ΔLL on one cohort does not establish bookmaker-level quality. Adoption also requires information availability, coverage, simulator correctness, and independent confirmation.
+
+## 5. Information availability and sports contracts
+
+For forecasts with actual timestamps, require timezone information and:
+
+```text
+source/release time <= data_cutoff_at <= predicted_at < target_start_at
+```
+
+TRAIN and CAL labels must be released before their respective origins. The date a match was played is not always the date its result became available. In a daily research scenario, preserve `effective_release_day < prediction_day` and label it as a scenario, without certifying publication times.
+
+- An announced roster may be an input. The actual five players read from a later match are only an explicit scenario unless earlier announcement is evidenced. Otherwise use the previously known roster or a model of roster uncertainty.
+- W20 remains optional in the model being developed. New rosters and national teams must work without shared organization history.
+- Blue/red side and draft are not known for an ordinary pre-match forecast. Use them only when released before the specific cutoff. A/B is data orientation, not map side.
+- Predict before updating from the result. Update opponents from the same prior state. Queries for hypothetical matchups must not mutate history.
+- Preserve player identities, academy/main-team distinctions, and symmetry p(A,B)+p(B,A)≈1. Do not reverse odds a second time after side alignment.
+- Map probability and series probability are different quantities; do not apply the BO projection twice or train a map likelihood on a whole-series outcome without justification.
+- A competition family is not a player's geography. Affiliations in cross-region evaluation must come from previously available information.
+
+### Tournaments
+
+Every declared phase requires an explicit format, target and origin lists, legal matchups, and reasons for missing coverage. Swiss, GSL, opponent selection, tiebreaks, and transitions require their own rules and oracles; do not substitute actual future opponents from history.
+
+Preserve probability mass and joint outcome constraints. Distinguish phases, components, editions, and states. RPS for win counts, series length, and official placements are not interchangeable. Do not assess a whole tournament from match LL alone. Test that modifying future results, drafts, and rosters leaves earlier inputs and forecasts unchanged.
+
+### Odds and finance
+
+- OPEN is the primary market research reference; report CLOSE separately. Archived odds without timestamps do not establish equal-time information availability.
+- The sports model does not use odds as inputs. A hybrid may use only odds available at its cutoff and has a separate identity. Later CLOSE may be used for CLV, not for an earlier decision.
+- At a betting decision, both the forecast and selected odds must already be available, and the match must not have started. Their arrival order depends on the explicit execution policy; do not impose one ordering on every analysis.
+- Do not alter a forecast merely because it disagrees with an underdog price. Bet qualification limits are a separate, explicit policy, not a rule for “correcting” probabilities.
+- The ledger reserves stakes, keeps overlapping bets open, and settles only after result availability. Kelly uses free capital; state the assumed settlement times.
+- Distinguish historical reconstruction, simulated execution, and recorded production decisions.
+- Tax is a fraction, such as 0.12. Persist money as Decimal/Numeric; settlement must be idempotent. Bet, balance, and wallet transaction changes commit atomically.
+
+## 6. File organization and reproducibility
+
+Store new artifacts by stage:
+
+```text
+data/01_raw/             immutable sources
+data/02_intermediate/    parsing and cleaning
+data/03_primary/         canonical data
+data/04_feature/         features with cutoff validation
+data/05_model_input/     partitions and model inputs
+data/06_models/          versioned models and calibrators
+data/07_model_output/    stored predictions
+data/08_reporting/      benchmarks and reports
+```
+
+This is an organizational convention, not a claim that the entire project has migrated to Kedro. Each pipeline records input provenance, hashes, configuration, code version, scope, and validation results. Do not hardcode personal paths in reusable modules.
+
+Do not move historical artifacts in bulk without auditing paths and hashes. Preserve raw data, frozen models, historical evidence, and synced `sources/` unchanged. Develop new experiment code in the repository; do not copy the whole project into another dated directory.
+
+Update existing documentation. Record deferred ideas in `docs/future_ideas.md`, retaining existing identifiers and status; a catalog entry is not an executed experiment.
+
+## 7. Application safety and Git
+
+- Do not expose `.env`, credentials, or dump contents. Do not add datasets, secrets, or generated artifacts to Git.
+- Tests must not use the user's configured database. Validate migrations on an empty, isolated PostgreSQL/Timescale database; SQLite does not prove PostgreSQL behavior.
+- Inspect current models, migrations, and init SQL before schema changes. Do not assume consistency from an old audit or `alembic_version` alone; do not create another competing schema path.
+- Do not run real scraping, the scheduler, live migrations, or server restarts outside the user's authorized scope. Test specific functions in isolation.
+- Do not expose an unverified API beyond loopback. Do not run cleanup tools that terminate unrelated browser processes.
+- Verify current Docker/GPU configuration and image build context before running or publishing.
+- `dev` is the integration branch. Check the actual branch; do not switch or reset a dirty checkout merely to match a branch name. New work may be isolated in a branch/worktree from the appropriate base.
+- Do not push development directly to `main`. Commit, push, merge, and deploy within the authorized scope after validation. Do not include someone else's changes in a commit.
+- Deployment sequence: local change and tests → review → Git → server-state inspection → fast-forward and only necessary services → health checks. Do not treat a hostname or path once recorded here as current configuration.
+- Do not use `git reset --hard`, `git clean`, or ad hoc server edits as deployment shortcuts. Preserve unexpected changes.
+
+## 8. Verification and completion
+
+Run checks appropriate to the change; do not fix unrelated issues merely because an old audit listed them. Reproduce the failure, then fix it and check regressions. Do not hide errors behind broad exception handlers or empty results.
+
+| Change | Required verification |
+|---|---|
+| Benchmark | Metrics, cohorts, dates, missingness, and extreme-probability tests; agreement with recorded full-cohort results. |
+| Rating/features/model | Chronology, symmetry, cold start, reproducibility, and a new versioned benchmark. |
+| Simulator | Small independent oracles, probability mass, legal matchups, absence of future state, and edition-level blocking. |
+| API/service | A test reproducing the behavior and an exercise of the changed interface. |
+| Migrations | Empty isolated database → migrations → test of the affected path. |
+| Scheduler/scraper | Dependencies, timeouts, or parser fixtures; no automatic live execution. |
+| Finance | Overlapping bets, free capital, idempotency, and atomicity. |
+| Frontend | `npm run build`, `npm run lint` in `client/`, and browser verification of the changed behavior. |
+| Documentation | Read the complete revised document and verify paths and commands. |
+
+Basic commands:
+
+```bash
+.venv/bin/python -m pytest -q betting_app/tests/test_research_benchmark_suite.py betting_app/tests/test_model_benchmark.py
 .venv/bin/python -m pytest -q betting_app/tests
 ```
 
-Run relevant root regression tests explicitly, for example:
+The first covers the benchmark; the second is broader application regression when justified by the change. Report dependency, database, or environment limitations from current execution, not as permanent exceptions. Do not install dependencies or change the environment unnecessarily.
 
-```bash
-.venv/bin/python -m pytest -q test_canonical_match_resolution.py test_lyon_academy_mapping.py
-```
-
-Known test limitations at the audit date:
-
-- full root collection is blocked by `test_models.py` importing unavailable Torch;
-- the Polish month/year test is date-dependent;
-- `test_thesis_features.py` assumes a populated local database;
-- most API tests use SQLite and cannot validate PostgreSQL migrations or concurrency.
-
-Do not suppress these failures. Fix or isolate their real prerequisites when the task touches them.
-
-Dependency consistency:
-
-```bash
-.venv/bin/python -m pip check
-```
-
-`pip install -e . --dry-run` currently fails because `pyproject.toml` lacks complete project metadata.
-
-### Frontend
-
-```bash
-cd client
-npm run build
-npm run lint
-```
-
-Run both. Build success does not excuse lint failure. For UI behavior changes, launch the actual app and exercise the changed route in a browser.
-
-### Docker
-
-Syntax-only validation:
-
-```bash
-docker compose config --quiet
-```
-
-Do not treat this as proof that the scheduler can start; GPU/runtime and schema initialization remain separate concerns.
-
-### Migrations
-
-When working on schema code, verify against a disposable PostgreSQL/Timescale database. Never point migration commands at `.env` by accident. A valid schema change must prove:
-
-```text
-empty database -> alembic upgrade head -> application smoke path
-```
-
-SQLite-only migration success is insufficient.
-
-## Verification by change type
-
-| Change | Minimum proof |
-|---|---|
-| API/service bug | Reproduce, fix, exercise the endpoint/service, run targeted tests. |
-| Schema/migration | Fresh ephemeral PostgreSQL upgrade to head plus affected API/script smoke path. |
-| ML feature/rating | Chronological regression test, symmetry/leakage assertions, reevaluation under a new artifact version. |
-| Backtest/financial | Event-time scenario with overlapping matches and deterministic bankroll assertions. |
-| Scheduler | Assert actual next fire times and dependency order; exercise timeout/failure recording. |
-| Scraper/parser | Parser fixture or dry-run with a temporary database; no live request unless explicitly requested. |
-| React UI | `npm run build`, `npm run lint`, then browser interaction on the changed route. |
-| Documentation only | Re-read rendered structure and verify every command/path against the repository. |
-
-## Definition of done
-
-Before reporting completion:
-
-- all affected call sites and persisted contracts are updated;
-- tests use temporary data and do not mutate the configured database;
-- temporal and side-alignment invariants are explicit;
-- PostgreSQL behavior is verified when SQL or schema changed;
-- frontend build, lint, and browser behavior are checked when UI changed;
-- frozen artifacts were not overwritten;
-- generated datasets, dumps, secrets, and scratch files were not added;
-- documentation states limitations honestly and does not present retrospective ROI as live performance.
+When finishing, state what changed, what actually ran, the result, material limitations, and remaining work. Update `docs/RESEARCH.md` when research status changes. Do not describe a plan as an executed test or a completed process as work still running in the background.
