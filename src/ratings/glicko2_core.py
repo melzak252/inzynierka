@@ -132,6 +132,47 @@ def expected_score(
     ) / normalized_denominator
     return _logistic(log_odds)
 
+def series_win_probability(
+    map_probability: float,
+    best_of: int = 1,
+) -> float:
+    """Project a single-map win probability onto a series win probability.
+
+    Uses exact independent map combinatorics:
+        P_Bo1(p) = p
+        P_Bo3(p) = p^2 * (3 - 2p)
+        P_Bo5(p) = p^3 * (10 - 15p + 6p^2)
+
+    For arbitrary odd N = 2k - 1, computes the binomial upper tail sum.
+    Exact anti-symmetry P(p, N) + P(1-p, N) == 1.0 is preserved.
+    """
+
+    map_prob = _as_finite_float("map_probability", map_probability)
+    if not (0.0 <= map_prob <= 1.0):
+        raise ValueError("map_probability must be in [0, 1]")
+    if (
+        isinstance(best_of, bool)
+        or not isinstance(best_of, int)
+        or best_of <= 0
+        or best_of % 2 == 0
+    ):
+        raise ValueError("best_of must be an odd positive integer")
+    if best_of == 1:
+        return map_prob
+    if best_of == 3:
+        return map_prob * map_prob * (3.0 - 2.0 * map_prob)
+    if best_of == 5:
+        p2 = map_prob * map_prob
+        return map_prob * p2 * (10.0 - 15.0 * map_prob + 6.0 * p2)
+
+    n = best_of
+    k = (n + 1) // 2
+    total = 0.0
+    for i in range(k, n + 1):
+        total += math.comb(n, i) * (map_prob**i) * ((1.0 - map_prob) ** (n - i))
+    return total
+
+
 
 def inflate(
     state: Glicko2State,

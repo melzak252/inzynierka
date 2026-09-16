@@ -18,10 +18,12 @@ from typing import Any
 
 from src.models.competition_tiers import CompetitionTier, _RULES
 from src.ratings.glicko2_core import (
+    _DEFAULT_RATING,
     Glicko2Observation,
     Glicko2State,
     expected_score,
     inflate,
+    series_win_probability,
     update,
 )
 
@@ -30,6 +32,9 @@ _KNOWN_TIERS = frozenset(
     tier.value for tier in CompetitionTier if tier is not CompetitionTier.UNKNOWN
 )
 _KNOWN_FAMILIES = frozenset(rule.identity.family for rule in _RULES)
+_MAJOR_FAMILIES = frozenset({"LCK", "LPL", "LEC", "LCS", "LTA"})
+_MAJOR_TIER = CompetitionTier.MAJOR.value
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,7 +52,20 @@ class RatingEvent:
     tier_a: str
     tier_b: str
     scores: Sequence[int]
+    best_of: int | None = None
 
+    @property
+    def effective_best_of(self) -> int:
+        if self.best_of is not None:
+            return self.best_of
+        wins = sum(self.scores)
+        losses = len(self.scores) - wins
+        target = max(wins, losses)
+        if target >= 3 or len(self.scores) >= 4:
+            return 5
+        if target == 2 or len(self.scores) in (2, 3):
+            return 3
+        return 1
 
 @dataclass(frozen=True, slots=True)
 class GaussianOffsetState:
@@ -92,6 +110,9 @@ class FamilyCalibratedGlicko2:
         initial_family_deviation: float = 150.0,
         initial_tier_deviation: float = 100.0,
         bridge_process_deviation: float = 1.0,
+        regional_discount: float = 0.70,
+        gamma: float | None = None,
+        major_families: Iterable[str] | None = None,
     ) -> None:
         if tau <= 0.0:
             raise ValueError("tau must be positive")
@@ -104,13 +125,22 @@ class FamilyCalibratedGlicko2:
         if bridge_process_deviation < 0.0:
             raise ValueError("bridge_process_deviation cannot be negative")
 
+        discount_value = float(gamma if gamma is not None else regional_discount)
+        if not (0.0 < discount_value <= 1.0):
+            raise ValueError("regional_discount must be in (0, 1]")
+
         self.tau = float(tau)
         self.convergence_tolerance = float(convergence_tolerance)
         self.rating_period_days = float(rating_period_days)
         self.initial_family_deviation = float(initial_family_deviation)
         self.initial_tier_deviation = float(initial_tier_deviation)
         self.bridge_process_deviation = float(bridge_process_deviation)
-
+        self.regional_discount = discount_value
+        self.major_families = (
+            frozenset(major_families)
+            if major_families is not None
+            else _MAJOR_FAMILIES
+        )
         self._player_states: dict[str, Glicko2State] = {}
         self._player_affiliations: dict[str, tuple[str, str]] = {}
         self._player_last_activity: dict[str, date] = {}
@@ -119,6 +149,50 @@ class FamilyCalibratedGlicko2:
         self._tier_states: dict[str, GaussianOffsetState] = {}
         self._family_tiers: dict[str, str] = {}
         self._current_date: date | None = None
+
+    @property
+    def gamma(self) -> float:
+        return self.regional_discount
+
+    def _is_major(self, family: str, tier: str) -> bool:
+        return tier == _MAJOR_TIER or family in self.major_families
+
+    def _is_lower_tier(self, family: str, tier: str) -> bool:
+        if self._is_major(family, tier):
+            return False
+        if family == "unknown" or tier == "unknown":
+            return False
+        if tier == CompetitionTier.INTERNATIONAL.value:
+            return False
+        return True
+
+    def _apply_regional_discount(
+        self,
+        raw_a: float,
+        family_a: str,
+        tier_a: str,
+        raw_b: float,
+        family_b: str,
+        tier_b: str,
+    ) -> tuple[float, float]:
+        """Apply regional tier discount factor gamma to lower-tier entity's differential.
+
+        When a major competition family faces a lower-tier / regional family:
+            effective_rating = _DEFAULT_RATING + gamma * (raw_rating - _DEFAULT_RATING)
+        Maintains exact anti-symmetry: swapping sides negates the rating difference.
+        """
+        is_maj_a = self._is_major(family_a, tier_a)
+        is_maj_b = self._is_major(family_b, tier_b)
+        is_low_a = self._is_lower_tier(family_a, tier_a)
+        is_low_b = self._is_lower_tier(family_b, tier_b)
+
+        eff_a = raw_a
+        eff_b = raw_b
+        if is_maj_a and is_low_b:
+            eff_b = _DEFAULT_RATING + self.regional_discount * (raw_b - _DEFAULT_RATING)
+        elif is_maj_b and is_low_a:
+            eff_a = _DEFAULT_RATING + self.regional_discount * (raw_a - _DEFAULT_RATING)
+        return eff_a, eff_b
 
     @property
     def current_date(self) -> date | None:
@@ -252,6 +326,48 @@ class FamilyCalibratedGlicko2:
         )
 
 
+    def predict_event(self, event: RatingEvent) -> float:
+        """Return the side-A series win probability for an event using current states."""
+        players_a = tuple(sorted(self._validated_roster(event.players_a, "players_a")))
+        players_b = tuple(sorted(self._validated_roster(event.players_b, "players_b")))
+        self._validate_affiliation(event.family_a, event.tier_a, "side A affiliation")
+        self._validate_affiliation(event.family_b, event.tier_b, "side B affiliation")
+
+        player_states: dict[str, Glicko2State] = {}
+        for player_id in (*players_a, *players_b):
+            stored = self._player_states.get(player_id)
+            if stored is None:
+                player_states[player_id] = Glicko2State()
+            else:
+                last_activity = self._player_last_activity.get(player_id)
+                elapsed_periods = (
+                    0
+                    if last_activity is None
+                    else int(
+                        (event.event_date - last_activity).days
+                        // self.rating_period_days
+                    )
+                )
+                player_states[player_id] = inflate(stored, max(0, elapsed_periods))
+
+        raw_a, raw_var_a = self._aggregate_players(players_a, player_states)
+        raw_b, raw_var_b = self._aggregate_players(players_b, player_states)
+        location_diff = self._location_difference(
+            event, self._family_states, self._tier_states
+        )
+        eff_a, eff_b = self._apply_regional_discount(
+            raw_a, event.family_a, event.tier_a,
+            raw_b, event.family_b, event.tier_b,
+        )
+        map_p = expected_score(
+            eff_a + location_diff.mean,
+            math.sqrt(raw_var_a + location_diff.variance),
+            eff_b,
+            math.sqrt(raw_var_b),
+        )
+        return series_win_probability(map_p, event.effective_best_of)
+
+
     def process_period(self, events: Iterable[RatingEvent]) -> dict[str, float]:
         """Process exactly one complete calendar date against a frozen prior.
 
@@ -282,12 +398,18 @@ class FamilyCalibratedGlicko2:
             location_difference = self._location_difference(
                 event, family_states, tier_states
             )
-            predictions[event.event_id] = expected_score(
-                raw_a + location_difference.mean,
+            eff_a, eff_b = self._apply_regional_discount(
+                raw_a, event.family_a, event.tier_a,
+                raw_b, event.family_b, event.tier_b,
+            )
+            map_prob = expected_score(
+                eff_a + location_difference.mean,
                 math.sqrt(raw_variance_a + location_difference.variance),
-                raw_b,
+                eff_b,
                 math.sqrt(raw_variance_b),
             )
+            bo = event.effective_best_of
+            predictions[event.event_id] = series_win_probability(map_prob, bo)
 
             opponent_rd_for_a = math.sqrt(
                 raw_variance_b + location_difference.variance
@@ -295,8 +417,8 @@ class FamilyCalibratedGlicko2:
             opponent_rd_for_b = math.sqrt(
                 raw_variance_a + location_difference.variance
             )
-            opponent_rating_for_a = raw_b - location_difference.mean
-            opponent_rating_for_b = raw_a + location_difference.mean
+            opponent_rating_for_a = eff_b - location_difference.mean + (raw_a - eff_a)
+            opponent_rating_for_b = eff_a + location_difference.mean + (raw_b - eff_b)
             for score in event.scores:
                 for player_id in players_a:
                     observations[player_id].append(
@@ -341,9 +463,10 @@ class FamilyCalibratedGlicko2:
                 and majority is not None
             ):
                 coefficients = self._offset_coefficients(event)
-                difference = raw_a - raw_b + location_difference.mean
-                probability = self._logistic(difference)
-                offset_evidence.append((majority, coefficients, probability))
+                difference = eff_a - eff_b + location_difference.mean
+                latent_map_prob = self._logistic(difference)
+                series_prob = series_win_probability(latent_map_prob, bo)
+                offset_evidence.append((majority, coefficients, series_prob))
 
         committed_players = dict(player_states)
         for player_id in sorted(observations):
@@ -431,6 +554,7 @@ class FamilyCalibratedGlicko2:
                 "initial_family_deviation": self.initial_family_deviation,
                 "initial_tier_deviation": self.initial_tier_deviation,
                 "bridge_process_deviation": self.bridge_process_deviation,
+                "regional_discount": self.regional_discount,
             },
             "current_date": self._date_to_json(self._current_date),
             "players": players,
@@ -447,7 +571,10 @@ class FamilyCalibratedGlicko2:
         parameters = payload.get("parameters")
         if not isinstance(parameters, Mapping):
             raise ValueError("state parameters must be a mapping")
-        engine = cls(**dict(parameters))
+        params = dict(parameters)
+        if "regional_discount" not in params and "gamma" in params:
+            params["regional_discount"] = params.pop("gamma")
+        engine = cls(**params)
         engine._current_date = cls._date_from_json(payload.get("current_date"))
 
         tiers = payload.get("tiers")
@@ -540,6 +667,14 @@ class FamilyCalibratedGlicko2:
             self._validate_affiliation(
                 event.family_b, event.tier_b, "side B affiliation"
             )
+            if event.best_of is not None:
+                if (
+                    isinstance(event.best_of, bool)
+                    or not isinstance(event.best_of, int)
+                    or event.best_of <= 0
+                    or event.best_of % 2 == 0
+                ):
+                    raise ValueError("best_of must be an odd positive integer")
             if isinstance(event.scores, (str, bytes)):
                 raise ValueError("scores must be a sequence of binary results")
             try:
@@ -891,4 +1026,5 @@ __all__ = [
     "GaussianOffsetState",
     "PlayerRanking",
     "RatingEvent",
+    "series_win_probability",
 ]

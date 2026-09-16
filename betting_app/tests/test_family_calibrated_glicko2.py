@@ -9,6 +9,7 @@ import pytest
 from src.ratings.family_calibrated_glicko2 import (
     FamilyCalibratedGlicko2,
     RatingEvent,
+    series_win_probability,
 )
 
 
@@ -25,6 +26,7 @@ def event(
     tier_a: str = "major",
     tier_b: str = "major",
     scores: tuple[int, ...] = (1, 0, 1),
+    best_of: int | None = None,
 ) -> RatingEvent:
     return RatingEvent(
         event_id=event_id,
@@ -38,6 +40,7 @@ def event(
         tier_a=tier_a,
         tier_b=tier_b,
         scores=scores,
+        best_of=best_of,
     )
 
 
@@ -54,6 +57,7 @@ def reverse_sides(value: RatingEvent) -> RatingEvent:
         tier_a=value.tier_b,
         tier_b=value.tier_a,
         scores=tuple(1 - score for score in reversed(value.scores)),
+        best_of=value.best_of,
     )
 
 
@@ -462,3 +466,182 @@ def test_periods_must_advance_strictly_after_commit() -> None:
         engine.process_period([replace(first, event_id="same-date")])
 
     assert engine.to_state() == committed
+
+
+def test_series_win_probability_combinatorics() -> None:
+    probs = [0.0, 0.05, 0.20, 0.35, 0.50, 0.65, 0.80, 0.95, 1.0]
+    for p in probs:
+        p_bo1 = series_win_probability(p, 1)
+        p_bo3 = series_win_probability(p, 3)
+        p_bo5 = series_win_probability(p, 5)
+
+        # Exact polynomial check
+        assert p_bo1 == pytest.approx(p)
+        assert p_bo3 == pytest.approx(p * p * (3.0 - 2.0 * p))
+        assert p_bo5 == pytest.approx(p * p * p * (10.0 - 15.0 * p + 6.0 * p * p))
+
+        # Exact anti-symmetry: P(p) + P(1-p) == 1.0
+        assert p_bo1 + series_win_probability(1.0 - p, 1) == pytest.approx(1.0, abs=1e-12)
+        assert p_bo3 + series_win_probability(1.0 - p, 3) == pytest.approx(1.0, abs=1e-12)
+        assert p_bo5 + series_win_probability(1.0 - p, 5) == pytest.approx(1.0, abs=1e-12)
+
+        # Boundary values
+        if p == 0.0:
+            assert p_bo1 == 0.0 and p_bo3 == 0.0 and p_bo5 == 0.0
+        elif p == 1.0:
+            assert p_bo1 == 1.0 and p_bo3 == 1.0 and p_bo5 == 1.0
+        elif p == 0.5:
+            assert p_bo1 == 0.5 and p_bo3 == 0.5 and p_bo5 == 0.5
+
+    # Monotonic increase for favored team (p > 0.5)
+    for p in [0.51, 0.60, 0.70, 0.85]:
+        p1 = series_win_probability(p, 1)
+        p3 = series_win_probability(p, 3)
+        p5 = series_win_probability(p, 5)
+        assert p < p3 < p5, f"Expected monotonic increase for p={p}: {p} < {p3} < {p5}"
+
+    # Monotonic decrease for underdog (p < 0.5)
+    for p in [0.15, 0.30, 0.40, 0.49]:
+        p1 = series_win_probability(p, 1)
+        p3 = series_win_probability(p, 3)
+        p5 = series_win_probability(p, 5)
+        assert p > p3 > p5, f"Expected monotonic decrease for underdog p={p}: {p} > {p3} > {p5}"
+
+    # Input validations
+    for invalid_p in [-0.1, 1.1, float("nan"), float("inf")]:
+        with pytest.raises(ValueError):
+            series_win_probability(invalid_p, 3)
+    for invalid_bo in [0, -1, 2, "3", None]:
+        with pytest.raises((ValueError, TypeError)):
+            series_win_probability(0.6, invalid_bo)  # type: ignore[arg-type]
+
+
+def test_process_period_anti_symmetry_across_tiers_and_formats() -> None:
+    engine_forward = FamilyCalibratedGlicko2(regional_discount=0.70)
+    engine_reversed = FamilyCalibratedGlicko2(regional_discount=0.70)
+
+    # Seed players with domestic activity in LCK (major) and LFL (regional)
+    seed_events = [
+        event("seed-lck", family_a="LCK", family_b="LCK", players_a=("lck1", "lck2"), players_b=("lck3", "lck4"), scores=(1, 1)),
+        event("seed-lfl", family_a="LFL", family_b="LFL", tier_a="regional", tier_b="regional", players_a=("lfl1", "lfl2"), players_b=("lfl3", "lfl4"), scores=(1, 1)),
+    ]
+    engine_forward.process_period(seed_events)
+    engine_reversed.process_period(seed_events)
+
+    # Test matches in Bo1, Bo3, Bo5
+    match_date = date(2025, 1, 2)
+    cross_events = [
+        event("bo1-major-vs-reg", event_date=match_date, family_a="LCK", family_b="LFL", tier_a="major", tier_b="regional", players_a=("lck1", "lck2"), players_b=("lfl1", "lfl2"), scores=(1,), best_of=1),
+        event("bo3-major-vs-reg", event_date=match_date, family_a="LCK", family_b="LFL", tier_a="major", tier_b="regional", players_a=("lck1", "lck2"), players_b=("lfl1", "lfl2"), scores=(1, 0, 1), best_of=3),
+        event("bo5-major-vs-reg", event_date=match_date, family_a="LCK", family_b="LFL", tier_a="major", tier_b="regional", players_a=("lck1", "lck2"), players_b=("lfl1", "lfl2"), scores=(1, 1, 1), best_of=5),
+    ]
+    reversed_cross_events = [reverse_sides(e) for e in cross_events]
+
+    forward_preds = engine_forward.process_period(cross_events)
+    reversed_preds = engine_reversed.process_period(reversed_cross_events)
+
+    for e in cross_events:
+        f_prob = forward_preds[e.event_id]
+        r_prob = reversed_preds[e.event_id]
+        assert f_prob + r_prob == pytest.approx(1.0, abs=1e-12), f"Anti-symmetry violated for {e.event_id}"
+
+
+def test_regional_tier_discount_shifts_major_vs_lower_tier_win_rate() -> None:
+    match_date = date(2025, 1, 2)
+
+    # Prepare two identical engines: one undiscounted (gamma=1.0) and one with gamma=0.70
+    undiscounted_engine = FamilyCalibratedGlicko2(regional_discount=1.0)
+    discounted_engine = FamilyCalibratedGlicko2(regional_discount=0.70)
+
+    # Give both major and regional teams the exact same winning record against 1500 opponents
+    day1_undisc = [
+        event("d1-lck", event_date=date(2025, 1, 1), family_a="LCK", family_b="LCK", tier_a="major", tier_b="major", players_a=("m1", "m2"), players_b=("opp_m1", "opp_m2"), scores=(1, 1)),
+        event("d1-lfl", event_date=date(2025, 1, 1), family_a="LFL", family_b="LFL", tier_a="regional", tier_b="regional", players_a=("r1", "r2"), players_b=("opp_r1", "opp_r2"), scores=(1, 1)),
+    ]
+    day1_disc = [
+        event("d1-lck", event_date=date(2025, 1, 1), family_a="LCK", family_b="LCK", tier_a="major", tier_b="major", players_a=("m1", "m2"), players_b=("opp_m1", "opp_m2"), scores=(1, 1)),
+        event("d1-lfl", event_date=date(2025, 1, 1), family_a="LFL", family_b="LFL", tier_a="regional", tier_b="regional", players_a=("r1", "r2"), players_b=("opp_r1", "opp_r2"), scores=(1, 1)),
+    ]
+    undiscounted_engine.process_period(day1_undisc)
+    discounted_engine.process_period(day1_disc)
+
+    # Check raw ratings are identical
+    assert undiscounted_engine.get_player_state("m1").rating == pytest.approx(discounted_engine.get_player_state("m1").rating)
+    assert undiscounted_engine.get_player_state("r1").rating == pytest.approx(discounted_engine.get_player_state("r1").rating)
+    raw_m = undiscounted_engine.get_player_state("m1").rating
+    raw_r = undiscounted_engine.get_player_state("r1").rating
+    assert raw_m == pytest.approx(raw_r)  # Identical skill
+
+    # Predict head-to-head match: Major vs Regional
+    head_to_head = event("cross-match", event_date=match_date, family_a="LCK", family_b="LFL", tier_a="major", tier_b="regional", players_a=("m1", "m2"), players_b=("r1", "r2"), scores=(1, 0, 1), best_of=3)
+
+    pred_undiscounted = undiscounted_engine.predict_event(head_to_head)
+    pred_discounted = discounted_engine.predict_event(head_to_head)
+
+    # Undiscounted (symmetric ratings, zero bridge mean) should be ~0.50
+    assert pred_undiscounted == pytest.approx(0.50, abs=0.01)
+    # Discounted (gamma=0.70) shifts in favor of major team significantly
+    assert pred_discounted > 0.60
+    assert pred_discounted > pred_undiscounted
+
+    # Monotonicity with gamma: smaller gamma (stronger discount) -> higher win prob for major
+    gammas = [0.90, 0.70, 0.50]
+    preds = []
+    for g in gammas:
+        eng = FamilyCalibratedGlicko2(gamma=g)
+        eng.process_period(day1_disc)
+        p = eng.predict_event(head_to_head)
+        preds.append(p)
+    assert preds[0] < preds[1] < preds[2]
+
+
+def test_regional_discount_configuration_and_serialization() -> None:
+    engine = FamilyCalibratedGlicko2(regional_discount=0.65)
+    assert engine.regional_discount == 0.65
+    assert engine.gamma == 0.65
+
+    engine_gamma = FamilyCalibratedGlicko2(gamma=0.75)
+    assert engine_gamma.regional_discount == 0.75
+    assert engine_gamma.gamma == 0.75
+
+    for invalid in [0.0, -0.5, 1.5]:
+        with pytest.raises(ValueError):
+            FamilyCalibratedGlicko2(regional_discount=invalid)
+        with pytest.raises(ValueError):
+            FamilyCalibratedGlicko2(gamma=invalid)
+
+    # Roundtrip serialization
+    e = FamilyCalibratedGlicko2(regional_discount=0.70)
+    state = e.to_state()
+    assert state["parameters"]["regional_discount"] == 0.70
+    restored = FamilyCalibratedGlicko2.from_state(state)
+    assert restored.regional_discount == 0.70
+
+
+def test_missing_affiliations_and_substitutes() -> None:
+    engine = FamilyCalibratedGlicko2(regional_discount=0.70)
+    day1 = [
+        event("starter-game", players_a=("starter", "p2"), players_b=("b1", "b2"), scores=(1,)),
+    ]
+    engine.process_period(day1)
+    starter_rating = engine.get_player_state("starter").rating
+
+    # Day 2: Substitute plays instead of starter
+    day2 = [
+        event("sub-game", event_date=date(2025, 1, 2), players_a=("substitute", "p2"), players_b=("b1", "b2"), scores=(0,)),
+    ]
+    engine.process_period(day2)
+
+    # Substitute does not inherit starter's rating; starter's rating remains unchanged
+    assert engine.get_player_state("starter").rating == starter_rating
+    assert engine.get_player_state("substitute").rating != starter_rating
+    assert engine.get_player_games("starter") == 1
+    assert engine.get_player_games("substitute") == 1
+
+    # Unknown affiliations match: neutral, no discount applied
+    unknown_event = event("unknown-affil", event_date=date(2025, 1, 3), family_a="unknown", family_b="unknown", tier_a="unknown", tier_b="unknown", players_a=("p2", "starter"), players_b=("b1", "b2"), scores=(1,))
+    rev_unknown = reverse_sides(unknown_event)
+    p_forward = engine.predict_event(unknown_event)
+    p_rev = engine.predict_event(rev_unknown)
+    assert p_forward + p_rev == pytest.approx(1.0, abs=1e-12)
+
