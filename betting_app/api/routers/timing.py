@@ -3723,3 +3723,265 @@ def model_profitability_audit(
         "operational_rules": operational_rules,
     }
 
+
+
+@router.get("/validation-report")
+def validation_report(
+    days_back: int = 3650,
+    tax_rate: float = 0.12,
+    min_ev: float = 0.05,
+    model_name: str = "Hybrid-Bayesian-Shrunk-A0-Market",
+    model_version: str = "hybrid-a0-mkt-v1-a0.50",
+    db=Depends(get_db),
+):
+    """Unified, single-cohort validation and reality check report."""
+    cutoff = (datetime.now(UTC) - timedelta(days=days_back)).isoformat()
+    matches = query_df(
+        db,
+        """
+        SELECT id as canonical_match_id, team_a_name, team_b_name, winner_side, start_time_normalized, league, best_of
+        FROM canonical_matches 
+        WHERE status IN ('finished', 'completed') AND winner_side IN ('team_a', 'team_b')
+          AND start_time_normalized >= :cutoff
+        """,
+        {"cutoff": cutoff},
+    )
+    if len(matches) == 0:
+        return {"error": "Brak zakończonych meczów w wybranym okresie."}
+
+    m_ids = matches["canonical_match_id"].astype(int).tolist()
+    p_holders = ",".join(f":m_{i}" for i in range(len(m_ids)))
+    m_params = {f"m_{i}": mid for i, mid in enumerate(m_ids)}
+
+    preds = query_df(
+        db,
+        f"""
+        SELECT cp.canonical_match_id, cp.prob_a, cp.prob_b
+        FROM canonical_predictions cp
+        WHERE (
+            (cp.model_name = :m_name AND cp.model_version = :m_ver)
+            OR (cp.model_name = 'Hybrid-Operational-Market' AND cp.model_version = 'v0.4-binom-series-a0.50-t1.00')
+        ) AND cp.canonical_match_id IN ({p_holders})
+        """,
+        {**m_params, "m_name": model_name, "m_ver": model_version},
+    )
+
+    odds = query_df(
+        db,
+        f"""
+        SELECT os.canonical_match_id, b.name as bookmaker, os.odds_a, os.odds_b, os.scraped_at
+        FROM odds_snapshots os
+        JOIN bookmakers b ON b.id = os.bookmaker_id
+        WHERE os.canonical_match_id IN ({p_holders})
+          AND os.market_type = 'match_winner' AND COALESCE(os.is_live, 0) = 0
+          AND os.odds_a > 1.0 AND os.odds_b > 1.0
+        """,
+        m_params,
+    )
+
+    if len(preds) == 0:
+        return {"error": "Brak predykcji dla wybranego modelu w tym okresie."}
+    if len(odds) == 0:
+        return {"error": "Brak notowań kursowych w tym okresie."}
+
+    preds = pd.DataFrame(preds).drop_duplicates(subset=["canonical_match_id"])
+    matches = pd.DataFrame(matches)
+    odds = pd.DataFrame(odds)
+
+    df = preds.merge(matches, on="canonical_match_id").merge(odds, on="canonical_match_id")
+    df = df[df["scraped_at"] < df["start_time_normalized"]].copy()
+
+    inv_a = 1.0 / df["odds_a"]
+    inv_b = 1.0 / df["odds_b"]
+    df["market_fair_a"] = inv_a / (inv_a + inv_b)
+    df["market_fair_b"] = inv_b / (inv_a + inv_b)
+
+    first_odds = df.sort_values("scraped_at").groupby(["canonical_match_id", "bookmaker"]).first().reset_index()
+    cons = first_odds.groupby("canonical_match_id").agg(
+        cons_market_a=("market_fair_a", "median"),
+        cons_market_b=("market_fair_b", "median"),
+    ).reset_index()
+
+    m_cohort = preds.merge(matches, on="canonical_match_id").merge(cons, on="canonical_match_id")
+    y_all = np.where(m_cohort["winner_side"] == "team_a", 1.0, 0.0)
+    p_model = np.clip(m_cohort["prob_a"].values, 1e-15, 1.0 - 1e-15)
+    p_mkt = np.clip(m_cohort["cons_market_a"].values, 1e-15, 1.0 - 1e-15)
+
+    ll_model = -np.mean(y_all * np.log(p_model) + (1 - y_all) * np.log(1 - p_model))
+    ll_mkt = -np.mean(y_all * np.log(p_mkt) + (1 - y_all) * np.log(1 - p_mkt))
+    brier_model = np.mean((p_model - y_all) ** 2)
+    brier_mkt = np.mean((p_mkt - y_all) ** 2)
+    acc_model = np.mean((p_model >= 0.5) == (y_all == 1.0))
+    acc_mkt = np.mean((p_mkt >= 0.5) == (y_all == 1.0))
+
+    deciles = []
+    bins = np.linspace(0.0, 1.0, 11)
+    for i in range(10):
+        low, high = bins[i], bins[i + 1]
+        mask = (p_model >= low) & (p_model < high if i < 9 else p_model <= high)
+        if np.any(mask):
+            c = np.sum(mask)
+            avg_pred = np.mean(p_model[mask])
+            obs_win = np.mean(y_all[mask])
+            deciles.append({
+                "label": f"{int(low*100)}-{int(high*100)}%",
+                "count": int(c),
+                "avg_predicted_pct": round(float(avg_pred * 100), 1),
+                "observed_rate_pct": round(float(obs_win * 100), 1),
+                "gap_pp": round(float((avg_pred - obs_win) * 100), 1),
+            })
+
+    last_odds = df.sort_values("scraped_at").groupby(["canonical_match_id", "bookmaker"]).last().reset_index()
+    close_map_a = last_odds.groupby("canonical_match_id")["odds_a"].median().to_dict()
+    close_map_b = last_odds.groupby("canonical_match_id")["odds_b"].median().to_dict()
+
+    net_mult = 1.0 - tax_rate
+    bets = []
+    for _, r in first_odds.iterrows():
+        mid = r["canonical_match_id"]
+        w_side = r["winner_side"]
+        pa = r["prob_a"]
+        pb = r["prob_b"]
+        oa = r["odds_a"]
+        ob = r["odds_b"]
+        cl_a = close_map_a.get(mid, oa)
+        cl_b = close_map_b.get(mid, ob)
+
+        eva = pa * oa * net_mult - 1.0
+        evb = pb * ob * net_mult - 1.0
+
+        if eva >= min_ev and eva >= evb:
+            bets.append({
+                "canonical_match_id": mid, "bookmaker": r["bookmaker"], "side": "team_a",
+                "odds": oa, "odds_close": cl_a, "prob": pa, "ev_net": eva,
+                "won": w_side == "team_a", "clv": (oa / cl_a - 1.0) if cl_a else 0.0,
+            })
+        elif evb >= min_ev and evb > eva:
+            bets.append({
+                "canonical_match_id": mid, "bookmaker": r["bookmaker"], "side": "team_b",
+                "odds": ob, "odds_close": cl_b, "prob": pb, "ev_net": evb,
+                "won": w_side == "team_b", "clv": (ob / cl_b - 1.0) if cl_b else 0.0,
+            })
+
+    bdf = pd.DataFrame(bets)
+    best_b = bdf.sort_values("odds", ascending=False).groupby(["canonical_match_id", "side"]).first().reset_index() if len(bdf) else pd.DataFrame()
+
+    brackets_data = []
+    if len(best_b):
+        best_b["pnl"] = np.where(best_b["won"], 100.0 * (best_b["odds"] * net_mult - 1.0), -100.0)
+        brackets = [
+            ("< 1.80", 0.0, 1.80),
+            ("1.80 - 2.50", 1.80, 2.50),
+            ("2.50 - 3.50", 2.50, 3.50),
+            ("3.50 - 5.00", 3.50, 5.00),
+            ("> 5.00", 5.00, 999.0),
+        ]
+        for label, low, high in brackets:
+            sub_b = best_b[(best_b["odds"] >= low) & (best_b["odds"] < high)]
+            if len(sub_b) == 0:
+                continue
+            n = len(sub_b)
+            wins = sub_b["won"].sum()
+            wr = wins / n * 100.0
+            exp_roi = sub_b["ev_net"].mean() * 100.0
+            real_roi = (sub_b["pnl"].sum() / (n * 100.0)) * 100.0
+            pnl_val = sub_b["pnl"].sum()
+            avg_o = sub_b["odds"].mean()
+            clv_val = sub_b["clv"].mean() * 100.0
+            brackets_data.append({
+                "label": label, "bets": int(n), "wins": int(wins),
+                "win_rate_pct": round(float(wr), 1), "avg_odds": round(float(avg_o), 2),
+                "expected_net_roi_pct": round(float(exp_roi), 1), "realized_net_roi_pct": round(float(real_roi), 1),
+                "pnl_pln": round(float(pnl_val), 2), "clv_pct": round(float(clv_val), 1),
+            })
+
+    by_book = []
+    if len(best_b):
+        agg_b = best_b.groupby("bookmaker").agg(
+            bets=("won", "count"), wins=("won", "sum"),
+            avg_odds=("odds", "mean"), pnl=("pnl", "sum"), clv=("clv", "mean")
+        ).reset_index().sort_values("pnl", ascending=False)
+        for _, r in agg_b.iterrows():
+            by_book.append({
+                "bookmaker": r["bookmaker"].upper(),
+                "bets": int(r["bets"]), "wins": int(r["wins"]),
+                "win_rate_pct": round(float(r["wins"] / r["bets"] * 100.0), 1),
+                "avg_odds": round(float(r["avg_odds"]), 2),
+                "pnl_pln": round(float(r["pnl"]), 2),
+                "roi_pct": round(float(r["pnl"] / (r["bets"] * 100.0) * 100.0), 1),
+                "clv_pct": round(float(r["clv"] * 100.0), 1),
+            })
+
+    horizons_data = []
+    if len(df):
+        df["hours_before"] = (pd.to_datetime(df["start_time_normalized"]) - pd.to_datetime(df["scraped_at"])).dt.total_seconds() / 3600.0
+        h_brackets = [
+            ("> 48h", 48.0, 9999.0),
+            ("24 - 48h", 24.0, 48.0),
+            ("12 - 24h", 12.0, 24.0),
+            ("6 - 12h", 6.0, 12.0),
+            ("2 - 6h", 2.0, 6.0),
+            ("< 2h", 0.0, 2.0),
+        ]
+        for label, low, high in h_brackets:
+            sub_h = df[(df["hours_before"] >= low) & (df["hours_before"] < high)]
+            if len(sub_h) == 0:
+                continue
+            m_h = sub_h.drop_duplicates(subset=["canonical_match_id"])
+            y_h = np.where(m_h["winner_side"] == "team_a", 1.0, 0.0)
+            ph_m = np.clip(m_h["prob_a"].values, 1e-15, 1.0 - 1e-15)
+            ph_k = np.clip(m_h["market_fair_a"].values, 1e-15, 1.0 - 1e-15)
+            ll_m_h = -np.mean(y_h * np.log(ph_m) + (1 - y_h) * np.log(1 - ph_m))
+            ll_k_h = -np.mean(y_h * np.log(ph_k) + (1 - y_h) * np.log(1 - ph_k))
+
+            close_a_sub = [close_map_a.get(mid) for mid in sub_h["canonical_match_id"]]
+            clv_sub = (sub_h["odds_a"] / close_a_sub - 1.0)
+            clv_sub = clv_sub[np.isfinite(clv_sub)]
+            avg_clv_h = float(np.mean(clv_sub) * 100.0) if len(clv_sub) else 0.0
+            pos_clv_h = float(np.mean(clv_sub > 0) * 100.0) if len(clv_sub) else 0.0
+
+            horizons_data.append({
+                "label": label,
+                "matches": int(len(m_h)),
+                "quotes": int(len(sub_h)),
+                "model_logloss": round(float(ll_m_h), 4),
+                "market_logloss": round(float(ll_k_h), 4),
+                "delta_logloss": round(float(ll_m_h - ll_k_h), 4),
+                "avg_clv_pct": round(avg_clv_h, 1),
+                "pos_clv_pct": round(pos_clv_h, 1),
+            })
+
+    total_bets = len(best_b)
+    total_wins = int(best_b["won"].sum()) if total_bets else 0
+    total_pnl = float(best_b["pnl"].sum()) if total_bets else 0.0
+    total_staked = total_bets * 100.0
+    total_roi = (total_pnl / total_staked * 100.0) if total_staked else 0.0
+    avg_clv_tot = float(best_b["clv"].mean() * 100.0) if total_bets else 0.0
+    pos_clv_tot = float((best_b["clv"] > 0).mean() * 100.0) if total_bets else 0.0
+
+    return {
+        "summary": {
+            "matches": int(len(m_cohort)),
+            "model_logloss": round(float(ll_model), 4),
+            "market_logloss": round(float(ll_mkt), 4),
+            "delta_logloss": round(float(ll_model - ll_mkt), 4),
+            "model_brier": round(float(brier_model), 4),
+            "market_brier": round(float(brier_mkt), 4),
+            "model_accuracy_pct": round(float(acc_model * 100.0), 1),
+            "market_accuracy_pct": round(float(acc_mkt * 100.0), 1),
+        },
+        "betting_totals": {
+            "total_bets": total_bets,
+            "total_wins": total_wins,
+            "win_rate_pct": round(float(total_wins / total_bets * 100.0), 1) if total_bets else 0.0,
+            "total_staked_pln": round(float(total_staked), 2),
+            "total_pnl_pln": round(float(total_pnl), 2),
+            "roi_pct": round(float(total_roi), 2),
+            "avg_clv_pct": round(avg_clv_tot, 1),
+            "pos_clv_pct": round(pos_clv_tot, 1),
+        },
+        "odds_brackets": brackets_data,
+        "bookmakers": by_book,
+        "horizons": horizons_data,
+        "calibration_deciles": deciles,
+    }

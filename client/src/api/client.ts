@@ -391,6 +391,87 @@ export async function fetchModelProfitabilityAudit(options?: {
   return response.json();
 }
 
+export interface ValidationReportResponse {
+  summary: {
+    matches: number;
+    model_logloss: number;
+    market_logloss: number;
+    delta_logloss: number;
+    model_brier: number;
+    market_brier: number;
+    model_accuracy_pct: number;
+    market_accuracy_pct: number;
+  };
+  betting_totals: {
+    total_bets: number;
+    total_wins: number;
+    win_rate_pct: number;
+    total_staked_pln: number;
+    total_pnl_pln: number;
+    roi_pct: number;
+    avg_clv_pct: number;
+    pos_clv_pct: number;
+  };
+  odds_brackets: Array<{
+    label: string;
+    bets: number;
+    wins: number;
+    win_rate_pct: number;
+    avg_odds: number;
+    expected_net_roi_pct: number;
+    realized_net_roi_pct: number;
+    pnl_pln: number;
+    clv_pct: number;
+  }>;
+  bookmakers: Array<{
+    bookmaker: string;
+    bets: number;
+    wins: number;
+    win_rate_pct: number;
+    avg_odds: number;
+    pnl_pln: number;
+    roi_pct: number;
+    clv_pct: number;
+  }>;
+  horizons: Array<{
+    label: string;
+    matches: number;
+    quotes: number;
+    model_logloss: number;
+    market_logloss: number;
+    delta_logloss: number;
+    avg_clv_pct: number;
+    pos_clv_pct: number;
+  }>;
+  calibration_deciles: Array<{
+    label: string;
+    count: number;
+    avg_predicted_pct: number;
+    observed_rate_pct: number;
+    gap_pp: number;
+  }>;
+  error?: string;
+}
+
+export async function fetchValidationReport(options?: {
+  daysBack?: number;
+  taxRate?: number;
+  minEv?: number;
+  modelName?: string;
+  modelVersion?: string;
+}): Promise<ValidationReportResponse> {
+  const params = new URLSearchParams();
+  if (options?.daysBack !== undefined) params.set('days_back', String(options.daysBack));
+  if (options?.taxRate !== undefined) params.set('tax_rate', String(options.taxRate));
+  if (options?.minEv !== undefined) params.set('min_ev', String(options.minEv));
+  if (options?.modelName) params.set('model_name', options.modelName);
+  if (options?.modelVersion) params.set('model_version', options.modelVersion);
+  const query = params.toString() ? `?${params.toString()}` : '';
+  const response = await fetch(`${API_BASE}/timing/validation-report${query}`);
+  if (!response.ok) throw new Error(`Failed to fetch validation report: ${response.statusText}`);
+  return response.json();
+}
+
 // ─── Alias Mapping ───────────────────────────────────────────
 
 export async function createTeamAlias(request: AliasCreateRequest): Promise<AliasCreateResponse> {
