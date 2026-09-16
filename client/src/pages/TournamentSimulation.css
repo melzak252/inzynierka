@@ -1693,6 +1693,52 @@
   color: #fbbf24;
 }
 
+.sync-badge.calibrated {
+  background: rgba(14, 165, 233, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+}
+
+.joint-finalists-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.9rem;
+}
+
+.joint-finalists-label {
+  font-size: 0.85rem;
+  font-weight: 650;
+  color: #e2e8f0;
+}
+
+.joint-finalists-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.finalist-chip {
+  font-size: 0.8rem;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 9999px;
+  padding: 0.2rem 0.6rem;
+  color: #cbd5e1;
+}
+
+.finalist-chip.top-chip {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fef08a;
+  font-weight: 600;
+}
+
 .sync-meta-chip {
   font-size: 0.76rem;
   color: var(--text-muted);

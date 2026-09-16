@@ -106,3 +106,36 @@ class CorrectedTournamentPredictor:
                 w2 += 1
 
         return (1 if w1 > w2 else 0, w1, w2)
+
+TOURNAMENT_PAIRWISE_CAP: float = 0.88
+TOURNAMENT_TEMPERATURE: float = 1.12
+TOURNAMENT_ENTROPY_DAMPENING: float = 0.08
+
+
+def calibrate_pairwise_table(
+    raw_series_table: dict[tuple[str, str, int], float],
+    cap: float = TOURNAMENT_PAIRWISE_CAP,
+    temperature: float = TOURNAMENT_TEMPERATURE,
+    dampening: float = TOURNAMENT_ENTROPY_DAMPENING,
+) -> dict[tuple[str, str, int], float]:
+    """Calibrate pairwise series probabilities for realistic tournament simulation.
+
+    Prevents multi-round probability compounding over long bracket paths.
+    """
+    calibrated: dict[tuple[str, str, int], float] = {}
+    for (team_a, team_b, best_of), p_raw in raw_series_table.items():
+        p_clipped = min(0.9999, max(0.0001, float(p_raw)))
+        z = math.log(p_clipped / (1.0 - p_clipped))
+
+        # 1. Temperature scaling on logits
+        z_scaled = z / temperature
+        p_scaled = 1.0 / (1.0 + math.exp(-z_scaled))
+
+        # 2. Entropy dampening (unmodeled fatigue/draft variance)
+        p_dampened = (1.0 - dampening) * p_scaled + dampening * 0.50
+
+        # 3. Variance ceiling truncation
+        p_final = min(cap, max(1.0 - cap, p_dampened))
+        calibrated[team_a, team_b, best_of] = float(p_final)
+
+    return calibrated

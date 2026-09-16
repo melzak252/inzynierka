@@ -1,19 +1,29 @@
-"""Tournament bracket models and simulator engine using the operational rating model."""
+"""Fixed-graph and scenario tournament simulations from current GL team ratings.
+
+This is an odds-free rating heuristic, not the operational learned match model.
+Current ratings and curated played results are not point-in-time forecast archives.
+"""
 
 from __future__ import annotations
 
-import logging
+from collections import defaultdict
+import math
 import random
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Sequence
+from dataclasses import dataclass
+from functools import lru_cache
+from typing import Any, Mapping, Sequence
 
 from betting_app.core.db import connect
 from betting_app.services.canonical_match_service import canonical_team_key
 from betting_app.services.upcoming_inference_service import series_probability
-
-logger = logging.getLogger(__name__)
-
+from src.models.calibrated_tournament_model import (
+    DEFAULT_REGIONAL_GAMMA,
+    DEFAULT_REGIONAL_OFFSETS,
+    DEFAULT_TOURNAMENT_ENTROPY_DAMPENING,
+    DEFAULT_TOURNAMENT_PAIRWISE_CAP,
+    DEFAULT_TOURNAMENT_TEMPERATURE,
+    calibrate_pairwise_probability,
+)
 
 @dataclass
 class BracketMatchNode:
@@ -44,9 +54,9 @@ class TournamentBracket:
 
 
 def get_lck_2026_playoffs_bracket() -> TournamentBracket:
-    """Construct the complete, official 6-team LCK Double Elimination Playoff bracket tree.
+    """Construct the curated 6-team LCK playoff graph with embedded played results.
 
-    Complete tournament history and upcoming matches (LCK 2026 Season - Playoffs):
+    This live-state scenario is not a certified pre-event bracket or rules archive:
       Upper Round 1 (Quarterfinals):
         - UB_R1_M1: KT Rolster (3) vs Dplus (0) -> KT won, Dplus dropped to Lower R1
         - UB_R1_M2: T1 (3) vs BNK FearX (2) -> T1 won, BNK FearX dropped to Lower R1
@@ -225,7 +235,7 @@ def get_lck_2026_playoffs_bracket() -> TournamentBracket:
 
 
 def get_lec_2026_summer_playoffs_bracket() -> TournamentBracket:
-    """Construct the official 6-team LEC 2026 Summer Double Elimination Playoff bracket tree."""
+    """Construct the curated 6-team LEC 2026 Summer fixed playoff graph."""
     teams = ["Karmine Corp", "GIANTX", "G2 Esports", "Team Vitality", "Natus Vincere", "Movistar KOI"]
 
     matches: dict[str, BracketMatchNode] = {
@@ -535,224 +545,369 @@ SUPPORTED_BRACKETS = {
 }
 
 class TournamentSimulator:
-    """Monte Carlo tournament simulator powered by model win-rate estimations."""
+    """Monte Carlo simulation conditional on a supplied fixed bracket and rating snapshot."""
 
-    def __init__(self, team_ratings: dict[str, float] | None = None):
-        self.team_ratings = team_ratings or self._load_team_ratings()
-        self._prob_cache: dict[tuple[str, str, int], float] = {}
+    def __init__(
+        self,
+        team_ratings: dict[str, float] | None = None,
+        *,
+        seed: int | None = None,
+        calibrate: bool = True,
+        pairwise_cap: float = DEFAULT_TOURNAMENT_PAIRWISE_CAP,
+        temperature: float = DEFAULT_TOURNAMENT_TEMPERATURE,
+        entropy_dampening: float = DEFAULT_TOURNAMENT_ENTROPY_DAMPENING,
+        regional_gamma: float = DEFAULT_REGIONAL_GAMMA,
+        regional_offsets: Mapping[str, float] | None = None,
+    ):
+        source_ratings = self._load_team_ratings() if team_ratings is None else team_ratings
+        self.team_ratings = dict(source_ratings)
+        if any(not math.isfinite(value) for value in self.team_ratings.values()):
+            raise ValueError("Team ratings must be finite.")
+        self._rating_source = "current_database_gl" if team_ratings is None else "supplied_gl_ratings"
+        self._rng = random.Random(seed)
+        self._seed = seed
+        self.calibrate = calibrate
+        self.pairwise_cap = pairwise_cap
+        self.temperature = temperature
+        self.entropy_dampening = entropy_dampening
+        self.regional_gamma = regional_gamma
+        self.regional_offsets = dict(regional_offsets or DEFAULT_REGIONAL_OFFSETS)
+        self._prob_cache: dict[tuple[str, str, int, str | None, str | None], float] = {}
+        self._team_keys: dict[str, str] = {}
     @staticmethod
     def _load_team_ratings() -> dict[str, float]:
         ratings: dict[str, float] = {}
-        try:
-            with connect() as conn:
-                rows = conn.execute(
-                    """
-                    SELECT normalized_entity_name, rating_value
-                    FROM entity_ratings
-                    WHERE entity_type = 'team' AND rating_system = 'gl'
-                    ORDER BY id DESC
-                    LIMIT 4000
-                    """
-                ).fetchall()
-            for r in rows:
-                key = canonical_team_key(str(r["normalized_entity_name"]))
-                if key and key not in ratings and r.get("rating_value") is not None:
-                    ratings[key] = float(r["rating_value"])
-        except Exception as e:
-            logger.warning("Could not load team ratings from DB: %s", e)
+        with connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT normalized_entity_name, rating_value
+                FROM entity_ratings
+                WHERE entity_type = 'team' AND rating_system = 'gl'
+                ORDER BY id DESC
+                LIMIT 4000
+                """
+            ).fetchall()
+        for r in rows:
+            key = canonical_team_key(str(r["normalized_entity_name"]))
+            if key and key not in ratings and r.get("rating_value") is not None:
+                ratings[key] = float(r["rating_value"])
         return ratings
 
-    def estimate_matchup_probability(self, team1: str, team2: str, best_of: int = 5) -> float:
-        """Estimate win probability of team1 vs team2 in a BoN series."""
-        cache_key = (team1, team2, best_of)
-        if cache_key in self._prob_cache:
-            return self._prob_cache[cache_key]
+    @staticmethod
+    def _validate_best_of(best_of: int) -> None:
+        if type(best_of) is not int or best_of not in {1, 3, 5, 7}:
+            raise ValueError("best_of must be one of 1, 3, 5, 7.")
 
-        k1 = canonical_team_key(team1)
-        k2 = canonical_team_key(team2)
+    @staticmethod
+    def _validate_simulations(n_simulations: int) -> None:
+        if type(n_simulations) is not int or n_simulations <= 0:
+            raise ValueError("n_simulations must be a positive integer.")
+
+    def _team_key(self, team: str) -> str:
+        """Keep alias resolution consistent with this instance's rating snapshot."""
+        key = self._team_keys.get(team)
+        if key is None:
+            key = canonical_team_key(team)
+            self._team_keys[team] = key
+        return key
+
+    def _map_probability(self, team1: str, team2: str) -> float:
+        k1, k2 = self._team_key(team1), self._team_key(team2)
+        if not k1 or not k2 or k1 == k2:
+            raise ValueError("A match requires two distinct named teams.")
         r1 = self.team_ratings.get(k1, 1750.0)
         r2 = self.team_ratings.get(k2, 1750.0)
-        # Bradley-Terry / Elo logistic map win probability.
-        p_map = 1.0 / (1.0 + 10.0 ** (-(r1 - r2) / 400.0))
+        log_odds = (r1 - r2) * math.log(10.0) / 400.0
+        exponential = math.exp(-abs(log_odds))
+        probability = 1.0 / (1.0 + exponential) if log_odds >= 0 else exponential / (1.0 + exponential)
+        # Match the existing map-to-series helper's numerical boundary.
+        return max(1e-6, min(1.0 - 1e-6, probability))
 
-        # Brackets do not contain verified game-one side selection. Keep the
-        # forecast side-neutral rather than inferring a priority from ratings.
-        p_series = series_probability(p_map, best_of)
-        self._prob_cache[cache_key] = p_series
-        return p_series
+    def estimate_matchup_probability(self, team1: str, team2: str, best_of: int = 5) -> float:
+        """Convert the side-neutral GL logistic map heuristic to a full SERIES probability once."""
+        self._validate_best_of(best_of)
+        cache_key = (team1, team2, best_of, None, None)
+        if cache_key not in self._prob_cache:
+            self._prob_cache[cache_key] = series_probability(self._map_probability(team1, team2), best_of)
+        return self._prob_cache[cache_key]
+
+    def estimate_calibrated_probability(
+        self,
+        team1: str,
+        team2: str,
+        best_of: int = 5,
+        region1: str | None = None,
+        region2: str | None = None,
+    ) -> float:
+        """Convert map heuristic to a tournament bracket calibrated SERIES probability."""
+        raw_p = self.estimate_matchup_probability(team1, team2, best_of)
+        if not self.calibrate:
+            return raw_p
+        cache_key = (team1, team2, best_of, region1, region2)
+        if cache_key not in self._prob_cache:
+            calibrated_p = calibrate_pairwise_probability(
+                raw_p,
+                cap=self.pairwise_cap,
+                temperature=self.temperature,
+                dampening=self.entropy_dampening,
+                region_a=region1,
+                region_b=region2,
+                regional_offsets=self.regional_offsets,
+                regional_gamma=self.regional_gamma,
+            )
+            self._prob_cache[cache_key] = calibrated_p
+        return self._prob_cache[cache_key]
 
     def estimate_score_distribution(self, team1: str, team2: str, best_of: int = 5) -> dict[str, float]:
-        """Estimate exact series score distribution (e.g. 3-0, 3-1, 3-2) using Markov simulation."""
-        k1 = canonical_team_key(team1)
-        k2 = canonical_team_key(team2)
-        r1 = self.team_ratings.get(k1, 1750.0)
-        r2 = self.team_ratings.get(k2, 1750.0)
-        p_map = 1.0 / (1.0 + 10.0 ** (-(r1 - r2) / 400.0))
-        from betting_app.ml.models.markov_series import predict_score_distribution
+        """Exact iid, side-neutral score probabilities, coherent with the series win marginal."""
+        self._validate_best_of(best_of)
+        probability = self._map_probability(team1, team2)
+        needed = best_of // 2 + 1
+        scores: dict[str, float] = {}
+        for losses in range(needed):
+            paths = math.comb(needed + losses - 1, losses)
+            scores[f"{needed}-{losses}"] = paths * probability**needed * (1.0 - probability)**losses
+            scores[f"{losses}-{needed}"] = paths * (1.0 - probability)**needed * probability**losses
+        return scores
 
-        def predict(priority: bool) -> dict[str, float]:
-            return predict_score_distribution(
-                p_map,
-                team_a_has_game1_priority=priority,
-                best_of=best_of,
-            )
+    def _live_probability(self, team1: str, team2: str, best_of: int, score1: int, score2: int) -> float:
+        probability = self._map_probability(team1, team2)
+        needed = best_of // 2 + 1
+        wins_remaining = needed - score1
+        losses_remaining = needed - score2
+        return sum(
+            math.comb(wins_remaining + losses - 1, losses)
+            * probability**wins_remaining * (1.0 - probability)**losses
+            for losses in range(losses_remaining)
+        )
 
-        priority_a = predict(True)
-        priority_b = predict(False)
+    def _provenance(self, teams: Sequence[str]) -> dict[str, Any]:
         return {
-            score: (float(priority_a.get(score, 0.0)) + float(priority_b.get(score, 0.0))) / 2.0
-            for score in set(priority_a) | set(priority_b)
+            "prediction_source": self._rating_source,
+            "probability_model": "gl_logistic_map_iid_series",
+            "probability_unit": "series",
+            "side_policy": "neutral_no_verified_side_selection",
+            "rating_source_available_at": None,
+            "rating_selection_policy": (
+                "latest_id_per_team_across_runs_limit4000_not_a_frozen_snapshot"
+                if self._rating_source == "current_database_gl" else "supplied_values_no_temporal_evidence"
+            ),
+            "eligibility_live": 0,
+            "point_in_time_certified": False,
+            "unrated_teams": sorted(team for team in teams if self._team_key(team) not in self.team_ratings),
+            "unrated_rating": 1750.0,
+            "seed": self._seed,
+            "strength_uncertainty": "not_modelled_fixed_ratings",
         }
+
+    def _validate_bracket(
+        self, bracket: TournamentBracket, manual: dict[str, str],
+    ) -> tuple[list[str], str, dict[str, tuple[int, int]]]:
+        """Validate the graph before RNG use; missing slots are not implicit byes."""
+        matches = bracket.matches
+        if bracket.format not in {"single_elimination", "double_elimination"}:
+            raise ValueError("Only fixed single/double-elimination graphs are supported.")
+        keys = [self._team_key(team) for team in bracket.teams]
+        if not matches or len(keys) < 2 or any(not key for key in keys) or len(set(keys)) != len(keys):
+            raise ValueError("A bracket requires matches and distinct named participants.")
+        if set(manual) - set(matches):
+            raise ValueError("Manual overrides reference an unknown match.")
+        dependencies: dict[str, set[str]] = {match_id: set() for match_id in matches}
+        incoming: dict[tuple[str, int], str] = {}
+        for match_id, node in matches.items():
+            if node.id != match_id:
+                raise ValueError(f"Match key and node id disagree: {match_id}.")
+            self._validate_best_of(node.best_of)
+            for target, slot in (
+                (node.next_match_winner_id, node.next_match_winner_slot),
+                (node.next_match_loser_id, node.next_match_loser_slot),
+            ):
+                if target is None:
+                    continue
+                if target not in matches or type(slot) is not int or slot not in {1, 2}:
+                    raise ValueError(f"Invalid advancement target or slot from {match_id}.")
+                if (target, slot) in incoming:
+                    raise ValueError(f"Multiple entrants feed {target} slot {slot}.")
+                incoming[target, slot] = match_id
+                dependencies[target].add(match_id)
+            if any(team is not None and team not in bracket.teams for team in (node.team1, node.team2, node.winner)):
+                raise ValueError(f"Unknown participant in {match_id}.")
+            if node.team1 is not None and node.team1 == node.team2:
+                raise ValueError(f"A team cannot play itself in {match_id}.")
+            if node.winner is not None and node.winner not in (node.team1, node.team2):
+                raise ValueError(f"Confirmed winner is not a participant in {match_id}.")
+            if match_id in manual:
+                if manual[match_id] not in bracket.teams:
+                    raise ValueError(f"Unknown manual winner in {match_id}.")
+                if node.winner is not None and manual[match_id] != node.winner:
+                    raise ValueError(f"Cannot override a confirmed result in {match_id}.")
+            if (node.score1 is None) != (node.score2 is None):
+                raise ValueError(f"Both scores must be supplied together in {match_id}.")
+            if node.score1 is not None:
+                needed = node.best_of // 2 + 1
+                if any(type(score) is not int or not 0 <= score <= needed for score in (node.score1, node.score2)):
+                    raise ValueError(f"Invalid score in {match_id}.")
+                if not node.team1 or not node.team2:
+                    raise ValueError(f"A scored match requires known participants: {match_id}.")
+                terminal1, terminal2 = node.score1 == needed, node.score2 == needed
+                if terminal1 and terminal2:
+                    raise ValueError(f"Both teams cannot win {match_id}.")
+                score_winner = node.team1 if terminal1 else node.team2 if terminal2 else None
+                if score_winner != node.winner:
+                    raise ValueError(f"Score and confirmed winner disagree in {match_id}.")
+        seed_teams = []
+        for match_id, node in matches.items():
+            for slot, team in ((1, node.team1), (2, node.team2)):
+                if (match_id, slot) not in incoming:
+                    if team is None:
+                        raise ValueError(f"Missing participant in {match_id}; implicit byes are unsupported.")
+                    seed_teams.append(team)
+        if sorted(seed_teams) != sorted(bracket.teams):
+            raise ValueError("Each participant must enter the graph exactly once as a seed.")
+        order: list[str] = []
+        visited: set[str] = set()
+        while len(order) < len(matches):
+            ready = [match_id for match_id, deps in dependencies.items() if match_id not in visited and deps <= visited]
+            if not ready:
+                raise ValueError("Bracket contains an advancement cycle.")
+            order.extend(ready)
+            visited.update(ready)
+        finals = [match_id for match_id, node in matches.items() if node.next_match_winner_id is None]
+        if len(finals) != 1 or matches[finals[0]].next_match_loser_id is not None:
+            raise ValueError("A fixed bracket requires one terminal championship without a reset.")
+        final_id = finals[0]
+        distances: dict[str, int] = {}
+        elimination_groups: dict[int, list[str]] = {}
+        for match_id in reversed(order):
+            node = matches[match_id]
+            distance = 0 if match_id == final_id else 1 + distances[node.next_match_winner_id]
+            distances[match_id] = distance
+            if node.next_match_loser_id is None:
+                elimination_groups.setdefault(distance, []).append(match_id)
+        bands: dict[str, tuple[int, int]] = {}
+        rank = 2
+        for distance in sorted(elimination_groups):
+            group = elimination_groups[distance]
+            for match_id in group:
+                bands[match_id] = (rank, rank + len(group) - 1)
+            rank += len(group)
+        if rank != len(bracket.teams) + 1:
+            raise ValueError("The graph must eliminate every non-champion exactly once.")
+        return order, final_id, bands
     def simulate(
         self,
         bracket: TournamentBracket,
         n_simulations: int = 10000,
         manual_overrides: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Run Monte Carlo simulation of remaining tournament matches.
+        """Simulate the remaining fixed graph, preserving confirmed results.
 
-        manual_overrides: dict mapping match_id -> forced winner team name
+        Overrides force only actual participants and never rewrite played history.
+        A forced future winner requires compatible upstream outcomes; contradictory
+        scenarios are rejected, not repaired by inserting an eliminated team.
+        Partial live scores condition iid remaining maps, not a fresh full series.
         """
+        self._validate_simulations(n_simulations)
         manual = manual_overrides or {}
-        championship_counts = {team: 0 for team in bracket.teams}
-        top2_counts = {team: 0 for team in bracket.teams}
-        top3_counts = {team: 0 for team in bracket.teams}
-        top4_counts = {team: 0 for team in bracket.teams}
-
-        # Dynamic topological sort of matches based on dependency
-        def get_execution_order(matches: dict[str, BracketMatchNode]) -> list[str]:
-            dependencies: dict[str, set[str]] = {m_id: set() for m_id in matches}
-            for m_id, m in matches.items():
-                if m.next_match_winner_id and m.next_match_winner_id in dependencies:
-                    dependencies[m.next_match_winner_id].add(m_id)
-                if m.next_match_loser_id and m.next_match_loser_id in dependencies:
-                    dependencies[m.next_match_loser_id].add(m_id)
-
-            order: list[str] = []
-            visited: set[str] = set()
-
-            while len(order) < len(matches):
-                progress = False
-                for m_id, deps in dependencies.items():
-                    if m_id not in visited and deps.issubset(visited):
-                        order.append(m_id)
-                        visited.add(m_id)
-                        progress = True
-                if not progress:
-                    # Cycle or disconnected node, append remaining
-                    for m_id in matches:
-                        if m_id not in visited:
-                            order.append(m_id)
-                            visited.add(m_id)
-                    break
-            return order
-
-        execution_order = get_execution_order(bracket.matches)
+        execution_order, final_id, placement_bands = self._validate_bracket(bracket, manual)
+        counts = {team: {cutoff: 0 for cutoff in (1, 2, 3, 4)} for team in bracket.teams}
+        ambiguous = {team: set() for team in bracket.teams}
+        joint_final_counts: dict[tuple[str, str], int] = defaultdict(int)
+        live_probabilities = {
+            match_id: self._live_probability(node.team1, node.team2, node.best_of, node.score1, node.score2)
+            for match_id, node in bracket.matches.items()
+            if node.winner is None and match_id not in manual
+            and node.score1 is not None and (node.score1 or node.score2)
+        }
         for _ in range(n_simulations):
-            # Clone match states
-            state = {
-                m_id: {
-                    "team1": m.team1,
-                    "team2": m.team2,
-                    "winner": m.winner,
-                }
-                for m_id, m in bracket.matches.items()
-            }
-
-            for m_id in execution_order:
-                m_def = bracket.matches[m_id]
-                curr = state[m_id]
-
-                t1 = curr["team1"]
-                t2 = curr["team2"]
-
-                # For early rounds or bye-matches, if only one team is present and it's a seed
-                if t1 and not t2 and not m_def.next_match_loser_id and m_id != "Grand_Final":
-                    # Auto-advance
-                    curr["winner"] = t1
-
-                winner = curr["winner"]
-                if not winner and t1 and t2:
-                    if m_id in manual:
-                        winner = manual[m_id]
-                    else:
-                        p_t1 = self.estimate_matchup_probability(t1, t2, m_def.best_of)
-                        winner = t1 if random.random() < p_t1 else t2
-                    curr["winner"] = winner
-
-                if winner:
-                    loser = t2 if winner == t1 else t1
-
-                    # Advance winner
-                    if m_def.next_match_winner_id:
-                        target_m = state[m_def.next_match_winner_id]
-                        if m_def.next_match_winner_slot == 1:
-                            target_m["team1"] = winner
-                        else:
-                            target_m["team2"] = winner
-
-                    # Advance loser
-                    if m_def.next_match_loser_id and loser:
-                        target_m = state[m_def.next_match_loser_id]
-                        if m_def.next_match_loser_slot == 1:
-                            target_m["team1"] = loser
-                        else:
-                            target_m["team2"] = loser
-            gf = state.get("Grand_Final")
-            champ = gf.get("winner") if gf else None
-            runner_up = (gf.get("team2") if champ == gf.get("team1") else gf.get("team1")) if gf else None
-
-            lb_fin = state.get("LB_Final")
-            third = (lb_fin.get("team2") if lb_fin.get("winner") == lb_fin.get("team1") else lb_fin.get("team1")) if lb_fin else None
-
-            lb_semi = state.get("LB_R3") or state.get("LB_SF") or state.get("LB_R3_M1")
-            fourth = (lb_semi.get("team2") if lb_semi.get("winner") == lb_semi.get("team1") else lb_semi.get("team1")) if lb_semi else None
-            if champ and champ in championship_counts:
-                championship_counts[champ] += 1
-            if runner_up and runner_up in top2_counts:
-                top2_counts[runner_up] += 1
-            if third and third in top3_counts:
-                top3_counts[third] += 1
-            if fourth and fourth in top4_counts:
-                top4_counts[fourth] += 1
+            state = {match_id: [node.team1, node.team2] for match_id, node in bracket.matches.items()}
+            eliminated: set[str] = set()
+            for match_id in execution_order:
+                node = bracket.matches[match_id]
+                team1, team2 = state[match_id]
+                if not team1 or not team2 or team1 == team2 or team1 in eliminated or team2 in eliminated:
+                    raise ValueError(f"Invalid or eliminated participants in {match_id}.")
+                winner = node.winner or manual.get(match_id)
+                if winner is not None and winner not in (team1, team2):
+                    raise ValueError(f"Winner is not a resolved participant in {match_id}.")
+                if winner is None:
+                    probability = (
+                        live_probabilities[match_id]
+                        if match_id in live_probabilities
+                        else self.estimate_calibrated_probability(team1, team2, node.best_of)
+                    )
+                    if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
+                        raise ValueError(f"Invalid series probability in {match_id}.")
+                    winner = team1 if self._rng.random() < probability else team2
+                loser = team2 if winner == team1 else team1
+                for target_id, slot, entrant in (
+                    (node.next_match_winner_id, node.next_match_winner_slot, winner),
+                    (node.next_match_loser_id, node.next_match_loser_slot, loser),
+                ):
+                    if target_id is not None:
+                        existing = state[target_id][slot - 1]
+                        if existing is not None and existing != entrant:
+                            raise ValueError(f"Resolved entrant contradicts supplied participant in {target_id}.")
+                        state[target_id][slot - 1] = entrant
+                if node.next_match_loser_id is None:
+                    eliminated.add(loser)
+                    lower, upper = placement_bands[match_id]
+                    for cutoff in (1, 2, 3, 4):
+                        if upper <= cutoff:
+                            counts[loser][cutoff] += 1
+                        elif lower <= cutoff:
+                            ambiguous[loser].add(cutoff)
+                if match_id == final_id:
+                    for cutoff in (1, 2, 3, 4):
+                        counts[winner][cutoff] += 1
+                    if team1 and team2:
+                        pair = tuple(sorted([team1, team2]))
+                        joint_final_counts[pair] += 1
+            if len(eliminated) != len(bracket.teams) - 1:
+                raise ValueError("Simulation did not eliminate every non-champion.")
 
         results = []
         for team in bracket.teams:
-            champ_p = championship_counts[team] / n_simulations
-            top2_p = (championship_counts[team] + top2_counts[team]) / n_simulations
-            top3_p = (championship_counts[team] + top2_counts[team] + top3_counts[team]) / n_simulations
-            top4_p = (championship_counts[team] + top2_counts[team] + top3_counts[team] + top4_counts[team]) / n_simulations
-            results.append(
-                {
-                    "team": team,
-                    "champion_prob": round(champ_p, 4),
-                    "top2_prob": round(top2_p, 4),
-                    "top3_prob": round(top3_p, 4),
-                    "top4_prob": round(top4_p, 4),
-                }
-            )
-
-        results.sort(key=lambda x: x["champion_prob"], reverse=True)
-
+            result: dict[str, Any] = {"team": team}
+            for cutoff, key in ((1, "champion_prob"), (2, "top2_prob"), (3, "top3_prob"), (4, "top4_prob")):
+                result[key] = None if cutoff in ambiguous[team] else counts[team][cutoff] / n_simulations
+            results.append(result)
+        results.sort(key=lambda row: row["champion_prob"], reverse=True)
+        top_finalists = [
+            {"pair": f"{p[0]} vs {p[1]}", "prob": round(cnt / n_simulations, 4)}
+            for p, cnt in sorted(joint_final_counts.items(), key=lambda x: -x[1])[:5]
+        ]
         return {
             "tournament_id": bracket.id,
             "tournament_name": bracket.name,
             "simulations": n_simulations,
             "standings": results,
+            "joint_finalists": top_finalists,
+            "calibration": {
+                "calibrated": self.calibrate,
+                "mode": "composite_bracket_calibration",
+                "pairwise_cap": self.pairwise_cap,
+                "temperature": self.temperature,
+                "entropy_dampening": self.entropy_dampening,
+                "regional_gamma": self.regional_gamma,
+            },
+            "provenance": self._provenance(bracket.teams),
+            "simulation_scope": {
+                "mode": "conditional_current_bracket",
+                "pre_event_forecast": False,
+                "rules_verified": False,
+                "format": "fixed_graph_no_reseeding_no_reset_no_implicit_byes",
+                "placement_policy": "elimination_depth_bands_null_when_cutoff_splits_tie",
+                "manual_overrides": dict(manual),
+            },
             "bracket": {
-                m_id: {
-                    "id": m.id,
-                    "name": m.name,
-                    "round_name": m.round_name,
-                    "bracket_section": m.bracket_section,
-                    "best_of": m.best_of,
-                    "team1": m.team1,
-                    "team2": m.team2,
-                    "winner": m.winner,
-                    "score1": m.score1,
-                    "score2": m.score2,
+                match_id: {
+                    "id": node.id, "name": node.name, "round_name": node.round_name,
+                    "bracket_section": node.bracket_section, "best_of": node.best_of,
+                    "team1": node.team1, "team2": node.team2, "winner": node.winner,
+                    "score1": node.score1, "score2": node.score2,
                 }
-                for m_id, m in bracket.matches.items()
+                for match_id, node in bracket.matches.items()
             },
         }
 
@@ -766,17 +921,28 @@ class WorldsTeam:
 
 
 class WorldsSimulator(TournamentSimulator):
-    """Monte Carlo simulator for a user-configured Play-In, Swiss, and knockout Worlds."""
+    """Unverified 15+4 participant scenario, not an implementation certified against Worlds rules."""
 
-    def simulate_series_winner(self, team1: str, team2: str, best_of: int) -> str:
+    def simulate_series_winner(
+        self,
+        team1: str,
+        team2: str,
+        best_of: int,
+        region1: str | None = None,
+        region2: str | None = None,
+    ) -> str:
         """Simulate one series and return its winner."""
-        probability = self.estimate_matchup_probability(team1, team2, best_of=best_of)
-        return team1 if random.random() < probability else team2
+        probability = self.estimate_calibrated_probability(team1, team2, best_of=best_of, region1=region1, region2=region2)
+        if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
+            raise ValueError("Invalid series probability.")
+        return team1 if self._rng.random() < probability else team2
 
     def simulate_play_in(self, teams: Sequence[WorldsTeam]) -> str:
-        """Simulate a four-team double-elimination Bo5 Play-In with one Swiss qualifier."""
+        """Simulate the configured four-team Bo5 Play-In, with no grand-final reset."""
+        if len(teams) != 4 or len({self._team_key(team.name) for team in teams}) != 4:
+            raise ValueError("Play-In requires four distinct participants.")
         bracket = list(teams)
-        random.shuffle(bracket)
+        self._rng.shuffle(bracket)
 
         upper_winner_1 = self.simulate_series_winner(bracket[0].name, bracket[1].name, best_of=5)
         upper_loser_1 = bracket[1].name if upper_winner_1 == bracket[0].name else bracket[0].name
@@ -799,20 +965,55 @@ class WorldsSimulator(TournamentSimulator):
         best_of: int,
         played_pairs: set[frozenset[str]],
     ) -> tuple[list[str], list[str]]:
-        """Pair a Swiss record bucket, avoiding prior pairings where the bucket permits it."""
-        shuffled = list(pool)
-        for _ in range(32):
-            random.shuffle(shuffled)
-            if all(
-                frozenset((shuffled[index], shuffled[index + 1])) not in played_pairs
-                for index in range(0, len(shuffled) - 1, 2)
-            ):
-                break
+        """Uniformly sample a legal perfect matching; never silently allow a rematch.
 
+        Count completions rather than using a capped shuffle retry or a biased
+        first-feasible search. Record buckets in this scenario contain at most 16 teams.
+        """
+        self._validate_best_of(best_of)
+        names = list(pool)
+        keys = [self._team_key(team) for team in names]
+        if len(names) > 16 or len(names) % 2 or len(set(keys)) != len(keys) or any(not key for key in keys):
+            raise ValueError("Swiss buckets require an even number of distinct teams, at most 16.")
+        allowed = {
+            (first, second): frozenset((names[first], names[second])) not in played_pairs
+            for first in range(len(names)) for second in range(first + 1, len(names))
+        }
+
+        @lru_cache(maxsize=None)
+        def completions(mask: int) -> int:
+            if not mask:
+                return 1
+            first_bit = mask & -mask
+            first = first_bit.bit_length() - 1
+            rest = mask ^ first_bit
+            return sum(
+                completions(rest ^ (1 << second))
+                for second in range(first + 1, len(names))
+                if rest & (1 << second) and allowed[first, second]
+            )
+
+        mask = (1 << len(names)) - 1
+        if not completions(mask):
+            raise ValueError("No legal no-rematch Swiss pairing exists in this record bucket.")
+        pairs: list[tuple[str, str]] = []
+        while mask:
+            first_bit = mask & -mask
+            first = first_bit.bit_length() - 1
+            rest = mask ^ first_bit
+            draw = self._rng.randrange(completions(mask))
+            for second in range(first + 1, len(names)):
+                if not rest & (1 << second) or not allowed[first, second]:
+                    continue
+                count = completions(rest ^ (1 << second))
+                if draw < count:
+                    pairs.append((names[first], names[second]))
+                    mask = rest ^ (1 << second)
+                    break
+                draw -= count
         winners: list[str] = []
         losers: list[str] = []
-        for index in range(0, len(shuffled) - 1, 2):
-            team1, team2 = shuffled[index], shuffled[index + 1]
+        for team1, team2 in pairs:
             winner = self.simulate_series_winner(team1, team2, best_of)
             loser = team2 if winner == team1 else team1
             played_pairs.add(frozenset((team1, team2)))
@@ -831,7 +1032,7 @@ class WorldsSimulator(TournamentSimulator):
             raise ValueError("Worlds requires exactly 15 direct Swiss participants.")
         if len(play_in_teams) != 4:
             raise ValueError("Worlds requires exactly 4 Play-In participants.")
-        if play_in_winner_pool not in {1, 2, 3, 4}:
+        if type(play_in_winner_pool) is not int or play_in_winner_pool not in {1, 2, 3, 4}:
             raise ValueError("The Play-In qualifier must be assigned to Swiss pool 1, 2, 3, or 4.")
 
         all_teams = [*direct_teams, *play_in_teams]
@@ -842,7 +1043,7 @@ class WorldsSimulator(TournamentSimulator):
             raise ValueError("A team cannot occupy more than one Worlds slot.")
         if any(not team.region.strip() for team in all_teams):
             raise ValueError("Every Worlds participant requires a region.")
-        if any(team.pool not in {1, 2, 3, 4} for team in direct_teams):
+        if any(type(team.pool) is not int or team.pool not in {1, 2, 3, 4} for team in direct_teams):
             raise ValueError("Every direct Swiss participant requires pool 1, 2, 3, or 4.")
 
         pool_counts = {pool: sum(team.pool == pool for team in direct_teams) for pool in range(1, 5)}
@@ -861,6 +1062,7 @@ class WorldsSimulator(TournamentSimulator):
         n_simulations: int = 5000,
     ) -> dict[str, Any]:
         """Simulate a manually configured Worlds from Play-In through the Bo5 final."""
+        self._validate_simulations(n_simulations)
         self.validate_participants(direct_teams, play_in_teams, play_in_winner_pool)
 
         all_teams = [*direct_teams, *play_in_teams]
@@ -897,8 +1099,8 @@ class WorldsSimulator(TournamentSimulator):
                 for pool in range(1, 5)
             }
             for higher_pool, lower_pool in ((1, 4), (2, 3)):
-                random.shuffle(first_round_pools[higher_pool])
-                random.shuffle(first_round_pools[lower_pool])
+                self._rng.shuffle(first_round_pools[higher_pool])
+                self._rng.shuffle(first_round_pools[lower_pool])
                 for team1, team2 in zip(
                     first_round_pools[higher_pool],
                     first_round_pools[lower_pool],
@@ -934,10 +1136,15 @@ class WorldsSimulator(TournamentSimulator):
                 if len(advanced_teams) == 8:
                     break
 
+            if len(advanced_teams) != 8 or buckets or any(
+                wins != 3 and losses != 3 for wins, losses in records.values()
+            ):
+                raise ValueError("Swiss stage did not resolve exactly eight qualifiers and eight eliminations.")
+
             for team in advanced_teams:
                 swiss_advance_counts[team] += 1
 
-            random.shuffle(advanced_teams)
+            self._rng.shuffle(advanced_teams)
             quarterfinal_winners = [
                 self.simulate_series_winner(advanced_teams[index], advanced_teams[index + 1], best_of=5)
                 for index in range(0, 8, 2)
@@ -967,11 +1174,11 @@ class WorldsSimulator(TournamentSimulator):
                     "region": team.region,
                     "stage": "direct_swiss" if team.name in direct_names else "play_in",
                     "pool": team.pool if team.name in direct_names else None,
-                    "play_in_qualifier_prob": round(qualifier_counts[team.name] / n_simulations, 4),
-                    "champion_prob": round(champion_counts[team.name] / n_simulations, 4),
-                    "top2_prob": round(knockout_top2_counts[team.name] / n_simulations, 4),
-                    "top4_prob": round(knockout_top4_counts[team.name] / n_simulations, 4),
-                    "top8_swiss_prob": round(swiss_advance_counts[team.name] / n_simulations, 4),
+                    "play_in_qualifier_prob": qualifier_counts[team.name] / n_simulations,
+                    "champion_prob": champion_counts[team.name] / n_simulations,
+                    "top2_prob": knockout_top2_counts[team.name] / n_simulations,
+                    "top4_prob": knockout_top4_counts[team.name] / n_simulations,
+                    "top8_swiss_prob": swiss_advance_counts[team.name] / n_simulations,
                 }
             )
 
@@ -981,6 +1188,22 @@ class WorldsSimulator(TournamentSimulator):
             "tournament_name": "League of Legends World Championship 2026",
             "format": "play_in_double_elimination_bo5_swiss_and_knockout",
             "simulations": n_simulations,
+            "provenance": self._provenance([team.name for team in all_teams]),
+            "simulation_scope": {
+                "mode": "unverified_user_configured_scenario",
+                "rules_verified": False,
+                "pre_event_forecast": False,
+                "play_in": "four_teams_bo5_double_elimination_no_reset",
+                "swiss": "three_wins_or_losses_bo3_at_advancement_or_elimination",
+                "first_round_draw": "pool1_vs_pool4_pool2_vs_pool3_no_region_constraint",
+                "later_draw": "uniform_legal_no_rematch_matching_within_record_bucket",
+                "knockout_draw": "unseeded_random_no_record_constraint",
+                "limitations": [
+                    "No locally verified official 2026 rules or participant qualification evidence.",
+                    "Region restrictions and Swiss-record knockout seeding are not implemented.",
+                    "No live results, dynamic reseeding, bracket reset, or strength updates.",
+                ],
+            },
             "teams": [team.name for team in all_teams],
             "direct_teams": [
                 {"team": team.name, "region": team.region, "pool": team.pool} for team in direct_teams

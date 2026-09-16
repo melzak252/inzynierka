@@ -640,7 +640,27 @@ export default function TournamentSimulation() {
           <section className="standings-panel full-width">
             <div className="standings-panel-header">
               <h2>📊 Szanse na końcowy wynik ({data?.simulations.toLocaleString('pl-PL')} symulacji)</h2>
+              {data?.calibration?.calibrated && (
+                <span
+                  className="sync-badge calibrated"
+                  title={`Skalibrowany model kompozytowy: T=${data.calibration.temperature}, Cap=${(data.calibration.pairwise_cap * 100).toFixed(0)}%, Dampening=${(data.calibration.entropy_dampening * 100).toFixed(0)}%`}
+                >
+                  🛡️ Kalibracja kompozytowa (T={data.calibration.temperature}, Cap {(data.calibration.pairwise_cap * 100).toFixed(0)}%)
+                </span>
+              )}
             </div>
+            {data?.joint_finalists && data.joint_finalists.length > 0 && (
+              <div className="joint-finalists-bar">
+                <span className="joint-finalists-label">🏆 Najbardziej prawdopodobny Finał:</span>
+                <div className="joint-finalists-chips">
+                  {data.joint_finalists.map((f, i) => (
+                    <span key={f.pair} className={`finalist-chip ${i === 0 ? 'top-chip' : ''}`}>
+                      <strong>{f.pair}</strong> ({(f.prob * 100).toFixed(1)}%)
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="table-responsive">
               <table className="standings-table">
                 <thead>

@@ -583,8 +583,16 @@ export interface TournamentSimulationResponse {
   synced_at?: string | null;
   sync_message?: string | null;
   updated_matches?: number;
+  joint_finalists?: Array<{ pair: string; prob: number }>;
+  calibration?: {
+    calibrated: boolean;
+    mode: string;
+    pairwise_cap: number;
+    temperature: number;
+    entropy_dampening: number;
+    regional_gamma: number;
+  };
 }
-
 export interface TournamentSummary {
   id: string;
   name: string;
