@@ -71,11 +71,11 @@ from src.ratings.competition_adjustment import (
 )
 
 
-DEFAULT_FEATURE_VERSION = get_active_model().feature_version
-DEFAULT_RATINGS_VERSION = get_active_model().ratings_version
-DEFAULT_W20_VERSION = get_active_model().w20_version
-DEFAULT_MODEL_NAME = get_active_model().name
-DEFAULT_MODEL_VERSION = get_active_model().version
+DEFAULT_FEATURE_VERSION = get_active_hybrid().base_model.feature_version
+DEFAULT_RATINGS_VERSION = get_active_hybrid().base_model.ratings_version
+DEFAULT_W20_VERSION = get_active_hybrid().base_model.w20_version
+DEFAULT_MODEL_NAME = get_active_hybrid().base_model.name
+DEFAULT_MODEL_VERSION = get_active_hybrid().base_model.version
 DEFAULT_HYBRID_MODEL_NAME = get_active_hybrid().hybrid_model_name
 DEFAULT_HYBRID_ALPHA = get_active_hybrid().alpha
 DEFAULT_HYBRID_TEMPERATURE = get_active_hybrid().temperature
@@ -1856,6 +1856,7 @@ def evaluate_bayesian_market_hybrid(
 
     # Step 1: Base sports probability p_sports
     p_sports: float
+    map_sports: float
     sigma_z: float | None = None
     p_low: float | None = None
     p_low_b: float | None = None
@@ -1864,6 +1865,10 @@ def evaluate_bayesian_market_hybrid(
         from src.models.siamese_series import SiameseSeriesModel
         model = SiameseSeriesModel.load_default()
         p_sports, sigma_z, p_low, p_low_b = model.predict_with_uncertainty(snapshot, best_of=best_of)
+        if best_of > 1:
+            map_sports, _, _, _ = model.predict_with_uncertainty(snapshot, best_of=1)
+        else:
+            map_sports = p_sports
     except Exception:
         # Fallback to symmetric rating consensus
         p_player = features.get("player_ratings", {}).get("probabilities", {}).get("consensus")
@@ -1882,10 +1887,12 @@ def evaluate_bayesian_market_hybrid(
             map_prob_a = max(0.01, min(0.99, raw))
         else:
             map_prob_a = 0.50
+        map_sports = map_prob_a
         from betting_app.core.models.engine import _series_probability_binomial
         p_sports = _series_probability_binomial(map_prob_a, best_of)
 
     p_sports = max(1e-6, min(1.0 - 1e-6, float(p_sports)))
+    map_sports = max(1e-6, min(1.0 - 1e-6, float(map_sports)))
 
     # Step 2: Fetch pre-match no-vig opening odds
     p_market_novig = features.get("market_novig_prob_a") or features.get("market_prob_a")
@@ -1898,27 +1905,49 @@ def evaluate_bayesian_market_hybrid(
             normalized_team_b=team_b_name,
         )
 
-    # Step 3: Blend in logit space or fallback
-    alpha = float(spec.metadata.get("alpha", 0.50)) if hasattr(spec, "metadata") else 0.50
+    # Step 3: Adaptive alpha(t) — model weight varies with market maturity
+    # Early opening odds (>24h) are soft → higher model weight (lower alpha toward market)
+    # Late closing odds (<2h) are sharp → higher market weight (higher alpha)
+    # α(t) = clip(0.40 + 0.15 * sigmoid((t - 12) / 6), 0.40, 0.55)
+    base_alpha = float(spec.metadata.get("alpha", 0.50)) if hasattr(spec, "metadata") and spec.metadata else 0.50
+    hours_before = None
+    try:
+        start_time_str = canonical.get("start_time") or canonical.get("start_time_normalized")
+        if start_time_str:
+            match_start = parse_iso(start_time_str)
+            if match_start is not None:
+                now = datetime.now(UTC)
+                hours_before = max(0.0, (match_start - now).total_seconds() / 3600.0)
+    except Exception:
+        pass
+    if hours_before is not None:
+        # Early lines (t > 24h) -> alpha ~ 0.40 (higher sports model weight 0.60)
+        # Late lines (t < 2h) -> alpha ~ 0.53-0.55 (higher market consensus weight)
+        adaptive_alpha = 0.55 - 0.15 * sigmoid((hours_before - 12.0) / 6.0)
+        alpha = max(0.40, min(0.55, adaptive_alpha))
+    else:
+        alpha = base_alpha
     if p_market_novig is not None and math.isfinite(p_market_novig) and 0.0 < p_market_novig < 1.0:
         p_mkt = max(1e-6, min(1.0 - 1e-6, float(p_market_novig)))
         z_sports = logit(p_sports)
         z_market = logit(p_mkt)
-        z_hybrid = alpha * z_sports + (1.0 - alpha) * z_market
+        z_hybrid = (1.0 - alpha) * z_sports + alpha * z_market
         prob_a = sigmoid(z_hybrid)
+        map_prob_a_out = sigmoid((1.0 - alpha) * logit(map_sports) + alpha * z_market) if best_of > 1 else prob_a
         market_used = True
     else:
         prob_a = p_sports
+        map_prob_a_out = map_sports
         market_used = False
 
     # Clamp to valid open interval (0, 1) and guarantee exact symmetry
     prob_a = max(1e-6, min(1.0 - 1e-6, float(prob_a)))
     prob_b = 1.0 - prob_a
 
-    # If conservative bounds exist, scale them symmetrically
+    # If conservative bounds exist, scale them symmetrically: (1 - alpha)*z_low + alpha*z_market
     if p_low is not None and p_low_b is not None and market_used and p_market_novig is not None:
-        z_low_a = alpha * logit(max(1e-6, min(1.0 - 1e-6, p_low))) + (1.0 - alpha) * logit(p_mkt)
-        z_low_b = alpha * logit(max(1e-6, min(1.0 - 1e-6, p_low_b))) + (1.0 - alpha) * logit(1.0 - p_mkt)
+        z_low_a = (1.0 - alpha) * logit(max(1e-6, min(1.0 - 1e-6, p_low))) + alpha * logit(p_mkt)
+        z_low_b = (1.0 - alpha) * logit(max(1e-6, min(1.0 - 1e-6, p_low_b))) + alpha * logit(1.0 - p_mkt)
         p_low_a_final = min(prob_a, sigmoid(z_low_a))
         p_low_b_final = min(prob_b, sigmoid(z_low_b))
     elif p_low is not None and p_low_b is not None:
@@ -1958,8 +1987,8 @@ def evaluate_bayesian_market_hybrid(
         canonical_match_id=canonical_match_id,
         prob_a=prob_a,
         prob_b=prob_b,
-        map_prob_a=prob_a if best_of == 1 else None,
-        map_prob_b=prob_b if best_of == 1 else None,
+        map_prob_a=map_prob_a_out,
+        map_prob_b=1.0 - map_prob_a_out,
         p_low_a=p_low_a_final,
         p_low_b=p_low_b_final,
         epistemic_sigma_z=sigma_z,
@@ -2023,9 +2052,8 @@ def generate_hybrid_predictions(
     blending_mode: str | None = None,
 ) -> list[dict[str, Any]]:
     """Blend validated base means and sidewise safety scores with the latest market."""
-    active = get_active_model()
     active_hybrid = get_active_hybrid()
-    base_model_name = base_model_name or active.name
+    base_model_name = base_model_name or active_hybrid.base_model.name
     base_spec = get_model(base_model_name)
     if base_spec is None:
         raise ValueError(f"unknown hybrid base model: {base_model_name}")
@@ -2048,7 +2076,7 @@ def generate_hybrid_predictions(
         hybrid_model_version = (
             active_hybrid.hybrid_model_version
             if hybrid_spec == active_hybrid
-            else f"{base_model_version}-a{alpha:.2f}-t{temperature:.2f}-{blending_mode}"
+            else f"{base_model_version}-a{alpha:.2f}-t{temperature:.2f}"
         )
     model_artifact_id = register_hybrid_model(
         spec=hybrid_spec,

@@ -34,11 +34,10 @@ def test_registry_defaults():
     assert get_active_model_spec() is active
 
     hybrid = get_active_hybrid()
-    assert hybrid.base_model.name == active.name
+    assert hybrid.base_model.name == EXP081_SIAMESE.name
     assert hybrid.hybrid_model_name == ACTIVE_MODEL_NAME
     assert hybrid.alpha == 0.50
     assert hybrid.temperature == 1.0
-
 def test_registry_lookups():
     """Verify model lookup by exact name and aliases."""
     assert get_model(ACTIVE_MODEL_NAME) is BAYESIAN_SHRUNK_HYBRID

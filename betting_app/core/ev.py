@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from src.analysis.shin_devig import shin_implied_probabilities
+
 
 def implied_probability(decimal_odds: float) -> float:
     """Return raw implied probability from decimal odds."""
@@ -12,14 +14,13 @@ def implied_probability(decimal_odds: float) -> float:
 
 
 def fair_market_probabilities(odds_a: float, odds_b: float) -> tuple[float, float]:
-    """Remove two-way bookmaker margin from decimal odds."""
+    """Remove two-way bookmaker margin from decimal odds using Shin (1992) devigging.
 
-    raw_a = implied_probability(odds_a)
-    raw_b = implied_probability(odds_b)
-    overround = raw_a + raw_b
-    if overround <= 0:
-        raise ValueError("Invalid overround")
-    return raw_a / overround, raw_b / overround
+    Unlike simple proportional devigging (q_i / sum(q)), Shin's method accounts
+    for the favorite-longshot bias by solving for the insider trading parameter z.
+    This produces more accurate fair probabilities, especially for underdogs.
+    """
+    return shin_implied_probabilities(odds_a, odds_b)
 
 
 def expected_value(model_prob: float, decimal_odds: float, tax_rate: float = 0.12) -> float:

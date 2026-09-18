@@ -60,8 +60,8 @@ EXP039_THESIS = ModelSpec(
     metadata={"frozen": True, "academic_baseline": True},
 )
 
-ACTIVE_MODEL_NAME = "Hybrid-Bayesian-Shrunk-A0-Market"
-ACTIVE_MODEL_VERSION = "hybrid-a0-mkt-v1-a0.50"
+ACTIVE_MODEL_NAME = "Hybrid-Operational-Market"
+ACTIVE_MODEL_VERSION = "exp081-siamese-series-v1-a0.50-t1.00"
 ACTIVE_MODEL_FAMILY = "bayesian_market_hybrid"
 
 BAYESIAN_SHRUNK_HYBRID = ModelSpec(
@@ -87,10 +87,11 @@ REGISTERED_MODELS: dict[str, ModelSpec] = {
     EXP081_SIAMESE.name: EXP081_SIAMESE,
     EXP078_LINEAR.name: EXP078_LINEAR,
     EXP039_THESIS.name: EXP039_THESIS,
-    # Shorthand aliases
+    # Shorthand and historical aliases
     "shrunk_hybrid": BAYESIAN_SHRUNK_HYBRID,
     "bayesian_hybrid": BAYESIAN_SHRUNK_HYBRID,
     "a0_market": BAYESIAN_SHRUNK_HYBRID,
+    "Hybrid-Bayesian-Shrunk-A0-Market": BAYESIAN_SHRUNK_HYBRID,
     "exp081": EXP081_SIAMESE,
     "exp078": EXP078_LINEAR,
     "exp039": EXP039_THESIS,
@@ -99,20 +100,18 @@ REGISTERED_MODELS: dict[str, ModelSpec] = {
 # -----------------------------------------------------------------------------
 # Active Model and Hybrid State
 # -----------------------------------------------------------------------------
-
-# Default active operational model: EXP-081
 # Default active operational model: Bayesian Shrunk Hybrid
 _ACTIVE_MODEL: ModelSpec = BAYESIAN_SHRUNK_HYBRID
 
-# Default active operational hybrid
+# Default active operational hybrid: wraps pure sports model (EXP081_SIAMESE) with market blending
 _ACTIVE_HYBRID: HybridSpec = HybridSpec(
-    base_model=_ACTIVE_MODEL,
+    base_model=EXP081_SIAMESE,
     hybrid_model_name=ACTIVE_MODEL_NAME,
     alpha=0.50,
     temperature=1.0,
     blending_mode="logit_shrinkage",
+    custom_version=ACTIVE_MODEL_VERSION,
 )
-
 # Thesis hybrid reference
 THESIS_HYBRID: HybridSpec = HybridSpec(
     base_model=EXP039_THESIS,
@@ -151,10 +150,17 @@ def set_active_model(model_or_name: ModelSpec | str) -> None:
         _ACTIVE_MODEL = spec
     else:
         _ACTIVE_MODEL = model_or_name
-    # Update base model in hybrid, resetting custom_version unless keeping same model
-    custom_ver = _ACTIVE_HYBRID.custom_version if _ACTIVE_HYBRID.base_model == _ACTIVE_MODEL else None
+
+    # If active model is the hybrid itself, its base sports model is EXP081_SIAMESE
+    if _ACTIVE_MODEL.family == "bayesian_market_hybrid":
+        base_sports = EXP081_SIAMESE
+        custom_ver = ACTIVE_MODEL_VERSION
+    else:
+        base_sports = _ACTIVE_MODEL
+        custom_ver = _ACTIVE_HYBRID.custom_version if _ACTIVE_HYBRID.base_model == _ACTIVE_MODEL else None
+
     _ACTIVE_HYBRID = HybridSpec(
-        base_model=_ACTIVE_MODEL,
+        base_model=base_sports,
         hybrid_model_name=_ACTIVE_HYBRID.hybrid_model_name,
         alpha=_ACTIVE_HYBRID.alpha,
         temperature=_ACTIVE_HYBRID.temperature,
@@ -166,7 +172,7 @@ def set_active_model(model_or_name: ModelSpec | str) -> None:
 def get_active_hybrid() -> HybridSpec:
     """Return the active operational hybrid specification, synchronized with active model."""
     current_active = get_active_model()
-    if _ACTIVE_HYBRID.base_model != current_active:
+    if current_active.family != "bayesian_market_hybrid" and _ACTIVE_HYBRID.base_model != current_active:
         return HybridSpec(
             base_model=current_active,
             hybrid_model_name=_ACTIVE_HYBRID.hybrid_model_name,
@@ -176,7 +182,6 @@ def get_active_hybrid() -> HybridSpec:
             custom_version=None,
         )
     return _ACTIVE_HYBRID
-
 
 def set_active_hybrid(hybrid_spec: HybridSpec) -> None:
     """Switch or update the active hybrid specification."""
