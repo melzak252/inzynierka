@@ -49,6 +49,7 @@ os.environ["DATABASE_URL"] = os.environ.get(
 
 from betting_app.core.db import connect, transaction  # noqa: E402
 from betting_app.core.matching import normalize_team_name  # noqa: E402
+from betting_app.scripts.rebuild_ratings import rating_from_row  # noqa: E402
 from src.ratings.manager import RatingManager  # noqa: E402
 from src.models.team_order import swap_orientation, symmetrize_binary_probabilities  # noqa: E402
 
@@ -353,8 +354,6 @@ def main() -> None:
 
 def _restore_rating_manager() -> RatingManager | None:
     """Restore a fully-hydrated RatingManager from the entity_ratings snapshot."""
-    from glicko2 import Player as GlickoPlayer
-    from trueskill import Rating as TrueSkillState
 
     with connect() as connection:
         run = connection.execute(
@@ -404,7 +403,7 @@ def _restore_rating_manager() -> RatingManager | None:
         else:
             continue
 
-        rating = _rating_from_row(system_name, system, row, state)
+        rating = rating_from_row(system_name, system, row, state)
         if entity_type == "team":
             system.team_ratings[entity_id] = rating
         else:
@@ -425,25 +424,6 @@ def _restore_rating_manager() -> RatingManager | None:
     return manager
 
 
-def _rating_from_row(system_name: str, system: Any, row: dict[str, Any], state: dict[str, Any]) -> Any:
-    """Deserialize one persisted rating row."""
-    from glicko2 import Player as GlickoPlayer
-    from trueskill import Rating as TrueSkillState
-
-    if system_name == "elo":
-        return float(state.get("rating", row.get("rating_value") or 1500.0))
-    if system_name == "gl":
-        return GlickoPlayer(
-            rating=float(state.get("rating", row.get("rating_value") or 1500.0)),
-            rd=float(state.get("rd", row.get("rd") or 350.0)),
-            vol=float(state.get("volatility", 0.06)),
-        )
-    mu = float(state.get("mu", row.get("rating_value") or 25.0))
-    sigma = float(state.get("sigma", row.get("sigma") or 8.333))
-    if system_name == "ts":
-        return TrueSkillState(mu=mu, sigma=sigma)
-    model = getattr(system, "model", None) or getattr(system, "pl_model", None) or getattr(system, "tm_model", None)
-    return model.rating(mu=mu, sigma=sigma)
 
 
 def _init_w20_history_for_teams(team_ids: set[str]) -> dict[str, deque]:

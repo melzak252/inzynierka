@@ -14,7 +14,7 @@ from typing import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, pool, text
+from sqlalchemy import create_engine, inspect, pool, text
 from sqlalchemy.orm import Session
 
 from betting_app.core.db import dispose_engine
@@ -35,7 +35,10 @@ def _get_test_engine():
 def client() -> Generator[TestClient, None, None]:
     engine = _get_test_engine()
 
-    table_names = [f'"{table.name}"' for table in Base.metadata.sorted_tables]
+    # Registry services also create tables outside Base.metadata. Clear those
+    # between tests and repeated suite runs rather than leaking prior evaluations.
+    quote = engine.dialect.identifier_preparer.quote
+    table_names = [quote(name) for name in inspect(engine).get_table_names()]
     truncate_sql = f"TRUNCATE TABLE {', '.join(table_names)} RESTART IDENTITY CASCADE;"
 
     with engine.begin() as conn:

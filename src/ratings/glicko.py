@@ -71,9 +71,11 @@ class GlickoRating(RatingSystem):
         # For batch updates, a separate method might be better.
         p1 = self.get_team_rating(t1)
         p2 = self.get_team_rating(t2)
+        # Keep the first opponent's pre-game state before mutating either player.
+        rating_1, rd_1 = p1.rating, p1.rd
 
         p1.update_player([p2.rating], [p2.rd], [score_1])
-        p2.update_player([p1.rating], [p1.rd], [score_2])
+        p2.update_player([rating_1], [rd_1], [score_2])
         
         self.team_ratings[t1] = p1
         self.team_ratings[t2] = p2

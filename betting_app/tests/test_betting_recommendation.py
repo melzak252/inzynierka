@@ -1,104 +1,108 @@
-"""Unit tests for the betting recommendation engine."""
+"""Consumer contracts for match recommendations; no database required."""
+
+import pytest
 
 from betting_app.api.routers.matches import _build_match_recommendation
 from betting_app.api.schemas import BookmakerOddsRow
+from betting_app.services.market_service import kelly_fraction
 
 
-def test_recommendation_unmapped_teams():
-    rec = _build_match_recommendation(
-        team_a_name="Gen.G",
-        team_b_name="Hanwha Life",
-        has_unmapped_teams=True,
-        odds_rows=[],
-        hybrid_prob_a=0.55,
-        hybrid_prob_b=0.45,
-        pure_prob_a=0.55,
-        pure_prob_b=0.45,
+def recommendation(**changes):
+    params = dict(
+        team_a_name="Alpha",
+        team_b_name="Beta",
+        has_unmapped_teams=False,
+        odds_rows=[
+            BookmakerOddsRow(
+                bookmaker="sts", canonical_odds_a=1.6, canonical_odds_b=2.4
+            )
+        ],
+        hybrid_prob_a=0.45,
+        hybrid_prob_b=0.55,
+        pure_prob_a=0.4,
+        pure_prob_b=0.6,
+        hybrid_diagnostics={
+            "p_low_a": 0.40,
+            "p_low_b": 0.52,
+            "epistemic_sigma_z": 0.2,
+            "rating_disagreement": 0.04,
+            "uncertainty_required": True,
+        },
+    )
+    params.update(changes)
+    return _build_match_recommendation(**params)
+
+
+def test_unmapped_or_missing_odds_cannot_recommend():
+    assert not recommendation(has_unmapped_teams=True).has_value
+    assert not recommendation(odds_rows=[]).has_value
+
+
+def test_qualified_side_uses_conservative_ev_and_stake_but_displays_mean():
+    rec = recommendation()
+    assert rec.has_value and rec.side == "b"
+    assert rec.hybrid_prob == 0.55
+    assert rec.ev == pytest.approx(0.52 * 2.4 * 0.88 - 1, abs=1e-4)
+    assert rec.quarter_kelly == pytest.approx(
+        kelly_fraction(0.52, 2.4, 0.12) / 4, abs=1e-4
+    )
+
+
+def test_positive_mean_ev_without_safe_bound_cannot_recommend():
+    rec = recommendation(
+        hybrid_diagnostics={
+            "p_low_a": 0.30,
+            "p_low_b": 0.40,
+            "epistemic_sigma_z": 0.7,
+            "rating_disagreement": 0.04,
+        }
     )
     assert not rec.has_value
-    assert rec.verdict == "unmapped"
-    assert "mapowanie" in rec.verdict_label.lower()
-    assert len(rec.reasons) > 0
+    assert rec.quarter_kelly is None
 
 
-def test_recommendation_no_odds():
-    rec = _build_match_recommendation(
-        team_a_name="Gen.G",
-        team_b_name="Hanwha Life",
-        has_unmapped_teams=False,
-        odds_rows=[],
-        hybrid_prob_a=0.55,
-        hybrid_prob_b=0.45,
-        pure_prob_a=0.55,
-        pure_prob_b=0.45,
+def test_pure_diagnostics_cannot_substitute_for_missing_hybrid_bounds():
+    rec = recommendation(
+        hybrid_diagnostics=None,
+        diagnostics={
+            "p_low_a": 0.4,
+            "p_low_b": 0.59,
+            "epistemic_sigma_z": 0.1,
+            "rating_disagreement": 0.01,
+        },
     )
     assert not rec.has_value
-    assert rec.verdict == "no_odds"
-    assert "brak" in rec.verdict_label.lower()
 
 
-def test_recommendation_value_bet_detected():
-    # Hanwha Life @ 2.40 with hybrid prob 0.487 -> EV after 12% tax: 0.487 * (2.40 * 0.88) - 1 = +2.85%
-    odds_rows = [
-        BookmakerOddsRow(
-            bookmaker="betclic",
-            canonical_odds_a=1.58,
-            canonical_odds_b=2.15,
-        ),
-        BookmakerOddsRow(
-            bookmaker="sts",
-            canonical_odds_a=1.53,
-            canonical_odds_b=2.40,
-            offer_url="https://sts.pl/match/123",
-        ),
-    ]
-    rec = _build_match_recommendation(
-        team_a_name="Gen.G",
-        team_b_name="Hanwha Life",
-        has_unmapped_teams=False,
-        odds_rows=odds_rows,
-        hybrid_prob_a=0.513,
-        hybrid_prob_b=0.487,
-        pure_prob_a=0.435,
-        pure_prob_b=0.565,
-    )
-    assert rec.has_value
-    assert rec.verdict == "value_bet"
-    assert rec.side == "b"
-    assert rec.recommended_team == "Hanwha Life"
-    assert rec.bookmaker == "sts"
-    assert rec.best_odds == 2.40
-    assert rec.offer_url == "https://sts.pl/match/123"
-    assert rec.ev is not None and rec.ev > 0.02
-    assert rec.min_odds_required is not None
-    assert rec.min_odds_required < 2.40  # 1 / (0.487 * 0.88) = 2.33
-    assert rec.quarter_kelly is not None and rec.quarter_kelly > 0
-    assert len(rec.reasons) >= 3
-    assert any("2.40" in r for r in rec.reasons)
-    assert any("STS" in r.upper() for r in rec.reasons)
-
-
-def test_recommendation_no_bet_when_no_ev():
-    # Both sides have odds below break-even with 12% tax
-    odds_rows = [
-        BookmakerOddsRow(
-            bookmaker="sts",
-            canonical_odds_a=1.60,
-            canonical_odds_b=2.00,
-        ),
-    ]
-    rec = _build_match_recommendation(
-        team_a_name="Team A",
-        team_b_name="Team B",
-        has_unmapped_teams=False,
-        odds_rows=odds_rows,
-        hybrid_prob_a=0.50,
-        hybrid_prob_b=0.50,
-        pure_prob_a=0.50,
-        pure_prob_b=0.50,
+def test_tier1_mean_market_gap_is_not_hidden_by_lower_bound():
+    rec = recommendation(
+        league="LCK 2026",
+        hybrid_prob_a=0.2,
+        hybrid_prob_b=0.8,
+        hybrid_diagnostics={
+            "p_low_a": 0.1,
+            "p_low_b": 0.52,
+            "epistemic_sigma_z": 0.5,
+            "rating_disagreement": 0.02,
+        },
     )
     assert not rec.has_value
-    assert rec.verdict == "no_bet"
-    assert "No Bet" in rec.verdict_label
-    assert len(rec.reasons) >= 2
-    assert rec.threshold_info is not None
+
+
+def test_side_with_larger_ev_cannot_bypass_its_safety_rejection():
+    rec = recommendation(
+        hybrid_prob_a=0.5,
+        hybrid_prob_b=0.5,
+        odds_rows=[
+            BookmakerOddsRow(
+                bookmaker="sts", canonical_odds_a=3.5, canonical_odds_b=3.6
+            )
+        ],
+        hybrid_diagnostics={
+            "p_low_a": 0.48,
+            "p_low_b": 0.30,
+            "epistemic_sigma_z": 0.5,
+            "rating_disagreement": 0.04,
+        },
+    )
+    assert rec.has_value and rec.side == "a"

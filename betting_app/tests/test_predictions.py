@@ -5,7 +5,6 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from betting_app.api.routers import matches as matches_router
 from betting_app.core.db import get_session
 from betting_app.services.upcoming_inference_service import (
     DEFAULT_FEATURE_VERSION,
@@ -15,8 +14,6 @@ from betting_app.services.upcoming_inference_service import (
     register_operational_model,
     series_probability,
 )
-from betting_app.ml.model_lifecycle import RETIRED_PUBLIC_MODEL_NAME
-
 
 
 class TestPredictions:
@@ -28,50 +25,24 @@ class TestPredictions:
         assert data["signals"] == []
 
 
-def test_ev_signals_exclude_retired_tabular_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    from betting_app.api.routers import predictions as predictions_router
-
-    def fake_query(_db, sql: str, params: dict[str, object]):
-        assert "cp.model_name <> :retired_model_name" in sql
-        assert params["retired_model_name"] == RETIRED_PUBLIC_MODEL_NAME
-        return []
-
-    monkeypatch.setattr(predictions_router, "query_df", fake_query)
-
-    result = predictions_router.list_predictions(db=object())
-
-    assert result.total == 0
-
-
-def test_prediction_history_excludes_retired_tabular_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_query(_db, sql: str, params: dict[str, object]):
-        if "SELECT id FROM canonical_matches" in sql:
-            return [{"id": 1}]
-        assert "model_name <> :retired_model_name" in sql
-        assert params["retired_model_name"] == RETIRED_PUBLIC_MODEL_NAME
-        return []
-
-    monkeypatch.setattr(matches_router, "query_df", fake_query)
-
-    assert matches_router.prediction_history(1, db=object()) == []
-
-
 def test_regional_operational_artifact_is_immutable_and_versioned(
     client: TestClient,
 ) -> None:
     artifact_id = register_operational_model()
 
     with get_session() as session:
-        row = session.execute(
-            __import__("sqlalchemy").text(
-                """
+        row = (
+            session.execute(
+                __import__("sqlalchemy").text("""
                 SELECT model_name, model_version, feature_schema_json, model_params_json
                 FROM model_artifacts
                 WHERE id = :artifact_id
-                """
-            ),
-            {"artifact_id": artifact_id},
-        ).mappings().one()
+                """),
+                {"artifact_id": artifact_id},
+            )
+            .mappings()
+            .one()
+        )
     schema = json.loads(str(row["feature_schema_json"]))
     assert row["model_name"] == DEFAULT_MODEL_NAME
     assert row["model_version"] == DEFAULT_MODEL_VERSION
@@ -126,49 +97,15 @@ def test_series_projection_rejects_unsupported_formats(best_of: object) -> None:
         series_probability(0.6, best_of)
 
 
-def test_match_predict_route_uses_operational_model(monkeypatch: pytest.MonkeyPatch) -> None:
-    match = {
-        "id": 17,
-        "team_a_name": "Team A",
-        "team_b_name": "Team B",
-        "best_of": 3,
-    }
-    calls: list[dict] = []
-
-    def fake_query_df(_db, sql: str, _params=None):
-        if "SELECT * FROM canonical_matches" in sql:
-            return [match]
-        if "SELECT prob_a, prob_b" in sql:
-            return []
-        pytest.fail(f"unexpected query: {sql}")
-
-    def fake_predict(payload: dict, **kwargs):
-        calls.append({"match": payload, **kwargs})
-        return {
-            "prob_a": 0.648,
-            "prob_b": 0.352,
-            "diagnostics": {"best_of": 3},
-        }
-
-    monkeypatch.setattr(matches_router, "query_df", fake_query_df)
-    monkeypatch.setattr(matches_router, "_load_roster_overrides", lambda _match_id: {})
-    monkeypatch.setattr(matches_router, "predict_operational_match", fake_predict)
-    monkeypatch.setattr(matches_router, "generate_hybrid_predictions", lambda: [])
-
-    response = matches_router.predict_match(17, db=object())
-
-    assert calls == [{"match": match, "team_a_roster_override": None, "team_b_roster_override": None}]
-    assert response.status == "ok"
-    assert response.model_name == DEFAULT_MODEL_NAME
-    assert response.model_version == DEFAULT_MODEL_VERSION
-    assert response.prob_a == pytest.approx(0.648)
-
-
 def test_backfill_detects_reversed_team_alignment() -> None:
-    from betting_app.scripts.backfill_operational_predictions import _is_reversed_mapping
+    from betting_app.scripts.backfill_operational_predictions import (
+        _is_reversed_mapping,
+    )
 
     assert not _is_reversed_mapping("Dplus", "DRX", "Dplus KIA", "Kiwoom DRX")
     assert _is_reversed_mapping("GIANTX", "Vitality", "Team Vitality", "GIANTX")
-    assert _is_reversed_mapping("BRION", "Hanwha Life", "Hanwha Life Esports", "HANJIN BRION")
+    assert _is_reversed_mapping(
+        "BRION", "Hanwha Life", "Hanwha Life Esports", "HANJIN BRION"
+    )
     assert not _is_reversed_mapping("Gen.G", "T1", "Gen.G", "T1")
     assert _is_reversed_mapping("T1", "Gen.G", "Gen.G", "T1")

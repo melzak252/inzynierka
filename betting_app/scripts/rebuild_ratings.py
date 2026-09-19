@@ -48,6 +48,7 @@ RATING_SYSTEM_PARAMS: dict[str, dict[str, Any]] = {
     "pl": {"mu": 25.0, "sigma": 8.333, "beta": 18.75, "tau": 0.05},
     "tm": {"mu": 25.0, "sigma": 8.333, "beta": 18.75, "tau": 0.05},
 }
+GLICKO_UPDATE_CONTRACT = "glicko2-simultaneous-team-v1"
 
 
 @dataclass
@@ -649,10 +650,12 @@ def rating_from_row(system_name: str, system: Any, row: dict[str, Any], state: d
     if system_name == "elo":
         return float(state.get("rating", row.get("rating_value") or 1500.0))
     if system_name == "gl":
+        if state.get("update_contract") != GLICKO_UPDATE_CONTRACT:
+            raise ValueError("Glicko state predates simultaneous team updates; a validated full rebuild under a new ratings version is required")
         return GlickoPlayer(
-            rating=float(state.get("rating", row.get("rating_value") or 1500.0)),
-            rd=float(state.get("rd", row.get("rd") or 350.0)),
-            vol=float(state.get("volatility", 0.06)),
+            rating=float(state["rating"]),
+            rd=float(state["rd"]),
+            vol=float(state["volatility"]),
         )
     mu = float(state.get("mu", row.get("rating_value") or 25.0))
     sigma = float(state.get("sigma", row.get("sigma") or 8.333))
@@ -767,6 +770,8 @@ def unpack_rating(rating: Any) -> tuple[float, float | None, float | None, dict[
         rd = float(rating.rd)
         volatility = getattr(rating, "vol", getattr(rating, "volatility", None))
         state = {"rating": value, "rd": rd}
+        if isinstance(rating, GlickoPlayer):
+            state["update_contract"] = GLICKO_UPDATE_CONTRACT
         if volatility is not None:
             state["volatility"] = float(volatility)
         return value, rd, None, state

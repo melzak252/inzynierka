@@ -3836,7 +3836,17 @@ def validation_report(
     same_book_close = last_odds.set_index(["canonical_match_id", "bookmaker"])[["odds_a", "odds_b"]].to_dict("index")
 
     net_mult = 1.0 - tax_rate
-    bets = []
+    from src.analysis.unified_evaluation_engine import UnifiedBettingEngine, EvaluatedBet
+    engine = UnifiedBettingEngine(
+        tax_rate=tax_rate,
+        min_ev_net=min_ev,
+        dynamic_hurdle=True,
+        max_ev_longshot=0.20,
+        longshot_odds_threshold=3.50,
+        uncertainty_required=True,
+    )
+
+    qualified_list: list[EvaluatedBet] = []
     for _, r in first_odds.iterrows():
         mid = r["canonical_match_id"]
         bm = r["bookmaker"]
@@ -3845,78 +3855,76 @@ def validation_report(
         pb = r["prob_b"]
         oa = r["odds_a"]
         ob = r["odds_b"]
+        league = r.get("league")
+        date_str = str(r["start_time_normalized"])[:10] if "start_time_normalized" in r else None
+        bo = r.get("best_of")
 
         bm_close = same_book_close.get((mid, bm), {})
         cl_a = bm_close.get("odds_a") or oa
         cl_b = bm_close.get("odds_b") or ob
 
-        clv_a = (oa / cl_a - 1.0) * 100.0 if cl_a and cl_a > 0 else 0.0
-        clv_b = (ob / cl_b - 1.0) * 100.0 if cl_b and cl_b > 0 else 0.0
+        # Evaluate Side A
+        el_a, bet_a = engine.qualify_quote(
+            match_id=mid,
+            side="team_a",
+            odds=oa,
+            odds_close=cl_a,
+            prob_model=pa,
+            won=w_side == "team_a",
+            bookmaker=bm,
+            league=league,
+            date_str=date_str,
+            best_of=bo,
+        )
+        if el_a:
+            qualified_list.append(bet_a)
 
-        eva = pa * oa * net_mult - 1.0
-        evb = pb * ob * net_mult - 1.0
+        # Evaluate Side B
+        el_b, bet_b = engine.qualify_quote(
+            match_id=mid,
+            side="team_b",
+            odds=ob,
+            odds_close=cl_b,
+            prob_model=pb,
+            won=w_side == "team_b",
+            bookmaker=bm,
+            league=league,
+            date_str=date_str,
+            best_of=bo,
+        )
+        if el_b:
+            qualified_list.append(bet_b)
 
-        if eva >= min_ev and eva >= evb:
-            bets.append({
-                "canonical_match_id": mid, "bookmaker": bm, "side": "team_a",
-                "odds": oa, "odds_close": cl_a, "prob": pa, "ev_net": eva,
-                "won": w_side == "team_a", "clv": clv_a,
-            })
-        elif evb >= min_ev and evb > eva:
-            bets.append({
-                "canonical_match_id": mid, "bookmaker": bm, "side": "team_b",
-                "odds": ob, "odds_close": cl_b, "prob": pb, "ev_net": evb,
-                "won": w_side == "team_b", "clv": clv_b,
-            })
-    bdf = pd.DataFrame(bets)
-    best_b = bdf.sort_values("odds", ascending=False).groupby(["canonical_match_id", "side"]).first().reset_index() if len(bdf) else pd.DataFrame()
+    # Group by canonical match and side to take best available bookmaker quote
+    best_bets_map: dict[tuple[Any, str], EvaluatedBet] = {}
+    for b in qualified_list:
+        key = (b.match_id, b.side)
+        if key not in best_bets_map or b.odds > best_bets_map[key].odds:
+            best_bets_map[key] = b
+
+    sim_summary = engine.run_simulation(
+        qualified_bets=list(best_bets_map.values()),
+        strategy="flat",
+        initial_bankroll=1000.0,
+        flat_stake=100.0,
+    )
 
     brackets_data = []
-    if len(best_b):
-        best_b["pnl"] = np.where(best_b["won"], 100.0 * (best_b["odds"] * net_mult - 1.0), -100.0)
-        brackets = [
-            ("< 1.80", 0.0, 1.80),
-            ("1.80 - 2.50", 1.80, 2.50),
-            ("2.50 - 3.50", 2.50, 3.50),
-            ("3.50 - 5.00", 3.50, 5.00),
-            ("> 5.00", 5.00, 999.0),
-        ]
-        for label, low, high in brackets:
-            sub_b = best_b[(best_b["odds"] >= low) & (best_b["odds"] < high)]
-            if len(sub_b) == 0:
-                continue
-            n = len(sub_b)
-            wins = sub_b["won"].sum()
-            wr = wins / n * 100.0
-            exp_roi = sub_b["ev_net"].mean() * 100.0
-            real_roi = (sub_b["pnl"].sum() / (n * 100.0)) * 100.0
-            pnl_val = sub_b["pnl"].sum()
-            avg_o = sub_b["odds"].mean()
-            clv_val = sub_b["clv"].mean()
-            brackets_data.append({
-                "label": label, "bets": int(n), "wins": int(wins),
-                "win_rate_pct": round(float(wr), 1), "avg_odds": round(float(avg_o), 2),
-                "expected_net_roi_pct": round(float(exp_roi), 1), "realized_net_roi_pct": round(float(real_roi), 1),
-                "pnl_pln": round(float(pnl_val), 2), "clv_pct": round(float(clv_val), 1),
-            })
+    for ob_bin in sim_summary.by_odds_bracket:
+        brackets_data.append({
+            "label": ob_bin.label,
+            "bets": ob_bin.bets_count,
+            "wins": ob_bin.wins_count,
+            "win_rate_pct": ob_bin.win_rate_pct,
+            "avg_odds": ob_bin.avg_odds,
+            "expected_net_roi_pct": ob_bin.expected_ev_pct,
+            "realized_net_roi_pct": ob_bin.realized_ev_pct,
+            "pnl_pln": ob_bin.total_pnl,
+            "clv_pct": ob_bin.median_clv_pct if ob_bin.median_clv_pct is not None else 0.0,
+            "clv_pp": ob_bin.mean_clv_pp if ob_bin.mean_clv_pp is not None else 0.0,
+        })
 
-    by_book = []
-    if len(best_b):
-        agg_b = best_b.groupby("bookmaker").agg(
-            bets=("won", "count"), wins=("won", "sum"),
-            avg_odds=("odds", "mean"), pnl=("pnl", "sum"), clv=("clv", "mean")
-        ).reset_index().sort_values("pnl", ascending=False)
-        for _, r in agg_b.iterrows():
-            by_book.append({
-                "bookmaker": r["bookmaker"].upper(),
-                "bets": int(r["bets"]), "wins": int(r["wins"]),
-                "win_rate_pct": round(float(r["wins"] / r["bets"] * 100.0), 1),
-                "avg_odds": round(float(r["avg_odds"]), 2),
-                "pnl_pln": round(float(r["pnl"]), 2),
-                "roi_pct": round(float(r["pnl"] / (r["bets"] * 100.0) * 100.0), 1),
-                "clv_pct": round(float(r["clv"]), 1),
-            })
-
+    by_book = sim_summary.by_bookmaker
     horizons_data = []
     if len(df):
         df["hours_before"] = (pd.to_datetime(df["start_time_normalized"]) - pd.to_datetime(df["scraped_at"])).dt.total_seconds() / 3600.0
@@ -3959,14 +3967,13 @@ def validation_report(
                 "pos_clv_pct": round(pos_clv_h, 1),
             })
 
-    total_bets = len(best_b)
-    total_wins = int(best_b["won"].sum()) if total_bets else 0
-    total_pnl = float(best_b["pnl"].sum()) if total_bets else 0.0
-    total_staked = total_bets * 100.0
-    total_roi = (total_pnl / total_staked * 100.0) if total_staked else 0.0
-    avg_clv_tot = float(best_b["clv"].mean()) if total_bets else 0.0
-    pos_clv_tot = float((best_b["clv"] > 0).mean() * 100.0) if total_bets else 0.0
-
+    total_bets = sim_summary.bets_count
+    total_wins = sim_summary.wins_count
+    total_pnl = sim_summary.total_pnl
+    total_staked = sim_summary.total_staked
+    total_roi = sim_summary.roi_pct
+    avg_clv_tot = sim_summary.median_clv_pct if sim_summary.median_clv_pct is not None else 0.0
+    pos_clv_tot = float(np.mean([b.clv_pct > 0 for b in qualified_list if b.clv_pct is not None]) * 100.0) if qualified_list else 0.0
     return {
         "summary": {
             "matches": int(len(m_cohort)),

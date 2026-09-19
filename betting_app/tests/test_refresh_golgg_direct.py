@@ -8,20 +8,6 @@ from betting_app.scripts.refresh_golgg_direct import (
 )
 
 
-def _create_mapping_table() -> None:
-    with transaction() as connection:
-        connection.execute(
-            """
-            CREATE TABLE golgg_match_mappings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                canonical_match_id INTEGER NOT NULL UNIQUE,
-                golgg_match_id VARCHAR(50) NOT NULL UNIQUE,
-                confidence REAL DEFAULT 1.0,
-                mapped_by VARCHAR(50) DEFAULT 'auto',
-                mapped_at VARCHAR(50) DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
 
 
 def test_select_recent_existing_matches_picks_only_known_recent_matches() -> None:
@@ -62,7 +48,6 @@ def test_result_mapping_containment_requires_exact_date_and_competition() -> Non
 
 
 def test_auto_map_routes_next_day_result_to_review(client) -> None:
-    _create_mapping_table()
     with transaction() as connection:
         connection.execute(
             """
@@ -105,7 +90,6 @@ def test_auto_map_routes_next_day_result_to_review(client) -> None:
 
 
 def test_auto_map_accepts_one_exact_identity_date_competition_candidate(client) -> None:
-    _create_mapping_table()
     with transaction() as connection:
         connection.execute(
             """

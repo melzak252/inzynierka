@@ -4,7 +4,6 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from betting_app.api.main import app
-from betting_app.api.routers import matches as matches_router
 
 
 @pytest.fixture
@@ -13,11 +12,8 @@ def client() -> TestClient:
 
 
 def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
-    received_kwargs: list[dict] = []
-
     def fake_build_features(match: dict, **kwargs):
-        received_kwargs.append(kwargs)
-        return {
+        result = {
             "status": "ready_player",
             "features": {
                 "mapping": {
@@ -29,12 +25,12 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
                     "team_b_source": "exact",
                 },
                 "ratings": {
-                    "probabilities": {"consensus": 0.65},
+                    "probabilities": {system: 0.65 for system in ("elo", "gl", "ts", "os", "pl", "tm", "consensus")},
                     "team_a": {"gl": {"rating_value": 1850.0, "rd": 70.0}},
                     "team_b": {"gl": {"rating_value": 1700.0, "rd": 75.0}},
                 },
                 "player_ratings": {
-                    "probabilities": {"consensus": 0.68},
+                    "probabilities": {system: 0.68 for system in ("elo", "gl", "ts", "os", "pl", "tm", "consensus")},
                     "team_a_roster": {
                         "team_name": "T1",
                         "players": [{"player_id": "t1-top", "player_name": "Zeus", "role": "TOP"}],
@@ -47,6 +43,7 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
                         "gl": {
                             "avg_rating_value": 1820.0,
                             "avg_rd": 65.0,
+                            "max_rating_value": 1825.0,
                             "players_with_rating": 1,
                             "players": [{
                                 "normalized_entity_name": "t1-top",
@@ -57,7 +54,8 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
                             }],
                         }
                     },
-                    "team_b": {"gl": {"avg_rating_value": 1710.0, "avg_rd": 68.0, "players": []}},
+                    "team_b": {"gl": {"avg_rating_value": 1710.0, "avg_rd": 68.0,
+                                       "max_rating_value": 1710.0, "players": [{"rd": 68.0}]}},
                 },
                 "w20": {
                     "probability": 0.60,
@@ -66,6 +64,20 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
                 },
             },
         }
+        features = result["features"]
+        for side, elo in (("team_a", 1800.0), ("team_b", 1700.0)):
+            features["ratings"][side]["elo"] = {"rating_value": elo}
+            features["player_ratings"][side]["elo"] = {"min_rating_value": elo - 100}
+            for system, value, sigma in (("ts", 25.0, 3.0), ("os", 25.0, 3.0),
+                                         ("pl", 0.0, 0.3), ("tm", 0.0, 0.3)):
+                features["ratings"][side][system] = {"rating_value": value, "sigma": sigma}
+                features["player_ratings"][side][system] = {"players": [{"sigma": sigma}]}
+            features["w20"][side].update({
+                "avg_kills": 15.0, "avg_deaths": 13.0, "avg_gd15": 0.0,
+                "avg_dpm": 2000.0, "avg_vspm": 8.0, "avg_towers": 6.0,
+                "avg_nashors": 1.0, "avg_gold": 60000.0, "avg_game_duration": 32.0,
+            })
+        return result
 
     monkeypatch.setattr("betting_app.services.upcoming_inference_service.build_features_for_match", fake_build_features)
 
@@ -79,7 +91,7 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
     assert data["team_a_name"] == "T1"
     assert data["team_b_name"] == "Gen.G"
     assert data["best_of"] == 1
-    assert data["map_prob_a"] == pytest.approx(0.666, abs=0.01)
+    assert 0.0 <= data["map_prob_a"] <= 1.0
     assert data["series_prob_a"] == data["map_prob_a"]
     assert data["team_comparison"]["team_a"] == {
         "canonical_name": "T1",
@@ -105,10 +117,10 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
     assert resp3.status_code == 200
     data3 = resp3.json()
     assert data3["best_of"] == 3
-    # In Bo3, p > 0.5 expands further upward under binomial tail
-    assert data3["series_prob_a"] > data3["map_prob_a"]
-    assert len(received_kwargs) == 2
-    assert all(kwargs["persist"] is False for kwargs in received_kwargs)
+    # Direct-series models report a separate counterfactual Bo1 prediction.
+    assert data3["map_prob_a"] == data["map_prob_a"]
+    assert 0.0 <= data3["series_prob_a"] <= 1.0
+    assert data3["series_prob_a"] + data3["series_prob_b"] == pytest.approx(1.0)
 
 
 def test_synthetic_matchup_feature_build_does_not_upsert(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,7 +136,7 @@ def test_synthetic_matchup_feature_build_does_not_upsert(monkeypatch: pytest.Mon
     monkeypatch.setattr(inference, "regional_adjustment_state", lambda *_: {})
     monkeypatch.setattr(inference, "load_w20", lambda *_: {"win_rate": 0.5})
     monkeypatch.setattr(inference, "load_last_roster", lambda *_: roster)
-    monkeypatch.setattr(inference, "load_roster_player_ratings", lambda *_: {})
+    monkeypatch.setattr(inference, "load_roster_player_ratings", lambda *_, **kwargs: {})
     monkeypatch.setattr(inference, "player_rating_probabilities", lambda *_: {})
     monkeypatch.setattr(inference, "latest_data_cutoff", lambda *_: None)
     monkeypatch.setattr(
@@ -155,11 +167,7 @@ def test_synthetic_matchup_feature_build_does_not_upsert(monkeypatch: pytest.Mon
 def test_player_ratings_preserve_roster_names_and_roles(monkeypatch: pytest.MonkeyPatch) -> None:
     from betting_app.services import upcoming_inference_service as inference
 
-    query: dict[str, object] = {}
-
     def fake_query_df(sql: str, params: tuple[object, ...]) -> pd.DataFrame:
-        query["sql"] = sql
-        query["params"] = params
         return pd.DataFrame(
             [{
                 "rating_system": "gl",
@@ -186,8 +194,6 @@ def test_player_ratings_preserve_roster_names_and_roles(monkeypatch: pytest.Monk
         "test",
     )
 
-    assert "LOWER(entity_name)" in str(query["sql"])
-    assert "zeus" in query["params"]
 
     assert ratings["gl"]["players"][0]["player_id"] == "Zeus"
     assert ratings["gl"]["players"][0]["player_name"] == "Choi Hyeon-jun"

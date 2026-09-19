@@ -33,8 +33,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run unified model evaluation and promotion benchmark."
     )
-    parser.add_argument("--data", required=True, help="Path to CSV or Parquet evaluation dataset.")
-    parser.add_argument("--candidate-col", required=True, help="Candidate model prediction column.")
+    parser.add_argument("--data", help="Path to CSV or Parquet evaluation dataset.")
+    parser.add_argument("--candidate-col", help="Candidate model prediction column.")
     parser.add_argument("--baseline-col", default=None, help="Comparative baseline prediction column.")
     parser.add_argument("--target-col", default="y_true", help="Ground truth binary label column (default: y_true).")
     parser.add_argument("--date-col", default="date", help="Match date column for temporal blocks (default: date).")
@@ -49,11 +49,40 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--disagreement-col", default=None, help="Internal disagreement column.")
     parser.add_argument("--bootstraps", type=int, default=5000, help="Number of monthly bootstrap resamples (default: 5000).")
     parser.add_argument("--output-json", default=None, help="Optional path to save JSON benchmark output.")
-    return parser.parse_args()
+    parser.add_argument("--suite", type=Path, nargs="?", const=PROJECT_ROOT / "conf/base/research_benchmark.json", help="Versioned research manifest; canonical multi-model mode.")
+    parser.add_argument("--research-root", type=Path, help="Directory containing the research artifacts (or ENSEMBLE_RESEARCH_ROOT).")
+    parser.add_argument("--output-dir", type=Path, help="New output directory for a suite run.")
+    parser.add_argument("--doctor", action="store_true", help="Check suite inputs/hashes without scoring.")
+    parser.add_argument("--candidate-data", type=Path, help="Optional complete CSV/Parquet candidate predictions for the locked cohort.")
+    args = parser.parse_args()
+    if args.suite:
+        import os
+        args.research_root = args.research_root or os.environ.get("ENSEMBLE_RESEARCH_ROOT")
+        local_root = PROJECT_ROOT / "data/research_root.txt"
+        if not args.research_root and local_root.is_file():
+            args.research_root = local_root.read_text().strip()
+        if not args.research_root:
+            parser.error("--suite requires --research-root, ENSEMBLE_RESEARCH_ROOT or data/research_root.txt")
+        if not args.doctor and not args.output_dir:
+            parser.error("--suite requires a new --output-dir unless --doctor")
+        if args.data:
+            parser.error("--suite cannot be combined with legacy --data")
+    elif not args.data or not args.candidate_col:
+        parser.error("use --suite or both --data and --candidate-col")
+    return args
 
 
 def main() -> None:
     args = parse_args()
+    if args.suite:
+        import json
+        from src.analysis.research_benchmark import run_suite
+        result = run_suite(args.suite, args.research_root, args.output_dir, args.doctor,
+                           args.candidate_data, args.candidate_col or "p", args.bootstraps)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        if args.doctor and result["status"] != "READY":
+            raise SystemExit(2)
+        return
     data_path = Path(args.data)
     if not data_path.exists():
         sys.exit(f"Error: Data file not found at {data_path}")

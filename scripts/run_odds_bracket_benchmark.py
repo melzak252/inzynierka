@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""CLI runner for the Odds Bracket Calibration & Betting Performance Benchmark.
+"""CLI runner for the legacy Odds Bracket Calibration Benchmark.
 
-Evaluates calibration and betting metrics partitioned by bookmaker odds brackets
-on matches collected by the application or historical datasets.
+NOTE: For unified odds bracket calibration and zero-gap EV benchmarks, prefer:
+    `scripts/run_unified_betting_evaluation.py`
+which guarantees identical numbers across backend and CLI.
 
-Example:
-    .venv/bin/python scripts/run_odds_bracket_benchmark.py \
-        --data reports/exp039_db_market_backtest_v2/exp039_market_common.csv \
-        --dataset-name "Application Production Matches (2026)"
+Evaluates calibration and betting metrics partitioned by bookmaker odds brackets.
 """
 
 from __future__ import annotations

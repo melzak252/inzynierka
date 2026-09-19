@@ -22,16 +22,20 @@ The user wants a strong pre-match probability model that can also produce trustw
 
 The immediate priority is to stop repeating small, unsuccessful corrections and use one reproducible benchmark. The user explicitly requested repository cleanup and a handoff that another agent can understand without reading the conversation. Do not launch another architecture search before understanding the experiments below.
 
-### What is complete, and what is not (Updated: 2026-09-16)
+### What is complete, and what is not (Updated: 2026-09-18)
 
-- **Current research reference:** causal A0, a mixture of rating experts and neural player-history experts.
-- **Active operational model:** `Hybrid-Bayesian-Shrunk-A0-Market` (version `hybrid-a0-mkt-v1-a0.50`), combining A0 with opening bookmaker consensus in logit space. Standalone EXP-081 is retired from live inference.
+- **Current research reference:** Consolidated A1 (`src/models/a1/engine.py`), combining Causal A0 with AntiSymmetricMacroMLP, opponent matchup attention, and tier parity scaling ($s = 0.94$). SOTA LogLoss: **`0.550691`** on the full $N = 11{,}550$ canonical benchmark ($p = 0.0446 < 0.05$ statistically significant vs Causal A0 `0.551246`). Global ECE is **`1.02%`**.
+- **Active operational model:** `Hybrid-Bayesian-Shrunk-A1-Market`, combining Consolidated A1 with Multiplicative Market Consensus ($50/50$ in logit space). Standalone EXP-081 retired. Zero blowouts across all market horizons.
+- **Completed:** Scraped database audit and 44.7% side-inversion bug resolution (`scripts/scraped/evaluate_exact_aligned_benchmark.py`), restoring true scraped pro match LogLoss to **`0.5681`** (Causal A0) and **`0.5568`** (Shrunk Hybrid).
+- **Completed:** Devigging methodology shootout across 208,093 quotes (`reports/devig_methods_comparison_report.md`). Multiplicative devigging proven as SSOT with 0 tail blowouts (Shin failed with 32 blowouts).
+- **Completed:** 48-hour advance window betting benchmark and EV calibration ($N = 441$ matches, `scripts/scraped/run_48h_betting_benchmark.py`). Shrunk Hybrid achieves LogLoss **`0.5451`** (beats market by $-0.0125$). Corridor Rule on $\text{Odds} \le 2.50$ delivers **`70.0%` win rate**, **`+15.2%` net yield**, and **`+15.16%` Median CLV** (+2.20 pp probability drift).
 - **Completed:** Canonical match benchmark run under `data/08_reporting/benchmark/run_001/` ($N = 11{,}550$).
 - **Completed:** Bet qualification risk hardening in `betting_app/services/bet_qualification_service.py` (Rule A: EV ceiling cap $\le 0.25$ on odds $> 3.50$; Rule B: Bo1 discrepancy quarantine $|\Delta p| \ge 0.12$; Rule C: negative CLV drift quarantine $\le -0.015$). Yield after 12% Polish tax reaches $+32.35\%$ with $4.91\%$ max drawdown.
 - **Completed:** Regional rating discount factor ($\gamma = 0.70$) and Best-of series projection in `src/ratings/family_calibrated_glicko2.py`, cutting cross-regional Log Loss by $-0.0409$.
 - **Completed:** Production tournament simulation engine in `src/models/calibrated_tournament_model.py` with composite bracket calibration ($T = 1.12, \beta = 0.08, P_{\text{max}} = 0.88$), eliminating multi-round compounding and calibrating finals reach to $68.4\%$.
 - **Completed:** Pre-match confirmed lineup ingestion in `betting_app/scrapers/lineup_scraper.py` (30–45 min prior).
 - **Completed:** Full regression test suite passing: 303 tests in 9.49s.
+- **Master Knowledge Base:** Full mathematical derivations, formulas, tables, and scripts recorded in [`reports/master_research_and_engineering_knowledge_base_2026.md`](reports/master_research_and_engineering_knowledge_base_2026.md).
 - **Remaining/Diagnostic:** Tournament phase simulator remains in diagnostic mode for commercial futures betting until independent point-in-time publication verification of historical rulebooks is completed across all legacy tiers.
 ### Current numbers and why the cohorts differ
 
@@ -102,7 +106,9 @@ Freeze the control and regional variant before scoring. Test chronology, side sy
 |---|---|
 | `docs/RESEARCH.md` | Research status, current artifacts, limitations, completed experiments, and next steps. |
 | `conf/base/research_benchmark.json` | Versioned benchmark manifest: sources, hashes, models, and cohorts. |
-| `scripts/run_model_benchmark.py` | Main entry point for model comparisons. |
+| `scripts/run_model_benchmark.py` | Main entry point for model accuracy comparisons (LogLoss, Brier). |
+| `scripts/run_unified_betting_evaluation.py` | Main entry point for betting simulations and zero-gap EV calibration. |
+| `src/analysis/unified_evaluation_engine.py` | Single Source of Truth (SSOT) for bet qualification, calibrated EV, and financial simulation. |
 | `src/analysis/` | Shared metric and evaluation definitions; extend these instead of copying them. |
 | `src/ratings/`, `src/models/` | Ratings, models, features, and prediction contracts. |
 | `src/models/tournament_*.py`, `scripts/simulate_tournament.py` | Tournament models and tools; inspect the scope of each module. |

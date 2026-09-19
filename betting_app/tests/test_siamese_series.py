@@ -149,8 +149,8 @@ def test_exact_machine_anti_symmetry() -> None:
         assert p_b < 0.5
 
         # Invariant 3: Epistemic uncertainty is identical under swap
-        p_mean_a, sigma_a, p_low_a = model.predict_with_uncertainty(snap_a, best_of=bo)
-        p_mean_b, sigma_b, p_low_b = model.predict_with_uncertainty(snap_b, best_of=bo)
+        p_mean_a, sigma_a, p_low_a, opposite_a = model.predict_with_uncertainty(snap_a, best_of=bo)
+        p_mean_b, sigma_b, p_low_b, opposite_b = model.predict_with_uncertainty(snap_b, best_of=bo)
 
         assert sigma_a == pytest.approx(sigma_b, abs=1e-12)
         assert sigma_a > 0.0
@@ -158,6 +158,39 @@ def test_exact_machine_anti_symmetry() -> None:
         # Invariant 4: P_low is conservative for both perspectives
         assert p_low_a < p_mean_a
         assert p_low_b < p_mean_b
+        assert opposite_a == pytest.approx(p_low_b, abs=1e-12)
+        assert opposite_b == pytest.approx(p_low_a, abs=1e-12)
+
+
+@pytest.mark.parametrize("kappa", [-1.0, float("nan"), float("inf")])
+def test_invalid_risk_penalty_is_rejected(kappa) -> None:
+    model = SiameseSeriesModel.load_default()
+    snapshot, _ = _generate_synthetic_snapshots()
+    with pytest.raises(ValueError):
+        model.predict_with_uncertainty(snapshot, best_of=3, kappa=kappa)
+
+
+def test_zero_risk_penalty_preserves_both_mean_probabilities() -> None:
+    model = SiameseSeriesModel.load_default()
+    snapshot, _ = _generate_synthetic_snapshots()
+    mean, _, low_a, low_b = model.predict_with_uncertainty(snapshot, best_of=3, kappa=0.0)
+    assert low_a == mean
+    assert low_b == pytest.approx(1.0 - mean)
+    assert low_b <= 1.0 - mean
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf")])
+def test_nonfinite_ensemble_member_cannot_produce_a_risk_score(invalid) -> None:
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    model = replace(
+        SiameseSeriesModel.load_default(),
+        members=(SimpleNamespace(forward_anti_symmetric=lambda _: invalid),),
+    )
+    snapshot, _ = _generate_synthetic_snapshots()
+    with pytest.raises(ValueError):
+        model.predict_with_uncertainty(snapshot, best_of=3)
 
 
 def test_format_dynamics() -> None:

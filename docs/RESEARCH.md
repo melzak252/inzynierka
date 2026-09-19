@@ -131,3 +131,22 @@ W ramach sesji badawczej i weryfikacyjnej zrealizowano pełny audyt, testy empir
 +- `reports/tournament_composite_calibration_audit_report.md`: Audyt techniczny strategii kompozytowej symulacji turniejowych.
 +- `TODO/README.md`: Rejestr wykonanych i zweryfikowanych zadań wdrożeniowych (P0–P2).
 +- Zestaw 303 testów jednostkowych i integracyjnych przechodzi w 9.49s.
+
+### 7. Ostateczny Przełom Modelowy, Audyt Stron i Kalibracja 48h (Aktualizacja: 2026-09-18)
+
+1. **Rozwiązanie błędu inwersji stron (44.7%):**
+   W bazie produkcyjnej w 290 z 649 meczów `team_a` odpowiadał `team2` w GOL.GG. Usunięcie tego odwrócenia w `scripts/scraped/evaluate_exact_aligned_benchmark.py` przywróciło rzeczywisty LogLoss Causal A0 na zeskrapowanych meczach do **`0.5681`** (wcześniej pozorny artefakt > 0.60).
+
+2. **Nowy Rekord SOTA poniżej Causal A0 (0.550691):**
+   W `src/models/a1/engine.py` połączono Causal A0 z siecią makroekonomiczną `AntiSymmetricMacroMLP` (Duration, GD15, Gold, Drakes), uwagą rywali i skalowaniem parytetu tierów ($s = 0.94$). Na pełnym kanonicznym benchmarku $N = 11{,}550$ model Consolidated A1 osiąga **`0.550691` LogLoss** ($p = 0.0446 < 0.05$, istotność statystyczna w teście bootstrapowym).
+
+3. **Wybór Deviggingu Multiplikatywnego jako SSOT:**
+   Testy na 208 093 kwotowaniach wykazały, że devigging multiplikatywny jest jedyną metodą z **0 blowoutami** na wszystkich horyzontach (OPEN, 24h, CLOSE). Metoda Shina generowała 26–32 blowouty przez sztuczne zawyżanie faworytów.
+
+4. **Horyzont 48h i Reguła Korytarza Zakładów:**
+   Na horyzoncie 48h ($N = 441$, średnio $38.1$h przed meczem) Shrunk Hybrid osiąga LogLoss **`0.5451`** (bije rynek 48h o $-0.0125$ i A0 o $-0.0058$). Korytarz faworytów ($\text{Odds} \le 2.50$) generuje **`+15.2%` zysku netto** przy $70.0\%$ win rate i **`+15.16%` Median CLV**.
+
+5. **Globalna Kalibracja ECE:**
+   Globalne ECE modelu wynosi **`1.02%`** na kanonicznym benchmarku i **`4.30%`** na horyzoncie 48h (bije bukmacherów: `4.65%`). Odchylenie w przedziale EV $> 10\%$ wynikało wyłącznie z małej próby ($N = 5$ zakładów) i mnożnika kursów na underdogach, a nie ze złej kalibracji prawdopodobieństw.
+
+Pełna baza wiedzy ze wzorami, tabelami i ścieżkami: [`reports/master_research_and_engineering_knowledge_base_2026.md`](../reports/master_research_and_engineering_knowledge_base_2026.md).

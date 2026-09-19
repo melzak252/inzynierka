@@ -303,8 +303,8 @@ def backfill_predictions(
                 "map_prob_a": res.map_prob_a,
                 "best_of": res.best_of,
                 "epistemic_sigma_z": res.epistemic_sigma_z,
-                "prob_risk_adjusted_p_low_a": res.p_low_a,
-                "prob_risk_adjusted_p_low_b": res.p_low_b,
+                "p_low_a": res.p_low_a,
+                "p_low_b": res.p_low_b,
                 "winner_side": winner_side,
                 **res.diagnostics,
             }

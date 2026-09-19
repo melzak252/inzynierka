@@ -31,7 +31,8 @@ secrets/
 betting_app/models/ml/
 
 # Local thesis/report materials not tracked in code repo
-docs/
+docs/*
+!docs/RESEARCH.md
 OLD/
 docs_backup/
 

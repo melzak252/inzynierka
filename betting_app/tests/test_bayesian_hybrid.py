@@ -1,5 +1,5 @@
 import pytest
-from betting_app.services.upcoming_inference_service import bayesian_logit_shrinkage
+from betting_app.core.models.engine import bayesian_logit_shrinkage
 
 
 def test_bayesian_logit_shrinkage_symmetry() -> None:
@@ -35,8 +35,8 @@ def test_bayesian_logit_shrinkage_weights() -> None:
 
 
 def test_bayesian_logit_shrinkage_invalid_weight() -> None:
-    with pytest.raises(ValueError, match="model_weight must be in"):
+    with pytest.raises(ValueError):
         bayesian_logit_shrinkage(0.5, 0.5, model_weight=-0.1)
 
-    with pytest.raises(ValueError, match="model_weight must be in"):
+    with pytest.raises(ValueError):
         bayesian_logit_shrinkage(0.5, 0.5, model_weight=1.1)

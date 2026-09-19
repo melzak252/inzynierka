@@ -120,7 +120,10 @@ def get_tournament_bracket(tournament_id: str) -> dict[str, Any]:
     bracket = sync_res.get("bracket") or builder()
 
     simulator = TournamentSimulator()
-    sim_res = simulator.simulate(bracket, n_simulations=5000)
+    try:
+        sim_res = simulator.simulate(bracket, n_simulations=5000)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     sim_res["source"] = sync_res.get("source", "curated")
     sim_res["status"] = sync_res.get("status", "ready")
     sim_res["synced_at"] = sync_res.get("synced_at")
@@ -148,7 +151,10 @@ def sync_tournament_bracket(
     )
     bracket = sync_res.get("bracket") or builder()
     simulator = TournamentSimulator()
-    sim_res = simulator.simulate(bracket, n_simulations=5000)
+    try:
+        sim_res = simulator.simulate(bracket, n_simulations=5000)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     sim_res["source"] = sync_res.get("source", "curated")
     sim_res["status"] = sync_res.get("status", "ready")
     sim_res["synced_at"] = sync_res.get("synced_at")
@@ -170,7 +176,10 @@ def simulate_tournament(tournament_id: str, body: SimulateTournamentRequest) -> 
 
     simulator = TournamentSimulator()
     n_sims = min(max(body.simulations, 100), 50000)
-    sim_res = simulator.simulate(bracket, n_simulations=n_sims, manual_overrides=body.manual_overrides)
+    try:
+        sim_res = simulator.simulate(bracket, n_simulations=n_sims, manual_overrides=body.manual_overrides)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     sim_res["source"] = sync_res.get("source", "curated")
     sim_res["status"] = sync_res.get("status", "ready")
     sim_res["synced_at"] = sync_res.get("synced_at")

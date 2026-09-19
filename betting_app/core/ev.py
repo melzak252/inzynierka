@@ -1,9 +1,6 @@
 """Expected value and market probability calculations."""
 
-from __future__ import annotations
-
-from src.analysis.shin_devig import shin_implied_probabilities
-
+from src.analysis.devig_comparison import devig_multiplicative
 
 def implied_probability(decimal_odds: float) -> float:
     """Return raw implied probability from decimal odds."""
@@ -14,14 +11,12 @@ def implied_probability(decimal_odds: float) -> float:
 
 
 def fair_market_probabilities(odds_a: float, odds_b: float) -> tuple[float, float]:
-    """Remove two-way bookmaker margin from decimal odds using Shin (1992) devigging.
+    """Remove two-way bookmaker margin using Multiplicative (Proportional) devigging.
 
-    Unlike simple proportional devigging (q_i / sum(q)), Shin's method accounts
-    for the favorite-longshot bias by solving for the insider trading parameter z.
-    This produces more accurate fair probabilities, especially for underdogs.
+    Proven as the optimal zero-tail method across production pro matches:
+    p_i = (1 / O_i) / (1 / O_a + 1 / O_b)
     """
-    return shin_implied_probabilities(odds_a, odds_b)
-
+    return devig_multiplicative(odds_a, odds_b)
 
 def expected_value(model_prob: float, decimal_odds: float, tax_rate: float = 0.12) -> float:
     """Calculate expected value with Polish betting tax convention."""

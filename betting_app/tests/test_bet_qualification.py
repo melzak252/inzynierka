@@ -228,6 +228,46 @@ def test_issue_003_tier1_market_divergence_quarantined() -> None:
     assert reason_erl == "eligible"
     assert diag_erl["quarantine"] is False
 
+def test_coinflip_market_divergence_trap_quarantined() -> None:
+    """Odds in [1.80, 2.50] with divergence >= 0.08 must be quarantined when enabled."""
+    # Case 1: Coin-flip line (odds=2.10) with sharp model divergence (|0.60 - 0.48| = 0.12 >= 0.08)
+    eligible, reason, diag = is_bet_eligible(
+        prob_model=0.60,
+        odds=2.10,
+        prob_market_novig=0.48,
+        max_coinflip_market_gap=0.08,
+        tax_rate=0.0,
+        min_ev_net=0.03,
+    )
+    assert not eligible
+    assert reason == "coinflip_market_divergence_trap"
+    assert diag["quarantine"] is True
+    assert diag["quarantine_reason"] == "coinflip_market_divergence_trap"
+
+    # Case 2: Coin-flip line with small acceptable divergence (|0.52 - 0.48| = 0.04 < 0.08)
+    eligible_ok, reason_ok, diag_ok = is_bet_eligible(
+        prob_model=0.52,
+        odds=2.10,
+        prob_market_novig=0.48,
+        max_coinflip_market_gap=0.08,
+        tax_rate=0.0,
+        min_ev_net=0.03,
+    )
+    assert eligible_ok
+    assert reason_ok == "eligible"
+    assert diag_ok["quarantine"] is False
+
+    # Case 3: Outside coin-flip band (odds=1.60 favorite), divergence allowed
+    eligible_fav, reason_fav, diag_fav = is_bet_eligible(
+        prob_model=0.75,
+        odds=1.60,
+        prob_market_novig=0.64,
+        max_coinflip_market_gap=0.08,
+        tax_rate=0.0,
+        min_ev_net=0.03,
+    )
+    assert eligible_fav
+    assert reason_fav == "eligible"
 
 def test_conservative_ev_does_not_hide_mean_market_divergence() -> None:
     eligible, reason, diag = is_bet_eligible(

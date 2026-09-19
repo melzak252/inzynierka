@@ -556,17 +556,45 @@ Rebuild jest zawsze pełny. Nie uruchamiaj `rebuild_ratings` dla `ratings-v2`:
 wszystkie systemy muszą odzwierciedlać identyczny kohortowy cutoff i ten sam
 stan regionalnego Glicko. Zadanie `heavy_maintenance_cycle` wykonuje kolejno
 odświeżenie GOL.GG, `rebuild_regional_ratings` oraz W20; zwykły
-`prediction_pipeline` następnie tworzy features, predykcje operacyjne
-`Operational-PlayerTeamRatings-W20 / v0.4-binom-series`, hybrydę rynku i
-sygnały EV. Najpierw obliczane jest prawdopodobieństwo pojedynczej mapy, a
-następnie dla `Bo1`, `Bo3`, `Bo5` i `Bo7` konwertowane binomialnym ogonem do
-prawdopodobieństwa całej serii. Przycisk **Predict** w widoku meczu używa tego
-samego modelu i respektuje ręcznie zatwierdzony skład.
+`prediction_pipeline` następnie tworzy features, predykcje modelu wskazanego
+przez `betting_app/core/models/registry.py`, hybrydę rynku i sygnały EV.
+W aktualnym rejestrze jest to EXP-081; sama obecność w rejestrze nie oznacza
+spełnienia kryteriów promocji. Audyt z 2026-09-07 nie zatwierdził nowego
+artefaktu ani wariantu 84 cech — patrz
+[`benchmark_results.md`](../reports/exp081_siamese_focal_uncertainty_gating/benchmark_results.md).
+Przycisk **Predict** korzysta ze wspólnego silnika i respektuje ręcznie
+zatwierdzony skład. Niepełne wymagane cechy modelu Siamese są błędem,
+nie powodem podstawienia zer lub zastępczego konsensusu.
 
 EXP-039 (`Sym-Cal LR-ElasticNet-W20-Binomial`) pozostaje zamrożonym,
 nieoperacyjnym baseline'em wyłącznie do porównań; nie jest już wybierany przez
 interaktywną ani schedulerową ścieżkę predykcji. Żaden z tych kroków nie składa
 zakładów automatycznie.
+
+### Kontrakt rekomendacji i niepewności
+
+Predykcja zachowuje komplementarne średnie `prob_a`, `prob_b`. Modele z
+niepewnością muszą dodatkowo dostarczyć osobne `p_low_a`, `p_low_b`,
+`epistemic_sigma_z` i `rating_disagreement` w `diagnostics_json`.
+Dolne oceny **nie są komplementarne ani objęte gwarancją statystyczną**.
+Hybryda przekształca każdą z nich z odpowiednią stroną rynku; nie używa
+`1-p_low_a` jako konserwatywnej oceny B.
+
+Generator, tablica, szczegóły meczu i `/predictions` używają wspólnej
+kwalifikacji: dolna ocena do EV/Kelly, średnia do kontroli odchylenia od rynku,
+rozbieżność konsensusu sześciu ratingów drużyny/graczy i kontrola Tier-1.
+Brak lub błędna wymagana diagnostyka blokuje rekomendację. Stare jednostronne
+diagnostyki wymagają ponownego obliczenia, nie dopisania dopełnienia.
+Domyślny próg generatora/CLI wynosi +5% netto z dodatkową karą niskich kursów;
+publiczne rekomendacje nie obniżają tej polityki filtrem `min_ev`.
+Pola `model_prob` prezentują średnią, natomiast `ev` i `kelly` dotyczą
+konserwatywnej oceny. `half_kelly` i `quarter_kelly` to odpowiednio 1/2 i 1/4
+pełnego Kelly'ego, nie gwarantowane bezpieczne stawki.
+
+Ta naprawa nie ustanawia historycznej dostępności danych, nie naprawia
+event-time ledger i nie dowodzi rentowności. Nie wykonuje też migracji ani
+przeliczenia skonfigurowanej bazy. Eksperymenty treningowe zapisują nowe,
+niezatwierdzone artefakty poza katalogiem aktywnych modeli.
 
 ### Chronologiczne porównanie modeli
 

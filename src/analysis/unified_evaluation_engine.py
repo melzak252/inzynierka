@@ -142,6 +142,43 @@ def compute_p_low(
     return float(1.0 / (1.0 + math.exp(-z_low)))
 
 
+def compute_shrunk_p_low(
+    prob_shrunk: float,
+    prob_model: float,
+    prob_market: float,
+    odds: float,
+    kappa: float = 0.75,
+    sigma_base: float = 0.12,
+    beta_disagreement: float = 0.25,
+    odds_ref: float = 1.50,
+) -> float:
+    """Calculate heteroskedastic risk-adjusted lower-bound probability for shrunken hybrid models.
+
+    Accounts for two critical risk dimensions:
+    1. Model-Market Disagreement:
+       Epistemic uncertainty increases with |logit(p_model) - logit(p_market)|.
+    2. Odds Multiplier Heteroskedasticity:
+       Since Delta EV = Delta p * Odds, higher odds bets require a larger risk
+       buffer to prevent severe underdog drawdowns:
+       sigma_z = (sigma_base + beta * |z_mod - z_mkt|) * sqrt(max(1.0, odds / odds_ref))
+       logit(p_low) = logit(p_shrunk) - kappa * sigma_z
+    """
+    p_s = float(np.clip(prob_shrunk, 1e-6, 1.0 - 1e-6))
+    p_mod = float(np.clip(prob_model, 1e-6, 1.0 - 1e-6))
+    p_mkt = float(np.clip(prob_market, 1e-6, 1.0 - 1e-6))
+
+    z_shrunk = math.log(p_s / (1.0 - p_s))
+    z_mod = math.log(p_mod / (1.0 - p_mod))
+    z_mkt = math.log(p_mkt / (1.0 - p_mkt))
+
+    diff_z = abs(z_mod - z_mkt)
+    odds_factor = math.sqrt(max(1.0, float(odds) / odds_ref))
+    sigma_z = (sigma_base + beta_disagreement * diff_z) * odds_factor
+
+    z_low = z_shrunk - (kappa * sigma_z)
+    p_low = 1.0 / (1.0 + math.exp(-z_low))
+    return float(min(p_s, p_low))
+
 def calculate_quarter_kelly_stake(
     bankroll: float,
     prob_for_ev: float,
@@ -226,12 +263,22 @@ class UnifiedBettingEngine:
         best_of: int | None = None,
         rating_disagreement: float | None = None,
         flat_stake: float = 100.0,
+        prob_standalone_model: float | None = None,
     ) -> tuple[bool, EvaluatedBet]:
         """Qualify a single candidate betting quote through the canonical gate."""
         if prob_conservative is None:
-            prob_conservative = compute_p_low(
-                prob_model, kappa=self.kappa, sigma_z=self.default_sigma_z
-            )
+            if prob_standalone_model is not None and prob_market_novig is not None:
+                prob_conservative = compute_shrunk_p_low(
+                    prob_shrunk=prob_model,
+                    prob_model=prob_standalone_model,
+                    prob_market=prob_market_novig,
+                    odds=odds,
+                    kappa=self.kappa,
+                )
+            else:
+                prob_conservative = compute_p_low(
+                    prob_model, kappa=self.kappa, sigma_z=self.default_sigma_z
+                )
 
         tier = qualification_tier(league, date_str) if league and date_str else None
 

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""CLI runner for the standalone financial and betting benchmark.
+"""CLI runner for the legacy standalone financial and betting benchmark.
 
-Evaluates executable betting performance under the 12% Polish turnover tax:
-- ROI (%) and Net Profit (PLN)
-- Net Yield (%) = Total Profit / Total Staked * 100
-- Maximum Drawdown (% and PLN)
-- Bet volume (Bets count, Bet Rate %)
-- Expected ROI / Expected Yield (%)
-- Average odds and Win Rate (%)
+NOTE: For new production and research evaluations, prefer the unified Single
+Source of Truth runner:
+    `scripts/run_unified_betting_evaluation.py`
+which enforces consistent qualification, calibrated EV, and non-conflicting metrics.
 
+Evaluates executable betting performance under the 12% Polish turnover tax.
 Example:
     .venv/bin/python scripts/run_financial_benchmark.py \
       --data reports/exp039_db_market_backtest_v2/exp039_market_common.csv \

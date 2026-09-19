@@ -63,6 +63,17 @@ def add_to_y_predicts(
             y_predicts[key].append(None)
 
 
+def create_rating_manager() -> RatingManager:
+    """Family parameters used to produce the legacy canonical79 rating inputs."""
+    return RatingManager({
+        "elo": {"k_player": 48, "k_team": 64},
+        "ts": {"mu": 25.0, "sigma": 8.333, "beta": 4.16, "tau": 0.25},
+        "os": {"mu": 25.0, "sigma": 3.5},
+        "pl": {"mu": 25.0, "sigma": 8.333, "beta": 18.75, "tau": 0.05},
+        "tm": {"mu": 25.0, "sigma": 8.333, "beta": 18.75, "tau": 0.05},
+    })
+
+
 def main() -> None:
     """Generate and save leakage-safe pre-match rating predictions."""
 
@@ -87,14 +98,7 @@ def main() -> None:
     # scripts/05_ratingi_baseline/05c_optimize_rating_families.py.
     # Glicko-2 defaults correspond to the best grid-search setting:
     # RD=350, volatility=0.06, period_days=7.
-    optimal_params = {
-        "elo": {"k_player": 48, "k_team": 64},
-        "ts": {"mu": 25.0, "sigma": 8.333, "beta": 4.16, "tau": 0.25},
-        "os": {"mu": 25.0, "sigma": 3.5},
-        "pl": {"mu": 25.0, "sigma": 8.333, "beta": 18.75, "tau": 0.05},
-        "tm": {"mu": 25.0, "sigma": 8.333, "beta": 18.75, "tau": 0.05},
-    }
-    manager = RatingManager(optimal_params)
+    manager = create_rating_manager()
 
     y_predicts: dict[str, list[object]] = {}
     y_trues = []

@@ -190,9 +190,12 @@ class ModelBenchmarkReport:
 def calculate_calibration_parameters(
     y_true: np.ndarray,
     probabilities: np.ndarray,
+    *,
+    probability_epsilon: float | None = 1e-6,
 ) -> tuple[float, float]:
     """Fit unregularized logistic calibration regression logit(y) = alpha + beta * logit(p)."""
-    p_clipped = clip_probabilities(probabilities, epsilon=1e-6)
+    p_clipped = (np.asarray(probabilities, dtype=float) if probability_epsilon is None
+                 else clip_probabilities(probabilities, epsilon=probability_epsilon))
     logits = np.log(p_clipped / (1.0 - p_clipped)).reshape(-1, 1)
     
     # Use very low L2 penalty (C=1e9) to obtain unregularized maximum likelihood estimates
@@ -228,13 +231,18 @@ def calculate_mce(
 def compute_benchmark_summary(
     y_true: np.ndarray,
     probabilities: np.ndarray,
+    *,
+    probability_epsilon: float | None = DEFAULT_PROBABILITY_EPSILON,
 ) -> ModelBenchmarkSummary:
     """Compute complete benchmark metric summary for a single prediction stream."""
     y = np.asarray(y_true, dtype=int)
-    p = clip_probabilities(probabilities, epsilon=DEFAULT_PROBABILITY_EPSILON)
+    p = (np.asarray(probabilities, dtype=float) if probability_epsilon is None
+         else clip_probabilities(probabilities, epsilon=probability_epsilon))
+    if probability_epsilon is None and (not np.isfinite(p).all() or np.any((p <= 0) | (p >= 1))):
+        raise ValueError("Unclipped benchmark requires finite probabilities strictly inside(0,1)")
     n = len(y)
 
-    ll = float(log_loss(y, p))
+    ll = float(-np.mean(np.where(y, np.log(p), np.log1p(-p)))) if probability_epsilon is None else float(log_loss(y, p))
     bs = float(brier_score_loss(y, p))
     auc = float(roc_auc_score(y, p)) if len(np.unique(y)) > 1 else float("nan")
     acc = float(accuracy_score(y, p >= 0.5))
@@ -242,7 +250,8 @@ def compute_benchmark_summary(
     brier_decomp = brier_decomposition(pd.Series(y), pd.Series(p), n_bins=10)
     ece = calculate_ece(y, p, n_bins=10)
     mce = calculate_mce(y, p, n_bins=10)
-    slope, intercept = calculate_calibration_parameters(y, p)
+    slope, intercept = calculate_calibration_parameters(
+        y, p, probability_epsilon=None if probability_epsilon is None else 1e-6)
 
     return ModelBenchmarkSummary(
         sample_size=n,

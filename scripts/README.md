@@ -10,6 +10,17 @@ date: 2026-05-07
 > [!abstract]
 > Katalog `scripts/` jest pogrupowany według numerowanych rozdziałów pracy. Numer folderu odpowiada głównemu etapowi analizy: od przygotowania danych, przez EDA i modele, po symulacje finansowe, robustness oraz generowanie wizualizacji raportowych.
 
+## Aktualny punkt wejścia do badań
+
+**`run_model_benchmark.py --suite conf/base/research_benchmark.json`** (ścieżka manifestu z katalogu głównego: `conf/base/research_benchmark.json`). Uruchamiaj z głównego katalogu repo według [instrukcji badań](../docs/RESEARCH.md).
+
+- `--doctor`: sprawdzenie źródeł i hashy, bez liczenia i treningu.
+- `--suite ... --output-dir data/08_reporting/benchmark/<nowy-run>`: wspólne metryki A0, ratingów,039 i OPEN z pokryciem.
+- `--candidate-data ... --candidate-col p`: dołączenie kompletnego kandydata do tej samej próby.
+- Dawny tryb `--data ... --candidate-col ...` pozostaje kompatybilnym narzędziem pojedynczej kolumny; jego automatyczne bramki nie zastępują pełnego dopuszczenia produkcyjnego.
+
+Poniższa numeracja opisuje historyczne narzędzia i wyspecjalizowane potoki, nie kilka konkurujących standardów benchmarku. Nowe eksperymenty powinny eksportować prognozy do jednego benchmarku.
+
 ## Zasada uruchamiania
 
 Skrypty należy uruchamiać z katalogu głównego projektu, po aktywowaniu środowiska wirtualnego:

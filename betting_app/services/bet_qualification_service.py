@@ -18,7 +18,10 @@ DEFAULT_MAX_EV_LONGSHOT: float = 0.25
 DEFAULT_LONGSHOT_ODDS_THRESHOLD: float = 3.50
 DEFAULT_MAX_BO1_MARKET_GAP: float = 0.12
 DEFAULT_MAX_NEGATIVE_CLV_DRIFT: float = -0.015
-
+DEFAULT_MAX_COINFLIP_MARKET_GAP: float | None = None
+DEFAULT_COINFLIP_MIN_ODDS: float = 1.80
+DEFAULT_COINFLIP_MAX_ODDS: float = 2.50
+DEFAULT_BO1_MAX_ODDS: float | None = None
 def model_requires_uncertainty(model_name: str) -> bool:
     spec = get_model(model_name)
     if spec is not None:
@@ -142,8 +145,12 @@ def is_bet_eligible(
     max_ev_longshot: float | None = DEFAULT_MAX_EV_LONGSHOT,
     longshot_odds_threshold: float = DEFAULT_LONGSHOT_ODDS_THRESHOLD,
     max_bo1_market_gap: float | None = DEFAULT_MAX_BO1_MARKET_GAP,
+    bo1_max_odds: float | None = DEFAULT_BO1_MAX_ODDS,
     prob_market_close_novig: float | None = None,
     max_negative_clv_drift: float | None = DEFAULT_MAX_NEGATIVE_CLV_DRIFT,
+    max_coinflip_market_gap: float | None = DEFAULT_MAX_COINFLIP_MARKET_GAP,
+    coinflip_min_odds: float = DEFAULT_COINFLIP_MIN_ODDS,
+    coinflip_max_odds: float = DEFAULT_COINFLIP_MAX_ODDS,
     *,
     prob_conservative: float | None = None,
     uncertainty_required: bool = False,
@@ -294,6 +301,11 @@ def is_bet_eligible(
         return False, "extreme_ev_longshot_cap", diag
 
     # Rule B: Bo1 Discrepancy Quarantine
+    if best_of == 1 and bo1_max_odds is not None and odds > bo1_max_odds:
+        diag["quarantine"] = True
+        diag["quarantine_reason"] = "bo1_longshot_variance_cap"
+        return False, "bo1_longshot_variance_cap", diag
+
     if (
         best_of == 1
         and prob_market_novig is not None
@@ -338,6 +350,17 @@ def is_bet_eligible(
             diag["quarantine"] = True
             diag["quarantine_reason"] = "tier1_sharp_market_divergence"
             return False, "tier1_sharp_market_divergence", diag
+    # Rule D (CALIBRATION-001): Reject coin-flip overconfidence trap in 1.80-2.50 bracket
+    if (
+        coinflip_min_odds <= odds <= coinflip_max_odds
+        and prob_market_novig is not None
+        and max_coinflip_market_gap is not None
+    ):
+        market_gap = abs(prob_model - prob_market_novig)
+        if market_gap >= max_coinflip_market_gap:
+            diag["quarantine"] = True
+            diag["quarantine_reason"] = "coinflip_market_divergence_trap"
+            return False, "coinflip_market_divergence_trap", diag
 
     return True, "eligible", diag
 

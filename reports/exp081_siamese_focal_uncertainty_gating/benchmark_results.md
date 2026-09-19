@@ -1,42 +1,75 @@
-# Raport Porównawczy: Syjamska Sieć Neuronowa z Focal Loss i Bramkowaniem Niepewnością (EXP-081)
+# EXP-081: korekta kontraktu i diagnostyka architektur
 
-**Data ewaluacji:** 2026-09-06  
-**Okres testowy (OOS):** 2025-01-12 do 2026-03-22 ($N=5\,597$ meczów, w tym $N=2\,334$ meczów z pełnymi kwotowaniami otwarcia/zamknięcia)  
-**Warunki finansowe:** Polski podatek obrotowy $12\%$ (współczynnik efektywny $0.88$), minimalny próg $\text{EV}_{\text{net}} \ge +5\%$, stawkowanie płaskie 100 PLN, kursy z zakresu $[1.05, 5.00]$.
+**Aktualizacja: 2026-09-07. Status: diagnostyka retrospektywna, bez zgody na promocję.**
 
----
+## Wycofanie wcześniejszych wniosków
 
-## 1. Tabela Zbiorcza: Ewolucja Modeli od Regresji Liniowej do Bagged MLP z Bramkowaniem Niepewnością
+Poprzednie deklaracje „eliminacji Winner's Curse”, optymalności `kappa=0.75`, rekordowego yield `+54.48%` i redukcji wykonalnego ryzyka portfela nie są uzasadnione. Nie należy ich cytować jako wyników produkcyjnych ani dowodu przewagi EXP-081/EXP-082.
 
-| Model / Koncepcja | LogLoss Test | ROC-AUC | Liczba Zakładów | Skuteczność (Win Rate) | Yield Netto | Zysk Netto | Max Drawdown | Coin-Flip $[50\%-55\%)$ Win Rate | Coin-Flip Gap (Overconf.) | Faworyci $[1.41-1.75]$ Zysk |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1. Regresja Liniowa (EXP-078)** | 0.5543 | 0.7854 | 747 | 57.0% | +50.08% | +37 412 PLN | 5.98% | 36.5% | +16.1 p.p. | -156 PLN |
-| **2. Syjamskie MLP (BCE Loss)** | 0.5523 | 0.7866 | 752 | 57.6% | +49.92% | +37 540 PLN | 5.58% | 36.5% | +16.1 p.p. | -156 PLN |
-| **3. Syjamskie MLP + Focal Loss ($\gamma=1.0$)** | **0.5518** | **0.7875** | 750 | 57.3% | +48.67% | +36 501 PLN | 5.45% | 42.2% | +10.4 p.p. | +32 PLN |
-| **4. Bagged MLP + Uncertainty Gating ($\kappa=0.75$)** | 0.5524 | 0.7872 | **680** | **58.7%** | **+54.48%** | **+37 047 PLN** | **4.64%** | **43.3%** | **+9.4 p.p.** | **+65 PLN** |
+Audyt ujawnił rozbieżność trening–inference: brakujące W20 i interakcje formatu serii zastępowano zerami, a gradient Focal Loss pomijał pochodną czynnika modulującego. Jednostronna dolna ocena A była też błędnie dopełniana do oceny B. Brakuje pełnego point-in-time pochodzenia ratingów, timestampów dostępności składów/kwotowań i event-time ledger z rezerwacją kapitału. Historycznych tabel zysków nie traktujemy jako wykonalnych wyników finansowych.
 
----
+## Naprawiony kontrakt
 
-## 2. Wpływ Parametru Konserwatyzmu Ryzyka ($\kappa$) na Portfel
+- Trening korzysta z tego samego `build_feature_mapping` i tej samej kolejności **79 cech** co inference; wymaga kompletnych surowych wejść i jawnego `best_of`.
+- Dla logitów członków zespołu: `p_a = sigmoid(mean_z)`, `p_b = 1-p_a`, `low_a = sigmoid(mean_z-kappa*sd_z)`, `low_b = sigmoid(-mean_z-kappa*sd_z)`, `sd_z` z `ddof=0`.
+- `low_a + low_b` nie musi wynosić 1. Są to heurystyczne oceny decyzyjne, **nie przedziały ufności ani gwarancja pokrycia**.
+- Hybryda przekształca obie dolne oceny osobno, z odpowiednią stroną rynku i tym samym trybem temperatury/blendowania co średnią.
+- Generator sygnałów, tablica meczów, szczegóły i endpoint sygnałów wymagają wspólnej kwalifikacji. EV i Kelly korzystają z dolnej oceny; średnia pozostaje prezentowanym prawdopodobieństwem i wejściem do kontroli rozbieżności z rynkiem. Brak wymaganej diagnostyki blokuje rekomendację.
+- Rozbieżność ratingów to różnica średnich sześciu prawdopodobieństw drużyny i graczy, nie wyłącznie różnica Glicko.
+- Domyślny próg EV generatora i CLI to `0.05` plus istniejąca kara niskich kursów. Nie jest to dowód optymalności tych parametrów. Model nie składa zakładów automatycznie.
+- Eksport treningowy zapisuje nowy artefakt `experimental_not_qualified`, nigdy nie nadpisuje istniejących plików ani nie promuje modelu.
 
-Dla estymacji dolnej granicy logitu:
-$$z_{\text{low}}(x) = \bar{z}(x) - \kappa \cdot \sigma_z(x) \implies p_{\text{low}}(x) = \sigma(z_{\text{low}}(x))$$
+## Protokół wykonanego porównania
 
-| $\kappa$ (Współczynnik Ryzyka) | Liczba Zakładów | Win Rate | Yield Netto | Zysk Netto | Max Drawdown | Zakłady Coin-Flip $N$ | Coin-Flip Win Rate | Faworyci $[1.41-1.75]$ Zysk |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **0.00** (brak kary) | 744 | 57.9% | +49.73% | +36 998 PLN | 5.30% | 70 | 42.9% | -128 PLN |
-| **0.25** | 726 | 58.3% | +51.66% | +37 508 PLN | 5.33% | 66 | 43.9% | -149 PLN |
-| **0.50** | 698 | 58.5% | +53.12% | +37 079 PLN | 5.33% | 61 | 42.6% | -83 PLN |
-| **0.75** (optymalny) | **680** | **58.7%** | **+54.48%** | **+37 047 PLN** | **4.64%** | **60** | **43.3%** | **+65 PLN** |
-| **1.00** | 655 | 58.8% | +55.01% | +36 034 PLN | 4.81% | 56 | 41.1% | +20 PLN |
+Odtworzono 27 717 kompletnych snapshotów z 40 158 wierszy ratingów. Wykluczono 4 873 serie z powtórnym uczestnictwem tej samej drużyny/gracza tego dnia, 7 550 z niepełnym W20, 4 z niepełnym składem i 14 niepoprawnych/niekompletnych serii. Predykcje całego dnia powstają przed aktualizacją historii tego dnia. Brakująca statystyka nie jest zerem ani powodem przesunięcia okna na starsze, wygodniejsze mecze.
 
----
+Porównanie architektur ogranicza historię treningową do dat od **2020-01-01**. Expanding-window: trening przed poprzednim rokiem kalendarzowym, osobny poprzedni rok do kalibracji, kolejny rok do oceny. Test: **2024-01-14–2026-05-11, N=8 860**, trzy foldy roczne. Brak strojenia na tym teście. MLP: 35 epok, 5 członków, seedy 42/143/244/345/446; dodatnia kalibracja logitu bez interceptu. Regresja: `C=0.1`, bez interceptu. Skalowanie fitowane wyłącznie na treningu, bez centrowania dla zachowania antysymetrii.
 
-## 3. Kluczowe Wnioski i Znaczenie dla Pracy Inżynierskiej
+Wariant 84 to 79 cech kanonicznych i pięć nieparzystych interakcji niezgodności ratingów. Dodają założenia funkcjonalne, **nie niezależne informacje o meczu**. Nie są wdrożonym ani zatwierdzonym EXP-082.
 
-1. **Eliminacja Przekleństwa Zwycięzcy (Winner's Curse)**:
-   Filtr opłacalności $\text{EV}_{\text{net}} \ge +5\%$ pod $12\%$ podatkiem naturalnie selekcjonował mecze o skrajnie dodatnim błędzie estymacji (zwłaszcza na faworytach i coin-flipach). Wprowadzenie bramkowania niepewnością epistemiczną ($P_{\text{low}}$) odrzuca mecze, w których wysokie EV wynika jedynie z szumu wariancji wag sieci.
-2. **Rekordowy Yield Netto (+54.48%)**:
-   Odrzucenie 72 toksycznych zakładów zwiększyło stopę zwrotu z $49.7\%$ do $54.5\%$ przy zachowaniu niemal identycznego zysku nominalnego (~37k PLN).
-3. **Drastyczny spadek ryzyka**:
-   Maksymalne obsunięcie kapitału (Max Drawdown) stopniało z $5.98\%$ w regresji liniowej do $4.64\%$ w Bagged MLP.
+| Wariant | LogLoss ↓ | Brier ↓ | AUC ↑ | Accuracy ↑ | ECE10 ↓ | Calibration slope |
+|---|---:|---:|---:|---:|---:|---:|
+| linear79 | 0.557858 | 0.189371 | 0.782531 | 0.707562 | 0.021779 | 1.020222 |
+| bce79 | 0.597233 | 0.205281 | 0.751443 | 0.684876 | 0.051806 | 1.449558 |
+| focal79 | 0.597799 | 0.205420 | 0.751461 | 0.684763 | 0.051772 | 1.468087 |
+| focal84 | 0.601808 | 0.206952 | 0.748977 | 0.683747 | 0.055900 | 1.466992 |
+
+Miesięczny block bootstrap: 5 000 resampli, 29 miesięcy; delty na wspólnych seriach, ujemne wartości lepsze:
+
+- `focal79 − bce79`: ΔLogLoss **+0.000566**, 95% CI **[-0.001289, +0.002763]**, udział resampli Δ≥0: 0.702. Brak dowodu przewagi Focal Loss.
+- `focal84 − bce79`: ΔLogLoss **+0.004575**, 95% CI **[+0.001098, +0.007777]**. W tym protokole wariant 84 jest gorszy.
+- `bce79 − linear79`: ΔLogLoss **+0.039375**, 95% CI **[+0.032784, +0.045721]**. Wynik dotyczy tych konfiguracji, nie dowodzi uniwersalnej przewagi regresji nad sieciami.
+
+Maksymalny błąd symetrii wszystkich wariantów: `2.22e-16`. Pełny JSON zawiera MCE, intercept, przybliżoną binowaną dekompozycję Briera z resztą, delty Briera, przekroje Bo1/3/5, poziomów rozgrywek, składów, confidence i niezgodności ratingów. Przekroje confidence są wspólne, ustalone według BCE79; nie dobieramy łatwiejszej grupy dla każdego modelu osobno.
+
+Kursy dopasowano dokładnie po ID, dacie, stronach i wyniku dla **3 783** serii; 937 wymagało odwrócenia stron. Closing jest wyłącznie diagnostycznym benchmarkiem, nie wejściem modeli sportowych ani dowodem możliwej do zawarcia oferty. Raport zawiera korelacje i diagnostyczną krzywą mieszania; jej minimum nie zostało wybrane do produkcji.
+
+## Dlaczego brak promocji
+
+1. N=8 860 nie spełnia wymaganego N≥10 000 dla kohorty 2024+.
+2. Nie można zweryfikować wersji i pre-update pochodzenia odziedziczonych ratingów. Składy odczytano z rozegranych gier, nie z timestampowanych ogłoszeń przedmeczowych.
+3. Brak timestampów dostępności źródeł i kwotowań; nie można udowodnić pełnej nierówności temporalnej. Chronologiczny podział nie naprawia tego braku.
+4. Kohorta była wcześniej oglądana; nie jest nietkniętym holdoutem. Brak point-in-time predykcji zamrożonego EXP-039 i właściwego baseline'u operacyjnego na tej kohorcie. `linear79` jest nowym kontrolnym treningiem, nie historycznym artefaktem EXP-078.
+5. MLP nie spełniają wymagań kalibracji. Brak event-time ledger — nie raportujemy ROI, zysku, drawdown ani gwarantowanej ochrony faworytów.
+
+**Nie podmieniono artefaktu aktywnego modelu i nie wykonano wdrożenia.** Poprawki kodu nie nadają historycznemu artefaktowi nowej walidacji. Do decyzji operacyjnej potrzebny jest wiarygodny point-in-time zbiór z baseline'ami oraz nowy, zatwierdzony eksperyment; nie wolno brakujących timestampów dopisywać wstecz.
+
+## Reprodukcja lokalna, bez bazy i scrapowania
+
+Wymagane istniejące pliki: `data/golgg_y_predicts.csv`, `data/golgg_matches.json`, `data/odds.csv`. Oba skrypty wymagają nieistniejącego katalogu wynikowego.
+
+```bash
+.venv/bin/python scripts/build_siamese_research_dataset.py --output-dir data/artifacts/siamese-integrity-repro
+OPENBLAS_NUM_THREADS=1 .venv/bin/python scripts/benchmark_siamese_architectures.py \
+  --snapshots data/artifacts/siamese-integrity-repro/snapshots.csv \
+  --audit data/artifacts/siamese-integrity-repro/audit.json \
+  --output-dir data/artifacts/siamese-integrity-repro/benchmark
+```
+
+Wyniki wykonanej sesji: `data/artifacts/siamese-integrity-v1/audit.json` i `benchmark/summary.json`, `benchmark/predictions.csv`. To lokalne, ignorowane artefakty; nie dodawać datasetów do Git. JSON przechowuje sumy SHA256 wejść i kodu z chwili uruchomienia.
+
+## Zakres literatury
+
+- [Focal Loss, Lin et al.](https://arxiv.org/abs/1708.02002): motywacja dotyczy nierównowagi łatwych/trudnych przykładów w detekcji obiektów, nie dowodu przewagi w prognozach LoL.
+- [Guo et al., calibration](https://proceedings.mlr.press/v70/guo17a.html): kalibracja wymaga osobnej walidacji; temperatura `T<1` przy `logit/T` wyostrza, a nie spłaszcza rozkład.
+- [Lakshminarayanan et al., deep ensembles](https://proceedings.neurips.cc/paper/7219-simple-and-scalable-predictive-uncertainty-estimation-using-deep-ensembles): uzasadnia badanie niepewności zespołu, nie gwarantuje pokrycia heurystyki `mean_logit − 0.75*sd`.

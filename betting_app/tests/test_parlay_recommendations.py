@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -65,7 +66,6 @@ def test_calculate_parlay_metrics():
     # Kelly sizing:
     assert metrics["quarter_kelly"] > 0.0
     assert 5.0 <= metrics["suggested_stake"] <= 50.0
-    assert "Wysokie Bezpieczeństwo" in metrics["confidence_badge"] or "Zbalansowany Dubel" in metrics["confidence_badge"]
 
 
 def test_parlay_service_with_mock_db():
@@ -121,16 +121,16 @@ def test_parlay_service_with_mock_db():
         # Create Odds on Superbet (m1 and m2)
         o1 = OddsSnapshot(
             id=1, canonical_match_id=1, bookmaker_id=1,
-            odds_a=1.65, odds_b=2.20, scraped_at="2026-09-05T13:00:00Z"
+            odds_a=1.65, odds_b=2.20, scraped_at=datetime(2026, 9, 5, 13, tzinfo=timezone.utc)
         )
         o2 = OddsSnapshot(
             id=2, canonical_match_id=2, bookmaker_id=1,
-            odds_a=1.75, odds_b=2.10, scraped_at="2026-09-05T13:00:00Z"
+            odds_a=1.75, odds_b=2.10, scraped_at=datetime(2026, 9, 5, 13, tzinfo=timezone.utc)
         )
         # Create Odds on STS only for m3
         o3 = OddsSnapshot(
             id=3, canonical_match_id=3, bookmaker_id=2,
-            odds_a=1.50, odds_b=2.60, scraped_at="2026-09-05T13:00:00Z"
+            odds_a=1.50, odds_b=2.60, scraped_at=datetime(2026, 9, 5, 13, tzinfo=timezone.utc)
         )
         session.add_all([o1, o2, o3])
         session.commit()

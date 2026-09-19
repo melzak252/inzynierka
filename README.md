@@ -11,6 +11,14 @@ To repozytorium zawiera kod, skrypty eksperymentalne i strukturę roboczą mojej
 
 Repozytorium jest traktowane przede wszystkim jako **techniczne zaplecze pracy inżynierskiej**: miejsce na kod źródłowy, pipeline danych, eksperymenty modelowe, symulacje finansowe i narzędzia pomocnicze.
 
+## Zacznij tutaj: modelowanie i benchmark
+
+Aktualny stan badań, mapa danych, zaakceptowane ograniczenia i instrukcja dla agentów są w **[docs/RESEARCH.md](docs/RESEARCH.md)**. To punkt wejścia do prac nad modelem; model aplikacji i badawczy A0 mają oddzielne statusy.
+
+Jedyny domyślny punkt wejścia do porównywania modeli to `scripts/run_model_benchmark.py --suite conf/base/research_benchmark.json`. Manifest blokuje źródła/hash/próby. Najpierw `--doctor`, potem nowy katalog wyników w `data/08_reporting/benchmark/`. Pełne polecenia i konfiguracja `ENSEMBLE_RESEARCH_ROOT` są w instrukcji.
+
+Pozostałe skrypty eksperymentalne i poniższe narzędzia specjalistyczne zachowano jako historię oraz narzędzia pomocnicze. Nie tworzyć nowego skryptu benchmarku dla kolejnego eksperymentu.
+
 ## Zakres projektu
 
 Projekt obejmuje:

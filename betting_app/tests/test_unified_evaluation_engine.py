@@ -9,6 +9,7 @@ from src.analysis.unified_evaluation_engine import (
     UnifiedBettingEngine,
     calculate_quarter_kelly_stake,
     compute_p_low,
+    compute_shrunk_p_low,
 )
 
 
@@ -21,6 +22,29 @@ def test_compute_p_low_invariants() -> None:
         p_low_high_sigma = compute_p_low(p, kappa=0.75, sigma_z=0.30)
         assert p_low_high_sigma < p_low
 
+
+def test_compute_shrunk_p_low_invariants() -> None:
+    """shrunk_p_low must penalize model-market disagreement and high odds heteroskedasticity."""
+    p_shrunk = 0.60
+    p_mod = 0.65
+    p_mkt = 0.55
+
+    p_low_base = compute_shrunk_p_low(
+        prob_shrunk=p_shrunk, prob_model=p_mod, prob_market=p_mkt, odds=1.50
+    )
+    assert 0.0 < p_low_base < p_shrunk
+
+    # Higher odds must produce a lower (more conservative) lower bound
+    p_low_high_odds = compute_shrunk_p_low(
+        prob_shrunk=p_shrunk, prob_model=p_mod, prob_market=p_mkt, odds=3.00
+    )
+    assert p_low_high_odds < p_low_base
+
+    # Higher model-market disagreement must produce a lower bound
+    p_low_high_disagreement = compute_shrunk_p_low(
+        prob_shrunk=p_shrunk, prob_model=0.75, prob_market=0.45, odds=1.50
+    )
+    assert p_low_high_disagreement < p_low_base
 
 def test_quarter_kelly_stake_calculation() -> None:
     """1/4 Kelly stake must respect cap, tax, and nonnegativity."""
@@ -114,17 +138,17 @@ def test_shin_devigging_favorite_longshot_bias() -> None:
     assert pb == pytest.approx(0.50, abs=1e-4)
     assert (pa + pb) == pytest.approx(1.0, abs=1e-6)
 
-    # Skewed match: 1.30 favorite vs 3.50 underdog (vig = 1/1.30 + 1/3.50 - 1 = 5.5%)
-    pa_shin, pb_shin = fair_market_probabilities(1.30, 3.50)
-    assert (pa_shin + pb_shin) == pytest.approx(1.0, abs=1e-6)
+    # Skewed match: 1.30 favorite vs 3.50 underdog
+    pa_mult, pb_mult = fair_market_probabilities(1.30, 3.50)
+    assert (pa_mult + pb_mult) == pytest.approx(1.0, abs=1e-6)
+    assert pa_mult == pytest.approx((1.0 / 1.30) / (1.0 / 1.30 + 1.0 / 3.50), abs=1e-6)
 
-    # Naive proportional: (1/1.30) / (1/1.30 + 1/3.50) = 72.9%
     # Shin strips the bookmaker's heavy underdog margin: favorite prob is significantly higher!
-    naive_pa = (1.0 / 1.30) / (1.0 / 1.30 + 1.0 / 3.50)
-    assert pa_shin > naive_pa
+    pa_shin, pb_shin = shin_implied_probabilities(1.30, 3.50)
+    assert (pa_shin + pb_shin) == pytest.approx(1.0, abs=1e-6)
+    assert pa_shin > pa_mult
     assert pa_shin > 0.80
     assert pb_shin < 0.20
-
     # Invalid odds must raise ValueError
     with pytest.raises(ValueError):
         fair_market_probabilities(0.95, 2.10)

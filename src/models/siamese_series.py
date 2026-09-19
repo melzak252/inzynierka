@@ -3,9 +3,9 @@
 Combines:
 1. Exact machine anti-symmetry: z_sym = 0.5 * (f(x) - f(-x)).
 2. 5-Member bootstrap-bagged ensemble trained with Focal Loss (gamma=1.0).
-3. Epistemic uncertainty estimation sigma_z(x) across ensemble members.
-4. Risk-adjusted conservative gating (P_low = sigma(z_mean - kappa * sigma_z))
-   for betting qualification under the 12% Polish turnover tax.
+3. Descriptive logit spread sigma_z(x) across ensemble members.
+4. Heuristic lower scores (P_low = sigmoid(z_mean - kappa * sigma_z)).
+   These do not measure shared member bias or provide confidence coverage.
 """
 
 from __future__ import annotations
@@ -78,7 +78,7 @@ class SiameseMember:
 
 @dataclass(frozen=True)
 class SiameseSeriesModel:
-    """5-Member Bagged Siamese MLP with Focal Loss & Epistemic Uncertainty Gating."""
+    """Bagged Siamese MLP with descriptive member spread, not confidence bounds."""
 
     feature_names: tuple[str, ...]
     means: np.ndarray
@@ -157,19 +157,25 @@ class SiameseSeriesModel:
         *,
         best_of: int,
         kappa: float | None = None,
-    ) -> tuple[float, float, float]:
-        """Compute (p_mean, sigma_z, p_low) for Team A.
+    ) -> tuple[float, float, float, float]:
+        """Return mean Side A probability, logit spread, and both sidewise lower scores.
 
-        Returns:
-            p_mean: Calibrated mean series probability for display and reporting.
-            sigma_z: Epistemic uncertainty (std dev of logits across ensemble members).
-            p_low: Conservative lower-bound probability for Side A EV qualification.
+        The risk scores are sigmoid(z_mean - k*sigma_z) and
+        sigmoid(-z_mean - k*sigma_z), not complementary probabilities.
+        They are conservative decision scores, not statistical confidence bounds.
         """
         k = self.risk_kappa if kappa is None else float(kappa)
+        if not math.isfinite(k) or k < 0.0:
+            raise ValueError("kappa must be finite and nonnegative")
         x_scaled = self._prepare_vector(snapshot, best_of=best_of)
         logits = [m.forward_anti_symmetric(x_scaled) for m in self.members]
+        if not logits or not all(math.isfinite(z) for z in logits):
+            raise ValueError("ensemble logits must be nonempty and finite")
         z_mean = float(np.mean(logits))
         sigma_z = float(np.std(logits))
+        if not math.isfinite(z_mean) or not math.isfinite(sigma_z) or not math.isfinite(k * sigma_z):
+            raise ValueError("ensemble uncertainty must be finite")
         p_mean = _sigmoid(z_mean)
         p_low = _sigmoid(z_mean - k * sigma_z)
-        return p_mean, sigma_z, p_low
+        p_low_b = min(1.0 - p_mean, _sigmoid(-z_mean - k * sigma_z))
+        return p_mean, sigma_z, p_low, p_low_b

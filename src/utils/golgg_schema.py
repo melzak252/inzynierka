@@ -149,20 +149,22 @@ def team2_id(match: dict[str, Any]) -> str:
 def score1(match: dict[str, Any]) -> int:
     """Return team-1 match score from old or new GOL.GG schema."""
 
+    adv = initial_wins(match).get(team1_id(match), 0)
     match_games = games(match)
     if match_games:
-        return int(sum(game_score_for_match_team1(match, game) for game in match_games))
-    return int(first_present(match, ("score_1", "t1_score"), 0) or 0)
+        return int(sum(game_score_for_match_team1(match, game) for game in match_games)) + adv
+    return int(first_present(match, ("score_1", "t1_score"), 0) or 0) + adv
 
 
 def score2(match: dict[str, Any]) -> int:
     """Return team-2 match score from old or new GOL.GG schema."""
 
+    adv = initial_wins(match).get(team2_id(match), 0)
     match_games = games(match)
     if match_games:
-        return int(len(match_games) - score1(match))
-    return int(first_present(match, ("score_2", "t2_score"), 0) or 0)
-
+        played_1 = sum(game_score_for_match_team1(match, game) for game in match_games)
+        return int(len(match_games) - played_1) + adv
+    return int(first_present(match, ("score_2", "t2_score"), 0) or 0) + adv
 
 def best_of(match: dict[str, Any]) -> int | None:
     """Return declared best-of value from old or new GOL.GG schema."""
@@ -170,6 +172,14 @@ def best_of(match: dict[str, Any]) -> int | None:
     value = first_present(match, ("BoN", "best_of"))
     return int(value) if value is not None else None
 
+
+def initial_wins(match: dict[str, Any]) -> dict[str, int]:
+    """Return map advantage / initial wins granted by stage rule before play."""
+
+    value = match.get("initial_wins")
+    if isinstance(value, dict):
+        return {str(k): int(v) for k, v in value.items() if int(v) > 0}
+    return {}
 
 def games(match: dict[str, Any]) -> list[dict[str, Any]]:
     """Return list of per-game payloads from a match dictionary."""
