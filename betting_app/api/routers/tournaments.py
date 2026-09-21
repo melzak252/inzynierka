@@ -12,19 +12,30 @@ from betting_app.services.enc_simulation_service import (
     build_enc_configuration,
 )
 from betting_app.services.liquipedia_bracket_service import LiquipediaBracketService
+from betting_app.services.tournament_cache_service import (
+    DEFAULT_DEPTHS,
+    get_cached_simulation,
+    recalculate_and_cache,
+)
 from betting_app.services.tournament_service import (
+    DEFAULT_TOURNAMENT_ENTROPY_DAMPENING,
+    DEFAULT_TOURNAMENT_PAIRWISE_CAP,
+    DEFAULT_TOURNAMENT_TEMPERATURE,
     SUPPORTED_BRACKETS,
     TournamentSimulator,
     WorldsSimulator,
     WorldsTeam,
 )
-
 router = APIRouter(prefix="/tournaments", tags=["tournaments"])
 
 
 class SimulateTournamentRequest(BaseModel):
     simulations: int = 10000
     manual_overrides: dict[str, str] | None = None  # match_id -> winner team name
+    calibrate: bool = True
+    temperature: float | None = None
+    pairwise_cap: float | None = None
+    entropy_dampening: float | None = None
 
 class SyncBracketRequest(BaseModel):
     source: str = "auto"  # "auto" | "fandom" | "liquipedia"
@@ -109,28 +120,33 @@ def simulate_enc(body: SimulateEncRequest) -> dict[str, Any]:
 
 
 @router.get("/{tournament_id}")
-def get_tournament_bracket(tournament_id: str) -> dict[str, Any]:
-    """Return the current bracket state and default simulation results."""
+def get_tournament_bracket(
+    tournament_id: str,
+    simulations: int = Query(10000, description="Monte Carlo simulation path depth (5000, 10000, 20000, 100000)"),
+) -> dict[str, Any]:
+    """Return the tournament bracket state and simulation results (O(1) from daily cache)."""
     builder = SUPPORTED_BRACKETS.get(tournament_id)
     if not builder:
         raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
 
-    service = LiquipediaBracketService()
-    sync_res = service.sync_bracket(tournament_id, source="auto", force=False)
-    bracket = sync_res.get("bracket") or builder()
+    cached = get_cached_simulation(tournament_id, n_simulations=simulations)
+    if cached is not None:
+        return cached
 
-    simulator = TournamentSimulator()
     try:
-        sim_res = simulator.simulate(bracket, n_simulations=5000)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    sim_res["source"] = sync_res.get("source", "curated")
-    sim_res["status"] = sync_res.get("status", "ready")
-    sim_res["synced_at"] = sync_res.get("synced_at")
-    sim_res["sync_message"] = sync_res.get("message")
-    sim_res["updated_matches"] = sync_res.get("updated_matches", 0)
-    return sim_res
-
+        return recalculate_and_cache(tournament_id, depths=DEFAULT_DEPTHS, use_a1=True)
+    except Exception as error:
+        # Fallback to direct simulation if cache engine encounters an issue
+        service = LiquipediaBracketService()
+        sync_res = service.sync_bracket(tournament_id, source="auto", force=False)
+        bracket = sync_res.get("bracket") or builder()
+        simulator = TournamentSimulator()
+        try:
+            sim_res = simulator.simulate(bracket, n_simulations=simulations)
+            sim_res["cached"] = False
+            return sim_res
+        except ValueError as sim_error:
+            raise HTTPException(status_code=422, detail=str(sim_error)) from sim_error
 
 @router.post("/{tournament_id}/sync")
 def sync_tournament_bracket(
@@ -174,7 +190,15 @@ def simulate_tournament(tournament_id: str, body: SimulateTournamentRequest) -> 
     sync_res = service.sync_bracket(tournament_id, source="auto", force=False)
     bracket = sync_res.get("bracket") or builder()
 
-    simulator = TournamentSimulator()
+    if not body.calibrate or body.temperature is not None or body.pairwise_cap is not None or body.entropy_dampening is not None:
+        simulator = TournamentSimulator(
+            calibrate=body.calibrate,
+            temperature=body.temperature if body.temperature is not None else DEFAULT_TOURNAMENT_TEMPERATURE,
+            pairwise_cap=body.pairwise_cap if body.pairwise_cap is not None else DEFAULT_TOURNAMENT_PAIRWISE_CAP,
+            entropy_dampening=body.entropy_dampening if body.entropy_dampening is not None else DEFAULT_TOURNAMENT_ENTROPY_DAMPENING,
+        )
+    else:
+        simulator = TournamentSimulator()
     n_sims = min(max(body.simulations, 100), 50000)
     try:
         sim_res = simulator.simulate(bracket, n_simulations=n_sims, manual_overrides=body.manual_overrides)
@@ -186,3 +210,30 @@ def simulate_tournament(tournament_id: str, body: SimulateTournamentRequest) -> 
     sim_res["sync_message"] = sync_res.get("message")
     sim_res["updated_matches"] = sync_res.get("updated_matches", 0)
     return sim_res
+
+
+@router.post("/{tournament_id}/recalculate")
+def recalculate_tournament_bracket(
+    tournament_id: str,
+    body: SimulateTournamentRequest = SimulateTournamentRequest(),
+) -> dict[str, Any]:
+    """Recalculate simulation distributions for 5k, 10k, 20k, and 100k paths using A1 and refresh cache."""
+    builder = SUPPORTED_BRACKETS.get(tournament_id)
+    if not builder:
+        raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
+
+    depths_to_run = [5000, 10000, 20000, 100000]
+    if body.simulations not in depths_to_run:
+        depths_to_run.append(body.simulations)
+
+    try:
+        return recalculate_and_cache(
+            tournament_id,
+            depths=depths_to_run,
+            manual_overrides=body.manual_overrides,
+            use_a1=True,
+            force_sync=True,
+            calibrate=body.calibrate,
+        )
+    except Exception as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error

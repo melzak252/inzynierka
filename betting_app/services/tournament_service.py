@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Mapping, Sequence
 
+import numpy as np
+
 from betting_app.core.db import connect
 from betting_app.services.canonical_match_service import canonical_team_key
 from betting_app.services.upcoming_inference_service import series_probability
@@ -714,6 +716,9 @@ class TournamentSimulator:
         entropy_dampening: float = DEFAULT_TOURNAMENT_ENTROPY_DAMPENING,
         regional_gamma: float = DEFAULT_REGIONAL_GAMMA,
         regional_offsets: Mapping[str, float] | None = None,
+        use_a1: bool = True,
+        team_w20: Mapping[str, Any] | None = None,
+        competition_tier: str = "international",
     ):
         source_ratings = self._load_team_ratings() if team_ratings is None else team_ratings
         self.team_ratings = dict(source_ratings)
@@ -730,6 +735,18 @@ class TournamentSimulator:
         self.regional_offsets = dict(regional_offsets or DEFAULT_REGIONAL_OFFSETS)
         self._prob_cache: dict[tuple[str, str, int, str | None, str | None], float] = {}
         self._team_keys: dict[str, str] = {}
+        self.use_a1 = use_a1
+        self.competition_tier = competition_tier
+        self.team_w20 = dict(team_w20 or {})
+        if self.use_a1:
+            try:
+                from src.models.a1.engine import A1PredictorEngine
+                self._a1_engine = A1PredictorEngine(tier_scale=0.94)
+                self._rating_source = "consolidated_a1" if team_ratings is None else "supplied_ratings_with_a1"
+            except Exception:
+                self._a1_engine = None
+        else:
+            self._a1_engine = None
     @staticmethod
     def _load_team_ratings() -> dict[str, float]:
         ratings: dict[str, float] = {}
@@ -779,14 +796,46 @@ class TournamentSimulator:
         # Match the existing map-to-series helper's numerical boundary.
         return max(1e-6, min(1.0 - 1e-6, probability))
 
+    def _get_team_w20(self, team: str) -> np.ndarray:
+        k = self._team_key(team)
+        if hasattr(self, "team_w20") and k in self.team_w20:
+            val = self.team_w20[k]
+            if isinstance(val, np.ndarray) and val.shape == (10,):
+                return val.astype(np.float32)
+            if isinstance(val, (list, tuple)) and len(val) == 10:
+                return np.array(val, dtype=np.float32)
+        return np.zeros(10, dtype=np.float32)
+
     def estimate_matchup_probability(self, team1: str, team2: str, best_of: int = 5) -> float:
-        """Convert the side-neutral GL logistic map heuristic to a full SERIES probability once."""
+        """Convert the side-neutral logistic map heuristic to a full SERIES probability once using A1 when enabled."""
         self._validate_best_of(best_of)
         cache_key = (team1, team2, best_of, None, None)
         if cache_key not in self._prob_cache:
-            self._prob_cache[cache_key] = series_probability(self._map_probability(team1, team2), best_of)
+            p_base_map = self._map_probability(team1, team2)
+            p_base_series = series_probability(p_base_map, best_of)
+            if getattr(self, "use_a1", False) and getattr(self, "_a1_engine", None) is not None:
+                w20_1 = self._get_team_w20(team1)
+                w20_2 = self._get_team_w20(team2)
+                tier_arr = np.array([getattr(self, "competition_tier", "regional")])
+                from src.models.regional_scaling import compute_regional_logit_offset
+                reg_off = compute_regional_logit_offset(
+                    team1, team2, getattr(self, "competition_tier", None),
+                    gamma=getattr(self, "regional_gamma", 0.70)
+                )
+                reg_off_arr = np.array([reg_off])
+                p_a1 = float(
+                    self._a1_engine.predict(
+                        np.array([p_base_series]),
+                        w20_1.reshape(1, 10),
+                        w20_2.reshape(1, 10),
+                        competition_tiers=tier_arr,
+                        regional_offsets=reg_off_arr,
+                    )[0]
+                )
+                self._prob_cache[cache_key] = max(1e-6, min(1.0 - 1e-6, p_a1))
+            else:
+                self._prob_cache[cache_key] = p_base_series
         return self._prob_cache[cache_key]
-
     def estimate_calibrated_probability(
         self,
         team1: str,
@@ -840,7 +889,7 @@ class TournamentSimulator:
     def _provenance(self, teams: Sequence[str]) -> dict[str, Any]:
         return {
             "prediction_source": self._rating_source,
-            "probability_model": "gl_logistic_map_iid_series",
+            "probability_model": "Consolidated-A1" if getattr(self, "use_a1", False) else "gl_logistic_map_iid_series",
             "probability_unit": "series",
             "side_policy": "neutral_no_verified_side_selection",
             "rating_source_available_at": None,

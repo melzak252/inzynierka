@@ -4,8 +4,8 @@ import {
   fetchEncConfiguration,
   fetchTournamentBracket,
   fetchTournaments,
+  recalculateTournament,
   simulateEnc,
-  simulateTournament,
   simulateWorlds,
   syncTournamentBracket,
 } from '../api/client';
@@ -173,7 +173,7 @@ export default function TournamentSimulation() {
     if (!selectedId) return;
     setLoading(true);
 
-    fetchTournamentBracket(selectedId)
+    fetchTournamentBracket(selectedId, simCount)
       .then((res) => {
         setData(res);
         setOverrides({});
@@ -183,7 +183,7 @@ export default function TournamentSimulation() {
         setError(err instanceof Error ? err.message : 'Błąd ładowania drabinki');
         setLoading(false);
       });
-  }, [selectedId]);
+  }, [selectedId, simCount]);
 
   const handleSyncBracket = async (sourceOverride?: 'auto' | 'fandom' | 'liquipedia') => {
     if (!selectedId) return;
@@ -228,7 +228,7 @@ export default function TournamentSimulation() {
     if (!selectedId) return;
     setSimulating(true);
     try {
-      const res = await simulateTournament(selectedId, simCount, overrides);
+      const res = await recalculateTournament(selectedId, simCount, overrides, true);
       setData(res);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Błąd symulacji');
@@ -446,10 +446,10 @@ export default function TournamentSimulation() {
                   onChange={(e) => setSimCount(Number(e.target.value))}
                   className="sim-count-select"
                 >
-                  <option value={1000}>1 000</option>
-                  <option value={5000}>5 000</option>
-                  <option value={10000}>10 000</option>
-                  <option value={25000}>25 000</option>
+                  <option value={5000}>5 000 (Szybka)</option>
+                  <option value={10000}>10 000 (Standard A1)</option>
+                  <option value={20000}>20 000 (Precyzyjna)</option>
+                  <option value={100000}>100 000 (Głęboka)</option>
                 </select>
               </div>
               <button
@@ -457,8 +457,13 @@ export default function TournamentSimulation() {
                 onClick={handleSimulate}
                 disabled={simulating}
               >
-                {simulating ? '⏳ Symulowanie...' : '⚡ Uruchom symulację'}
+                {simulating ? '⏳ Przeliczanie A1...' : '⚡ Przelicz symulację (A1)'}
               </button>
+              {data?.cached && (
+                <span style={{ fontSize: '0.78rem', color: '#10b981', padding: '4px 8px', background: 'rgba(16,185,129,0.1)', borderRadius: '4px', border: '1px solid rgba(16,185,129,0.2)' }} title={`Zapisano z pamięci podręcznej: ${data.cached_at || ''}`}>
+                  ⚡ Pamięć podręczna O(1)
+                </span>
+              )}
               {Object.keys(overrides).length > 0 && (
                 <button className="reset-btn" onClick={() => setOverrides({})}>
                   Reset scenariuszy ({Object.keys(overrides).length})

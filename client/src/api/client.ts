@@ -22,6 +22,7 @@ import type {
   ModelClvByHorizonResponse,
   ModelProfitabilityAuditResponse,
   ChampionEmbeddingProjectionResponse,
+  PlayerEmbeddingProjectionResponse,
   FinancialAnalysisResponse,
   RankingEntityType,
   RankingsResponse,
@@ -574,8 +575,8 @@ export async function fetchTournaments(): Promise<TournamentSummary[]> {
   return response.json();
 }
 
-export async function fetchTournamentBracket(id: string): Promise<TournamentSimulationResponse> {
-  const response = await fetch(`${API_BASE}/tournaments/${id}`);
+export async function fetchTournamentBracket(id: string, simulations: number = 10000): Promise<TournamentSimulationResponse> {
+  const response = await fetch(`${API_BASE}/tournaments/${id}?simulations=${simulations}`);
   if (!response.ok) throw new Error('Failed to fetch tournament bracket');
   return response.json();
 }
@@ -598,15 +599,32 @@ export async function simulateTournament(
   id: string,
   simulations: number = 10000,
   manual_overrides?: Record<string, string>,
+  calibrate: boolean = true,
 ): Promise<TournamentSimulationResponse> {
   const response = await fetch(`${API_BASE}/tournaments/${id}/simulate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ simulations, manual_overrides }),
+    body: JSON.stringify({ simulations, manual_overrides, calibrate }),
   });
   if (!response.ok) throw new Error('Failed to run tournament simulation');
   return response.json();
 }
+
+export async function recalculateTournament(
+  id: string,
+  simulations: number = 10000,
+  manual_overrides?: Record<string, string>,
+  calibrate: boolean = true,
+): Promise<TournamentSimulationResponse> {
+  const response = await fetch(`${API_BASE}/tournaments/${id}/recalculate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ simulations, manual_overrides, calibrate }),
+  });
+  if (!response.ok) throw new Error('Nie udało się przeliczyć symulacji turniejowej');
+  return response.json();
+}
+
 export async function simulateWorlds(
   directTeams: WorldsTeamInput[],
   playInTeams: WorldsTeamInput[],
@@ -841,5 +859,45 @@ export interface RegisteredModelsResponse {
 export async function fetchRegisteredModels(): Promise<RegisteredModelsResponse> {
   const response = await fetch(`${API_BASE}/matches/models/registered`);
   if (!response.ok) throw new Error(`Failed to fetch registered models: ${response.statusText}`);
+  return response.json();
+}
+
+export async function fetchPlayerEmbeddings(
+  method: string = 'pca',
+  preset: string = 'balanced',
+  role: string = 'ALL',
+  minGames: number = 15,
+  maxPoints: number = 2000,
+  daysActive: number = 365,
+  nClusters: number | null = null,
+  clusterAlgorithm: string = 'gmm',
+  minClusterSize: number | null = 15,
+  tier: string = 'all',
+  signal?: AbortSignal,
+): Promise<PlayerEmbeddingProjectionResponse> {
+  const params = new URLSearchParams({
+    method,
+    preset,
+    role,
+    min_games: minGames.toString(),
+    max_points: maxPoints.toString(),
+    cluster_algorithm: clusterAlgorithm,
+    tier,
+  });
+  if (daysActive > 0) {
+    params.set('days_active', daysActive.toString());
+  }
+  if (nClusters !== null) {
+    params.set('n_clusters', nClusters.toString());
+  }
+  if (minClusterSize !== null) {
+    params.set('min_cluster_size', minClusterSize.toString());
+  }
+
+  const response = await fetch(`${API_BASE}/embeddings/players/projection?${params.toString()}`, { signal });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || 'Nie udało się pobrać projekcji graczy');
+  }
   return response.json();
 }

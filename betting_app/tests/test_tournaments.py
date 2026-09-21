@@ -659,3 +659,37 @@ def test_swiss_keeps_resolved_identities_until_a_new_simulation(monkeypatch):
     # The cache is not global: a fresh simulator must see the conflicting alias.
     with pytest.raises(ValueError):
         WorldsSimulator({}, seed=82).simulate_swiss_round(list("ABCD"), 1, set())
+
+
+def test_tournament_caching_and_recalculate_endpoints(offline_tournament_api):
+    """Verify tournament caching across path depths and instant response."""
+    from betting_app.services.tournament_cache_service import recalculate_and_cache, get_cached_simulation
+
+    t_id = "lck_2026_playoffs"
+    recalc_res = recalculate_and_cache(t_id, depths=[5000, 10000], use_a1=False)
+    assert recalc_res["tournament_id"] == t_id
+    assert "standings" in recalc_res
+
+    # Instant retrieval
+    cached_10k = get_cached_simulation(t_id, n_simulations=10000)
+    assert cached_10k is not None
+    assert cached_10k["cached"] is True
+    assert cached_10k["simulations"] == 10000
+
+    cached_5k = get_cached_simulation(t_id, n_simulations=5000)
+    assert cached_5k is not None
+    assert cached_5k["cached"] is True
+    assert cached_5k["simulations"] == 5000
+
+    # API GET endpoint returns cached
+    resp = client.get(f"/tournaments/{t_id}?simulations=10000")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["cached"] is True
+    assert data["simulations"] == 10000
+
+    # API POST recalculate endpoint
+    recalc_resp = client.post(f"/tournaments/{t_id}/recalculate", json={"simulations": 5000})
+    assert recalc_resp.status_code == 200
+    recalc_data = recalc_resp.json()
+    assert "standings" in recalc_data
