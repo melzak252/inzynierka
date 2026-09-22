@@ -52,6 +52,7 @@ class PropScraperService:
         if not urls_to_scrape:
             try:
                 with get_session() as sess:
+                    now_iso = datetime.now(UTC).isoformat()
                     cutoff = datetime.now(UTC) - timedelta(minutes=90)
                     near_kickoff_str = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
                     q = text("""
@@ -66,6 +67,7 @@ class PropScraperService:
                         ) pos ON pos.canonical_match_id = cm.id AND pos.bookmaker_id = b.id
                         WHERE LOWER(b.name) = :bname
                           AND cm.status = 'upcoming'
+                          AND cm.start_time_normalized >= :now_iso
                           AND be.offer_url IS NOT NULL
                           AND (
                               pos.last_scraped IS NULL
@@ -77,6 +79,7 @@ class PropScraperService:
                     """)
                     rows = sess.execute(q, {
                         "bname": bookmaker.lower(),
+                        "now_iso": now_iso,
                         "cutoff": cutoff,
                         "near_kickoff": near_kickoff_str,
                         "limit": max_matches,
