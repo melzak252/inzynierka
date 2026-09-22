@@ -37,6 +37,8 @@ class NoDriverClient:
         self.debug_dir.mkdir(parents=True, exist_ok=True)
         self._user_data_dir = Path(tempfile.mkdtemp(prefix="betting-nodriver-", dir="/tmp"))
         browser_args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
             "--disable-application-cache",
             "--disk-cache-size=1",

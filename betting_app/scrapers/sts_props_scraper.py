@@ -108,7 +108,10 @@ class STSPropsScraper:
     def extract_fixture_offer_urls(self, data: dict[str, Any]) -> list[dict[str, str]]:
         """Extract fixture metadata and construct direct match view URLs from STS overview SSR data."""
         data_inner = data.get("data") if isinstance(data.get("data"), dict) else data
-        tournaments = data_inner.get("T") or data_inner.get("tournaments") or {}
+        sports = (data_inner.get("B") or {}).get("S") or {}
+        esport = sports.get("156") or {}
+        category = (esport.get("C") or {}).get("992") or {}
+        tournaments = category.get("T") or data_inner.get("T") or data_inner.get("tournaments") or {}
         urls: list[dict[str, str]] = []
         for tour_id, tournament in tournaments.items():
             fixtures = tournament.get("FX") or tournament.get("F") or {}
@@ -142,8 +145,11 @@ class STSPropsScraper:
 
         # Check if this is the root transfer state dictionary (with tournaments and offers)
         data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-        tournaments = data.get("T") or data.get("tournaments") or {}
-        offers = data.get("O") or data.get("offers") or {}
+        sports = (data.get("B") or {}).get("S") or {}
+        esport = sports.get("156") or {}
+        category = (esport.get("C") or {}).get("992") or {}
+        tournaments = category.get("T") or data.get("T") or data.get("tournaments") or (data.get("B") or {}).get("T") or {}
+        offers = data.get("P") or data.get("O") or data.get("offers") or (data.get("B") or {}).get("P") or {}
 
         # If it's already a single fixture structure
         if "H" in data and "A" in data:
@@ -197,7 +203,7 @@ class STSPropsScraper:
         # Process offers
         for offer_id in offer_ids:
             offer = offers.get(offer_id) or {}
-            markets = offer.get("m") or {}
+            markets = offer.get("m") or offer.get("M") or {}
             self._extract_markets_into_lines(markets, home, away, add_line)
 
         if direct_markets:
@@ -231,17 +237,17 @@ class STSPropsScraper:
         for market in market_items:
             if not isinstance(market, dict):
                 continue
-            lines = market.get("l") or market.get("lines") or {}
+            lines = market.get("l") or market.get("L") or market.get("lines") or {}
             line_items = lines.values() if isinstance(lines, dict) else lines
             for line in line_items:
                 if not isinstance(line, dict):
                     continue
-                market_name = str(line.get("n") or market.get("n") or "")
+                market_name = str(line.get("n") or line.get("N") or market.get("n") or market.get("N") or "")
                 market_type, map_num = classify_sts_market(market_name)
                 if not market_type:
                     continue
 
-                outcomes = line.get("o") or line.get("outcomes") or {}
+                outcomes = line.get("o") or line.get("O") or line.get("outcomes") or {}
                 outcome_list: list[dict[str, Any]] = []
                 if isinstance(outcomes, dict):
                     for oid, o_data in outcomes.items():
