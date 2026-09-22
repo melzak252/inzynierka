@@ -24,6 +24,12 @@ MarketType = Literal[
     "total_maps",
     "map_handicap",
     "race_to_kills",
+    "correct_score",
+    "first_herald",
+    "first_inhibitor",
+    "total_dragons",
+    "total_barons",
+    "total_towers",
 ]
 
 LINE_RE = re.compile(r"([+-]?\d+(?:[.,]\d+)?)")
@@ -60,7 +66,7 @@ class ParsedPropLine:
     novig_prob_cover_b: float | None = None
     margin: float | None = None
     raw_market_name: str | None = None
-
+    outcomes_payload: dict[str, Any] | None = None
 
 @dataclass(frozen=True)
 class ParsedMatchProps:
@@ -71,6 +77,7 @@ class ParsedMatchProps:
     raw_team_b: str
     map_number: int = 1
     lines: list[ParsedPropLine] = field(default_factory=list)
+    source_url: str | None = None
 
     def get_total_kills_lines(self) -> list[ParsedPropLine]:
         return [l for l in self.lines if l.market_type == "total_kills"]
@@ -108,6 +115,23 @@ class ParsedMatchProps:
 
     def get_map_handicap_lines(self) -> list[ParsedPropLine]:
         return [l for l in self.lines if l.market_type == "map_handicap"]
+    def get_correct_score_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "correct_score"]
+
+    def get_first_herald_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "first_herald"]
+
+    def get_first_inhibitor_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "first_inhibitor"]
+
+    def get_race_to_kills_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "race_to_kills"]
+
+    def get_total_dragons_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "total_dragons"]
+
+    def get_total_barons_lines(self) -> list[ParsedPropLine]:
+        return [l for l in self.lines if l.market_type == "total_barons"]
 
 
 def extract_line_number(text: str) -> float | None:

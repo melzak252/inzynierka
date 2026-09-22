@@ -136,6 +136,7 @@ class PropOddsSnapshot(Base):
     scraped_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, server_default=sa_text("NOW()"))
     is_live: Mapped[int | None] = mapped_column(Integer, server_default="0")
     source_url: Mapped[str | None] = mapped_column(String(500))
+    outcomes_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index("ix_prop_odds_match_market_time", "canonical_match_id", "market_type", "scraped_at"),

@@ -35,6 +35,7 @@ def save_prop_snapshots(
     """Persist normalized proposition market snapshots into prop_odds_snapshots."""
     if not parsed_props.lines:
         return []
+    actual_source_url = source_url or getattr(parsed_props, "source_url", None)
     bookmaker_name = parsed_props.bookmaker.lower().strip()
     if bookmaker_name == "fortuna":
         bookmaker_name = "efortuna"
@@ -83,6 +84,7 @@ def save_prop_snapshots(
 
             if (p_over is None or p_under is None or margin is None) and odds_o and odds_u:
                 p_over, p_under, margin = compute_novig_two_way(odds_o, odds_u)
+            payload_str = json.dumps(line.outcomes_payload) if line.outcomes_payload else None
 
             snap = PropOddsSnapshot(
                 bookmaker_id=bookmaker_id,
@@ -100,7 +102,8 @@ def save_prop_snapshots(
                 margin=margin,
                 raw_market_name=line.raw_market_name,
                 scraped_at=dt_scraped,
-                source_url=source_url,
+                source_url=actual_source_url,
+                outcomes_payload=payload_str,
             )
             sess.add(snap)
             sess.flush()

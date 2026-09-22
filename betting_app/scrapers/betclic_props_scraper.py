@@ -38,6 +38,8 @@ def classify_betclic_market(name: str) -> tuple[MarketType | None, int]:
         except ValueError:
             map_number = 1
     # Classify market type
+    if "dokładny wynik" in n or "wynik meczu" in n or "correct score" in n:
+        return "correct_score", 0
     if "liczba map" in n or "suma map" in n:
         return "total_maps", 1
     if "handicap map" in n:
@@ -46,7 +48,6 @@ def classify_betclic_market(name: str) -> tuple[MarketType | None, int]:
         return None, 1
     if "zwycięzca" in n and ("map" in n or "mapie" in n or "mapy" in n):
         return "map_winner", map_number
-
     # Kills
     if "handicap" in n and ("zabójstw" in n or "frag" in n or "kill" in n):
         return "handicap_kills", map_number
@@ -68,7 +69,16 @@ def classify_betclic_market(name: str) -> tuple[MarketType | None, int]:
         return "first_baron", map_number
     if "pierwsza wieża" in n or "1. wieża" in n or "first tower" in n or "first turret" in n:
         return "first_tower", map_number
-
+    if "herald" in n or "czerwie" in n or "voidgrub" in n:
+        return "first_herald", map_number
+    if "inhibitor" in n:
+        return "first_inhibitor", map_number
+    if "liczba smoków" in n or "suma smoków" in n or "total dragons" in n:
+        return "total_dragons", map_number
+    if "liczba baronów" in n or "suma baronów" in n or "total barons" in n:
+        return "total_barons", map_number
+    if "wyścig do" in n:
+        return "race_to_kills", map_number
     return None, map_number
 
 
@@ -206,19 +216,117 @@ class BetclicPropsScraper:
                 raw_market_name=market_name,
             )
 
+        # Multi-outcome market handling (e.g. correct_score, kill ranges)
+        if market_type == "correct_score" or len(selections) > 2:
+            payload_dict = {}
+            for s in selections:
+                if isinstance(s, dict):
+                    n_raw = str(s.get("name") or "")
+                    try:
+                        o_val = float(str(s.get("odds") or "0").replace(",", "."))
+                        if n_raw and o_val > 1.0:
+                            payload_dict[n_raw] = o_val
+                    except ValueError:
+                        pass
+            if payload_dict:
+                tot_inv = sum(1.0 / v for v in payload_dict.values())
+                margin = round(tot_inv - 1.0, 4)
+                return ParsedPropLine(
+                    market_type=market_type,
+                    line=line_val,
+                    margin=margin,
+                    raw_market_name=market_name,
+                    outcomes_payload=payload_dict,
+                )
         return None
 
-    async def scrape_upcoming_props(self, max_matches: int = 10) -> list[ParsedMatchProps]:
-        """Scrape Betclic upcoming match props via NoDriverClient."""
+    async def _extract_event_urls(self, tab: Any) -> list[str]:
+        import json
+        js = """
+        (() => {
+            const links = [];
+            const anchors = document.querySelectorAll('a[href*=\"-m\"]');
+            for (const a of anchors) {
+                const href = a.getAttribute('href') || '';
+                if (href.includes('/league-of-legends-slol/') && href.match(/-m\\d+/)) {
+                    const full = href.startsWith('http') ? href : 'https://www.betclic.pl' + href;
+                    if (!links.includes(full)) links.push(full);
+                }
+            }
+            return JSON.stringify(links);
+        })()
+        """
+        try:
+            raw = await tab.evaluate(js)
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+        return []
+
+    async def _extract_match_info(self, tab: Any, url: str = "") -> dict[str, str]:
+        import json
+        js = """
+        (() => {
+            const h1 = document.querySelector('h1')?.innerText?.trim() || '';
+            const scoreboard = Array.from(document.querySelectorAll('[data-qa=\"scoreboard-team-name\"], .scoreboard-team-name, .event-header-team')).map(e => e.innerText?.trim()).filter(Boolean);
+            return JSON.stringify({ h1: h1, teams: scoreboard });
+        })()
+        """
+        try:
+            raw = await tab.evaluate(js)
+            if raw:
+                data = json.loads(raw)
+                teams = data.get("teams") or []
+                if len(teams) >= 2:
+                    return {"team_a": teams[0], "team_b": teams[1]}
+                h1 = data.get("h1") or ""
+                if " vs " in h1:
+                    parts = h1.split(" vs ")
+                    return {"team_a": parts[0].strip(), "team_b": parts[1].strip()}
+                if " - " in h1:
+                    parts = h1.split(" - ")
+                    return {"team_a": parts[0].strip(), "team_b": parts[1].strip()}
+        except Exception:
+            pass
+
+        # Fallback: parse from url slug
+        m = re.search(r"/([^/]+)-m\d+", url)
+        if m:
+            slug = m.group(1).replace("-", " ")
+            return {"team_a": slug, "team_b": "Opponent"}
+        return {"team_a": "Team A", "team_b": "Team B"}
+
+    async def scrape_upcoming_props(
+        self,
+        max_matches: int = 10,
+        match_urls: list[str] | None = None,
+    ) -> list[ParsedMatchProps]:
+        """Scrape Betclic upcoming match props from match views via NoDriverClient."""
         props_results: list[ParsedMatchProps] = []
         async with NoDriverClient(headless=self.headless) as client:
-            tab = await client.open(self.start_url)
-            await self._wait_for_render(tab, 5.0)
-            data = await self._extract_event_links_and_markets(tab)
-            if data:
-                props_results.extend(self.parse_event_props(data))
-        return props_results[:max_matches]
+            target_urls: list[str] = list(match_urls or [])
+            if not target_urls:
+                tab = await client.open(self.start_url)
+                await self._wait_for_render(tab, 5.0)
+                target_urls = await self._extract_event_urls(tab)
 
+            for match_url in target_urls[:max_matches]:
+                try:
+                    tab = await client.open(match_url)
+                    await self._wait_for_render(tab, 4.0)
+                    match_info = await self._extract_match_info(tab, match_url)
+                    data = await self._extract_event_links_and_markets(tab)
+                    if data:
+                        from dataclasses import replace
+                        parsed = self.parse_event_props(data, match_info=match_info)
+                        for p in parsed:
+                            props_results.append(replace(p, source_url=match_url))
+                except Exception as err:
+                    print(f"Error scraping Betclic match view {match_url}: {err}")
+                    continue
+
+        return props_results[:max_matches]
     async def _wait_for_render(self, tab: Any, seconds: float = 5.0) -> None:
         import asyncio
         await asyncio.sleep(seconds)

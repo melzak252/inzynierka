@@ -42,6 +42,8 @@ def classify_sts_market(name: str) -> tuple[MarketType | None, int]:
             map_number = 1
 
     # Classify market type
+    if "dokładny wynik" in n or "wynik meczu" in n or "correct score" in n:
+        return "correct_score", 0
     if "suma map" in n or "liczba map" in n:
         return "total_maps", 1
     if "handicap map" in n or "handicap (mapy)" in n:
@@ -50,7 +52,6 @@ def classify_sts_market(name: str) -> tuple[MarketType | None, int]:
         return None, 1
     if "zwycięzca" in n and ("map" in n or "mapy" in n):
         return "map_winner", map_number
-
     # Kills
     if "handicap" in n and ("zabójstw" in n or "frag" in n or "kill" in n):
         return "handicap_kills", map_number
@@ -72,9 +73,18 @@ def classify_sts_market(name: str) -> tuple[MarketType | None, int]:
         return "first_baron", map_number
     if "1. wieża" in n or "pierwsza wieża" in n or "first tower" in n or "first turret" in n:
         return "first_tower", map_number
+    if "herald" in n or "czerwie" in n or "voidgrub" in n:
+        return "first_herald", map_number
+    if "inhibitor" in n:
+        return "first_inhibitor", map_number
+    if "liczba smoków" in n or "suma smoków" in n or "total dragons" in n:
+        return "total_dragons", map_number
+    if "liczba baronów" in n or "suma baronów" in n or "total barons" in n:
+        return "total_barons", map_number
+    if "liczba wież" in n or "suma wież" in n or "total towers" in n:
+        return "total_towers", map_number
     if "wyścig do" in n:
         return "race_to_kills", map_number
-
     return None, map_number
 
 
@@ -87,6 +97,38 @@ class STSPropsScraper:
     def __init__(self, start_url: str = STS_LOL_URL, headless: bool | None = None) -> None:
         self.start_url = start_url
         self.headless = headless
+    @staticmethod
+    def build_offer_url(home: str, away: str, fixture_id: str) -> str:
+        """Construct canonical match detail URL for STS."""
+        import unicodedata
+        team_slug = unicodedata.normalize("NFKD", f"{home} {away}").encode("ascii", "ignore").decode("ascii")
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", team_slug.lower()).strip("-") or "mecz"
+        return f"https://www.sts.pl/kursy/{slug}/{fixture_id}"
+
+    def extract_fixture_offer_urls(self, data: dict[str, Any]) -> list[dict[str, str]]:
+        """Extract fixture metadata and construct direct match view URLs from STS overview SSR data."""
+        data_inner = data.get("data") if isinstance(data.get("data"), dict) else data
+        tournaments = data_inner.get("T") or data_inner.get("tournaments") or {}
+        urls: list[dict[str, str]] = []
+        for tour_id, tournament in tournaments.items():
+            fixtures = tournament.get("FX") or tournament.get("F") or {}
+            for fix_id, fixture in fixtures.items():
+                home = self._name(fixture.get("H")) or "Team A"
+                away = self._name(fixture.get("A")) or "Team B"
+                url = self.build_offer_url(home=home, away=away, fixture_id=str(fix_id))
+                urls.append({"fixture_id": str(fix_id), "home": home, "away": away, "url": url})
+        return urls
+
+    async def _accept_cookies(self, tab: Any) -> None:
+        """Best-effort cookie modal acceptance."""
+        try:
+            await tab.evaluate(
+                """Array.from(document.querySelectorAll('button'))
+                .find(button => /akcept|zgadzam|accept/i.test(button.innerText || ''))?.click()"""
+            )
+        except Exception:
+            return
+
 
     def parse_event_props(
         self,
@@ -287,17 +329,61 @@ class STSPropsScraper:
                 raw_market_name=market_name,
             )
 
+        # If multi-outcome market (e.g. correct_score, kill brackets, race)
+        if market_type == "correct_score" or len(outcomes) > 2:
+            payload_dict = {}
+            for o in outcomes:
+                n_raw = str(o.get("n") or o.get("name") or "")
+                o_val = float(o.get("O") or o.get("odds") or 0.0)
+                if n_raw and o_val > 1.0:
+                    payload_dict[n_raw] = o_val
+            if payload_dict:
+                tot_inv = sum(1.0 / v for v in payload_dict.values())
+                margin = round(tot_inv - 1.0, 4)
+                return ParsedPropLine(
+                    market_type=market_type,
+                    line=line_val,
+                    margin=margin,
+                    raw_market_name=market_name,
+                    outcomes_payload=payload_dict,
+                )
         return None
 
-    async def scrape_upcoming_props(self, max_matches: int = 10) -> list[ParsedMatchProps]:
-        """Scrape STS LoL upcoming match proposition markets via NoDriver."""
+    async def scrape_upcoming_props(
+        self,
+        max_matches: int = 10,
+        match_urls: list[str] | None = None,
+    ) -> list[ParsedMatchProps]:
+        """Scrape STS LoL upcoming match proposition markets from match views via NoDriver."""
         props_results: list[ParsedMatchProps] = []
         async with NoDriverClient(headless=self.headless) as client:
-            tab = await client.open(self.start_url)
-            await self._wait_for_render(tab, 6.0)
-            data = await self._extract_ssr_data(tab)
-            if data:
-                props_results.extend(self.parse_event_props(data))
+            target_urls: list[str] = list(match_urls or [])
+            if not target_urls:
+                tab = await client.open(self.start_url)
+                await self._wait_for_render(tab, 6.0)
+                await self._accept_cookies(tab)
+                overview_data = await self._extract_ssr_data(tab)
+                if overview_data:
+                    discovered = self.extract_fixture_offer_urls(overview_data)
+                    target_urls = [d["url"] for d in discovered]
+                    # In case overview itself has some prop markets
+                    props_results.extend(self.parse_event_props(overview_data))
+
+            # Visit individual match detail views to extract complete sub-market proposition lines
+            for match_url in target_urls[:max_matches]:
+                try:
+                    tab = await client.open(match_url)
+                    await self._wait_for_render(tab, 4.0)
+                    await self._accept_cookies(tab)
+                    detail_data = await self._extract_ssr_data(tab)
+                    if detail_data:
+                        from dataclasses import replace
+                        parsed = self.parse_event_props(detail_data)
+                        for p in parsed:
+                            props_results.append(replace(p, source_url=match_url))
+                except Exception as err:
+                    print(f"Error scraping STS match view {match_url}: {err}")
+                    continue
 
         return props_results[:max_matches]
 
@@ -325,11 +411,13 @@ class STSPropsScraper:
         })()
         """
         raw = await tab.evaluate(js)
-        if raw:
+        if isinstance(raw, str):
             try:
                 return json.loads(raw)
             except Exception:
                 return None
+        elif isinstance(raw, dict):
+            return raw
         return None
 
     def _name(self, value: Any) -> str:

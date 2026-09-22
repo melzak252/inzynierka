@@ -41,15 +41,36 @@ class PropScraperService:
         self,
         bookmaker: str,
         max_matches: int = 10,
+        match_urls: list[str] | None = None,
     ) -> list[ParsedMatchProps]:
-        """Run prop scraper for a specific bookmaker."""
+        """Run prop scraper for a specific bookmaker, targeting individual match detail views."""
         scraper_cls = SCRAPERS_REGISTRY.get(bookmaker.lower())
         if not scraper_cls:
             raise ValueError(f"Unknown or unsupported bookmaker: '{bookmaker}'. Supported: {list(SCRAPERS_REGISTRY.keys())}")
 
-        scraper = scraper_cls(headless=self.headless)
-        return await scraper.scrape_upcoming_props(max_matches=max_matches)
+        urls_to_scrape = list(match_urls or [])
+        if not urls_to_scrape:
+            try:
+                with get_session() as sess:
+                    q = text("""
+                        SELECT be.offer_url
+                        FROM bookmaker_events be
+                        JOIN bookmakers b ON b.id = be.bookmaker_id
+                        JOIN canonical_matches cm ON cm.id = be.canonical_match_id
+                        WHERE LOWER(b.name) = :bname
+                          AND cm.status = 'upcoming'
+                          AND be.offer_url IS NOT NULL
+                        ORDER BY cm.start_time_normalized ASC
+                        LIMIT :limit
+                    """)
+                    rows = sess.execute(q, {"bname": bookmaker.lower(), "limit": max_matches}).fetchall()
+                    if rows:
+                        urls_to_scrape = [r[0] for r in rows if r[0]]
+            except Exception:
+                urls_to_scrape = []
 
+        scraper = scraper_cls(headless=self.headless)
+        return await scraper.scrape_upcoming_props(max_matches=max_matches, match_urls=urls_to_scrape if urls_to_scrape else None)
     def process_and_persist_props(
         self,
         match_props_list: list[ParsedMatchProps],
@@ -70,19 +91,27 @@ class PropScraperService:
 
         try:
             for mp in match_props_list:
-                # 1. Resolve canonical match
-                canon_res = resolve_canonical_match(
-                    raw_team_a=mp.raw_team_a,
-                    raw_team_b=mp.raw_team_b,
-                    start_time=None,
-                    league=None,
-                    db=sess,
-                )
-
                 canonical_match_id: int | None = None
-                if canon_res and getattr(canon_res, "canonical_match_id", None):
-                    canonical_match_id = int(canon_res.canonical_match_id)
-                else:
+                # Check if source_url matches known offer_url in bookmaker_events
+                if getattr(mp, "source_url", None):
+                    cm_row = sess.execute(
+                        text("SELECT canonical_match_id FROM bookmaker_events WHERE offer_url = :url LIMIT 1"),
+                        {"url": mp.source_url},
+                    ).fetchone()
+                    if cm_row and cm_row[0]:
+                        canonical_match_id = int(cm_row[0])
+
+                if canonical_match_id is None:
+                    # 1. Resolve canonical match via fuzzy team name / schedule matching
+                    canon_res = resolve_canonical_match(
+                        raw_team_a=mp.raw_team_a,
+                        raw_team_b=mp.raw_team_b,
+                        start_time=None,
+                        league=None,
+                        db=sess,
+                    )
+                    if canon_res and getattr(canon_res, "canonical_match_id", None):
+                        canonical_match_id = int(canon_res.canonical_match_id)
                     # Fallback fuzzy match against active upcoming matches
                     cm = sess.execute(
                         text("""
@@ -116,7 +145,7 @@ class PropScraperService:
 
                 # 2. Persist prop lines
                 inserted = save_prop_snapshots(
-                    match_props=mp,
+                    mp,
                     canonical_match_id=canonical_match_id,
                     db_session=sess,
                 )
@@ -160,10 +189,11 @@ class PropScraperService:
 async def run_all_prop_scrapers(
     bookmakers: list[str] | None = None,
     max_matches_per_bookmaker: int = 10,
+    match_urls_by_bookmaker: dict[str, list[str]] | None = None,
     headless: bool | None = None,
     db_session=None,
 ) -> dict[str, Any]:
-    """Execute prop scraping for all selected bookmakers and persist results."""
+    """Execute prop scraping from match views for all selected bookmakers and persist results."""
     target_books = [b.lower() for b in bookmakers] if bookmakers else list(SCRAPERS_REGISTRY.keys())
     service = PropScraperService(headless=headless)
 
@@ -177,7 +207,8 @@ async def run_all_prop_scrapers(
 
     for book in target_books:
         try:
-            props = await service.scrape_bookmaker(book, max_matches=max_matches_per_bookmaker)
+            urls = (match_urls_by_bookmaker or {}).get(book)
+            props = await service.scrape_bookmaker(book, max_matches=max_matches_per_bookmaker, match_urls=urls)
             all_scraped_props.extend(props)
             overall_results["results"][book] = {
                 "status": "success",

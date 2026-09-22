@@ -39,6 +39,8 @@ def classify_superbet_market(name: str) -> tuple[MarketType | None, int]:
             map_number = 1
 
     # Classify market type
+    if "dokładny wynik" in n or "wynik meczu" in n or "correct score" in n:
+        return "correct_score", 0
     if "suma map" in n or "liczba map" in n:
         return "total_maps", 1
     if "handicap map" in n:
@@ -47,7 +49,6 @@ def classify_superbet_market(name: str) -> tuple[MarketType | None, int]:
         return None, 1
     if "zwycięzca" in n and ("map" in n or "mapie" in n or "mapy" in n):
         return "map_winner", map_number
-
     # Kills
     if "handicap" in n and ("zabójstw" in n or "kill" in n or "frag" in n):
         return "handicap_kills", map_number
@@ -69,7 +70,16 @@ def classify_superbet_market(name: str) -> tuple[MarketType | None, int]:
         return "first_baron", map_number
     if "1. wieża" in n or "pierwsza wieża" in n or "first tower" in n or "first turret" in n:
         return "first_tower", map_number
-
+    if "herald" in n or "czerwie" in n or "voidgrub" in n:
+        return "first_herald", map_number
+    if "inhibitor" in n:
+        return "first_inhibitor", map_number
+    if "liczba smoków" in n or "suma smoków" in n or "total dragons" in n:
+        return "total_dragons", map_number
+    if "liczba baronów" in n or "suma baronów" in n or "total barons" in n:
+        return "total_barons", map_number
+    if "wyścig do" in n:
+        return "race_to_kills", map_number
     return None, map_number
 
 
@@ -211,19 +221,86 @@ class SuperbetPropsScraper:
                 raw_market_name=market_name,
             )
 
+        # Multi-outcome market handling (e.g. correct_score)
+        if market_type == "correct_score" or len(choices) > 2:
+            payload_dict = {}
+            for c in choices:
+                if isinstance(c, dict):
+                    n_raw = str(c.get("name") or "")
+                    try:
+                        o_val = float(str(c.get("price") or "0").replace(",", "."))
+                        if n_raw and o_val > 1.0:
+                            payload_dict[n_raw] = o_val
+                    except ValueError:
+                        pass
+            if payload_dict:
+                tot_inv = sum(1.0 / v for v in payload_dict.values())
+                margin = round(tot_inv - 1.0, 4)
+                return ParsedPropLine(
+                    market_type=market_type,
+                    line=line_val,
+                    margin=margin,
+                    raw_market_name=market_name,
+                    outcomes_payload=payload_dict,
+                )
         return None
 
-    async def scrape_upcoming_props(self, max_matches: int = 10) -> list[ParsedMatchProps]:
-        """Scrape Superbet upcoming match props via NoDriverClient."""
+    async def _extract_event_urls(self, tab: Any) -> list[str]:
+        import json
+        js = """
+        (() => {
+            const links = [];
+            const anchors = document.querySelectorAll('a[href*=\"/zaklady-bukmacherskie/league-of-legends/\"]');
+            for (const a of anchors) {
+                const href = a.getAttribute('href') || '';
+                if (href.includes('/league-of-legends/') && href.match(/-\\d+$/)) {
+                    const full = href.startsWith('http') ? href : 'https://superbet.pl' + href;
+                    if (!links.includes(full)) links.push(full);
+                }
+            }
+            return JSON.stringify(links);
+        })()
+        """
+        try:
+            raw = await tab.evaluate(js)
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+        return []
+
+    async def scrape_upcoming_props(
+        self,
+        max_matches: int = 10,
+        match_urls: list[str] | None = None,
+    ) -> list[ParsedMatchProps]:
+        """Scrape Superbet upcoming match props from match views via NoDriverClient."""
         props_results: list[ParsedMatchProps] = []
         async with NoDriverClient(headless=self.headless) as client:
-            tab = await client.open(self.start_url)
-            await self._wait_for_render(tab, 5.0)
-            data = await self._extract_markets(tab)
-            if data:
-                props_results.extend(self.parse_event_props(data))
-        return props_results[:max_matches]
+            target_urls: list[str] = list(match_urls or [])
+            if not target_urls:
+                tab = await client.open(self.start_url)
+                await self._wait_for_render(tab, 5.0)
+                target_urls = await self._extract_event_urls(tab)
+                data = await self._extract_markets(tab)
+                if data:
+                    props_results.extend(self.parse_event_props(data))
 
+            for match_url in target_urls[:max_matches]:
+                try:
+                    tab = await client.open(match_url)
+                    await self._wait_for_render(tab, 4.0)
+                    detail_data = await self._extract_markets(tab)
+                    if detail_data:
+                        from dataclasses import replace
+                        parsed = self.parse_event_props(detail_data)
+                        for p in parsed:
+                            props_results.append(replace(p, source_url=match_url))
+                except Exception as err:
+                    print(f"Error scraping Superbet match view {match_url}: {err}")
+                    continue
+
+        return props_results[:max_matches]
     async def _wait_for_render(self, tab: Any, seconds: float = 5.0) -> None:
         import asyncio
         await asyncio.sleep(seconds)

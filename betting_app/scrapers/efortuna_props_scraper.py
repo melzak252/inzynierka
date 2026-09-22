@@ -38,13 +38,16 @@ def classify_efortuna_market(name: str) -> tuple[MarketType | None, int]:
         except ValueError:
             map_number = 1
 
+    if "dokładny wynik" in n or "wynik meczu" in n or "correct score" in n:
+        return "correct_score", 0
     if "liczba map" in n or "suma map" in n:
         return "total_maps", 1
     if "handicap map" in n:
         return "map_handicap", 1
     if "zwycięzca meczu" in n:
         return None, 1
-    # Kills
+    if "zwycięzca" in n and ("map" in n or "mapy" in n):
+        return "map_winner", map_number
     if "handicap" in n and ("zabójstw" in n or "kill" in n or "frag" in n):
         return "handicap_kills", map_number
     if "drużyn" in n and "zabójstw" in n:
@@ -63,8 +66,18 @@ def classify_efortuna_market(name: str) -> tuple[MarketType | None, int]:
         return "first_dragon", map_number
     if "1. baron" in n or "pierwszy baron" in n:
         return "first_baron", map_number
-    if "1. wieża" in n or "pierwsza wieża" in n or "1. inhibitor" in n:
+    if "1. wieża" in n or "pierwsza wieża" in n or "first tower" in n:
         return "first_tower", map_number
+    if "herald" in n or "czerwie" in n or "voidgrub" in n:
+        return "first_herald", map_number
+    if "inhibitor" in n:
+        return "first_inhibitor", map_number
+    if "liczba smoków" in n or "suma smoków" in n or "total dragons" in n:
+        return "total_dragons", map_number
+    if "liczba baronów" in n or "suma baronów" in n or "total barons" in n:
+        return "total_barons", map_number
+    if "wyścig do" in n:
+        return "race_to_kills", map_number
 
     return None, map_number
 
@@ -214,19 +227,93 @@ class EFortunaPropsScraper:
                 raw_market_name=table_name,
             )
 
+        # Multi-outcome market handling (e.g. correct_score)
+        if market_type == "correct_score" or len(bets) > 2:
+            payload_dict = {}
+            for b in bets:
+                if isinstance(b, dict):
+                    n_raw = str(b.get("name") or "")
+                    try:
+                        o_val = float(str(b.get("odds") or "0").replace(",", "."))
+                        if n_raw and o_val > 1.0:
+                            payload_dict[n_raw] = o_val
+                    except ValueError:
+                        pass
+            if payload_dict:
+                tot_inv = sum(1.0 / v for v in payload_dict.values())
+                margin = round(tot_inv - 1.0, 4)
+                return ParsedPropLine(
+                    market_type=market_type,
+                    line=line_val,
+                    margin=margin,
+                    raw_market_name=table_name,
+                    outcomes_payload=payload_dict,
+                )
         return None
 
-    async def scrape_upcoming_props(self, max_matches: int = 10) -> list[ParsedMatchProps]:
-        """Scrape eFortuna upcoming match props via NoDriverClient."""
+    async def _extract_match_links(self, tab: Any) -> list[str]:
+        import json
+        js = """
+        (() => {
+            const links = [];
+            const anchors = document.querySelectorAll('a[href*="/zaklady-bukmacherskie/esport-lol/"]');
+            for (const a of anchors) {
+                const href = a.getAttribute('href') || '';
+                if (href.includes('/esport-lol/') && !href.includes('tab=') && !links.includes(href)) {
+                    const full = href.startsWith('http') ? href : 'https://www.efortuna.pl' + href;
+                    links.push(full);
+                }
+            }
+            return JSON.stringify(links);
+        })()
+        """
+        try:
+            raw = await tab.evaluate(js)
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+        return []
+
+    async def scrape_upcoming_props(
+        self,
+        max_matches: int = 10,
+        match_urls: list[str] | None = None,
+    ) -> list[ParsedMatchProps]:
+        """Scrape eFortuna upcoming match props from match views via NoDriverClient."""
         props_results: list[ParsedMatchProps] = []
         async with NoDriverClient(headless=self.headless) as client:
-            for url in self.league_urls[:max_matches]:
-                tab = await client.open(url)
-                await self._wait_for_render(tab, 5.0)
-                tables_data = await self._extract_tables_from_dom(tab)
-                if tables_data:
-                    props_results.extend(self.parse_event_props(tables_data))
-        return props_results
+            target_urls: list[str] = list(match_urls or [])
+            if not target_urls:
+                for league_url in self.league_urls[:3]:
+                    try:
+                        tab = await client.open(league_url)
+                        await self._wait_for_render(tab, 4.0)
+                        discovered = await self._extract_match_links(tab)
+                        for u in discovered:
+                            if u not in target_urls:
+                                target_urls.append(u)
+                        tables_data = await self._extract_tables_from_dom(tab)
+                        if tables_data:
+                            props_results.extend(self.parse_event_props(tables_data))
+                    except Exception:
+                        continue
+
+            for match_url in target_urls[:max_matches]:
+                try:
+                    tab = await client.open(match_url)
+                    await self._wait_for_render(tab, 4.0)
+                    tables_data = await self._extract_tables_from_dom(tab)
+                    if tables_data:
+                        from dataclasses import replace
+                        parsed = self.parse_event_props(tables_data)
+                        for p in parsed:
+                            props_results.append(replace(p, source_url=match_url))
+                except Exception as err:
+                    print(f"Error scraping eFortuna match view {match_url}: {err}")
+                    continue
+
+        return props_results[:max_matches]
 
     async def _wait_for_render(self, tab: Any, seconds: float = 5.0) -> None:
         import asyncio
@@ -245,7 +332,7 @@ class EFortunaPropsScraper:
                 for (const btn of buttons) {
                     const label = btn.querySelector('.bet-name, .label')?.innerText?.trim() || btn.innerText?.trim() || '';
                     const oddsText = btn.querySelector('.odds, .value')?.innerText?.trim() || '';
-                    bets.append({ name: label, odds: oddsText });
+                    bets.push({ name: label, odds: oddsText });
                 }
                 if (title && bets.length > 0) {
                     results.push({ name: title, bets: bets });
