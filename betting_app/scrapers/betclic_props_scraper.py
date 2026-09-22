@@ -311,7 +311,10 @@ class BetclicPropsScraper:
                 await self._wait_for_render(tab, 5.0)
                 target_urls = await self._extract_event_urls(tab)
 
-            for match_url in target_urls[:max_matches]:
+            for i, match_url in enumerate(target_urls[:max_matches]):
+                if i > 0:
+                    import asyncio, random
+                    await asyncio.sleep(random.uniform(3.0, 5.5))
                 try:
                     tab = await client.open(match_url)
                     await self._wait_for_render(tab, 4.0)

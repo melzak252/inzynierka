@@ -72,7 +72,7 @@ def register_all_tasks():
         id="scrape_prop_odds",
         name="Scrape Prop Odds (STS, Fortuna, Betclic, Superbet)",
         func=scrape.scrape_prop_odds,
-        cron_trigger="10,40 * * * *",  # At :10 and :40 every hour
+        cron_trigger="25 * * * *",  # Once per hour at :25 to prevent bookmaker rate-limiting
         description="Scrape in-game proposition odds (kills, duration, objectives) from Polish bookmakers",
         enabled=True,
         lock_key="scrape_props",

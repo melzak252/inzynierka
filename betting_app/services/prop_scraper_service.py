@@ -8,7 +8,7 @@ statistical model evaluation.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import text
@@ -52,18 +52,35 @@ class PropScraperService:
         if not urls_to_scrape:
             try:
                 with get_session() as sess:
+                    cutoff = datetime.now(UTC) - timedelta(minutes=90)
+                    near_kickoff_str = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
                     q = text("""
                         SELECT be.offer_url
                         FROM bookmaker_events be
                         JOIN bookmakers b ON b.id = be.bookmaker_id
                         JOIN canonical_matches cm ON cm.id = be.canonical_match_id
+                        LEFT JOIN (
+                            SELECT canonical_match_id, bookmaker_id, MAX(scraped_at) as last_scraped
+                            FROM prop_odds_snapshots
+                            GROUP BY canonical_match_id, bookmaker_id
+                        ) pos ON pos.canonical_match_id = cm.id AND pos.bookmaker_id = b.id
                         WHERE LOWER(b.name) = :bname
                           AND cm.status = 'upcoming'
                           AND be.offer_url IS NOT NULL
+                          AND (
+                              pos.last_scraped IS NULL
+                              OR pos.last_scraped < :cutoff
+                              OR cm.start_time_normalized < :near_kickoff
+                          )
                         ORDER BY cm.start_time_normalized ASC
                         LIMIT :limit
                     """)
-                    rows = sess.execute(q, {"bname": bookmaker.lower(), "limit": max_matches}).fetchall()
+                    rows = sess.execute(q, {
+                        "bname": bookmaker.lower(),
+                        "cutoff": cutoff,
+                        "near_kickoff": near_kickoff_str,
+                        "limit": max_matches,
+                    }).fetchall()
                     if rows:
                         urls_to_scrape = [r[0] for r in rows if r[0]]
             except Exception:
