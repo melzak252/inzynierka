@@ -41,9 +41,9 @@ from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 
 from betting_app.core.db import init_db, query_df
 from betting_app.core.ev import fair_market_probabilities
+from betting_app.core.models.registry import C0_NATIVE
 from betting_app.services.canonical_match_service import align_snapshot_odds
 from betting_app.services.mapping_service import suggest_mapping
-from betting_app.services.thesis_inference_service import THESIS_MODEL_NAME, THESIS_MODEL_VERSION
 
 
 @dataclass(frozen=True)
@@ -442,8 +442,8 @@ def print_report(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare a stored model with collected bookmaker odds on finished matches.")
-    parser.add_argument("--model-name", default=THESIS_MODEL_NAME, help="canonical_predictions.model_name")
-    parser.add_argument("--model-version", default=THESIS_MODEL_VERSION, help="canonical_predictions.model_version; empty = any")
+    parser.add_argument("--model-name", default=C0_NATIVE.name, help="canonical_predictions.model_name")
+    parser.add_argument("--model-version", default=C0_NATIVE.version, help="canonical_predictions.model_version; empty = any")
     parser.add_argument("--prediction-status", default="active", help="Prediction status to evaluate")
     parser.add_argument("--min-matches", type=int, default=5, help="Minimum matches required for a bookmaker/source")
     parser.add_argument("--include-live", action="store_true", help="Include live odds snapshots; default uses only pre-match/non-live odds")

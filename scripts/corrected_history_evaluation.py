@@ -44,7 +44,6 @@ SYSTEMS = ("elo", "gl", "ts", "os", "pl", "tm")
 FROZEN = tuple(ROOT / "betting_app/models" / name for name in (
     "sym_cal_lr_elasticnet_w20_binomial_pipeline.joblib",
     "sym_cal_lr_elasticnet_w20_binomial_calibrator.joblib",
-    "exp081_siamese_series_v1.json",
 ))
 
 

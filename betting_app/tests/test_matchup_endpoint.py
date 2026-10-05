@@ -1,6 +1,9 @@
-import pytest
-import pandas as pd
+from datetime import UTC, datetime, timedelta
 
+from types import SimpleNamespace
+
+import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
 from betting_app.api.main import app
@@ -12,7 +15,12 @@ def client() -> TestClient:
 
 
 def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+    forwarded_ids = []
     def fake_build_features(match: dict, **kwargs):
+        forwarded_ids.append((
+            match.get("team_a_golgg_id"), match.get("team_b_golgg_id"),
+            match.get("native_team_a_id"), match.get("native_team_b_id"),
+        ))
         result = {
             "status": "ready_player",
             "features": {
@@ -65,6 +73,18 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
             },
         }
         features = result["features"]
+        team_a_id = match.get("native_team_a_id")
+        team_b_id = match.get("native_team_b_id")
+        features["c0_request"] = {
+            "team1_id": str(team_a_id) if team_a_id is not None else "no_organization:target:T1",
+            "team2_id": str(team_b_id) if team_b_id is not None else "no_organization:target:Gen.G",
+            "roster_a": ["a1", "a2", "a3", "a4", "a5"],
+            "roster_b": ["b1", "b2", "b3", "b4", "b5"],
+            "best_of": match["best_of"],
+            "decision_at": match["_c0_decision_at"],
+            "start_at": match["start_time_normalized"],
+            "mode": "full" if team_a_id is not None and team_b_id is not None else "no_organization",
+        }
         for side, elo in (("team_a", 1800.0), ("team_b", 1700.0)):
             features["ratings"][side]["elo"] = {"rating_value": elo}
             features["player_ratings"][side]["elo"] = {"min_rating_value": elo - 100}
@@ -80,6 +100,29 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
         return result
 
     monkeypatch.setattr("betting_app.services.upcoming_inference_service.build_features_for_match", fake_build_features)
+    requests = []
+
+    def fake_c0_predict(features, model_spec=None):
+        requests.append(features["c0_request"])
+        return SimpleNamespace(
+            model_name="Causal-C0",
+            model_version="c0-native-2026-w32-e12-v1",
+            feature_version="native-c0-history16-v1",
+            best_of=features["c0_request"]["best_of"],
+            prob_a=0.67,
+            prob_b=0.33,
+            map_prob_a=None,
+            map_prob_b=None,
+            epistemic_sigma_z=None,
+            p_low_a=None,
+            p_low_b=None,
+            diagnostics={"market_features_used": False, "side_symmetric": True},
+        )
+
+    monkeypatch.setattr(
+        "betting_app.api.routers.matches.PredictionEngine.predict_from_features",
+        fake_c0_predict,
+    )
 
     # Test Bo1
     resp = client.post(
@@ -91,8 +134,8 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
     assert data["team_a_name"] == "T1"
     assert data["team_b_name"] == "Gen.G"
     assert data["best_of"] == 1
-    assert 0.0 <= data["map_prob_a"] <= 1.0
-    assert data["series_prob_a"] == data["map_prob_a"]
+    assert data["map_prob_a"] is None
+    assert data["map_prob_b"] is None
     assert data["team_comparison"]["team_a"] == {
         "canonical_name": "T1",
         "golgg_name": "T1",
@@ -117,19 +160,71 @@ def test_simulate_matchup_endpoint_basic(monkeypatch: pytest.MonkeyPatch, client
     assert resp3.status_code == 200
     data3 = resp3.json()
     assert data3["best_of"] == 3
-    # Direct-series models report a separate counterfactual Bo1 prediction.
-    assert data3["map_prob_a"] == data["map_prob_a"]
+    assert data3["map_prob_a"] is None
+    assert data3["map_prob_b"] is None
     assert 0.0 <= data3["series_prob_a"] <= 1.0
     assert data3["series_prob_a"] + data3["series_prob_b"] == pytest.approx(1.0)
+    identified = client.post(
+        "/matches/matchup",
+        json={
+            "team_a_name": "T1", "team_b_name": "Gen.G", "best_of": 3,
+            "native_team_a_id": "2817", "native_team_b_id": "2818",
+        },
+    )
+    assert identified.status_code == 200
+    assert [(request["team1_id"], request["team2_id"], request["mode"]) for request in requests] == [
+        ("no_organization:target:T1", "no_organization:target:Gen.G", "no_organization"),
+        ("no_organization:target:T1", "no_organization:target:Gen.G", "no_organization"),
+        ("2817", "2818", "full"),
+    ]
+    assert [request["best_of"] for request in requests] == [1, 3, 3]
+    assert forwarded_ids == [
+        (None, None, None, None), (None, None, None, None),
+        (None, None, "2817", "2818"),
+    ]
+    assert all("odds" not in request for request in requests)
+    decision_at = datetime.fromisoformat(requests[0]["decision_at"])
+    start_at = datetime.fromisoformat(requests[0]["start_at"])
+    assert start_at > decision_at
+
+
+def test_native_c0_matchup_rejects_partial_rosters_before_engine(
+    monkeypatch: pytest.MonkeyPatch, client: TestClient,
+) -> None:
+    monkeypatch.setattr(
+        "betting_app.services.upcoming_inference_service.build_features_for_match",
+        lambda *args, **kwargs: {"status": "partial", "missing": ["c0_team_a_id"], "features": {}},
+    )
+
+    def forbidden_engine(*args, **kwargs):
+        raise AssertionError("prediction engine must not run for invalid native C0 input")
+
+    monkeypatch.setattr(
+        "betting_app.api.routers.matches.PredictionEngine.predict_from_features",
+        forbidden_engine,
+    )
+    response = client.post(
+        "/matches/matchup",
+        json={"team_a_name": "T1", "team_b_name": "Gen.G", "best_of": 3},
+    )
+    assert response.status_code == 422
+    assert "c0_team_a_id" in response.json()["detail"]["missing"]
 
 
 def test_synthetic_matchup_feature_build_does_not_upsert(monkeypatch: pytest.MonkeyPatch) -> None:
     from betting_app.services import upcoming_inference_service as inference
 
     persisted: list[dict] = []
-    roster = {"players": [{"player_id": "1", "player_name": "Player"}] * 5}
+    roster = {"players": [
+        {"player_id": f"player-{index}", "player_name": f"Player {index}"}
+        for index in range(5)
+    ]}
 
     monkeypatch.setattr(inference, "golgg_name_from_id", lambda team_id: f"Team {team_id}")
+    monkeypatch.setattr(
+        inference, "native_golgg_team_id",
+        lambda team_id, **kwargs: {1: "2817", 2: "2818"}.get(int(team_id)),
+    )
     monkeypatch.setattr(inference, "load_team_ratings", lambda *_: {})
     monkeypatch.setattr(inference, "load_regional_adjustment", lambda *_: None)
     monkeypatch.setattr(inference, "rating_probabilities", lambda *_: {})
@@ -152,6 +247,8 @@ def test_synthetic_matchup_feature_build_does_not_upsert(monkeypatch: pytest.Mon
             "team_b_name": "Gen.G",
             "team_a_golgg_id": 1,
             "team_b_golgg_id": 2,
+            "start_time_normalized": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+            "best_of": 3,
         },
         feature_version="test",
         ratings_version="test",
@@ -161,6 +258,15 @@ def test_synthetic_matchup_feature_build_does_not_upsert(monkeypatch: pytest.Mon
     )
 
     assert result["canonical_match_id"] == 0
+    request = result["features"]["c0_request"]
+    assert request["team1_id"] == "2817"
+    assert request["team2_id"] == "2818"
+    assert request["roster_a"] == [f"player-{index}" for index in range(5)]
+    assert request["roster_b"] == [f"player-{index}" for index in range(5)]
+    assert datetime.fromisoformat(request["decision_at"]).utcoffset() is not None
+    assert datetime.fromisoformat(request["start_at"]).utcoffset() is not None
+    assert request["best_of"] == 3
+    assert "odds" not in request
     assert persisted == []
 
 

@@ -14,6 +14,9 @@ from sqlalchemy.orm import Session
 from betting_app.models.alerts import AlertConfig, ValueAlertLog
 from betting_app.api.deps import query_df, query_one
 from betting_app.core.config import load_config
+from betting_app.core.models import get_active_hybrid
+
+ACTIVE_HYBRID = get_active_hybrid()
 
 logger = logging.getLogger(__name__)
 
@@ -297,7 +300,10 @@ def scan_and_dispatch_ev_alerts(db: Session, force_dry_run: bool = False) -> Dic
         FROM model_ev_signals mes
         JOIN canonical_matches cm ON cm.id = mes.canonical_match_id
         JOIN bookmakers b ON b.id = mes.bookmaker_id
-        LEFT JOIN canonical_predictions cp ON cp.id = mes.canonical_prediction_id
+        JOIN canonical_predictions cp ON cp.id = mes.canonical_prediction_id
+          AND cp.model_name = :model_name
+          AND cp.model_version = :model_version
+          AND cp.prediction_status = 'active'
         LEFT JOIN (
             SELECT canonical_match_id, MAX(feature_status) AS feature_status
             FROM upcoming_match_features
@@ -315,7 +321,14 @@ def scan_and_dispatch_ev_alerts(db: Session, force_dry_run: bool = False) -> Dic
     rows = query_df(
         db,
         sql,
-        {"min_ev": min_ev, "min_odds": min_odds, "max_odds": max_odds, "now_iso": now_iso},
+        {
+            "min_ev": min_ev,
+            "min_odds": min_odds,
+            "max_odds": max_odds,
+            "now_iso": now_iso,
+            "model_name": ACTIVE_HYBRID.hybrid_model_name,
+            "model_version": ACTIVE_HYBRID.hybrid_model_version,
+        },
     )
 
     dispatched = 0

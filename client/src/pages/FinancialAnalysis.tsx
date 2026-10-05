@@ -5,7 +5,7 @@ import type { FinancialAnalysisResponse, FinancialBucket } from '../types'
 import './FinancialAnalysis.css'
 
 const DAYS = [30, 60, 90, 180]
-const MODEL = { name: 'Hybrid-Thesis-Market', version: 'a0.35-t0.80-p2' }
+const MODEL = { name: 'Hybrid-Operational-Market', version: 'c0-native-2026-w32-e12-v1-a0.50-t1.00' }
 
 const pct = (value: number | null | undefined, digits = 1) => value == null ? '—' : `${value * 100 >= 0 ? '+' : ''}${(value * 100).toFixed(digits)}%`
 const money = (value: number | null | undefined) => value == null ? '—' : `${value >= 0 ? '+' : ''}${value.toFixed(2)} PLN`
@@ -69,7 +69,7 @@ export default function FinancialAnalysis() {
     <section className="financial-controls"><div className="control-group"><label>Okres</label><div className="financial-pills">{DAYS.map(days => <button className={daysBack === days ? 'active' : ''} onClick={() => setDaysBack(days)} key={days}>{days}d</button>)}</div></div>
       <div className="control-group"><label>Kurs wejścia</label><div className="financial-pills">{[['open','Open'],['mid','Mid'],['close','Close']].map(([value,label]) => <button className={oddsMode === value ? 'active' : ''} onClick={() => setOddsMode(value)} key={value}>{label}</button>)}</div></div>
       <div className="control-group"><label>Staking</label><div className="financial-pills"><button className={stakingMode === 'kelly' ? 'active' : ''} onClick={() => setStakingMode('kelly')}>¼ Kelly</button><button className={stakingMode === 'fixed' ? 'active' : ''} onClick={() => setStakingMode('fixed')}>Fixed</button></div></div>
-      <div className="control-group"><label>Źródło danych</label><div className="financial-pills"><button className={dataScope === 'live' ? 'active' : ''} onClick={() => setDataScope('live')}>Live</button><button className={dataScope === 'historical' ? 'active' : ''} onClick={() => { setDataScope('historical'); setOddsMode('mid') }}>Historia · mid</button><button className={dataScope === 'retrospective' ? 'active' : ''} onClick={() => setDataScope('retrospective')}>Badawcze</button></div></div>
+      <div className="control-group"><label>Źródło danych</label><div className="financial-pills"><button className={dataScope === 'live' ? 'active' : ''} onClick={() => setDataScope('live')}>Live</button><button className={dataScope === 'historical' ? 'active' : ''} onClick={() => { setDataScope('historical'); setOddsMode('mid') }}>Historia · mid</button></div></div>
       <label className="financial-number">Min. EV<input type="number" min="0" max="0.5" step="0.01" value={minEv} onChange={event => setMinEv(Number(event.target.value))} /><span>{pct(minEv, 0)}</span></label>
       <label className="financial-number">Bankroll<input type="number" min="100" step="100" value={bankroll} onChange={event => setBankroll(Number(event.target.value))} /><span>PLN</span></label>
       {stakingMode === 'fixed' && <label className="financial-number">Stawka<input type="number" min="1" step="1" value={fixedStake} onChange={event => setFixedStake(Number(event.target.value))} /><span>PLN</span></label>}
@@ -80,6 +80,7 @@ export default function FinancialAnalysis() {
     {loading && !data && <div className="financial-loading">Tworzę audytowalny ledger zakładów…</div>}
     {data && <>
       <div className={`financial-method ${data.data_scope !== 'live' ? 'research-warning' : ''}`}><strong>{data.data_scope === 'live' ? 'Zweryfikowany zakres:' : data.data_scope === 'historical' ? 'Przybliżona historia:' : 'Uwaga — zakres badawczy:'}</strong> {data.methodology}</div>
+      <div className="financial-method">Model: C0 + shrinkage rynkowy · {data.model_name} · {data.model_version}</div>
       <section className="financial-kpis"><article><span>Wynik netto</span><strong className={data.total_profit >= 0 ? 'positive' : 'negative'}>{money(data.total_profit)}</strong><small>ROI {pct(data.roi)}</small></article><article><span>Bankroll końcowy</span><strong>{data.final_bankroll.toFixed(2)} PLN</strong><small>start: {data.initial_bankroll.toFixed(0)} PLN</small></article><article><span>Próba</span><strong>{data.total_matches} mecz.</strong><small>{data.total_bets} zakładów · skut. {pct(data.hit_rate, 0)}</small></article><article><span>CLV</span><strong className={(data.avg_clv_odds_pct ?? 0) >= 0 ? 'positive' : 'negative'}>{pct(data.avg_clv_odds_pct)}</strong><small>dodatni CLV: {pct(data.positive_clv_rate, 0)}</small></article><article><span>Max drawdown</span><strong className="negative">-{pct(data.max_drawdown_pct, 1).replace('+','')}</strong><small>¼ Kelly ograniczone do 5% bankrolla</small></article></section>
       <section className="financial-section">
         <div className="financial-section-title">

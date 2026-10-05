@@ -133,8 +133,8 @@ export async function searchRosterPlayers(
 export async function fetchMatchResults(
   daysBack: number = 30,
   oddsMode: string = 'close',
-  modelName: string = 'Hybrid-Thesis-Market',
-  modelVersion: string = 'a0.35-t0.80'
+  modelName: string = 'Hybrid-Operational-Market',
+  modelVersion: string = 'c0-native-2026-w32-e12-v1-a0.50-t1.00'
 ): Promise<MatchResultsResponse> {
   const params = new URLSearchParams({
     days_back: daysBack.toString(),
@@ -290,6 +290,10 @@ export async function predictMatch(matchId: number): Promise<PredictResult> {
 export async function simulateMatchup(payload: {
   team_a_name: string;
   team_b_name: string;
+  team_a_team_row_id?: number;
+  team_b_team_row_id?: number;
+  native_team_a_id?: string;
+  native_team_b_id?: string;
   best_of?: number;
   league?: string;
 }): Promise<MatchupSimulationResponse> {
@@ -305,7 +309,7 @@ export async function simulateMatchup(payload: {
   return response.json();
 }
 
-export async function fetchActiveTeams(): Promise<{ teams: Array<{ name: string; rating: number | null; games?: number; last_active?: string }> }> {
+export async function fetchActiveTeams(): Promise<{ teams: Array<{ team_row_id: number; native_team_id: string | null; name: string; rating: number | null; games?: number | null; last_active?: string | null }> }> {
   const response = await fetch(`${API_BASE}/matches/active-teams`);
   if (!response.ok) {
     throw new Error(`Nie udało się pobrać listy aktywnych drużyn: ${response.statusText}`);
@@ -583,7 +587,7 @@ export async function fetchTournamentBracket(id: string, simulations: number = 1
 export async function syncTournamentBracket(
   id: string,
   source: string = 'auto',
-  force: boolean = true,
+  force: boolean = false,
   rawContent?: string,
 ): Promise<TournamentSimulationResponse> {
   const response = await fetch(`${API_BASE}/tournaments/${id}/sync`, {

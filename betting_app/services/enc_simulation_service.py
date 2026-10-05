@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import random
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
 from sqlalchemy import text
@@ -16,10 +18,9 @@ from betting_app.services.enc_rosters import (
     ENC_ROSTER_SOURCE_URL,
 )
 from betting_app.services.rating_contract import OPERATIONAL_RATINGS_VERSION
-from betting_app.services.upcoming_inference_service import series_probability
+from betting_app.services.c0_inference import predict_c0
 
 STANDARD_ROLES = ("TOP", "JUNGLE", "MID", "ADC", "SUPPORT")
-DEFAULT_PLAYER_RATING = 1500.0
 
 # Leaguepedia names that resolve to more than one current player-rating entity.
 # These ids identify the player linked from the published national roster.
@@ -35,8 +36,9 @@ ROSTER_PLAYER_IDS = {
 class EncTeam:
     nation: str
     entry_stage: str
-    roster_rating: float
-
+    organization_id: str
+    roster: tuple[str, ...]
+    roster_rating: float | None = None
 
 class EncConfigurationError(ValueError):
     """The published participant list cannot yet produce a valid simulation."""
@@ -77,50 +79,74 @@ def _rating_snapshot(session: Session) -> tuple[dict[str, Any] | None, list[dict
     return dict(run), [dict(row) for row in rows]
 
 
+def _load_native_player_ids(session: Session | None) -> dict[str, str]:
+    """Resolve published handles to unique source IDs in raw GOL.GG history."""
+    if session is None:
+        return {}
+    names = sorted({
+        name.casefold()
+        for role_map in ENC_PUBLISHED_ROLE_PLAYERS.values()
+        for players in role_map.values()
+        for name in players
+    })
+    bind_names = {f"name_{index}": name for index, name in enumerate(names)}
+    placeholders = ", ".join(f":{key}" for key in bind_names)
+    rows = session.execute(
+        text(
+            f"""
+            SELECT player_name, player_id
+            FROM golgg_game_players
+            WHERE lower(player_name) IN ({placeholders})
+              AND player_id IS NOT NULL
+              AND TRIM(player_id) != ''
+            """
+        ),
+        bind_names,
+    ).mappings().all()
+    ids_by_name: dict[str, set[str]] = {}
+    for row in rows:
+        ids_by_name.setdefault(str(row["player_name"]).casefold(), set()).add(str(row["player_id"]))
+    return {
+        name: next(iter(player_ids))
+        for name, player_ids in ids_by_name.items()
+        if len(player_ids) == 1
+    }
+
+
 def _select_lineup(
     nation: str,
     ratings_by_name: Mapping[str, list[dict[str, Any]]],
+    native_player_ids: Mapping[str, str],
 ) -> tuple[list[dict[str, Any]], list[str]]:
     role_players = ENC_PUBLISHED_ROLE_PLAYERS.get(nation, {})
     selected: list[dict[str, Any]] = []
     missing_roles: list[str] = []
     for role in STANDARD_ROLES:
         eligible_players = role_players.get(role, ())
-        if not eligible_players:
+        chosen = next(
+            ((name, native_player_ids[name.casefold()]) for name in eligible_players if name.casefold() in native_player_ids),
+            None,
+        )
+        if chosen is None:
             missing_roles.append(role)
             continue
-
-        candidates: list[dict[str, Any]] = []
-        for player_name in eligible_players:
-            candidate_id = ROSTER_PLAYER_IDS.get(player_name)
-            for row in ratings_by_name.get(player_name.casefold(), []):
-                if candidate_id and str(row["normalized_entity_name"]) != candidate_id:
-                    continue
-                candidates.append(dict(row))
-
-        if candidates:
-            best = max(candidates, key=lambda item: float(item["rating_value"]))
-            selected.append(
-                {
-                    "role": role,
-                    "player": best["entity_name"],
-                    "normalized_player_id": str(best["normalized_entity_name"]),
-                    "rating": round(float(best["rating_value"]), 1),
-                    "games_played": int(best.get("games_played") or 0),
-                    "rating_source": "gl",
-                }
-            )
-            continue
-
-        default_player = eligible_players[0]
+        player_name, source_player_id = chosen
+        rating_rows = ratings_by_name.get(player_name.casefold(), [])
+        rating_row = next(
+            (
+                row for row in rating_rows
+                if str(row.get("normalized_entity_name")) == ROSTER_PLAYER_IDS.get(player_name, source_player_id)
+            ),
+            None,
+        )
         selected.append(
             {
                 "role": role,
-                "player": default_player,
-                "normalized_player_id": f"default:{nation.casefold()}:{role.casefold()}",
-                "rating": DEFAULT_PLAYER_RATING,
-                "games_played": 0,
-                "rating_source": "default",
+                "player": player_name,
+                "normalized_player_id": source_player_id,
+                "rating": round(float(rating_row["rating_value"]), 1) if rating_row else None,
+                "games_played": int(rating_row.get("games_played") or 0) if rating_row else 0,
+                "rating_source": "gl" if rating_row else None,
             }
         )
     return selected, missing_roles
@@ -132,11 +158,7 @@ def build_enc_configuration(
     rating_run: Mapping[str, Any] | None = None,
     rating_rows: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Select the highest current GL rating in each Fandom-designated ENC role.
-
-    A published player with no current GL row receives the explicit 1500.0
-    default. The UI marks this separately from a stored rating.
-    """
+    """Build published-roster metadata without inventing missing C0 identities."""
     if rating_rows is None:
         if session is None:
             with get_session() as owned_session:
@@ -144,88 +166,65 @@ def build_enc_configuration(
         loaded_run, loaded_rows = _rating_snapshot(session)
         rating_run, rating_rows = loaded_run, loaded_rows
 
-    if rating_run is None:
-        return {
-            "tournament_id": "enc_2027",
-            "tournament_name": "Esports Nations Cup 2027",
-            "source_url": ENC_ROSTER_SOURCE_URL,
-            "format": enc_format(),
-            "ratings_version": None,
-            "data_cutoff_at": None,
-            "default_rating": DEFAULT_PLAYER_RATING,
-            "default_rating_policy": "Published player without a current GL row",
-            "teams": [],
-            "simulation_ready": False,
-            "blocking_issues": ["Brak ukończonego snapshotu rankingów GL."],
-        }
-
     ratings_by_name: dict[str, list[dict[str, Any]]] = {}
-    for row in rating_rows:
+    for row in rating_rows or ():
         name = str(row.get("entity_name") or "")
         if name:
             ratings_by_name.setdefault(name.casefold(), []).append(dict(row))
 
     teams: list[dict[str, Any]] = []
+    native_player_ids = _load_native_player_ids(session)
     incomplete_nations: list[str] = []
     for participant in ENC_PARTICIPANTS:
-        selected, missing_roles = _select_lineup(participant["nation"], ratings_by_name)
-        ready = not missing_roles
+        selected, missing_roles = _select_lineup(participant["nation"], ratings_by_name, native_player_ids)
+        ready = not missing_roles and len(selected) == 5
         if not ready:
             incomplete_nations.append(participant["nation"])
         teams.append(
             {
                 "nation": participant["nation"],
                 "entry_stage": participant["entry_stage"],
+                "organization_id": f"national:{participant['nation'].casefold().replace(' ', '-')}",
                 "ranking": participant["ranking"],
                 "source_roster": list(participant["players"]),
                 "selected_roster": selected,
+                "roster_ids": [str(player["normalized_player_id"]) for player in selected],
                 "missing_roles": missing_roles,
                 "selection_status": "ready" if ready else "incomplete",
                 "roster_rating": round(sum(player["rating"] for player in selected) / len(selected), 1)
-                if ready
+                if ready and all(player.get("rating") is not None for player in selected)
                 else None,
             }
         )
 
-    default_solidarity_roster = [
-        {
-            "role": role,
-            "player": f"Solidarity Slot — {role}",
-            "normalized_player_id": f"default:solidarity:{role.casefold()}",
-            "rating": DEFAULT_PLAYER_RATING,
-            "games_played": 0,
-            "rating_source": "default",
-        }
-        for role in STANDARD_ROLES
-    ]
     teams.append(
         {
             "nation": "Solidarity Slot",
+            "organization_id": "national:solidarity-slot",
             "entry_stage": "play_in",
             "ranking": None,
             "source_roster": [],
-            "selected_roster": default_solidarity_roster,
-            "missing_roles": [],
-            "selection_status": "defaulted",
-            "roster_rating": DEFAULT_PLAYER_RATING,
+            "selected_roster": [],
+            "roster_ids": [],
+            "missing_roles": list(STANDARD_ROLES),
+            "selection_status": "unavailable",
+            "roster_rating": None,
         }
     )
     issues: list[str] = []
     if incomplete_nations:
-        issues.append(
-            "Brak przypisanej roli w ogłoszonej kadrze dla: "
-            + ", ".join(incomplete_nations)
-            + "."
-        )
+        issues.append("Missing exact published-role C0 player IDs for: " + ", ".join(incomplete_nations) + ".")
+    issues.append("Solidarity Slot has no published player roster or C0 player IDs.")
     return {
         "tournament_id": "enc_2027",
         "tournament_name": "Esports Nations Cup 2027",
         "source_url": ENC_ROSTER_SOURCE_URL,
         "format": enc_format(),
-        "ratings_version": str(rating_run["ratings_version"]),
-        "data_cutoff_at": str(rating_run["data_cutoff_at"]),
-        "default_rating": DEFAULT_PLAYER_RATING,
-        "default_rating_policy": "Published player without a current GL row",
+        "ratings_version": str(rating_run["ratings_version"]) if rating_run else None,
+        "data_cutoff_at": str(rating_run["data_cutoff_at"]) if rating_run else None,
+        "probability_model": "Causal-C0",
+        "probability_model_version": "c0-native-2026-w32-e12-v1",
+        "organization_policy": "synthetic_national_identity_no_organization",
         "teams": teams,
         "simulation_ready": not issues,
         "blocking_issues": issues,
@@ -248,44 +247,79 @@ def enc_format() -> dict[str, Any]:
 
 
 class EncSimulator:
-    """Simulate the exact published ENC stages from verified five-player ratings."""
+    """Simulate published ENC stages using native C0 series probabilities."""
 
     def __init__(self, teams: Sequence[EncTeam]):
         self.teams = tuple(teams)
-        self._ratings = {team.nation: team.roster_rating for team in teams}
+        self._by_nation = {team.nation: team for team in teams}
+        self.decision_at = datetime.now(timezone.utc)
+        self._probabilities: dict[tuple[Any, ...], float] = {}
+        self._native_diagnostics: dict[tuple[Any, ...], dict[str, Any]] = {}
         self._validate_participants()
 
     @classmethod
     def from_configuration(cls, configuration: Mapping[str, Any]) -> "EncSimulator":
         if not configuration.get("simulation_ready"):
             issues = "; ".join(str(issue) for issue in configuration.get("blocking_issues", []))
-            raise EncConfigurationError(issues or "Konfiguracja ENC nie jest kompletna.")
-        return cls(
-            [
-                EncTeam(
-                    nation=str(team["nation"]),
-                    entry_stage=str(team["entry_stage"]),
-                    roster_rating=float(team["roster_rating"]),
-                )
-                for team in configuration["teams"]
-            ]
-        )
+            raise EncConfigurationError(issues or "ENC C0 configuration is unavailable.")
+        return cls([
+            EncTeam(
+                nation=str(team["nation"]),
+                entry_stage=str(team["entry_stage"]),
+                organization_id=str(team["organization_id"]),
+                roster=tuple(str(player_id) for player_id in team["roster_ids"]),
+                roster_rating=float(team["roster_rating"]) if team.get("roster_rating") is not None else None,
+            )
+            for team in configuration["teams"]
+        ])
 
     def _validate_participants(self) -> None:
         if len(self.teams) != 32:
             raise ValueError("ENC requires exactly 32 national teams.")
         if len({team.nation for team in self.teams}) != 32:
             raise ValueError("Each ENC nation must occupy exactly one slot.")
+        if any(not team.organization_id or len(team.roster) != 5 or len(set(team.roster)) != 5 for team in self.teams):
+            raise EncConfigurationError("Every ENC C0 participant requires a synthetic organization identity and five exact player IDs.")
         direct = [team for team in self.teams if team.entry_stage == "group_stage"]
         play_in = [team for team in self.teams if team.entry_stage == "play_in"]
         if len(direct) != 8 or len(play_in) != 24:
             raise ValueError("ENC requires 8 direct Group Stage teams and 24 Play-In teams.")
 
     def _winner(self, nation_a: str, nation_b: str, best_of: int) -> str:
-        rating_diff = self._ratings[nation_a] - self._ratings[nation_b]
-        game_probability = 1.0 / (1.0 + 10.0 ** (-rating_diff / 400.0))
-        probability = series_probability(game_probability, best_of)
-        return nation_a if random.random() < probability else nation_b
+        if type(best_of) is not int or best_of not in {1, 3, 5}:
+            raise ValueError("ENC series best_of must be one of 1, 3, 5.")
+        team_a, team_b = self._by_nation[nation_a], self._by_nation[nation_b]
+        origin = self.decision_at.isoformat()
+        key = (
+            team_a.organization_id, team_a.roster, team_b.organization_id, team_b.roster,
+            best_of, origin, "enc-2027", "no_organization", "c0-native-2026-w32-e12-v1",
+        )
+        if key not in self._probabilities:
+            result = predict_c0({
+                "canonical": {"id": None},
+                "c0_request": {
+                    "team1_id": team_a.organization_id,
+                    "team2_id": team_b.organization_id,
+                    "roster_a": list(team_a.roster),
+                    "roster_b": list(team_b.roster),
+                    "best_of": best_of,
+                    "decision_at": origin,
+                    "competition_context": "enc-2027",
+                    "start_at": None,
+                    "mode": "no_organization",
+                },
+            })
+            probability = float(result.prob_a)
+            if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
+                raise EncConfigurationError("Native C0 returned an invalid ENC series probability.")
+            self._native_diagnostics[key] = {
+                "team1_id": team_a.organization_id,
+                "team2_id": team_b.organization_id,
+                "best_of": best_of,
+                "diagnostics": dict(getattr(result, "diagnostics", {}) or {}),
+            }
+            self._probabilities[key] = probability
+        return nation_a if random.random() < self._probabilities[key] else nation_b
 
     def _rank_group(self, teams: Sequence[str], *, best_of: int, repeat: int) -> list[str]:
         wins = {team: 0 for team in teams}
@@ -298,6 +332,8 @@ class EncSimulator:
         return sorted(shuffled, key=lambda nation: wins[nation], reverse=True)
 
     def simulate(self, n_simulations: int) -> dict[str, Any]:
+        if type(n_simulations) is not int or n_simulations <= 0:
+            raise ValueError("n_simulations must be a positive integer.")
         direct = [team.nation for team in self.teams if team.entry_stage == "group_stage"]
         play_in = [team.nation for team in self.teams if team.entry_stage == "play_in"]
         group_stage_counts = {team.nation: n_simulations if team.nation in direct else 0 for team in self.teams}
@@ -346,7 +382,7 @@ class EncSimulator:
             {
                 "nation": team.nation,
                 "entry_stage": team.entry_stage,
-                "roster_rating": round(team.roster_rating, 1),
+                "roster_rating": round(team.roster_rating, 1) if team.roster_rating is not None else None,
                 "group_stage_prob": round(group_stage_counts[team.nation] / n_simulations, 4),
                 "playoff_prob": round(playoff_counts[team.nation] / n_simulations, 4),
                 "top4_prob": round(top4_counts[team.nation] / n_simulations, 4),
@@ -360,6 +396,12 @@ class EncSimulator:
             "tournament_id": "enc_2027",
             "tournament_name": "Esports Nations Cup 2027",
             "format": enc_format(),
-            "simulations": n_simulations,
+            "probability_model": "Causal-C0",
+            "probability_model_version": "c0-native-2026-w32-e12-v1",
+            "probability_unit": "series",
+            "decision_at": self.decision_at.isoformat(),
+            "mode": "no_organization",
+            "organization_policy": "synthetic_national_identity_no_organization",
+            "native_prediction_provenance": list(self._native_diagnostics.values()),
             "standings": standings,
         }

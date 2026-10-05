@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import gzip
-import json
 import logging
 import re
-import urllib.parse
-import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Sequence
@@ -15,6 +11,7 @@ from typing import Any, Sequence
 from betting_app.core.db import connect, get_session, transaction
 from betting_app.services.canonical_match_service import canonical_team_key
 from betting_app.services.current_roster_service import clean_player_name, upsert_current_roster
+from betting_app.services.liquipedia_transport import LiquipediaRequestError, query as liquipedia_query
 
 logger = logging.getLogger(__name__)
 
@@ -54,28 +51,38 @@ class LiquipediaRosterPlayer:
 class LiquipediaClient:
     """Client for querying the Liquipedia MediaWiki API."""
 
-    def __init__(self, api_url: str = LIQUIPEDIA_API_URL, user_agent: str = DEFAULT_USER_AGENT):
+    def __init__(
+        self,
+        api_url: str = LIQUIPEDIA_API_URL,
+        user_agent: str = DEFAULT_USER_AGENT,
+        wait_for_spacing: bool = False,
+    ):
         self.api_url = api_url
         self.user_agent = user_agent
+        self.wait_for_spacing = wait_for_spacing
+        self.last_error: LiquipediaRequestError | None = None
 
-    def _query(self, params: dict[str, Any], timeout: int = 15) -> dict[str, Any] | None:
-        url = f"{self.api_url}?{urllib.parse.urlencode(params)}"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": self.user_agent,
-                "Accept-Encoding": "gzip",
-            },
-        )
+    def _query_result(
+        self, params: dict[str, Any], timeout: int = 15
+    ) -> tuple[dict[str, Any] | list[Any] | None, LiquipediaRequestError | None]:
+        self.last_error = None
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read()
-                if resp.info().get("Content-Encoding") == "gzip":
-                    raw = gzip.decompress(raw)
-                return json.loads(raw.decode("utf-8"))
-        except Exception as e:
-            logger.error("Liquipedia API request failed for %s: %s", params.get("action"), e)
-            return None
+            data = liquipedia_query(
+                self.api_url,
+                params,
+                self.user_agent,
+                timeout=timeout,
+                wait_for_spacing=self.wait_for_spacing,
+            )
+            return data, None
+        except LiquipediaRequestError as error:
+            self.last_error = error
+            logger.error("Liquipedia API request failed for %s: %s", params.get("action"), error)
+            return None, error
+
+    def _query(self, params: dict[str, Any], timeout: int = 15) -> dict[str, Any] | list[Any] | None:
+        data, _error = self._query_result(params, timeout=timeout)
+        return data
 
     def fetch_recent_and_upcoming_matches(self, limit: int = 50) -> list[LiquipediaMatch]:
         """Fetch matches parsed from the Match/Ticker/Container widget template."""
@@ -86,9 +93,8 @@ class LiquipediaClient:
             "format": "json",
         }
         data = self._query(params)
-        if not data:
+        if not isinstance(data, dict):
             return []
-
         html = data.get("expandtemplates", {}).get("wikitext", "")
         if not html:
             return []
@@ -104,16 +110,16 @@ class LiquipediaClient:
             "format": "json",
         }
         data = self._query(params)
-        if not data or len(data) < 2:
+        if not isinstance(data, list) or len(data) < 2:
             return None
         titles = data[1]
-        if not titles:
+        if not isinstance(titles, list) or not titles:
             return None
         # Return first title that is not a subpage like /Results
         for title in titles:
-            if "/" not in title:
+            if isinstance(title, str) and "/" not in title:
                 return title
-        return titles[0]
+        return titles[0] if isinstance(titles[0], str) else None
 
     def fetch_active_roster(self, team_page_or_name: str) -> list[LiquipediaRosterPlayer]:
         """Fetch and parse active 5-role roster from a team page on Liquipedia."""
@@ -124,15 +130,18 @@ class LiquipediaClient:
             "prop": "text",
             "format": "json",
         }
-        data = self._query(params)
-        if not data or "error" in data:
-            # Try searching for the exact page title
+        data, request_error = self._query_result(params)
+        if request_error and request_error.kind == "missing_page":
+            # Only an API/title-resolution miss may trigger a second query.
             resolved = self.search_team_page(team_page_or_name)
             if resolved and resolved != team_page_or_name:
                 params["page"] = resolved.replace(" ", "_")
                 data = self._query(params)
 
         if not data:
+            return []
+
+        if not isinstance(data, dict):
             return []
 
         html = data.get("parse", {}).get("text", {}).get("*", "")
@@ -303,18 +312,22 @@ def sync_liquipedia_best_of(limit: int = 50) -> dict[str, Any]:
     }
 
 
-def sync_liquipedia_team_rosters(team_names: Sequence[str] | None = None) -> dict[str, Any]:
+def sync_liquipedia_team_rosters(
+    team_names: Sequence[str] | None = None,
+    *,
+    wait_for_spacing: bool = False,
+) -> dict[str, Any]:
     """Fetch active rosters for target teams from Liquipedia and update team_current_roster_players.
 
     If team_names is None, queries upcoming matches with incomplete rosters.
     """
-    client = LiquipediaClient()
+    client = LiquipediaClient(wait_for_spacing=wait_for_spacing)
     session = get_session()
     updated_teams = 0
     failed_teams = 0
 
-    target_teams = list(team_names) if team_names else []
-    if not target_teams:
+    target_teams = list(dict.fromkeys(name.strip() for name in (team_names or ()) if name.strip()))
+    if not team_names:
         with connect() as conn:
             rows = conn.execute(
                 """

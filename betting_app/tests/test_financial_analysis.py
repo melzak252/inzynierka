@@ -8,10 +8,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from betting_app.api.routers import financial
-from betting_app.services.thesis_inference_service import (
-    THESIS_MODEL_NAME,
-    THESIS_MODEL_VERSION,
-)
+from betting_app.core.models import BAYESIAN_SHRUNK_HYBRID, C0_NATIVE
 
 
 def _prediction(
@@ -75,8 +72,8 @@ def test_financial_api_reserves_overlapping_stakes(monkeypatch, client: TestClie
     response = client.get(
         "/financial/analysis",
         params={
-            "model_name": THESIS_MODEL_NAME,
-            "model_version": THESIS_MODEL_VERSION,
+            "model_name": BAYESIAN_SHRUNK_HYBRID.name,
+            "model_version": BAYESIAN_SHRUNK_HYBRID.version,
             "staking_mode": "fixed",
             "fixed_stake": 700,
             "initial_bankroll": 1000,
@@ -108,8 +105,8 @@ def test_financial_live_scope_excludes_missing_cutoff(monkeypatch):
     monkeypatch.setattr(financial, "query_df", _stub_query(predictions, []))
 
     result = financial.financial_analysis(
-        model_name=THESIS_MODEL_NAME,
-        model_version=THESIS_MODEL_VERSION,
+        model_name=C0_NATIVE.name,
+        model_version=C0_NATIVE.version,
         data_scope="live",
         days_back=730,
         db=object(),
@@ -119,7 +116,33 @@ def test_financial_live_scope_excludes_missing_cutoff(monkeypatch):
     assert result.temporal_exclusions["missing_data_cutoff_at"] == 1
 
 
-def test_financial_conformal_gate_uses_persisted_venn_abers_bound(monkeypatch):
+def test_c0_default_conformal_gate_excludes_missing_bounds(monkeypatch):
+    predictions = [
+        _prediction(
+            1,
+            start="2026-01-01T18:00:00+00:00",
+            result_available_at="2026-01-01T22:00:00+00:00",
+        )
+    ]
+    monkeypatch.setattr(
+        financial,
+        "query_df",
+        _stub_query(predictions, [_snapshot(1, "2026-01-01T12:00:00+00:00")]),
+    )
+
+    result = financial.financial_analysis(
+        model_name=C0_NATIVE.name,
+        model_version=C0_NATIVE.version,
+        data_scope="live",
+        days_back=730,
+        db=object(),
+    )
+
+    assert result.total_bets == 0
+    assert result.temporal_exclusions["conformal_bounds_unavailable"] == 1
+
+
+def test_c0_conformal_gate_uses_only_persisted_venn_abers_bounds(monkeypatch):
     predictions = [
         _prediction(
             1,
@@ -131,23 +154,50 @@ def test_financial_conformal_gate_uses_persisted_venn_abers_bound(monkeypatch):
             ),
         )
     ]
-    odds = [_snapshot(1, "2026-01-01T12:00:00+00:00")]
-    monkeypatch.setattr(financial, "query_df", _stub_query(predictions, odds))
+    monkeypatch.setattr(
+        financial,
+        "query_df",
+        _stub_query(predictions, [_snapshot(1, "2026-01-01T12:00:00+00:00")]),
+    )
 
     result = financial.financial_analysis(
-        model_name="Hierarchical-Markov-VennAbers-EXP040",
-        model_version="candidate-1",
+        model_name=C0_NATIVE.name,
+        model_version=C0_NATIVE.version,
         data_scope="live",
         days_back=730,
-        staking_mode="fixed",
-        fixed_stake=10,
         db=object(),
     )
 
     assert result.total_bets == 1
     assert result.ledger[0].target_prob == 0.60
-    assert result.temporal_exclusions["conformal_bounds_unavailable"] == 0
 
+def test_stored_c0_hybrid_is_not_blended_with_market_again(monkeypatch):
+    predictions = [
+        _prediction(
+            1,
+            start="2026-01-01T18:00:00+00:00",
+            result_available_at="2026-01-01T22:00:00+00:00",
+            diagnostics_json=None,
+        )
+    ]
+    monkeypatch.setattr(
+        financial,
+        "query_df",
+        _stub_query(predictions, [_snapshot(1, "2026-01-01T12:00:00+00:00")]),
+    )
+
+    result = financial.financial_analysis(
+        model_name=BAYESIAN_SHRUNK_HYBRID.name,
+        model_version=BAYESIAN_SHRUNK_HYBRID.version,
+        data_scope="live",
+        days_back=730,
+        use_conformal_gating=False,
+        db=object(),
+    )
+
+    assert result.total_bets == 1
+    assert result.ledger[0].model_prob == 0.70
+    assert result.ledger[0].target_prob == 0.70
 
 def test_financial_api_empty_sqlite_cohort_is_valid(client: TestClient):
     response = client.get("/financial/analysis")

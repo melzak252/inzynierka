@@ -458,6 +458,12 @@ def main():
         choices=("quarter-calibration", "semester-calibration"),
         default="quarter-calibration",
     )
+    parser.add_argument(
+        "--exp081-artifact",
+        type=Path,
+        required=True,
+        help="explicit archived EXP081 JSON artifact",
+    )
     args = parser.parse_args()
     started = time.monotonic()
     identity = {"golgg_match_id": "string", "team1_id": "string", "team2_id": "string"}
@@ -531,14 +537,14 @@ def main():
             args.protocol,
         )
     # Existing artifacts are descriptive references only: their historical fit cutoff is not established.
-    from src.models.siamese_series import SiameseSeriesModel
+    from src.models.siamese_series import load_artifact
     from src.models.symmetric_series import SymmetricSeriesModel
 
     legacy_result = groups["legacy79"][0]
     records = legacy_result.to_dict("records")
     frozen = {}
     for name, model in (
-        ("stored_exp081", SiameseSeriesModel.load_default()),
+        ("stored_exp081", load_artifact(args.exp081_artifact)),
         ("stored_exp078", SymmetricSeriesModel.load_default()),
     ):
         p = np.array(
@@ -579,9 +585,13 @@ def main():
         ROOT / "src/models/replay_series.py",
         ROOT / "scripts/benchmark_siamese_architectures.py",
         ROOT / "scripts/train_and_tune_siamese_series.py",
-        ROOT / "betting_app/models/exp081_siamese_series_v1.json",
         ROOT / "betting_app/models/exp078_symmetric_series_v1.json",
     ]
+    artifact_path = args.exp081_artifact.expanduser().resolve()
+    artifact_inventory = {
+        "path": str(artifact_path),
+        "sha256": sha256(artifact_path),
+    }
     summary = {
         "experiment": "exp083-model-redesign-v1",
         "scope": "retrospective_nested_chronological_diagnostic",
@@ -607,6 +617,7 @@ def main():
         "groups": {label: group[1] for label, group in groups.items()},
         "context_ablation_deltas": context_deltas,
         "stored_artifact_diagnostic": {
+            "artifact": artifact_inventory,
             "eligible_as_point_in_time_baseline": False,
             "metrics": frozen,
             "reason": "Artifact fit cutoff/source provenance unverified; numbers cannot establish production superiority",

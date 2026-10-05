@@ -71,6 +71,18 @@ def sqlite_session():
         engine.dispose()
 
 
+def _exact_roster(team: str, names: list[str]) -> list[dict[str, str]]:
+    roles = ("TOP", "JUNGLE", "MID", "ADC", "SUPPORT")
+    return [
+        {
+            "player_id": f"{team}-{name.lower()}",
+            "player_name": name,
+            "role": role,
+        }
+        for name, role in zip(names, roles, strict=True)
+    ]
+
+
 # ============================================================================
 # 1. detect_lineup_substitution tests
 # ============================================================================
@@ -344,10 +356,22 @@ def test_build_features_for_match_is_lineup_confirmed():
         "league": "LCK",
     }
 
-    # Mock dependencies inside build_features_for_match to test feature preparation
+    team_a_roster = {
+        "players": [
+            {"player_id": f"t1-player-{i}", "role": role}
+            for i, role in enumerate(("TOP", "JUNGLE", "MID", "ADC", "SUPPORT"))
+        ]
+    }
+    team_b_roster = {
+        "players": [
+            {"player_id": f"geng-player-{i}", "role": role}
+            for i, role in enumerate(("TOP", "JUNGLE", "MID", "ADC", "SUPPORT"))
+        ]
+    }
+
+    # Mock non-roster dependencies; native C0 receives the explicit current rosters below.
     with patch("betting_app.services.upcoming_inference_service.load_team_ratings") as mock_ratings, \
          patch("betting_app.services.upcoming_inference_service.load_w20") as mock_w20, \
-         patch("betting_app.services.upcoming_inference_service.load_last_roster") as mock_roster, \
          patch("betting_app.services.upcoming_inference_service.load_roster_player_ratings") as mock_player_ratings, \
          patch("betting_app.services.upcoming_inference_service.rating_probabilities") as mock_probs, \
          patch("betting_app.services.upcoming_inference_service.player_rating_probabilities") as mock_p_probs, \
@@ -355,9 +379,6 @@ def test_build_features_for_match_is_lineup_confirmed():
 
         mock_ratings.return_value = {"elo": {}, "gl": {}, "ts": {}, "os": {}, "pl": {}, "tm": {}}
         mock_w20.return_value = {"win_rate": 0.6}
-        mock_roster.return_value = {
-            "players": [{"player_id": f"p{i}", "role": r} for i, r in enumerate(["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"])]
-        }
         mock_player_ratings.return_value = {"elo": {}, "gl": {}, "ts": {}, "os": {}, "pl": {}, "tm": {}}
         mock_probs.return_value = {"consensus": 0.55}
         mock_p_probs.return_value = {"consensus": 0.55}
@@ -370,8 +391,13 @@ def test_build_features_for_match_is_lineup_confirmed():
             w20_version="w20-v1",
             persist=False,
             is_lineup_confirmed=False,
+            native_c0=True,
+            team_a_roster_override=team_a_roster,
+            team_b_roster_override=team_b_roster,
         )
-        assert res_unconfirmed["features"]["is_lineup_confirmed"] is False
+        assert res_unconfirmed["features"]["canonical"]["is_lineup_confirmed"] is False
+        assert res_unconfirmed["features"]["player_ratings"]["is_lineup_confirmed"] is False
+        assert res_unconfirmed["features"]["diagnostics"]["is_lineup_confirmed"] is False
         assert res_unconfirmed["features"]["player_ratings"]["roster_source"] == "current_team_roster"
 
         # 2. With confirmed lineup
@@ -382,9 +408,21 @@ def test_build_features_for_match_is_lineup_confirmed():
             w20_version="w20-v1",
             persist=False,
             is_lineup_confirmed=True,
+            native_c0=True,
+            team_a_roster_override=team_a_roster,
+            team_b_roster_override=team_b_roster,
         )
-        assert res_confirmed["features"]["is_lineup_confirmed"] is True
-        assert res_confirmed["features"]["player_ratings"]["roster_source"] == "confirmed_lineup"
+        confirmed_features = res_confirmed["features"]
+        assert confirmed_features["canonical"]["is_lineup_confirmed"] is True
+        assert confirmed_features["player_ratings"]["is_lineup_confirmed"] is True
+        assert confirmed_features["diagnostics"]["is_lineup_confirmed"] is True
+        assert confirmed_features["player_ratings"]["roster_source"] == "confirmed_lineup"
+        assert confirmed_features["c0_request"]["roster_a"] == [
+            f"t1-player-{i}" for i in range(5)
+        ]
+        assert confirmed_features["c0_request"]["roster_b"] == [
+            f"geng-player-{i}" for i in range(5)
+        ]
 
 
 def test_process_confirmed_lineup_update_no_change():
@@ -392,8 +430,8 @@ def test_process_confirmed_lineup_update_no_change():
     start_dt = datetime(2026, 9, 16, 18, 0, 0, tzinfo=UTC)
     now_dt = start_dt - timedelta(minutes=35)
 
-    starters_a = ["Faker", "Zeus", "Oner", "Gumayusi", "Keria"]
-    starters_b = ["Chovy", "Kiin", "Canyon", "Peyz", "Lehends"]
+    starters_a = _exact_roster("a", ["Faker", "Zeus", "Oner", "Gumayusi", "Keria"])
+    starters_b = _exact_roster("b", ["Chovy", "Kiin", "Canyon", "Peyz", "Lehends"])
 
     match = {
         "id": 201,
@@ -402,8 +440,8 @@ def test_process_confirmed_lineup_update_no_change():
         "start_time_normalized": start_dt.isoformat(),
         "previous_roster_a": starters_a,
         "previous_roster_b": starters_b,
-        "confirmed_roster_a": starters_a,  # Same starters
-        "confirmed_roster_b": starters_b,  # Same starters
+        "confirmed_roster_a": starters_a,
+        "confirmed_roster_b": starters_b,
     }
 
     with patch("betting_app.services.upcoming_inference_service.build_features_for_match") as mock_build:
@@ -430,9 +468,9 @@ def test_process_confirmed_lineup_update_substitution_forces_reinference():
     start_dt = datetime(2026, 9, 16, 18, 0, 0, tzinfo=UTC)
     now_dt = start_dt - timedelta(minutes=30)
 
-    baseline_a = ["Faker", "Zeus", "Oner", "Gumayusi", "Keria"]
-    confirmed_a = ["Faker", "Doran", "Oner", "Gumayusi", "Keria"]  # 1 sub (Doran for Zeus)
-    starters_b = ["Chovy", "Kiin", "Canyon", "Peyz", "Lehends"]
+    baseline_a = _exact_roster("a", ["Faker", "Zeus", "Oner", "Gumayusi", "Keria"])
+    confirmed_a = _exact_roster("a", ["Faker", "Doran", "Oner", "Gumayusi", "Keria"])
+    starters_b = _exact_roster("b", ["Chovy", "Kiin", "Canyon", "Peyz", "Lehends"])
 
     match = {
         "id": 202,
@@ -466,10 +504,8 @@ def test_process_confirmed_lineup_update_substitution_forces_reinference():
         assert result["substitution_detected"] is True
         assert result["re_inference_triggered"] is True
         assert result["status"] == "re_inferred"
-        assert result["substituted_players"]["team_a"] == ["Doran"]
-        assert result["substituted_player_ids"] == ["Doran"]
-        assert result["prob_a"] == 0.58
-        assert result["prob_b"] == pytest.approx(0.42)
+        assert result["substituted_players"]["team_a"] == ["a-doran"]
+        assert result["substituted_player_ids"] == ["a-doran"]
         assert result["diagnostics"]["lineup_substitution_detected"] is True
 
 
@@ -504,11 +540,11 @@ def test_process_confirmed_lineup_update_updates_db_roster(sqlite_session):
 
     # Insert previous baseline roster
     old_players = [
-        ("T1", "t1", "Zeus", "Zeus", "TOP"),
-        ("T1", "t1", "Oner", "Oner", "JUNGLE"),
-        ("T1", "t1", "Faker", "Faker", "MID"),
-        ("T1", "t1", "Gumayusi", "Gumayusi", "ADC"),
-        ("T1", "t1", "Keria", "Keria", "SUPPORT"),
+        ("T1", "t1", "a-zeus", "Zeus", "TOP"),
+        ("T1", "t1", "a-oner", "Oner", "JUNGLE"),
+        ("T1", "t1", "a-faker", "Faker", "MID"),
+        ("T1", "t1", "a-gumayusi", "Gumayusi", "ADC"),
+        ("T1", "t1", "a-keria", "Keria", "SUPPORT"),
     ]
     for team, norm, pid, pname, role in old_players:
         sqlite_session.execute(
@@ -521,20 +557,14 @@ def test_process_confirmed_lineup_update_updates_db_roster(sqlite_session):
     sqlite_session.commit()
 
     # Confirmed lineup with Doran in TOP
-    confirmed_t1 = [
-        {"player_id": "Doran", "player_name": "Doran", "role": "TOP"},
-        {"player_id": "Oner", "player_name": "Oner", "role": "JUNGLE"},
-        {"player_id": "Faker", "player_name": "Faker", "role": "MID"},
-        {"player_id": "Gumayusi", "player_name": "Gumayusi", "role": "ADC"},
-        {"player_id": "Keria", "player_name": "Keria", "role": "SUPPORT"},
-    ]
+    confirmed_t1 = _exact_roster("a", ["Doran", "Oner", "Faker", "Gumayusi", "Keria"])
 
     match = {
         "id": 204,
         "team_a_name": "T1",
         "team_b_name": "Gen.G",
         "start_time_normalized": start_dt.isoformat(),
-        "previous_roster_a": ["Zeus", "Oner", "Faker", "Gumayusi", "Keria"],
+        "previous_roster_a": _exact_roster("a", ["Zeus", "Oner", "Faker", "Gumayusi", "Keria"]),
         "confirmed_roster_a": confirmed_t1,
     }
 
@@ -553,12 +583,12 @@ def test_process_confirmed_lineup_update_updates_db_roster(sqlite_session):
 
         assert result["substitution_detected"] is True
         assert result["re_inference_triggered"] is True
-        assert result["substituted_player_ids"] == ["Doran"]
+        assert result["substituted_player_ids"] == ["a-doran"]
 
     # Verify that the DB was updated: TOP player for T1 is now Doran
     row = sqlite_session.execute(
         text("SELECT player_id, player_name FROM team_current_roster_players WHERE normalized_team_name = 't1' AND role = 'TOP'")
     ).fetchone()
     assert row is not None
-    assert row[0] == "Doran"
+    assert row[0] == "a-doran"
     assert row[1] == "Doran"

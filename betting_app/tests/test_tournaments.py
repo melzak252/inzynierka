@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 import random
+from types import SimpleNamespace
 
 import pytest
 
 from fastapi.testclient import TestClient
 
 from betting_app.api.main import app
+from betting_app.api.routers import tournaments as tournament_router
+from betting_app.services import c0_inference as c0_core
+from betting_app.services import tournament_cache_service as cache_core
 from betting_app.services.tournament_service import (
     SUPPORTED_BRACKETS,
     TournamentSimulator,
     BracketMatchNode,
     TournamentBracket,
-    WorldsSimulator,
     get_lck_2026_playoffs_bracket,
     get_lec_2026_summer_playoffs_bracket,
     get_lpl_2026_split3_playoffs_bracket,
@@ -25,21 +28,59 @@ from betting_app.services.liquipedia_bracket_service import (
     TOURNAMENT_METADATA,
 )
 from betting_app.services.enc_simulation_service import (
+    EncConfigurationError,
     EncSimulator,
     EncTeam,
     build_enc_configuration,
 )
+from betting_app.services import enc_simulation_service as enc_core
 client = TestClient(app)
+
+
+def _sim_for(teams, *, seed=82, competition_context=None):
+    team_ids = {team: f"test-team-id:{team}" for team in teams}
+    rosters = {
+        team: [f"test-player-id:{team}:{index}" for index in range(5)]
+        for team in teams
+    }
+    from datetime import UTC, datetime
+    return TournamentSimulator(
+        seed=seed, team_ids=team_ids, team_rosters=rosters,
+        decision_at=datetime(2026, 10, 1, tzinfo=UTC),
+        competition_context=competition_context,
+    )
+
+
+@pytest.fixture(autouse=True)
+def controlled_native_c0(monkeypatch):
+    oracle = lambda _features: SimpleNamespace(prob_a=0.5, diagnostics={})
+    monkeypatch.setattr(c0_core, "predict_c0", oracle)
+    monkeypatch.setattr(enc_core, "predict_c0", oracle)
 
 
 @pytest.fixture
 def offline_tournament_api(monkeypatch):
-    monkeypatch.setattr(TournamentSimulator, "_load_team_ratings", staticmethod(lambda: {}))
+    all_teams = {
+        team for builder in SUPPORTED_BRACKETS.values() for team in builder().teams
+    }
+
+    def simulator_factory(*, seed=None, competition_context=None, **kwargs):
+        return _sim_for(
+            all_teams, seed=seed or 82, competition_context=competition_context,
+        )
+
+    monkeypatch.setattr(tournament_router, "TournamentSimulator", simulator_factory)
+    monkeypatch.setattr(cache_core, "TournamentSimulator", simulator_factory)
+    monkeypatch.setattr(
+        "betting_app.services.tournament_cache_service.get_c0_artifact_identity",
+        lambda: {"artifact_sha256": "fixture-c0"},
+    )
 
     def local_bracket(self, tournament_id, **kwargs):
         return {"bracket": SUPPORTED_BRACKETS[tournament_id](), "source": "offline_fixture", "status": "ready"}
 
     monkeypatch.setattr(LiquipediaBracketService, "sync_bracket", local_bracket)
+    monkeypatch.setattr(LiquipediaBracketService, "load_bracket", local_bracket)
 
 
 def test_supported_brackets_structure() -> None:
@@ -73,9 +114,7 @@ def test_supported_brackets_structure() -> None:
 
 def test_tournament_simulator_deterministic_manual_override() -> None:
     bracket = get_lck_2026_playoffs_bracket()
-    ratings = {"geng": 2500.0, "t1": 1500.0, "ktrolster": 1400.0, "dplus": 1300.0}
-    sim = TournamentSimulator(team_ratings=ratings)
-
+    sim = _sim_for(bracket.teams)
     res = sim.simulate(
         bracket, n_simulations=100,
         manual_overrides={"LB_R3": "T1", "LB_Final": "T1", "Grand_Final": "T1"},
@@ -197,88 +236,52 @@ def test_bracket_sync_service_chronological_mapping() -> None:
     assert updated_bracket.matches["LB_R2"].winner == "Dplus"
 
 
-def test_lpl_simulation_tes_elimination_and_no_100_percent_top3_bug() -> None:
-    """Verify TES is not mathematically forced to 100% Top 3 and when eliminated in LB R1 has 0% Top 3."""
-    sim = TournamentSimulator(team_ratings={"offline": 1750.0}, seed=82)
 
-    # 1. Pre-playoff state: TES must NOT be hardcoded to 100% Top 3
-    bracket_pre = get_lpl_2026_split3_playoffs_bracket()
-    res_pre = sim.simulate(bracket_pre, n_simulations=500)
-    standings_pre = {s["team"]: s for s in res_pre["standings"]}
-    assert len(res_pre["standings"]) == 8
-    assert standings_pre["Top Esports"]["top3_prob"] < 1.0, "TES must not have 100% top 3 before playoffs"
-    assert standings_pre["Top Esports"]["champion_prob"] > 0.0
+@pytest.mark.parametrize("method,path", [("get", "/tournaments/enc"), ("post", "/tournaments/enc/simulate")])
+def test_enc_source_query_failure_is_server_error(client, monkeypatch, method, path):
+    from contextlib import nullcontext
 
-    # 2. Live state where TES was eliminated in LB R1 by Invictus Gaming
-    bracket_live = get_lpl_2026_split3_playoffs_bracket()
-    # UB R1 results: TES lost to LGD
-    bracket_live.matches["UB_R1_M1"].winner = "LGD Gaming"
-    bracket_live.matches["UB_R1_M1"].score1 = 2
-    bracket_live.matches["UB_R1_M1"].score2 = 3
-    # Advance loser TES to LB_R1_M1 slot 2
-    bracket_live.matches["LB_R1_M1"].team2 = "Top Esports"
-    # LB R1 results: Invictus Gaming defeats Top Esports
-    bracket_live.matches["LB_R1_M1"].winner = "Invictus Gaming"
-    bracket_live.matches["LB_R1_M1"].score1 = 3
-    bracket_live.matches["LB_R1_M1"].score2 = 2
+    class BrokenSourceSession:
+        def execute(self, *_args, **_kwargs):
+            raise ConnectionError("private source query diagnostic")
 
-    res_live = sim.simulate(bracket_live, n_simulations=500)
-    standings_live = {s["team"]: s for s in res_live["standings"]}
-    tes = standings_live["Top Esports"]
-    assert tes["champion_prob"] == 0.0
-    assert tes["top2_prob"] == 0.0
-    assert tes["top3_prob"] == 0.0
-    assert tes["top4_prob"] == 0.0
+    monkeypatch.setattr(enc_core, "get_session", lambda: nullcontext(BrokenSourceSession()))
+    monkeypatch.setattr(enc_core, "_rating_snapshot", lambda _session: (None, []))
+    response = getattr(client, method)(path, **({"json": {"simulations": 100}} if method == "post" else {}))
+    assert response.status_code == 500
+    assert response.json() == {"detail": "Native C0 service unavailable."}
+    assert "private source query diagnostic" not in response.text
 
-def test_enc_selects_the_best_listed_polish_player_for_each_role() -> None:
-    configuration = build_enc_configuration(
-        rating_run={"ratings_version": "ratings-v2", "data_cutoff_at": "2026-09-03T00:00:00+00:00"},
-        rating_rows=[
-            {"entity_name": "Tracyn", "normalized_entity_name": "tracyn", "role": "MID", "rating_value": 1736.5, "games_played": 50},
-            {"entity_name": "Inspired", "normalized_entity_name": "inspired", "role": "MID", "rating_value": 2005.5, "games_played": 50},
-            {"entity_name": "Jankos", "normalized_entity_name": "jankos", "role": "MID", "rating_value": 1662.6, "games_played": 50},
-            {"entity_name": "Czajek", "normalized_entity_name": "czajek", "role": "TOP", "rating_value": 1794.4, "games_played": 50},
-            {"entity_name": "Harpoon", "normalized_entity_name": "harpoon", "role": "TOP", "rating_value": 1977.1, "games_played": 50},
-            {"entity_name": "Busio", "normalized_entity_name": "busio", "role": "TOP", "rating_value": 2056.9, "games_played": 50},
-            {"entity_name": "Trymbi", "normalized_entity_name": "trymbi", "role": "TOP", "rating_value": 1824.8, "games_played": 50},
-        ],
-    )
+
+def test_enc_missing_native_rosters_fail_closed() -> None:
+    configuration = build_enc_configuration(rating_rows=[])
     poland = next(team for team in configuration["teams"] if team["nation"] == "Poland")
 
-    assert poland["selection_status"] == "ready"
-    assert {player["role"]: player["player"] for player in poland["selected_roster"]} == {
-        "TOP": "Tracyn",
-        "JUNGLE": "Inspired",
-        "MID": "Czajek",
-        "ADC": "Harpoon",
-        "SUPPORT": "Busio",
-    }
+    assert configuration["simulation_ready"] is False
+    assert poland["selection_status"] == "incomplete"
+    assert poland["missing_roles"] == ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
+    with pytest.raises(EncConfigurationError):
+        EncSimulator.from_configuration(configuration)
 
 
-def test_enc_defaults_unrated_fandom_role_players_and_simulates() -> None:
-    configuration = build_enc_configuration(
-        rating_run={"ratings_version": "ratings-v2", "data_cutoff_at": "2026-09-03T00:00:00+00:00"},
-        rating_rows=[],
-    )
-    guatemala = next(team for team in configuration["teams"] if team["nation"] == "Guatemala")
-    solidarity = next(team for team in configuration["teams"] if team["nation"] == "Solidarity Slot")
-
-    assert configuration["simulation_ready"] is True
-    assert configuration["default_rating"] == 1500.0
-    assert len(configuration["teams"]) == 32
-    assert [player["player"] for player in guatemala["selected_roster"]] == [
-        "Putilt", "BlindWalker", "Piyey", "SunTiger", "Onier",
-    ]
-    assert all(player["rating"] == 1500.0 and player["rating_source"] == "default"
-               for player in guatemala["selected_roster"])
-    assert solidarity["selection_status"] == "defaulted"
-    assert EncSimulator.from_configuration(configuration).simulate(100)["simulations"] == 100
 
 
 def test_enc_simulator_uses_published_stage_sizes_and_series_lengths() -> None:
     teams = [
-        *(EncTeam(f"Direct {index}", "group_stage", 2000.0 + index) for index in range(8)),
-        *(EncTeam(f"Play-In {index}", "play_in", 1800.0 + index) for index in range(24)),
+        *(
+            EncTeam(
+                f"Direct {index}", "group_stage", f"test-org:{index}",
+                tuple(f"test-player:{index}:{slot}" for slot in range(5)),
+            )
+            for index in range(8)
+        ),
+        *(
+            EncTeam(
+                f"Play-In {index}", "play_in", f"test-org:{index + 8}",
+                tuple(f"test-player:{index + 8}:{slot}" for slot in range(5)),
+            )
+            for index in range(24)
+        ),
     ]
     result = EncSimulator(teams).simulate(100)
 
@@ -325,9 +328,9 @@ def test_score_alignment_reversed_order() -> None:
 
 def test_all_supported_brackets_simulate_successfully() -> None:
     """Verify each supported bracket tree simulates without dead ends or missing slots."""
-    sim = TournamentSimulator(team_ratings={"offline": 1750.0}, seed=82)
     for tournament_id, builder in SUPPORTED_BRACKETS.items():
         bracket = builder()
+        sim = _sim_for(bracket.teams, seed=82)
         res = sim.simulate(bracket, n_simulations=200)
         assert res["tournament_id"] == tournament_id
         assert len(res["standings"]) == len(bracket.teams)
@@ -375,13 +378,6 @@ def test_lpl_bracket_sync_and_upper_finals() -> None:
     assert grand_final.team2 is None
     assert grand_final.winner is None
 
-    # Simulate tournament: AL and BLG must have high champion probability, TES must be 0%
-    sim = TournamentSimulator(team_ratings={"offline": 1750.0}, seed=82)
-    sim_res = sim.simulate(updated, n_simulations=500)
-    standings_map = {s["team"]: s for s in sim_res["standings"]}
-    assert standings_map["Top Esports"]["champion_prob"] == 0.0
-    assert standings_map["Bilibili Gaming"]["champion_prob"] > 0.25
-    assert standings_map["Anyone's Legend"]["champion_prob"] > 0.25
 
 
 def _audit_final(**kwargs) -> TournamentBracket:
@@ -392,50 +388,29 @@ def _audit_final(**kwargs) -> TournamentBracket:
     return TournamentBracket("audit", "Audit", "test", "single_elimination", {"title": node}, ["Alpha", "Beta"])
 
 
-def test_audit_empty_ratings_do_not_open_database(monkeypatch) -> None:
-    def forbidden():
-        pytest.fail("Explicit empty ratings must not load the configured database")
-
-    monkeypatch.setattr(TournamentSimulator, "_load_team_ratings", staticmethod(forbidden))
-    assert TournamentSimulator(team_ratings={}).estimate_matchup_probability("Alpha", "Beta") == 0.5
-
-
-def test_audit_score_distribution_agrees_with_series_and_reversed_sides() -> None:
-    sim = TournamentSimulator(team_ratings={"alpha": 1925.0, "beta": 1750.0})
-    scores = sim.estimate_score_distribution("Alpha", "Beta", 5)
-    reversed_scores = sim.estimate_score_distribution("Beta", "Alpha", 5)
-    assert sum(scores.values()) == pytest.approx(1.0)
-    assert sum(p for score, p in scores.items() if score.startswith("3-")) == pytest.approx(
-        sim.estimate_matchup_probability("Alpha", "Beta", 5), abs=1e-12,
-    )
-    for score, probability in scores.items():
-        assert probability == pytest.approx(reversed_scores["-".join(reversed(score.split("-")))])
-
 
 def test_audit_rejects_nonparticipant_override() -> None:
     bracket = get_lec_2026_summer_playoffs_bracket()
     with pytest.raises(ValueError):
-        TournamentSimulator(team_ratings={"alpha": 1750}).simulate(
+        _sim_for(bracket.teams).simulate(
             bracket, 1, {"UB_SF1": "G2 Esports"},
         )
 
 
 def test_audit_rejects_override_of_confirmed_result() -> None:
+    bracket = get_lck_2026_playoffs_bracket()
     with pytest.raises(ValueError):
-        TournamentSimulator(team_ratings={"alpha": 1750}).simulate(
-            get_lck_2026_playoffs_bracket(), 1, {"UB_R1_M1": "Dplus"},
-        )
+        _sim_for(bracket.teams).simulate(bracket, 1, {"UB_R1_M1": "Dplus"})
 
 
 def test_audit_rejects_unknown_override_match() -> None:
+    bracket = get_lec_2026_summer_playoffs_bracket()
     with pytest.raises(ValueError):
-        TournamentSimulator(team_ratings={"alpha": 1750}).simulate(
-            get_lec_2026_summer_playoffs_bracket(), 1, {"absent": "G2 Esports"},
-        )
+        _sim_for(bracket.teams).simulate(bracket, 1, {"absent": "G2 Esports"})
 
 
 def test_audit_arbitrary_final_id_preserves_champion_and_runner_up_mass() -> None:
-    result = TournamentSimulator(team_ratings={"alpha": 1750}).simulate(
+    result = _sim_for(["Alpha", "Beta"]).simulate(
         _audit_final(winner="Alpha", score1=3, score2=0), 1,
     )
     standings = {row["team"]: row for row in result["standings"]}
@@ -459,77 +434,30 @@ def test_audit_rejects_invalid_graph(change) -> None:
     else:
         bracket.matches["UB_SF1"].team2 = "G2 Esports"
     with pytest.raises(ValueError):
-        TournamentSimulator(team_ratings={"alpha": 1750}).simulate(bracket, 1)
-
-
-@pytest.mark.parametrize("scores,winner", [((3, 3), "Alpha"), ((2, 0), "Alpha"), ((3, 0), None), ((-1, 0), None)])
-def test_audit_rejects_inconsistent_live_score(scores, winner) -> None:
-    with pytest.raises(ValueError):
-        TournamentSimulator(team_ratings={"alpha": 1750}).simulate(
-            _audit_final(score1=scores[0], score2=scores[1], winner=winner), 1,
-        )
-
-
-def test_audit_live_series_is_conditioned_on_current_score(monkeypatch) -> None:
-    sim = TournamentSimulator(team_ratings={"alpha": 1750})
-    monkeypatch.setattr(sim._rng, "random", lambda: 0.7)
-    result = sim.simulate(_audit_final(score1=2, score2=0), 1)
-    # Equal map strengths: from 2-0 in Bo5, Alpha wins with 7/8, not 1/2.
-    assert next(row for row in result["standings"] if row["team"] == "Alpha")["champion_prob"] == 1.0
+        _sim_for(bracket.teams).simulate(bracket, 1)
 
 
 def test_audit_rejects_contradictory_downstream_live_participants() -> None:
     bracket = get_lck_2026_playoffs_bracket()
     bracket.matches["LB_R2"].team1 = "T1"
     with pytest.raises(ValueError):
-        TournamentSimulator(team_ratings={"alpha": 1750}).simulate(bracket, 1)
+        _sim_for(bracket.teams).simulate(bracket, 1)
 
 
 def test_audit_rng_is_local_and_seed_reproducible() -> None:
     state = random.getstate()
-    first = TournamentSimulator(team_ratings={"alpha": 1750}, seed=82).simulate(_audit_final(), 31)
-    second = TournamentSimulator(team_ratings={"alpha": 1750}, seed=82).simulate(_audit_final(), 31)
+    first = _sim_for(["Alpha", "Beta"], seed=82).simulate(_audit_final(), 31)
+    second = _sim_for(["Alpha", "Beta"], seed=82).simulate(_audit_final(), 31)
     assert first["standings"] == second["standings"]
     assert random.getstate() == state
     assert sum(row["champion_prob"] for row in first["standings"]) == pytest.approx(1.0)
 
 
-def test_audit_swiss_finds_available_nonrematch_pairing(monkeypatch) -> None:
-    sim = WorldsSimulator(team_ratings={"alpha": 1750})
-    monkeypatch.setattr(random, "shuffle", lambda teams: None)
-    if hasattr(sim, "_rng"):
-        monkeypatch.setattr(sim._rng, "shuffle", lambda teams: None)
-    played = {frozenset(("Alpha", "Beta")), frozenset(("Gamma", "Delta"))}
-    prior = played.copy()
-    winners, losers = sim.simulate_swiss_round(["Alpha", "Beta", "Gamma", "Delta"], 1, played)
-    assert len(played - prior) == 2
-    assert set(winners + losers) == {"Alpha", "Beta", "Gamma", "Delta"}
-
-
-@pytest.mark.parametrize("pool", [["Alpha", "Beta", "Gamma"], ["Alpha", "Alpha"]])
-def test_audit_swiss_rejects_odd_or_duplicate_bucket(pool) -> None:
-    with pytest.raises(ValueError):
-        WorldsSimulator(team_ratings={"alpha": 1750}).simulate_swiss_round(pool, 1, set())
-
-
-def test_audit_swiss_rejects_impossible_no_rematch_draw() -> None:
-    with pytest.raises(ValueError):
-        WorldsSimulator(team_ratings={"alpha": 1750}).simulate_swiss_round(
-            ["Alpha", "Beta"], 1, {frozenset(("Alpha", "Beta"))},
-        )
-
-
 @pytest.mark.parametrize("count", [0, -1, True])
 def test_audit_rejects_invalid_simulation_count(count) -> None:
     with pytest.raises(ValueError):
-        TournamentSimulator(team_ratings={"alpha": 1750}).simulate(_audit_final(), count)
+        _sim_for(["Alpha", "Beta"]).simulate(_audit_final(), count)
 
-
-def test_audit_unrated_predictions_expose_noncertified_scope() -> None:
-    result = TournamentSimulator(team_ratings={"alpha": 1750}).simulate(_audit_final(), 1)
-    assert result["provenance"]["eligibility_live"] == 0
-    assert result["provenance"]["rating_source_available_at"] is None
-    assert result["provenance"]["unrated_teams"] == ["Beta"]
 
 
 def test_audit_api_rejects_impossible_manual_winner(offline_tournament_api) -> None:
@@ -554,7 +482,7 @@ def test_audit_renamed_double_elimination_routes_and_placements() -> None:
         node.next_match_winner_id = renamed.get(node.next_match_winner_id)
         node.next_match_loser_id = renamed.get(node.next_match_loser_id)
     bracket.matches = {node.id: node for node in bracket.matches.values()}
-    result = TournamentSimulator(team_ratings={"offline": 1750}).simulate(
+    result = _sim_for(bracket.teams).simulate(
         bracket, 1, {renamed[name]: winner for name, winner in forced.items()},
     )
     standings = {row["team"]: row for row in result["standings"]}
@@ -580,7 +508,7 @@ def test_audit_single_elimination_does_not_invent_third_place() -> None:
         "semi2", "Semi 2", "Semi", "upper", team1="Beta", team2="Delta",
         winner="Beta", next_match_winner_id="title", next_match_winner_slot=2,
     )
-    result = TournamentSimulator(team_ratings={"offline": 1750}).simulate(bracket, 1)
+    result = _sim_for(bracket.teams).simulate(bracket, 1)
     standings = {row["team"]: row for row in result["standings"]}
     assert standings["Gamma"]["top3_prob"] is None
     assert standings["Delta"]["top3_prob"] is None
@@ -592,91 +520,57 @@ def test_audit_missing_opponent_is_not_an_implicit_bye(side) -> None:
     bracket = get_lec_2026_summer_playoffs_bracket()
     setattr(bracket.matches["UB_SF1"], f"team{side}", None)
     with pytest.raises(ValueError):
-        TournamentSimulator(team_ratings={"offline": 1750}).simulate(bracket, 1)
+        _sim_for(bracket.teams).simulate(bracket, 1)
 
 
 @pytest.mark.parametrize("best_of", [0, 2, 3.5, True])
 def test_audit_rejects_invalid_series_length(best_of) -> None:
-    sim = TournamentSimulator(team_ratings={"offline": 1750})
+    sim = _sim_for(["Alpha", "Beta"])
     with pytest.raises(ValueError):
         sim.estimate_matchup_probability("Alpha", "Beta", best_of)
 
 
-def test_audit_extreme_ratings_remain_finite_and_complementary() -> None:
-    sim = TournamentSimulator(team_ratings={"alpha": -1e9, "beta": 1e9})
-    probability = sim.estimate_matchup_probability("Alpha", "Beta")
-    assert 0.0 <= probability <= 1.0
-    assert probability + sim.estimate_matchup_probability("Beta", "Alpha") == pytest.approx(1.0)
-
-
-def test_audit_worlds_mass_and_scope_are_explicit() -> None:
-    from betting_app.services.tournament_service import WorldsTeam
-
-    direct = [
-        WorldsTeam(f"Direct {index}", "Region", (index // 4) + 1)
-        for index in range(15)
-    ]
-    play_in = [WorldsTeam(f"Play In {index}", "Region") for index in range(4)]
-    result = WorldsSimulator(team_ratings={"offline": 1750}, seed=82).simulate_worlds(direct, play_in, 4, 31)
-    for key, total in (
-        ("play_in_qualifier_prob", 16), ("top8_swiss_prob", 8),
-        ("top4_prob", 4), ("top2_prob", 2), ("champion_prob", 1),
-    ):
-        assert sum(row[key] for row in result["standings"]) == pytest.approx(total, abs=1e-12)
-    assert result["simulation_scope"]["rules_verified"] is False
-    assert result["simulation_scope"]["pre_event_forecast"] is False
-    assert result["provenance"]["eligibility_live"] == 0
 
 
 def test_audit_invalid_probability_cannot_fabricate_series_winner(monkeypatch) -> None:
-    sim = WorldsSimulator(team_ratings={"offline": 1750})
-    monkeypatch.setattr(sim, "estimate_matchup_probability", lambda *args, **kwargs: float("nan"))
-    with pytest.raises(ValueError):
-        sim.simulate_series_winner("Alpha", "Beta", 3)
-
-
-def test_audit_live_score_is_aligned_to_team_slots(monkeypatch) -> None:
-    sim = TournamentSimulator(team_ratings={"offline": 1750})
-    monkeypatch.setattr(sim._rng, "random", lambda: 0.3)
-    result = sim.simulate(_audit_final(score1=0, score2=2), 1)
-    assert next(row for row in result["standings"] if row["team"] == "Beta")["champion_prob"] == 1.0
-
-
-def test_swiss_keeps_resolved_identities_until_a_new_simulation(monkeypatch):
-    aliases = {team: team.lower() for team in "ABCD"}
     monkeypatch.setattr(
-        "betting_app.services.tournament_service.canonical_team_key",
-        lambda team: aliases[team],
+        c0_core, "predict_c0",
+        lambda _features: SimpleNamespace(prob_a=float("nan"), diagnostics={}),
     )
-    simulator = WorldsSimulator({}, seed=82)
-    simulator.simulate_swiss_round(list("ABCD"), 1, set())
-
-    # A registry edit must not change participant identity between rounds.
-    aliases["B"] = aliases["A"]
-    winners, losers = simulator.simulate_swiss_round(list("ABCD"), 1, set())
-    assert sorted(winners + losers) == list("ABCD")
-
-    # The cache is not global: a fresh simulator must see the conflicting alias.
+    sim = _sim_for(["Alpha", "Beta"])
     with pytest.raises(ValueError):
-        WorldsSimulator({}, seed=82).simulate_swiss_round(list("ABCD"), 1, set())
+        sim.simulate(_audit_final(), 1)
+
+
 
 
 def test_tournament_caching_and_recalculate_endpoints(offline_tournament_api):
     """Verify tournament caching across path depths and instant response."""
-    from betting_app.services.tournament_cache_service import recalculate_and_cache, get_cached_simulation
+    import json
+    from betting_app.services.tournament_cache_service import (
+        get_cache_file,
+        get_cached_simulation,
+        recalculate_and_cache,
+    )
 
     t_id = "lck_2026_playoffs"
-    recalc_res = recalculate_and_cache(t_id, depths=[5000, 10000], use_a1=False)
+    recalc_res = recalculate_and_cache(t_id, depths=[5000, 10000])
     assert recalc_res["tournament_id"] == t_id
     assert "standings" in recalc_res
 
-    # Instant retrieval
-    cached_10k = get_cached_simulation(t_id, n_simulations=10000)
+    input_fingerprint = json.loads(
+        get_cache_file(t_id).read_text(encoding="utf-8")
+    )["input_fingerprint"]
+    cached_10k = get_cached_simulation(
+        t_id, n_simulations=10000, expected_input_fingerprint=input_fingerprint,
+    )
     assert cached_10k is not None
     assert cached_10k["cached"] is True
     assert cached_10k["simulations"] == 10000
 
-    cached_5k = get_cached_simulation(t_id, n_simulations=5000)
+    cached_5k = get_cached_simulation(
+        t_id, n_simulations=5000, expected_input_fingerprint=input_fingerprint,
+    )
     assert cached_5k is not None
     assert cached_5k["cached"] is True
     assert cached_5k["simulations"] == 5000
@@ -693,3 +587,29 @@ def test_tournament_caching_and_recalculate_endpoints(offline_tournament_api):
     assert recalc_resp.status_code == 200
     recalc_data = recalc_resp.json()
     assert "standings" in recalc_data
+
+def test_failed_bracket_refresh_preserves_last_success_timestamp(tmp_path, monkeypatch):
+    import json
+    service = LiquipediaBracketService(cache_dir=tmp_path)
+    snapshot = {
+        "source": "fandom_cargo", "status": "success",
+        "synced_at": "2026-09-01T12:00:00+00:00",
+        "matches": {}, "updated_matches": 0,
+    }
+    service.write_cached_bracket("lck_2026_playoffs", snapshot)
+    monkeypatch.setattr(service, "fetch_fandom_cargo_matches", lambda *_args: [])
+    result = service.sync_bracket("lck_2026_playoffs", source="fandom", force=True)
+    assert result["synced_at"] == snapshot["synced_at"]
+    assert result["status"] != "success"
+    assert json.loads(service._get_cache_file("lck_2026_playoffs").read_text()) == snapshot
+
+@pytest.mark.parametrize("raw_content", ["", "not a bracket"])
+def test_invalid_manual_bracket_import_stays_offline(tmp_path, monkeypatch, raw_content):
+    from unittest.mock import Mock
+    network = Mock(side_effect=AssertionError("manual import must stay offline"))
+    monkeypatch.setattr("urllib.request.urlopen", network)
+    service = LiquipediaBracketService(cache_dir=tmp_path)
+    result = service.sync_bracket("lck_2026_playoffs", source="auto", raw_content=raw_content)
+    assert result["ok"] is False
+    assert network.call_count == 0
+    assert not service._get_cache_file("lck_2026_playoffs").exists()

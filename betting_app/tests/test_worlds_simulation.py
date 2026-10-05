@@ -1,11 +1,45 @@
 """Tests for the manually configured Worlds Play-In, Swiss, and knockout simulator."""
 
-from __future__ import annotations
+from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
+from betting_app.services import c0_inference
 from betting_app.services.canonical_match_service import canonical_team_key
 from betting_app.services.tournament_service import WorldsSimulator, WorldsTeam
+
+
+def _native_identity_maps(teams: list[WorldsTeam]) -> tuple[dict[str, str], dict[str, list[str]]]:
+    team_ids = {team.name: f"native-team:{canonical_team_key(team.name)}" for team in teams}
+    rosters = {
+        team.name: [f"native-player:{canonical_team_key(team.name)}:{role}" for role in range(5)]
+        for team in teams
+    }
+    return team_ids, rosters
+
+
+@pytest.fixture
+def controlled_c0(monkeypatch):
+    """Keep the real simulator/input path while controlling only the C0 inference boundary."""
+    def predict(features):
+        request = features["c0_request"]
+        team1_id = request["team1_id"]
+        team2_id = request["team2_id"]
+        favorite_id = f"native-team:{canonical_team_key('Play-In Favorite')}"
+        probability = 0.8 if team1_id == favorite_id else 0.2 if team2_id == favorite_id else 0.5
+        return SimpleNamespace(prob_a=probability, diagnostics={})
+
+    monkeypatch.setattr(c0_inference, "predict_c0", predict)
+
+
+def _all_teams() -> list[WorldsTeam]:
+    return [*_direct_teams(), *_play_in_teams()]
+
+
+def _configured_simulator() -> WorldsSimulator:
+    team_ids, team_rosters = _native_identity_maps(_all_teams())
+    return WorldsSimulator(team_ids=team_ids, team_rosters=team_rosters, seed=17)
 
 
 def _direct_teams() -> list[WorldsTeam]:
@@ -25,9 +59,8 @@ def _play_in_teams() -> list[WorldsTeam]:
     ]
 
 
-def test_worlds_simulator_runs_play_in_swiss_and_knockout() -> None:
-    favorite_key = canonical_team_key("Play-In Favorite")
-    simulator = WorldsSimulator(team_ratings={favorite_key: 2400.0})
+def test_worlds_simulator_runs_play_in_swiss_and_knockout(controlled_c0) -> None:
+    simulator = _configured_simulator()
 
     result = simulator.simulate_worlds(
         direct_teams=_direct_teams(),
@@ -46,7 +79,17 @@ def test_worlds_simulator_runs_play_in_swiss_and_knockout() -> None:
     assert standings["Play-In Favorite"]["play_in_qualifier_prob"] > 0.5
 
 
-def test_worlds_api_requires_manual_participants(client: TestClient) -> None:
+def test_worlds_api_requires_manual_participants(client: TestClient, monkeypatch, controlled_c0) -> None:
+    team_ids, team_rosters = _native_identity_maps(_all_teams())
+    monkeypatch.setattr(
+        "betting_app.api.routers.tournaments.WorldsSimulator",
+        lambda **kwargs: WorldsSimulator(
+            team_ids=team_ids,
+            team_rosters=team_rosters,
+            seed=17,
+            **kwargs,
+        ),
+    )
     direct_teams = [
         {"team": team.name, "region": team.region, "pool": team.pool}
         for team in _direct_teams()

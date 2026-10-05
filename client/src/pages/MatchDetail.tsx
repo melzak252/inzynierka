@@ -144,13 +144,17 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
   const yScale = (v: number) => margin.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
   const xScale = (i: number) => margin.left + (i / (timeLabels.length - 1)) * plotW;
 
-  // Model colors
-  const modelColors: Record<string, string> = {};
-  const palette = ['#4fc3f7', '#ff9800', '#e040fb', '#66bb6a', '#ef5350'];
+  // Known active C0 identities; unmatched names remain visible as archived recorded series.
+  const modelColors: Record<string, string> = {
+    'Causal-C0': '#38bdf8',
+    'Hybrid-Operational-Market': '#f59e0b',
+  };
+  const palette = ['#38bdf8', '#f59e0b', '#e040fb', '#66bb6a', '#ef5350'];
   modelNames.forEach((name, i) => {
-    modelColors[name] = palette[i % palette.length];
+    if (!modelColors[name]) {
+      modelColors[name] = palette[i % palette.length];
+    }
   });
-
   // Market color
   const marketColor = '#888888';
 
@@ -187,7 +191,7 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
   if (timeLabels.length < 2) {
     return (
       <section className="prediction-history-section">
-        <h2>Historia predykcji i EV</h2>
+        <h2>Archiwum predykcji i EV</h2>
         <p className="no-data">Za mało danych do wyświetlenia wykresu (minimum 2 punkty czasowe)</p>
       </section>
     );
@@ -204,7 +208,8 @@ function PredictionHistoryChart({ data, teamA, teamB }: ChartProps) {
 
   return (
     <section className="prediction-history-section">
-      <h2>Historia predykcji i EV</h2>
+      <h2>Archiwum predykcji i EV</h2>
+      <p className="no-data">Zapisane prognozy dla tego meczu; starsze modele są wyłącznie historycznymi zapisami, nie bieżącą predykcją C0.</p>
       <div className="chart-container">
         <svg viewBox={`0 0 ${W} ${H}`} className="pred-chart">
           {/* EV zones - green for team A EV > 5%, red for team B EV > 5% */}

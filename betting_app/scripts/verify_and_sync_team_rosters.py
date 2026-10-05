@@ -9,7 +9,8 @@ import logging
 import sys
 import time
 
-from betting_app.services.roster_verification_service import RosterVerificationService
+from betting_app.services.liquipedia_service import LiquipediaClient
+from betting_app.services.roster_verification_service import LiquipediaRosterAdapter, RosterVerificationService
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,7 +70,11 @@ def main() -> int:
                 if clean and clean not in teams:
                     teams.append(clean)
 
-    service = RosterVerificationService()
+    service = RosterVerificationService(
+        liquipedia_client=LiquipediaRosterAdapter(
+            client=LiquipediaClient(wait_for_spacing=True),
+        ),
+    )
 
     logger.info(
         "Starting team roster verification (source=%s, dry_run=%s, force=%s, specified_teams=%d)",

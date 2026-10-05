@@ -47,7 +47,7 @@ from scripts.train_and_tune_siamese_series import (
 )
 from src.analysis.probability_metrics import binary_log_loss_vector
 from src.models.competition_tiers import classify_competition
-from src.models.siamese_series import ARTIFACT_PATH, SiameseSeriesModel
+from src.models.siamese_series import SiameseSeriesModel, load_artifact
 
 SYSTEMS = ("elo", "gl", "ts", "os", "pl", "tm")
 EPS = np.finfo(float).eps
@@ -539,6 +539,12 @@ def main():
         type=Path,
         default=ROOT / "data/artifacts/model-redesign-v1/replay",
     )
+    parser.add_argument(
+        "--exp081-artifact",
+        type=Path,
+        required=True,
+        help="explicit archived EXP081 JSON artifact",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     started = time.monotonic()
@@ -551,7 +557,7 @@ def main():
     )
     if frame.golgg_match_id.duplicated().any() or frame.stored_exp081.isna().any():
         raise ValueError("missing/duplicate frozen predictions")
-    model = SiameseSeriesModel.load_default()
+    model = load_artifact(args.exp081_artifact)
     frame = annotate(frame, model)
     stats, stability, choices, sigma_cuts = slices(frame)
     legacy = (
@@ -611,8 +617,7 @@ def main():
     frame.to_csv(args.output_dir / "annotated_predictions.csv", index=False)
     plots(frame, stats, args.output_dir)
     source_paths = [
-        Path(__file__),
-        ARTIFACT_PATH,
+        args.exp081_artifact,
         prediction_path,
         args.legacy_snapshots,
         replay_path,

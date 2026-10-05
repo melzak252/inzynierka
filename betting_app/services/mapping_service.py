@@ -437,6 +437,58 @@ def golgg_name_from_id(golgg_id: int | None) -> str | None:
     return None
 
 
+def native_golgg_team_id(
+    internal_team_row_id: int | str | None,
+    *,
+    team_name: str | None = None,
+) -> str | None:
+    """Resolve a provider team ID without confusing it with our DB row ID.
+
+    ``golgg_teams.id`` is only the local relational key.  The native ID comes
+    from ``golgg_teams.team_id`` or, when absent, one unambiguous exact-name
+    current-roster source ID.  Names are compared exactly (case-insensitively),
+    never through fuzzy aliases.
+    """
+    provider_id = None
+    exact_name = team_name.strip() if isinstance(team_name, str) else ""
+    if internal_team_row_id is not None:
+        try:
+            internal_id = int(internal_team_row_id)
+        except (TypeError, ValueError) as error:
+            raise ValueError("GOL.GG database team row ID must be an integer.") from error
+        with transaction() as connection:
+            row = connection.execute(
+                "SELECT team_name, team_id FROM golgg_teams WHERE id = ?",
+                (internal_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError(f"Unknown GOL.GG database team row ID {internal_id}.")
+        stored_name = str(row["team_name"] or "").strip()
+        if exact_name and stored_name.casefold() != exact_name.casefold():
+            raise ValueError(
+                f"GOL.GG database team row {internal_id} does not identify {exact_name!r}."
+            )
+        exact_name = stored_name
+        if row["team_id"] not in (None, ""):
+            provider_id = str(row["team_id"]).strip()
+    if provider_id:
+        return provider_id
+    if not exact_name:
+        return None
+    with transaction() as connection:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT team_id
+            FROM team_current_roster_players
+            WHERE LOWER(TRIM(team_name)) = LOWER(TRIM(?))
+              AND team_id IS NOT NULL AND TRIM(team_id) <> ''
+            """,
+            (exact_name,),
+        ).fetchall()
+    source_ids = {str(row["team_id"]).strip() for row in rows if row["team_id"]}
+    return next(iter(source_ids)) if len(source_ids) == 1 else None
+
+
 def unmapped_raw_teams() -> pd.DataFrame:
     """Return raw bookmaker names without confirmed canonical mapping."""
 

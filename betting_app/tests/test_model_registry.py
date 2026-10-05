@@ -3,94 +3,75 @@
 import pytest
 
 from betting_app.core.models import (
-    ACTIVE_MODEL_FAMILY,
+    A1_CONSOLIDATED,
     ACTIVE_MODEL_NAME,
-    ACTIVE_MODEL_VERSION,
     BAYESIAN_SHRUNK_HYBRID,
+    C0_NATIVE,
     EXP039_THESIS,
     EXP078_LINEAR,
-    EXP081_SIAMESE,
     HybridSpec,
-    ModelSpec,
     PredictionEngine,
     UnifiedPredictionResult,
     get_active_hybrid,
     get_active_model,
-    get_active_model_spec,
-    get_active_prediction_db_params,
     get_model,
-    list_registered_models,
+    set_active_hybrid,
     set_active_model,
 )
 
 
-def test_registry_defaults():
-    """Verify default active operational model and hybrid."""
-    active = get_active_model()
-    assert active.name == ACTIVE_MODEL_NAME
-    assert active.version == ACTIVE_MODEL_VERSION
-    assert active.family == ACTIVE_MODEL_FAMILY
-    assert active.has_uncertainty is True
-    assert get_active_model_spec() is active
-
-    hybrid = get_active_hybrid()
-    assert hybrid.base_model.name == EXP081_SIAMESE.name
-    assert hybrid.hybrid_model_name == ACTIVE_MODEL_NAME
-    assert hybrid.alpha == 0.50
-    assert hybrid.temperature == 1.0
-def test_registry_lookups():
-    """Verify model lookup by exact name and aliases."""
-    assert get_model(ACTIVE_MODEL_NAME) is BAYESIAN_SHRUNK_HYBRID
+def test_registry_lookups_keep_legacy_models_distinct():
+    assert get_model(ACTIVE_MODEL_NAME) is C0_NATIVE
+    assert get_model("Causal-C0") is C0_NATIVE
+    assert get_model("native_c0") is C0_NATIVE
+    assert get_model(BAYESIAN_SHRUNK_HYBRID.name) is BAYESIAN_SHRUNK_HYBRID
     assert get_model("shrunk_hybrid") is BAYESIAN_SHRUNK_HYBRID
-    assert get_model("Symmetrized-Siamese-Series-EXP081") is EXP081_SIAMESE
-    assert get_model("exp081") is EXP081_SIAMESE
+    assert get_model("exp081") is None
+    assert get_model("Symmetrized-Siamese-Series-EXP081") is None
+    assert get_model("Consolidated-A1") is A1_CONSOLIDATED
+    assert get_model("a1") is A1_CONSOLIDATED
     assert get_model("Operational-PlayerTeamRatings-W20") is EXP078_LINEAR
     assert get_model("exp078") is EXP078_LINEAR
     assert get_model("Sym-Cal LR-ElasticNet-W20-Binomial") is EXP039_THESIS
     assert get_model("exp039") is EXP039_THESIS
     assert get_model("non_existent") is None
 
-
-def test_registry_switching():
-    """Verify switching active operational model updates hybrid automatically."""
+def test_registry_switching_keeps_shrinkage_on_selected_base():
     try:
+        assert get_active_model() is C0_NATIVE
+        assert get_active_hybrid().base_model is C0_NATIVE
         set_active_model("exp078")
-        current = get_active_model()
-        assert current is EXP078_LINEAR
-        hybrid = get_active_hybrid()
-        assert hybrid.base_model is EXP078_LINEAR
-        assert "exp078" in hybrid.hybrid_model_version
-
-        # Switch back
+        assert get_active_model() is EXP078_LINEAR
+        assert get_active_hybrid().base_model is EXP078_LINEAR
+        assert get_active_hybrid().hybrid_model_version.startswith(EXP078_LINEAR.version)
+        set_active_model(C0_NATIVE)
+        assert get_active_model() is C0_NATIVE
+        assert get_active_hybrid().base_model is C0_NATIVE
         set_active_model(BAYESIAN_SHRUNK_HYBRID)
         assert get_active_model() is BAYESIAN_SHRUNK_HYBRID
+        assert get_active_hybrid().base_model is C0_NATIVE
     finally:
-        set_active_model(BAYESIAN_SHRUNK_HYBRID)
+        set_active_model(C0_NATIVE)
+
+def test_custom_hybrid_policy_has_a_derived_version():
+    original = get_active_hybrid()
+    try:
+        custom = HybridSpec(
+            base_model=C0_NATIVE,
+            alpha=0.25,
+            temperature=1.4,
+            blending_mode="logit_shrinkage",
+            custom_version=BAYESIAN_SHRUNK_HYBRID.version,
+        )
+        set_active_hybrid(custom)
+        active_hybrid = get_active_hybrid()
+        assert active_hybrid.custom_version is None
+        assert active_hybrid.hybrid_model_version == f"{C0_NATIVE.version}-a0.25-t1.40"
+        assert get_active_model() is C0_NATIVE
+    finally:
+        set_active_hybrid(original)
 
 
-def test_database_params():
-    """Verify database filter parameters for SQL queries."""
-    params = get_active_prediction_db_params()
-    assert params["sn"] == ACTIVE_MODEL_NAME
-    assert params["sv"] == ACTIVE_MODEL_VERSION
-    assert params["hn"] == ACTIVE_MODEL_NAME
-    assert ACTIVE_MODEL_VERSION in params["hv"]
-    assert params["operational_name"] == params["sn"]
-    assert params["hybrid_name"] == params["hn"]
-def test_list_registered_models():
-    """Verify serialized model list for API consumption."""
-    models = list_registered_models()
-    assert len(models) == 4
-    names = [m["name"] for m in models]
-    assert ACTIVE_MODEL_NAME in names
-    assert "Symmetrized-Siamese-Series-EXP081" in names
-    assert "Operational-PlayerTeamRatings-W20" in names
-    assert "Sym-Cal LR-ElasticNet-W20-Binomial" in names
-
-    active_items = [m for m in models if m["is_active_operational"]]
-    assert len(active_items) == 1
-    assert active_items[0]["name"] == ACTIVE_MODEL_NAME
-    assert active_items[0]["family"] == ACTIVE_MODEL_FAMILY
 
 def test_unified_prediction_result_validation():
     """Verify invariant validation in UnifiedPredictionResult."""
@@ -122,55 +103,48 @@ def test_blend_with_market():
     assert 0.50 < p_blend_shrink < 0.70
 
     # Linear blending test
-    lin_spec = HybridSpec(
-        base_model=EXP081_SIAMESE,
-        alpha=0.40,
-        temperature=1.0,
-        blending_mode="linear",
-    )
+    lin_spec = HybridSpec(base_model=C0_NATIVE, alpha=0.40, temperature=1.0, blending_mode="linear")
     p_linear = PredictionEngine.blend_with_market(0.80, 0.50, hybrid_spec=lin_spec)
     assert p_linear == pytest.approx(0.40 * 0.80 + 0.60 * 0.50, abs=1e-3)
 
 
-def test_model_alias_normalization():
-    """Verify case-insensitive and dash/underscore-insensitive alias lookups."""
-    assert get_model("EXP-081") is not None
-    assert get_model("exp-081") is not None
-    assert get_model("EXP081") is not None
-    assert get_model("EXP-078") is not None
-    assert get_model("exp078") is not None
-    assert get_model("EXP-039") is not None
+def test_model_alias_normalization_keeps_frozen_research_models_distinct():
+    assert get_model("CAUSAL_C0") is C0_NATIVE
+    assert get_model("EXP-078") is EXP078_LINEAR
+    assert get_model("exp078") is EXP078_LINEAR
+    assert get_model("EXP-039") is EXP039_THESIS
     assert get_model("nonexistent-model") is None
 
 
 def test_blend_with_market_rejects_non_finite():
     """Verify blend_with_market raises ValueError on NaN or Inf."""
-    import math
     with pytest.raises(ValueError, match="finite"):
         PredictionEngine.blend_with_market(float("nan"), 0.50)
     with pytest.raises(ValueError, match="finite"):
         PredictionEngine.blend_with_market(0.50, float("inf"))
 
 
-def test_engine_preserves_both_uncertainty_sides(monkeypatch):
-    from betting_app.services import upcoming_inference_service as service
-    from betting_app.tests.test_siamese_series import _generate_synthetic_snapshots
+def test_native_c0_engine_returns_the_shared_predictor_result(monkeypatch):
+    from betting_app.services import c0_inference
 
-    snapshot_a, snapshot_b = _generate_synthetic_snapshots()
-    monkeypatch.setattr(service, "_exp078_snapshot_from_features", lambda features: (features, 3))
-    a = PredictionEngine.predict_from_features(snapshot_a, EXP081_SIAMESE)
-    b = PredictionEngine.predict_from_features(snapshot_b, EXP081_SIAMESE)
-    assert a.prob_a + b.prob_a == pytest.approx(1.0)
-    assert a.p_low_a == pytest.approx(b.p_low_b)
-    assert a.p_low_b == pytest.approx(b.p_low_a)
-    assert a.p_low_a < a.prob_a
-    assert a.p_low_b < a.prob_b
-    assert a.p_low_a + a.p_low_b < 1.0
+    features = {"canonical": {"id": 23, "best_of": 3}}
+    expected = UnifiedPredictionResult(
+        canonical_match_id=23,
+        prob_a=0.63,
+        prob_b=0.37,
+        best_of=3,
+        model_name=C0_NATIVE.name,
+        model_version=C0_NATIVE.version,
+        feature_version=C0_NATIVE.feature_version,
+    )
+    calls = []
+    monkeypatch.setattr(c0_inference, "predict_c0", lambda payload: calls.append(payload) or expected)
 
+    result = PredictionEngine.predict_from_features(features, C0_NATIVE)
 
-def test_engine_does_not_disguise_incomplete_features_as_siamese_prediction():
-    with pytest.raises(ValueError):
-        PredictionEngine.predict_from_features({}, EXP081_SIAMESE)
+    assert result is expected
+    assert calls == [features]
+
 
 
 @pytest.mark.parametrize("mode", ["linear", "logit_shrinkage"])
@@ -180,80 +154,33 @@ def test_engine_does_not_disguise_incomplete_features_as_siamese_prediction():
      ("temperature", 0.0), ("temperature", -1.0)],
 )
 def test_hybrid_rejects_invalid_transform_parameters(mode, parameter, value):
-    spec = HybridSpec(base_model=EXP081_SIAMESE, blending_mode=mode, **{parameter: value})
+    spec = HybridSpec(base_model=C0_NATIVE, blending_mode=mode, **{parameter: value})
     with pytest.raises(ValueError):
         PredictionEngine.blend_with_market(0.7, 0.6, spec)
 
 
-def test_bayesian_shrunk_hybrid_inference_valid_probabilities():
-    """Verify PredictionEngine produces valid finite probabilities for bayesian_market_hybrid."""
-    mock_features = {
-        "canonical_match_id": 9999,
-        "canonical": {
-            "id": 9999,
-            "team_a_name": "Team Liquid",
-            "team_b_name": "FlyQuest",
-            "best_of": 3,
-        },
-        "ratings": {
-            "probabilities": {
-                "consensus": 0.55,
-                "elo": 0.55,
-                "gl": 0.56,
-                "ts": 0.54,
-                "os": 0.55,
-                "pl": 0.55,
-                "tm": 0.55,
-            },
-        },
-        "player_ratings": {
-            "probabilities": {
-                "consensus": 0.58,
-                "elo": 0.58,
-                "gl": 0.59,
-                "ts": 0.57,
-                "os": 0.58,
-                "pl": 0.58,
-                "tm": 0.58,
-            },
-        },
-        "w20": {"probability": 0.60},
-        "market_novig_prob_a": 0.52,
-    }
-
-    result = PredictionEngine.predict_from_features(mock_features, BAYESIAN_SHRUNK_HYBRID)
-    assert 0.0 < result.prob_a < 1.0
-    assert 0.0 < result.prob_b < 1.0
-    assert result.prob_a + result.prob_b == pytest.approx(1.0, abs=1e-6)
-    assert result.model_name == ACTIVE_MODEL_NAME
-    assert result.model_version == ACTIVE_MODEL_VERSION
-    assert result.diagnostics["market_features_used"] is True
-    assert result.diagnostics["p_market_novig"] == 0.52
 
 
-def test_bayesian_shrunk_hybrid_fallback_without_market():
-    """Verify bayesian_market_hybrid falls back gracefully to p_sports when no market odds exist."""
-    mock_features_no_market = {
-        "canonical_match_id": 9998,
-        "canonical": {
-            "id": 9998,
-            "team_a_name": "G2 Esports",
-            "team_b_name": "Fnatic",
-            "best_of": 1,
-        },
-        "ratings": {
-            "probabilities": {"consensus": 0.65},
-        },
-        "player_ratings": {
-            "probabilities": {"consensus": 0.65},
-        },
-        "w20": {"probability": 0.65},
-    }
 
-    result = PredictionEngine.predict_from_features(mock_features_no_market, BAYESIAN_SHRUNK_HYBRID)
-    assert 0.0 < result.prob_a < 1.0
-    assert 0.0 < result.prob_b < 1.0
-    assert result.prob_a + result.prob_b == pytest.approx(1.0, abs=1e-6)
-    assert result.diagnostics["market_features_used"] is False
-    assert result.diagnostics["p_market_novig"] is None
-    assert result.prob_a == pytest.approx(result.diagnostics["p_sports"], abs=1e-6)
+
+
+def test_unavailable_model_selection_preserves_active_state():
+    before = get_active_model(), get_active_hybrid()
+    with pytest.raises(ValueError):
+        set_active_model(A1_CONSOLIDATED)
+    assert (get_active_model(), get_active_hybrid()) == before
+
+
+def test_environment_hybrid_override_cannot_reuse_another_base(monkeypatch):
+    try:
+        set_active_model(EXP078_LINEAR)
+        monkeypatch.setenv("ACTIVE_PREDICTION_MODEL", BAYESIAN_SHRUNK_HYBRID.name)
+        assert get_active_hybrid().base_model.name == get_active_model().metadata["base_model_name"]
+    finally:
+        set_active_model(C0_NATIVE)
+
+
+def test_unknown_environment_model_cannot_fall_back(monkeypatch):
+    monkeypatch.setenv("ACTIVE_PREDICTION_MODEL", "nonexistent-model")
+    with pytest.raises(ValueError):
+        get_active_model()

@@ -17,7 +17,9 @@ from betting_app.services.bet_qualification_service import (
     qualification_tier,
 )
 
-DEFAULT_HYBRID_MODEL_NAME = get_active_hybrid().hybrid_model_name
+DEFAULT_HYBRID_MODEL = get_active_hybrid()
+DEFAULT_HYBRID_MODEL_NAME = DEFAULT_HYBRID_MODEL.hybrid_model_name
+DEFAULT_HYBRID_MODEL_VERSION = DEFAULT_HYBRID_MODEL.hybrid_model_version
 from betting_app.ml.model_lifecycle import RETIRED_PUBLIC_MODEL_NAME
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
@@ -31,7 +33,7 @@ def list_predictions(
     max_ev: float | None = Query(None),
     min_books: int = Query(1),
     model_name: str | None = Query(DEFAULT_HYBRID_MODEL_NAME),
-    model_version: str | None = Query(None),
+    model_version: str | None = Query(DEFAULT_HYBRID_MODEL_VERSION),
     limit: int = Query(50, le=200),
     db=Depends(get_db),
 ):

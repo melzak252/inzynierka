@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from betting_app.core.models import get_active_hybrid
 
 from betting_app.api.schemas import (
     ParlayLeg,
@@ -22,6 +23,9 @@ from betting_app.api.schemas import (
     ParlayRecommendationsResponse,
 )
 
+ACTIVE_HYBRID = get_active_hybrid()
+ACTIVE_HYBRID_NAME = ACTIVE_HYBRID.hybrid_model_name
+ACTIVE_HYBRID_VERSION = ACTIVE_HYBRID.hybrid_model_version
 POLISH_TAX_RATE = 0.12
 TAX_MULTIPLIER = 1.0 - POLISH_TAX_RATE  # 0.88
 
@@ -115,10 +119,12 @@ def find_parlay_recommendations(
                 predicted_at,
                 ROW_NUMBER() OVER (
                     PARTITION BY canonical_match_id
-                    ORDER BY CASE WHEN model_name LIKE '%Hybrid%' THEN 0 ELSE 1 END,
-                             predicted_at DESC
+                    ORDER BY predicted_at DESC NULLS LAST
                 ) AS rn
             FROM canonical_predictions
+            WHERE model_name = :model_name
+              AND model_version = :model_version
+              AND prediction_status = 'active'
         ),
         latest_preds AS (
             SELECT canonical_match_id, prob_a, prob_b, model_name, model_version, predicted_at
@@ -165,7 +171,14 @@ def find_parlay_recommendations(
         ORDER BY cm.start_time_normalized ASC, cm.id ASC
     """)
 
-    rows = db.execute(query, {"now_iso": now_iso}).fetchall()
+    rows = db.execute(
+        query,
+        {
+            "now_iso": now_iso,
+            "model_name": ACTIVE_HYBRID_NAME,
+            "model_version": ACTIVE_HYBRID_VERSION,
+        },
+    ).fetchall()
 
     # Extract eligible favorite single legs
     candidates_by_bookmaker: dict[str, list[ParlayLeg]] = {}

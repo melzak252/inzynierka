@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import math
-from typing import Any, Mapping
+from typing import Any
 
 from betting_app.core.models.contract import HybridSpec, ModelSpec, UnifiedPredictionResult
 from betting_app.core.models.registry import get_active_hybrid, get_active_model
@@ -85,69 +84,23 @@ class PredictionEngine:
     ) -> UnifiedPredictionResult:
         """Evaluate a model on an extracted feature payload and return a UnifiedPredictionResult."""
         spec = model_spec or get_active_model()
+        if spec.metadata.get("operational") is False:
+            raise ValueError(spec.metadata["unavailable_reason"])
         canonical_match_id = features.get("canonical", {}).get("id")
 
-        if spec.family == "siamese_mlp":
-            from src.models.siamese_series import SiameseSeriesModel
-            from betting_app.services.upcoming_inference_service import _exp078_snapshot_from_features
+        if spec.family == "native_c0":
+            from betting_app.services.c0_inference import predict_c0
 
-            snapshot, best_of = _exp078_snapshot_from_features(features)
-            model = SiameseSeriesModel.load_default()
-            p_mean, sigma_z, p_low, p_low_b = model.predict_with_uncertainty(snapshot, best_of=best_of)
-            map_p_mean = model.predict(snapshot, best_of=1) if best_of > 1 else p_mean
-
-            return UnifiedPredictionResult(
-                canonical_match_id=canonical_match_id,
-                prob_a=p_mean,
-                prob_b=1.0 - p_mean,
-                map_prob_a=map_p_mean,
-                map_prob_b=1.0 - map_p_mean,
-                p_low_a=p_low,
-                p_low_b=p_low_b,
-                epistemic_sigma_z=sigma_z,
-                model_name=spec.name,
-                model_version=spec.version,
-                feature_version=spec.feature_version,
-                best_of=best_of,
-                diagnostics={
-                    "family": spec.family,
-                    "side_symmetric": True,
-                    "market_features_used": False,
-                    "epistemic_sigma_z": sigma_z,
-                    "p_low_a": p_low,
-                    "p_low_b": p_low_b,
-                    "uncertainty_required": True,
-                },
-            )
+            return predict_c0(features)
 
         elif spec.family == "linear_symmetric":
             from src.models.symmetric_series import SymmetricSeriesModel
             from betting_app.services.upcoming_inference_service import _exp078_snapshot_from_features
 
-            try:
-                snapshot, best_of = _exp078_snapshot_from_features(features)
-                model = SymmetricSeriesModel.load_default()
-                prob_a = model.predict(snapshot, best_of=best_of)
-                map_prob_a = model.predict(snapshot, best_of=1) if best_of > 1 else prob_a
-            except Exception:
-                p_player = features.get("player_ratings", {}).get("probabilities", {}).get("consensus")
-                p_team = features.get("ratings", {}).get("probabilities", {}).get("consensus")
-                p_w20 = features.get("w20", {}).get("probability")
-                weights = []
-                if p_player is not None:
-                    weights.append((0.70, float(p_player)))
-                if p_team is not None:
-                    weights.append((0.20, float(p_team)))
-                if p_w20 is not None:
-                    weights.append((0.10, float(p_w20)))
-                if weights:
-                    tot = sum(w for w, _ in weights)
-                    raw = sum((w / tot) * v for w, v in weights)
-                    map_prob_a = max(0.01, min(0.99, raw))
-                else:
-                    map_prob_a = 0.50
-                best_of = int(features.get("canonical", {}).get("best_of") or 1)
-                prob_a = _series_probability_binomial(map_prob_a, best_of)
+            snapshot, best_of = _exp078_snapshot_from_features(features)
+            model = SymmetricSeriesModel.load_default()
+            prob_a = model.predict(snapshot, best_of=best_of)
+            map_prob_a = model.predict(snapshot, best_of=1) if best_of > 1 else prob_a
 
             return UnifiedPredictionResult(
                 canonical_match_id=canonical_match_id,

@@ -5,17 +5,18 @@ from __future__ import annotations
 import argparse
 
 from betting_app.core.db import init_db
+from betting_app.core.models import get_active_hybrid
 from betting_app.services.upcoming_inference_service import (
-    DEFAULT_MODEL_NAME,
-    DEFAULT_MODEL_VERSION,
+    DEFAULT_HYBRID_MODEL_NAME,
     generate_model_ev_signals,
 )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-name", default=DEFAULT_MODEL_NAME)
-    parser.add_argument("--model-version", default=DEFAULT_MODEL_VERSION)
+    hybrid = get_active_hybrid()
+    parser.add_argument("--model-name", default=DEFAULT_HYBRID_MODEL_NAME)
+    parser.add_argument("--model-version", default=hybrid.hybrid_model_version)
     parser.add_argument("--tax-rate", type=float, default=0.12)
     parser.add_argument("--min-ev", type=float, default=0.0)
     parser.add_argument("--bankroll", type=float, default=100.0)

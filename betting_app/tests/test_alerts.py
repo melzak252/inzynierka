@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 import json
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, MagicMock
@@ -10,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from betting_app.core.models import get_active_hybrid
 
 from betting_app.models.base import Base
 from betting_app.models.alerts import AlertConfig, ValueAlertLog
@@ -165,13 +167,14 @@ def test_scan_and_dispatch_ev_alerts(sqlite_session):
     sqlite_session.add(match)
 
     # Seed prediction
+    hybrid = get_active_hybrid()
     pred = CanonicalPrediction(
         id=301,
         canonical_match_id=201,
-        model_name="Operational-PlayerTeamRatings-W20",
-        model_version="v2",
-        prob_a=0.65,
-        prob_b=0.35,
+        model_name=hybrid.hybrid_model_name,
+        model_version=hybrid.hybrid_model_version,
+        prob_a=0.60,
+        prob_b=0.40,
     )
     sqlite_session.add(pred)
 
@@ -182,10 +185,10 @@ def test_scan_and_dispatch_ev_alerts(sqlite_session):
         canonical_prediction_id=301,
         bookmaker_id=4,
         side="a",
-        odds=1.90,
-        model_prob=0.65,
+        odds=2.0,
+        model_prob=0.60,
         market_prob=0.52,
-        ev=0.083,  # +8.3%
+        ev=0.056,  # 0.60 * 2.00 * (1 - 0.12) - 1
         stake_suggestion=2.8,
         status="new",
     )

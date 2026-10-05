@@ -105,15 +105,18 @@ def test_parlay_service_with_mock_db():
 
         # Create Predictions
         p1 = CanonicalPrediction(
-            id=1, canonical_match_id=1, model_name="Hybrid-Thesis-Market", model_version="1.0",
+            id=1, canonical_match_id=1, model_name="Hybrid-Operational-Market",
+            model_version="c0-native-2026-w32-e12-v1-a0.50-t1.00",
             prob_a=0.75, prob_b=0.25, predicted_at="2026-09-05T12:00:00Z"
         )
         p2 = CanonicalPrediction(
-            id=2, canonical_match_id=2, model_name="Hybrid-Thesis-Market", model_version="1.0",
+            id=2, canonical_match_id=2, model_name="Hybrid-Operational-Market",
+            model_version="c0-native-2026-w32-e12-v1-a0.50-t1.00",
             prob_a=0.70, prob_b=0.30, predicted_at="2026-09-05T12:00:00Z"
         )
         p3 = CanonicalPrediction(
-            id=3, canonical_match_id=3, model_name="Hybrid-Thesis-Market", model_version="1.0",
+            id=3, canonical_match_id=3, model_name="Hybrid-Operational-Market",
+            model_version="c0-native-2026-w32-e12-v1-a0.50-t1.00",
             prob_a=0.80, prob_b=0.20, predicted_at="2026-09-05T12:00:00Z"
         )
         session.add_all([p1, p2, p3])

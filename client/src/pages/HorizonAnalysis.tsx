@@ -633,8 +633,7 @@ export default function HorizonAnalysis() {
     <div className="horizon-page">
       <h1>Odds Horizon Accuracy</h1>
       <p className="subtitle">
-        How implied probabilities from pre-match odds predict match outcomes,
-        grouped by hours before match start.
+        Archiwalne zestawienie historycznych kursów i modeli. Wyniki nie są walidacją ani bieżącą predykcją C0.
       </p>
 
       {/* Controls */}

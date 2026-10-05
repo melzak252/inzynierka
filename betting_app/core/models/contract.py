@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,7 @@ class ModelSpec:
     w20_version: str = "w20-latest"
     prediction_target: str = "series"  # "series" (BoN) or "map"
     has_uncertainty: bool = False
-    family: str = "siamese_mlp"  # "siamese_mlp", "linear_symmetric", "elastic_net", etc.
+    family: str = "native_c0"  # "native_c0", "linear_symmetric", "elastic_net", etc.
     artifact_path: Path | None = None
     description: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -55,8 +55,8 @@ class HybridSpec:
 
     base_model: ModelSpec
     hybrid_model_name: str = "Hybrid-Operational-Market"
-    alpha: float = 0.50
-    temperature: float = 0.80
+    alpha: float = 0.50  # sports-model weight; market weight is 1 - alpha
+    temperature: float = 1.0
     blending_mode: str = "logit_shrinkage"  # "logit_shrinkage" or "linear"
     custom_version: str | None = None
 

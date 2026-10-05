@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   fetchActiveTeams,
   fetchEncConfiguration,
@@ -86,10 +86,86 @@ export default function TournamentSimulation() {
   } | null>(null);
 
   const [encConfiguration, setEncConfiguration] = useState<EncConfigurationResponse | null>(null);
+  const [encConfigurationError, setEncConfigurationError] = useState<string | null>(null);
   const [encData, setEncData] = useState<EncSimulationResponse | null>(null);
   const [encLoading, setEncLoading] = useState<boolean>(false);
+  const encLoadInFlight = useRef(false);
+  const encConfigurationAttempted = useRef(false);
+  const regionalActionInFlight = useRef(false);
+  const regionalContext = useRef({ activeTab, selectedId, simCount });
+  useLayoutEffect(() => {
+    regionalContext.current = { activeTab, selectedId, simCount };
+  }, [activeTab, selectedId, simCount]);
   const [encSimulating, setEncSimulating] = useState<boolean>(false);
   const [encSimCount, setEncSimCount] = useState<number>(1000);
+  useEffect(() => {
+    fetchActiveTeams()
+      .then((response) => setActiveTeams(response.teams))
+      .catch((reason: unknown) => {
+        setTeamSuggestionError(
+          reason instanceof Error ? reason.message : 'Nie udało się pobrać aktualnych drużyn.',
+        );
+      });
+  }, []);
+
+  useEffect(() => {
+    fetchTournaments()
+      .then((list) => {
+        setTournaments(list);
+        if (list.length > 0) {
+          setSelectedId((current) => current || list[0].id);
+        }
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Błąd ładowania turniejów'));
+  }, []);
+
+  const loadEncConfiguration = useCallback(async (explicitRetry = false) => {
+    if (encLoadInFlight.current
+      || (encConfigurationAttempted.current && !explicitRetry)) return;
+    encConfigurationAttempted.current = true;
+    encLoadInFlight.current = true;
+    setEncLoading(true);
+    setEncConfigurationError(null);
+    try {
+      setEncConfiguration(await fetchEncConfiguration());
+    } catch (reason: unknown) {
+      setEncConfigurationError(
+        reason instanceof Error ? reason.message : 'Nie udało się pobrać konfiguracji ENC.',
+      );
+    } finally {
+      encLoadInFlight.current = false;
+      setEncLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'enc') {
+      void loadEncConfiguration();
+    }
+  }, [activeTab, loadEncConfiguration]);
+
+
+  useEffect(() => {
+    if (activeTab !== 'regional' || !selectedId) return;
+    let current = true;
+    setLoading(true);
+
+    fetchTournamentBracket(selectedId, simCount)
+      .then((res) => {
+        if (!current) return;
+        setData(res);
+        setOverrides({});
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (!current) return;
+        setError(err instanceof Error ? err.message : 'Błąd ładowania drabinki');
+        setLoading(false);
+      });
+    return () => {
+      current = false;
+    };
+  }, [activeTab, selectedId, simCount]);
   const [simElapsed, setSimElapsed] = useState<number>(0);
   const [worldsElapsed, setWorldsElapsed] = useState<number>(0);
   const [encElapsed, setEncElapsed] = useState<number>(0);
@@ -136,81 +212,48 @@ export default function TournamentSimulation() {
     }, 100);
     return () => clearInterval(interval);
   }, [encSimulating]);
-  useEffect(() => {
-    fetchTournaments()
-      .then((list) => {
-        setTournaments(list);
-        if (list.length > 0 && !selectedId) {
-          setSelectedId(list[0].id);
-        }
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : 'Błąd ładowania turniejów'));
-
-  }, [selectedId]);
-
-  useEffect(() => {
-    fetchActiveTeams()
-      .then((response) => setActiveTeams(response.teams))
-      .catch((reason: unknown) => {
-        setTeamSuggestionError(
-          reason instanceof Error ? reason.message : 'Nie udało się pobrać aktualnych drużyn.',
-        );
-      });
-  }, []);
-
-  useEffect(() => {
-    if (activeTab !== 'enc' || encConfiguration || encLoading) return;
-    setEncLoading(true);
-    fetchEncConfiguration()
-      .then(setEncConfiguration)
-      .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : 'Nie udało się pobrać konfiguracji ENC.');
-      })
-      .finally(() => setEncLoading(false));
-  }, [activeTab, encConfiguration, encLoading]);
-
-  useEffect(() => {
-    if (!selectedId) return;
-    setLoading(true);
-
-    fetchTournamentBracket(selectedId, simCount)
-      .then((res) => {
-        setData(res);
-        setOverrides({});
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Błąd ładowania drabinki');
-        setLoading(false);
-      });
-  }, [selectedId, simCount]);
 
   const handleSyncBracket = async (sourceOverride?: 'auto' | 'fandom' | 'liquipedia') => {
-    if (!selectedId) return;
+    if (!selectedId || regionalActionInFlight.current) return;
+    regionalActionInFlight.current = true;
+    const requestContext = { activeTab, selectedId, simCount };
     setSyncing(true);
     setError(null);
     setSyncSuccessMessage(null);
     try {
       const chosenSource = sourceOverride || syncSource;
-      const res = await syncTournamentBracket(selectedId, chosenSource, true);
+      const res = await syncTournamentBracket(selectedId, chosenSource, false);
+      if (regionalContext.current.activeTab !== requestContext.activeTab
+        || regionalContext.current.selectedId !== requestContext.selectedId
+        || regionalContext.current.simCount !== requestContext.simCount) return;
       setData(res);
       setOverrides({});
       if (res.sync_message) {
         setSyncSuccessMessage(res.sync_message);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Błąd synchronizacji drabinki');
+      if (regionalContext.current.activeTab === requestContext.activeTab
+        && regionalContext.current.selectedId === requestContext.selectedId
+        && regionalContext.current.simCount === requestContext.simCount) {
+        setError(err instanceof Error ? err.message : 'Błąd synchronizacji drabinki');
+      }
     } finally {
+      regionalActionInFlight.current = false;
       setSyncing(false);
     }
   };
 
   const handleManualImport = async () => {
-    if (!selectedId || !manualText.trim()) return;
+    if (!selectedId || !manualText.trim() || regionalActionInFlight.current) return;
+    regionalActionInFlight.current = true;
+    const requestContext = { activeTab, selectedId, simCount };
     setSyncing(true);
     setError(null);
     try {
-      const res = await syncTournamentBracket(selectedId, 'liquipedia', true, manualText);
+      const res = await syncTournamentBracket(selectedId, 'liquipedia', false, manualText);
+      if (regionalContext.current.activeTab !== requestContext.activeTab
+        || regionalContext.current.selectedId !== requestContext.selectedId
+        || regionalContext.current.simCount !== requestContext.simCount) return;
       setData(res);
       setOverrides({});
       setManualModalOpen(false);
@@ -219,20 +262,36 @@ export default function TournamentSimulation() {
         setSyncSuccessMessage(res.sync_message);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Błąd importu ręcznego');
+      if (regionalContext.current.activeTab === requestContext.activeTab
+        && regionalContext.current.selectedId === requestContext.selectedId
+        && regionalContext.current.simCount === requestContext.simCount) {
+        setError(err instanceof Error ? err.message : 'Błąd importu ręcznego');
+      }
     } finally {
+      regionalActionInFlight.current = false;
       setSyncing(false);
     }
   };
   const handleSimulate = async () => {
-    if (!selectedId) return;
+    if (!selectedId || regionalActionInFlight.current) return;
+    regionalActionInFlight.current = true;
+    const requestContext = { activeTab, selectedId, simCount };
     setSimulating(true);
     try {
       const res = await recalculateTournament(selectedId, simCount, overrides, true);
-      setData(res);
+      if (regionalContext.current.activeTab === requestContext.activeTab
+        && regionalContext.current.selectedId === requestContext.selectedId
+        && regionalContext.current.simCount === requestContext.simCount) {
+        setData(res);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Błąd symulacji');
+      if (regionalContext.current.activeTab === requestContext.activeTab
+        && regionalContext.current.selectedId === requestContext.selectedId
+        && regionalContext.current.simCount === requestContext.simCount) {
+        setError(err instanceof Error ? err.message : 'Błąd symulacji');
+      }
     } finally {
+      regionalActionInFlight.current = false;
       setSimulating(false);
     }
   };
@@ -447,7 +506,7 @@ export default function TournamentSimulation() {
                   className="sim-count-select"
                 >
                   <option value={5000}>5 000 (Szybka)</option>
-                  <option value={10000}>10 000 (Standard A1)</option>
+                  <option value={10000}>10 000 (Standard C0)</option>
                   <option value={20000}>20 000 (Precyzyjna)</option>
                   <option value={100000}>100 000 (Głęboka)</option>
                 </select>
@@ -455,9 +514,9 @@ export default function TournamentSimulation() {
               <button
                 className="simulate-btn"
                 onClick={handleSimulate}
-                disabled={simulating}
+                disabled={simulating || syncing || loading}
               >
-                {simulating ? '⏳ Przeliczanie A1...' : '⚡ Przelicz symulację (A1)'}
+                {simulating ? '⏳ Przeliczanie C0...' : '⚡ Przelicz symulację (C0)'}
               </button>
               {data?.cached && (
                 <span style={{ fontSize: '0.78rem', color: '#10b981', padding: '4px 8px', background: 'rgba(16,185,129,0.1)', borderRadius: '4px', border: '1px solid rgba(16,185,129,0.2)' }} title={`Zapisano z pamięci podręcznej: ${data.cached_at || ''}`}>
@@ -470,6 +529,10 @@ export default function TournamentSimulation() {
                 </button>
               )}
             </div>
+            <p className="subtitle-sm">
+              Odczyt drabinki i symulacja korzystają z lokalnych danych — nie pobierają danych ze źródła.
+              Synchronizacja źródła jest wyłącznie ręczna i respektuje pamięć podręczną oraz limity częstotliwości.
+            </p>
 
             <div className="sync-toolbar">
               <div className="sync-source-group">
@@ -487,14 +550,19 @@ export default function TournamentSimulation() {
               <button
                 className="sync-btn"
                 onClick={() => handleSyncBracket()}
-                disabled={syncing || loading}
+                disabled={syncing || loading || simulating}
                 title="Pobierz i zaktualizuj bieżący stan meczów, wyników i awansów z wybranego źródła"
               >
                 {syncing ? '⏳ Pobieranie z API...' : '🔄 Pobierz stan drabinki'}
               </button>
+              <p className="subtitle-sm">
+                Synchronizacja jest jawna; żądania mogą korzystać z pamięci podręcznej lub zostać odroczone przez limity źródła.
+              </p>
+
               <button
                 className="manual-import-btn"
                 onClick={() => setManualModalOpen(true)}
+                disabled={syncing || simulating || loading}
                 title="Wklej ręcznie wikitext szablonu Bracket lub fragment HTML z Liquipedii"
               >
                 📋 Import Wikitext / HTML
@@ -1045,7 +1113,7 @@ export default function TournamentSimulation() {
             </a>
             {activeTeams.length > 0 && (
               <p className="worlds-suggestion-note">
-                Podpowiedzi: {activeTeams.length} aktualnych drużyn z operacyjnego rankingu GL.
+                Podpowiedzi: {activeTeams.length} drużyn z dokładną, kompletną obecną piątką.
               </p>
             )}
             {teamSuggestionError && (
@@ -1234,6 +1302,14 @@ export default function TournamentSimulation() {
         </div>
       ) : (
         <div className={`enc-layout ${encView}`}>
+          {encConfigurationError && (
+            <div className="enc-blocking-issues" role="alert">
+              <p>{encConfigurationError}</p>
+              <button type="button" className="ghost-action-btn" onClick={() => void loadEncConfiguration(true)} disabled={encLoading}>
+                {encLoading ? 'Ładowanie...' : 'Spróbuj ponownie'}
+              </button>
+            </div>
+          )}
           {(encView === 'rosters' || encView === 'split') && (
             <section className={`enc-rosters-panel ${encView === 'rosters' ? 'full-width' : ''}`}>
             <h2>ENC 2027 — najwyższy aktualny GL w roli z Fandom</h2>

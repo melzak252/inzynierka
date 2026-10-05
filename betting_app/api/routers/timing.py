@@ -27,6 +27,7 @@ from sklearn.metrics import log_loss, roc_auc_score
 from betting_app.api.deps import get_db, query_df
 from betting_app.core.clv import clv_odds_pct, clv_probability_points
 from betting_app.core.ev import best_ev_side, expected_value, fair_market_probabilities
+from betting_app.core.models.engine import bayesian_logit_shrinkage
 from betting_app.services.thesis_inference_service import THESIS_HYBRID_ALPHA, THESIS_HYBRID_TEMPERATURE
 from betting_app.services.rating_contract import (
     OPERATIONAL_BACKFILL_FEATURE_VERSION,
@@ -37,6 +38,7 @@ from betting_app.services.rating_contract import (
 router = APIRouter(prefix="/timing", tags=["timing"])
 
 from betting_app.core.models import (
+    C0_NATIVE,
     get_active_hybrid,
     get_active_model,
     get_thesis_hybrid,
@@ -851,35 +853,33 @@ def historical_model_comparison(
     max_days_back: int = 3650,
     league: str | None = None,
     best_of: int | None = None,
-    target_model: str = "exp081",
+    target_model: str = "c0",
     db=Depends(get_db),
 ):
-    """Compare EXP-081, EXP-039, regional operational BoN replay, and baselines on common and eligible matches.
+    """Compare native C0, the exact active market hybrid, and frozen baselines.
 
-    This endpoint is intentionally retrospective: both series are restricted to
-    predictions whose reconstructed cutoff precedes the synthetic prediction
-    timestamp and whose timestamp precedes the recorded match start. It is not
-    live-betting or financial performance.
+    This endpoint is retrospective and only reports rows matching each model's
+    exact name, version, and feature identity.
     """
     cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
+    predictions_by_key: dict[str, dict[int, dict[str, Any]]] = {}
+    summaries: list[dict[str, Any]] = []
     specifications = (
         {
-            "key": "exp081",
-            "label": "EXP-081 Siamese Series",
-            "description": "Symmetrized-Siamese-Series-EXP081 (MLP z Focal Loss i niepewnością epistemiczną)",
-            "model_name": "Symmetrized-Siamese-Series-EXP081",
-            "model_version": "exp081-siamese-series-v1",
-            "features_version": "ratings-w20-symmetric-series-v1",
+            "key": "c0",
+            "label": "Native C0",
+            "description": "Causal-C0 native predictor using the exact frozen native artifacts.",
+            "model_name": C0_NATIVE.name,
+            "model_version": C0_NATIVE.version,
+            "features_version": C0_NATIVE.feature_version,
         },
         {
             "key": "operational_hybrid",
-            "label": "Hybryda Operacyjna (Causal A0 + Rynek alpha=0.50)",
-            "description": "Hybrid-Bayesian-Shrunk-A0-Market / Hybrid-Operational-Market (50% Model + 50% Rynek No-Vig)",
-            "model_name": "Hybrid-Bayesian-Shrunk-A0-Market",
-            "model_version": "hybrid-a0-mkt-v1-a0.50",
-            "fallback_model_name": "Hybrid-Operational-Market",
-            "fallback_model_version": "exp081-siamese-series-v1-a0.50-t0.80",
-            "features_version": "ratings-w20-symmetric-series-v1",
+            "label": "Hybryda Operacyjna (C0 + Rynek alpha=0.50)",
+            "description": "Hybrid-Operational-Market using native C0 and the active logit-shrinkage configuration.",
+            "model_name": get_active_hybrid().hybrid_model_name,
+            "model_version": get_active_hybrid().hybrid_model_version,
+            "features_version": C0_NATIVE.feature_version,
         },
         {
             "key": "operational_regional",
@@ -897,25 +897,10 @@ def historical_model_comparison(
             "model_version": THESIS_MODEL_VERSION,
             "features_version": ANALYSIS_FEATURES_VERSION,
         },
-        {
-            "key": "thesis_hybrid",
-            "label": "Hybrid model (EXP-039 + Rynek)",
-            "description": "Hybrid-Thesis-Market (35% EXP-039 + 65% Rynek)",
-            "model_name": "Hybrid-Thesis-Market",
-            "model_version": "a0.35-t0.80",
-            "features_version": ANALYSIS_FEATURES_VERSION,
-        },
     )
-    predictions_by_key: dict[str, dict[int, dict[str, Any]]] = {}
-    summaries: list[dict[str, Any]] = []
     for specification in specifications:
         extra_filters = ""
         query_params: dict[str, Any] = {**specification, "cutoff": cutoff}
-        fallback_sql = ""
-        if "fallback_model_name" in specification:
-            fallback_sql = " OR (cp.model_name = :fallback_model_name AND cp.model_version = :fallback_model_version)"
-            query_params["fallback_model_name"] = specification["fallback_model_name"]
-            query_params["fallback_model_version"] = specification["fallback_model_version"]
         if league:
             extra_filters += " AND cm.league = :league_filter"
             query_params["league_filter"] = league
@@ -931,18 +916,27 @@ def historical_model_comparison(
                        cm.league, cm.best_of, cm.start_time_normalized,
                        ROW_NUMBER() OVER (
                            PARTITION BY cp.canonical_match_id
-                           ORDER BY cp.predicted_at DESC NULLS LAST, cp.id DESC
+                           ORDER BY CASE
+                               WHEN cp.predicted_at ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
+                               THEN cp.predicted_at::timestamptz
+                           END DESC NULLS LAST, cp.id DESC
                        ) AS rn
                 FROM canonical_predictions cp
                 JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
-                WHERE ((cp.model_name = :model_name AND cp.model_version = :model_version)
-                       {fallback_sql})
+                WHERE cp.model_name = :model_name
+                  AND cp.model_version = :model_version
                   AND cp.features_version = :features_version
                   AND CASE
                       WHEN cp.data_cutoff_at ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
                       THEN cp.data_cutoff_at::timestamptz
-                  END <= cp.predicted_at
-                  AND cp.predicted_at < CASE
+                  END <= CASE
+                      WHEN cp.predicted_at ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
+                      THEN cp.predicted_at::timestamptz
+                  END
+                  AND CASE
+                      WHEN cp.predicted_at ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
+                      THEN cp.predicted_at::timestamptz
+                  END < CASE
                       WHEN cm.start_time_normalized ~ '^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}'
                       THEN cm.start_time_normalized::timestamptz
                   END
@@ -1033,35 +1027,25 @@ def historical_model_comparison(
 
     valid_keys = {s["key"] for s in specifications}
     target_alias = {
+        "native_c0": "c0",
         "operational": "operational_regional",
-        "thesis": "exp039",
-        "hybrid": "thesis_hybrid",
-        "exp081": "exp081",
-        "operational_hybrid": "operational_hybrid",
+        "regional": "operational_regional",
     }
     requested_key = target_alias.get(target_model, target_model)
-    if requested_key in valid_keys:
-        target_key = requested_key
-    elif "exp081" in predictions_by_key and len(predictions_by_key["exp081"]) > 0:
-        target_key = "exp081"
-    elif "operational_regional" in predictions_by_key and len(predictions_by_key["operational_regional"]) > 0:
-        target_key = "operational_regional"
-    else:
-        target_key = "exp039"
+    if requested_key not in valid_keys:
+        raise HTTPException(status_code=400, detail="Unknown comparison model key.")
+    target_key = requested_key
     old = predictions_by_key.get("exp039", {})
     target_preds = predictions_by_key.get(target_key, {})
     operational_preds = predictions_by_key.get("operational_regional", {})
 
-    if target_key != "exp039" and target_preds and old:
-        common_ids = sorted(set(old).intersection(target_preds))
-        primary_preds = target_preds
-    elif target_preds:
-        common_ids = sorted(target_preds.keys())
-        primary_preds = target_preds
-    else:
-        common_ids = sorted(set(old).intersection(operational_preds))
-        primary_preds = operational_preds
-
+    # No other model's rows may stand in for missing C0 coverage.
+    common_ids = (
+        sorted(set(old).intersection(target_preds))
+        if target_preds and target_key != "exp039"
+        else sorted(target_preds)
+    )
+    primary_preds = target_preds
     old_y = [old[mid]["y_true"] for mid in common_ids if mid in old]
     target_probabilities = [primary_preds[mid]["prob_a"] for mid in common_ids if mid in primary_preds]
     naive_probabilities = [0.5 for _ in common_ids]
@@ -1192,8 +1176,6 @@ def historical_model_comparison(
     }
     if target_minus_exp_ll is not None:
         common["model_minus_exp039_logloss"] = target_minus_exp_ll
-    elif op_minus_exp_ll is not None:
-        common["model_minus_exp039_logloss"] = op_minus_exp_ll
 
     # Dynamic, evidence-grounded insights
     executive_insights: list[dict[str, Any]] = []
@@ -1279,9 +1261,9 @@ def historical_model_comparison(
         "evaluation_scope": {
             "kind": "retrospective_chronological_replay",
             "warning": (
-                "The regional model is replayed from historical state before each "
-                "calendar date. This is a model-quality comparison, not live "
-                "forecasting, CLV, ROI, or betting evidence."
+                "Stored predictions are compared under their declared pre-match "
+                "clocks; C0 uses its exact frozen artifacts. This does not certify "
+                "publication times, live forecasting, CLV, ROI, or betting performance."
             ),
             "temporal_rule": "data_cutoff_at <= predicted_at < match_start_at",
         },
@@ -1609,9 +1591,9 @@ def model_clv_by_horizon(
         WHERE cp.model_name IN (:thesis_model, :hybrid_model, :op_model, :op_hybrid_model)
           AND (
               (cp.model_name = :thesis_model AND (cp.features_version != :retrospective_version OR cp.features_version IS NULL))
-              OR (cp.model_name = :hybrid_model AND (cp.model_version LIKE 'a0.50%' OR cp.model_version = :hybrid_version))
-              OR (cp.model_name = :op_model)
-              OR (cp.model_name = :op_hybrid_model)
+              OR (cp.model_name = :hybrid_model AND cp.model_version = :hybrid_version)
+              OR (cp.model_name = :op_model AND cp.model_version = :op_version)
+              OR (cp.model_name = :op_hybrid_model AND cp.model_version = :op_hybrid_version)
           )
           AND cp.predicted_at IS NOT NULL
           AND cp.prob_a IS NOT NULL
@@ -1624,7 +1606,9 @@ def model_clv_by_horizon(
             "thesis_model": THESIS_MODEL_NAME,
             "hybrid_model": THESIS_HYBRID_MODEL_NAME,
             "op_model": OPERATIONAL_MODEL_NAME,
-            "op_hybrid_model": OPERATIONAL_HYBRID_MODEL_NAME,
+            "op_hybrid_model": get_active_hybrid().hybrid_model_name,
+            "op_version": OPERATIONAL_BACKFILL_MODEL_VERSION,
+            "op_hybrid_version": get_active_hybrid().hybrid_model_version,
             "retrospective_version": ANALYSIS_FEATURES_VERSION,
             "hybrid_version": f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}",
             "cutoff": cutoff,
@@ -1717,7 +1701,7 @@ def model_clv_by_horizon(
         pred_mname = pred.get("model_name")
         if pred_mname == OPERATIONAL_HYBRID_MODEL_NAME:
             model_key = "operational_hybrid"
-            model_label = "Hybryda Operacyjna (Regional BoN + Rynek)"
+            model_label = "Hybryda Operacyjna (C0 + Rynek)"
         elif pred_mname == OPERATIONAL_MODEL_NAME:
             model_key = "operational"
             model_label = "Model Operacyjny (Regional BoN)"
@@ -2215,6 +2199,11 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
     )
     model_defs = [
         {
+            "model_name": C0_NATIVE.name,
+            "model_version": C0_NATIVE.version,
+            "features_version": C0_NATIVE.feature_version,
+        },
+        {
             "model_name": THESIS_MODEL_NAME,
             "model_version": THESIS_MODEL_VERSION,
             "features_version": ANALYSIS_FEATURES_VERSION,
@@ -2232,11 +2221,11 @@ def _compute_model_reference_metrics(db, cutoff: str, min_matches: int = 10) -> 
             "features_version": OPERATIONAL_BACKFILL_FEATURE_VERSION,
         },
         {
-            "model_name": "Hybrid-Operational-Market",
-            "model_version": f"a{THESIS_HYBRID_ALPHA:.2f}-t1.00",
-            "features_version": OPERATIONAL_BACKFILL_FEATURE_VERSION,
-            "base_model": OPERATIONAL_MODEL_NAME,
-            "base_version": OPERATIONAL_BACKFILL_MODEL_VERSION,
+            "model_name": get_active_hybrid().hybrid_model_name,
+            "model_version": get_active_hybrid().hybrid_model_version,
+            "features_version": C0_NATIVE.feature_version,
+            "base_model": C0_NATIVE.name,
+            "base_version": C0_NATIVE.version,
         },
         *[
             {
@@ -2526,27 +2515,33 @@ def _compute_hybrid_bins_dynamic(
     base_model: str = THESIS_MODEL_NAME, base_version: str = THESIS_MODEL_VERSION,
     features_version: str = ANALYSIS_FEATURES_VERSION,
 ) -> list[dict]:
-    """Compute hybrid model metrics per time bin dynamically.
-    
-    For each bin:
-    1. Get thesis model predictions for finished matches
-    2. Get average market probabilities from odds_snapshots in that bin
-    3. Compute hybrid_prob exactly like production:
-       alpha * temperature(thesis_prob) + (1-alpha) * market_prob
-    4. Calculate LogLoss/AUC for that bin
-    
-    Returns list of bin dicts with metrics.
+    """Compute dynamic hybrid metrics per time bin.
+
+    The active registered C0 hybrid uses its exact temperature and blending
+    mode; the distinct thesis hybrid retains its versioned linear replay.
     """
-    # Extract alpha and temperature from model_version (format: "a0.05-t0.80")
-    alpha = THESIS_HYBRID_ALPHA  # default
-    temperature = THESIS_HYBRID_TEMPERATURE  # default
-    if model_version.startswith("a") and "-t" in model_version:
-        try:
-            parts = model_version.split("-t")
-            alpha = float(parts[0][1:])  # remove 'a' prefix
-            temperature = float(parts[1])
-        except (IndexError, ValueError):
-            pass
+    active_hybrid = get_active_hybrid()
+    is_active_c0_hybrid = (
+        model_name == active_hybrid.hybrid_model_name
+        and model_version == active_hybrid.hybrid_model_version
+        and base_model == active_hybrid.base_model.name
+        and base_version == active_hybrid.base_model.version
+        and features_version == C0_NATIVE.feature_version
+    )
+    if is_active_c0_hybrid:
+        alpha = active_hybrid.alpha
+        temperature = active_hybrid.temperature
+    else:
+        # Preserve the distinct historical thesis-hybrid contract.
+        alpha = THESIS_HYBRID_ALPHA
+        temperature = THESIS_HYBRID_TEMPERATURE
+        if model_version.startswith("a") and "-t" in model_version:
+            try:
+                parts = model_version.split("-t")
+                alpha = float(parts[0][1:])
+                temperature = float(parts[1])
+            except (IndexError, ValueError):
+                pass
     
     # Get latest pure thesis model predictions for finished matches.
     # Do not filter by prediction_status here: for historical evaluation the
@@ -2561,14 +2556,23 @@ def _compute_hybrid_bins_dynamic(
                    cm.winner_side, cm.start_time_normalized,
                    ROW_NUMBER() OVER (
                        PARTITION BY cp.canonical_match_id
-                       ORDER BY cp.predicted_at DESC NULLS LAST, cp.id DESC
+                       ORDER BY CASE
+                           WHEN cp.predicted_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                           THEN cp.predicted_at::timestamptz
+                       END DESC NULLS LAST, cp.id DESC
                    ) AS rn
             FROM canonical_predictions cp
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
             WHERE cp.model_name = :base_model
               AND cp.model_version = :base_version
               AND cp.features_version = :features_version
-              AND cp.predicted_at <= cm.start_time_normalized::timestamptz
+              AND CASE
+                  WHEN cp.predicted_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  THEN cp.predicted_at::timestamptz
+              END <= CASE
+                  WHEN cm.start_time_normalized ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  THEN cm.start_time_normalized::timestamptz
+              END
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IS NOT NULL
               AND cm.start_time_normalized > :cutoff
@@ -2676,14 +2680,23 @@ def _compute_hybrid_bins_dynamic(
         prob_b = _implied_prob(odds_b)
         market_prob_a, market_prob_b = _remove_margin(prob_a, prob_b)
         
-        # Get thesis probability and apply temperature to the model side.
-        # This mirrors generate_thesis_hybrid_predictions(); temperature is
-        # not applied to the market probability.
+        # Apply the same model-side temperature and registered blend policy as
+        # production; market probability is never temperature-scaled.
         thesis_prob_a = match_thesis[mid]
         thesis_prob_a_t = apply_temperature_probability(thesis_prob_a, temperature)
-        
-        # Compute hybrid probability
-        hybrid_prob_a = alpha * thesis_prob_a_t + (1 - alpha) * market_prob_a
+        if is_active_c0_hybrid:
+            if active_hybrid.blending_mode == "logit_shrinkage":
+                hybrid_prob_a = bayesian_logit_shrinkage(
+                    thesis_prob_a_t, market_prob_a, alpha
+                )
+            elif active_hybrid.blending_mode == "linear":
+                hybrid_prob_a = alpha * thesis_prob_a_t + (1 - alpha) * market_prob_a
+            else:
+                raise ValueError(
+                    f"Unsupported active hybrid blending mode: {active_hybrid.blending_mode}"
+                )
+        else:
+            hybrid_prob_a = alpha * thesis_prob_a_t + (1 - alpha) * market_prob_a
         
         # Ground truth
         winner_side = str(meta.get("winner_side") or "")
@@ -3214,7 +3227,7 @@ def match_odds_movement(match_id: int, db=Depends(get_db)):
 
 @router.get("/model-profitability-audit")
 def model_profitability_audit(
-    model_key: str = "operational",
+    model_key: str = "c0",
     tax_rate: float = 0.12,
     min_ev: float = 0.05,
     max_days_back: int = 3650,
@@ -3233,17 +3246,15 @@ def model_profitability_audit(
     tax_mult = 1.0 - tax_rate
 
     model_configs = {
-        "exp081": {
-            "name": "Symmetrized-Siamese-Series-EXP081",
-            "version": "exp081-siamese-series-v1",
-            "title": "EXP-081 Siamese Series (Archiwalny)",
+        "c0": {
+            "name": C0_NATIVE.name,
+            "version": C0_NATIVE.version,
+            "title": "Native C0",
         },
         "operational_hybrid": {
-            "name": "Hybrid-Bayesian-Shrunk-A0-Market",
-            "version": "hybrid-a0-mkt-v1-a0.50",
-            "fallback_name": "Hybrid-Operational-Market",
-            "fallback_version": "exp081-siamese-series-v1-a0.50-t0.80",
-            "title": "Hybryda Operacyjna (Causal A0 + Rynek alpha=0.50)",
+            "name": get_active_hybrid().hybrid_model_name,
+            "version": get_active_hybrid().hybrid_model_version,
+            "title": "Hybryda Operacyjna (C0 + Rynek alpha=0.50)",
         },
         "operational": {
             "name": OPERATIONAL_MODEL_NAME,
@@ -3255,13 +3266,10 @@ def model_profitability_audit(
             "version": THESIS_MODEL_VERSION,
             "title": "Thesis Baseline (EXP-039 Sym-Cal)",
         },
-        "hybrid": {
-            "name": THESIS_HYBRID_MODEL_NAME,
-            "version": "a0.50-t0.80",
-            "title": "Thesis Hybrid (EXP-039 + Rynek alpha=0.50)",
-        },
     }
-    cfg = model_configs.get(model_key, model_configs["exp081" if "exp081" in model_configs else "operational"])
+    if model_key not in model_configs:
+        raise HTTPException(status_code=400, detail="Unknown profitability model key.")
+    cfg = model_configs[model_key]
     cutoff = (datetime.now(UTC) - timedelta(days=max_days_back)).isoformat()
 
     matches_sql = """
@@ -3297,10 +3305,8 @@ def model_profitability_audit(
                    ) AS rn
             FROM canonical_predictions cp
             JOIN canonical_matches cm ON cm.id = cp.canonical_match_id
-            WHERE (
-                (cp.model_name = :mname AND cp.model_version = :mver)
-                OR (:has_fb = 1 AND cp.model_name = :fb_name AND cp.model_version = :fb_ver)
-            )
+            WHERE cp.model_name = :mname
+              AND cp.model_version = :mver
               AND cm.status IN ('finished', 'completed')
               AND cm.winner_side IN ('team_a', 'team_b')
               AND cm.start_time_normalized >= :cutoff
@@ -3308,18 +3314,12 @@ def model_profitability_audit(
         SELECT canonical_match_id, prob_a, prob_b, diagnostics_json
         FROM ranked WHERE rn = 1
     """
-    has_fb = 1 if "fallback_name" in cfg else 0
-    fb_name = cfg.get("fallback_name", "")
-    fb_ver = cfg.get("fallback_version", "")
     preds = query_df(
         db,
         preds_sql,
         {
             "mname": cfg["name"],
             "mver": cfg["version"],
-            "has_fb": has_fb,
-            "fb_name": fb_name,
-            "fb_ver": fb_ver,
             "cutoff": cutoff,
         },
     )
@@ -3731,8 +3731,8 @@ def validation_report(
     days_back: int = 3650,
     tax_rate: float = 0.12,
     min_ev: float = 0.05,
-    model_name: str = "Hybrid-Bayesian-Shrunk-A0-Market",
-    model_version: str = "hybrid-a0-mkt-v1-a0.50",
+    model_name: str = "Hybrid-Operational-Market",
+    model_version: str = "c0-native-2026-w32-e12-v1-a0.50-t1.00",
     db=Depends(get_db),
 ):
     """Unified, single-cohort validation and reality check report."""
@@ -3759,10 +3759,9 @@ def validation_report(
         f"""
         SELECT cp.canonical_match_id, cp.prob_a, cp.prob_b
         FROM canonical_predictions cp
-        WHERE (
-            (cp.model_name = :m_name AND cp.model_version = :m_ver)
-            OR (cp.model_name = 'Hybrid-Operational-Market' AND cp.model_version = 'v0.4-binom-series-a0.50-t1.00')
-        ) AND cp.canonical_match_id IN ({p_holders})
+        WHERE cp.model_name = :m_name
+          AND cp.model_version = :m_ver
+          AND cp.canonical_match_id IN ({p_holders})
         """,
         {**m_params, "m_name": model_name, "m_ver": model_version},
     )

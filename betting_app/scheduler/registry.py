@@ -270,13 +270,13 @@ def register_all_tasks():
         description="Mark matches as expired when not seen by scrapers for 6h",
         enabled=True
     ))
-    # Liquipedia sync - daily at 05:00 UTC (sync BoN formats and active rosters)
+    # One ticker collector; the following job owns roster verification.
     registry.register(TaskDefinition(
         id="sync_liquipedia_daily",
         name="Daily Liquipedia Sync",
         func=predict.sync_liquipedia_daily,
         cron_trigger="0 5 * * *",  # Daily 05:00 UTC
-        description="Sync Best-of formats and active team rosters from Liquipedia",
+        description="Sync Best-of formats from Liquipedia; roster collection belongs to verify_team_rosters_daily",
         enabled=True
     ))
     # Team roster verification (LoL Fandom / Liquipedia) - runs daily at 05:15 UTC

@@ -1,8 +1,4 @@
-"""Fixed-graph and scenario tournament simulations from current GL team ratings.
-
-This is an odds-free rating heuristic, not the operational learned match model.
-Current ratings and curated played results are not point-in-time forecast archives.
-"""
+"""Fixed-graph and scenario tournament simulations powered by native C0."""
 
 from __future__ import annotations
 
@@ -11,21 +7,15 @@ import math
 import random
 from dataclasses import dataclass
 from functools import lru_cache
+from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-import numpy as np
-
-from betting_app.core.db import connect
+from sqlalchemy import text
+from betting_app.core.db import get_session
+from betting_app.core.matching import normalize_team_name
 from betting_app.services.canonical_match_service import canonical_team_key
-from betting_app.services.upcoming_inference_service import series_probability
-from src.models.calibrated_tournament_model import (
-    DEFAULT_REGIONAL_GAMMA,
-    DEFAULT_REGIONAL_OFFSETS,
-    DEFAULT_TOURNAMENT_ENTROPY_DAMPENING,
-    DEFAULT_TOURNAMENT_PAIRWISE_CAP,
-    DEFAULT_TOURNAMENT_TEMPERATURE,
-    calibrate_pairwise_probability,
-)
+from betting_app.services import c0_inference, mapping_service
+
 
 @dataclass
 class BracketMatchNode:
@@ -702,74 +692,45 @@ SUPPORTED_BRACKETS = {
     "lcs_2026_championship": get_lcs_2026_championship_bracket,
 }
 
+TOURNAMENT_PROBABILITY_VERSION = "c0-native-2026-w32-e12-v1"
+
+
 class TournamentSimulator:
-    """Monte Carlo simulation conditional on a supplied fixed bracket and rating snapshot."""
+    """Monte Carlo fixed-graph simulator using direct native C0 series outputs."""
 
     def __init__(
         self,
-        team_ratings: dict[str, float] | None = None,
         *,
         seed: int | None = None,
-        calibrate: bool = True,
-        pairwise_cap: float = DEFAULT_TOURNAMENT_PAIRWISE_CAP,
-        temperature: float = DEFAULT_TOURNAMENT_TEMPERATURE,
-        entropy_dampening: float = DEFAULT_TOURNAMENT_ENTROPY_DAMPENING,
-        regional_gamma: float = DEFAULT_REGIONAL_GAMMA,
-        regional_offsets: Mapping[str, float] | None = None,
-        use_a1: bool = True,
-        team_w20: Mapping[str, Any] | None = None,
-        competition_tier: str = "international",
+        team_ids: Mapping[str, str] | None = None,
+        team_rosters: Mapping[str, Sequence[str]] | None = None,
+        decision_at: datetime | None = None,
+        mode: str = "full",
+        competition_context: str | None = None,
     ):
-        source_ratings = self._load_team_ratings() if team_ratings is None else team_ratings
-        self.team_ratings = dict(source_ratings)
-        if any(not math.isfinite(value) for value in self.team_ratings.values()):
-            raise ValueError("Team ratings must be finite.")
-        self._rating_source = "current_database_gl" if team_ratings is None else "supplied_gl_ratings"
         self._rng = random.Random(seed)
         self._seed = seed
-        self.calibrate = calibrate
-        self.pairwise_cap = pairwise_cap
-        self.temperature = temperature
-        self.entropy_dampening = entropy_dampening
-        self.regional_gamma = regional_gamma
-        self.regional_offsets = dict(regional_offsets or DEFAULT_REGIONAL_OFFSETS)
-        self._prob_cache: dict[tuple[str, str, int, str | None, str | None], float] = {}
+        self.team_ids = dict(team_ids or {})
+        self.team_rosters = {key: tuple(value) for key, value in (team_rosters or {}).items()}
+        now = datetime.now(timezone.utc)
+        self.decision_at = decision_at or now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if self.decision_at.tzinfo is None or self.decision_at.utcoffset() is None:
+            raise ValueError("decision_at must be timezone-aware.")
+        if mode not in {"full", "no_w20", "no_organization"}:
+            raise ValueError("Unsupported C0 inference mode.")
+        self.mode = mode
+        self.competition_context = competition_context
+        self._prob_cache: dict[tuple[Any, ...], float] = {}
+        self._native_diagnostics: dict[tuple[Any, ...], dict[str, Any]] = {}
+        self._identity_cache: dict[str, tuple[str, tuple[str, ...]]] = {}
+        self._organization_identity_available: dict[str, bool] = {}
+        self._organization_identity_source: dict[str, str] = {}
         self._team_keys: dict[str, str] = {}
-        self.use_a1 = use_a1
-        self.competition_tier = competition_tier
-        self.team_w20 = dict(team_w20 or {})
-        if self.use_a1:
-            try:
-                from src.models.a1.engine import A1PredictorEngine
-                self._a1_engine = A1PredictorEngine(tier_scale=0.94)
-                self._rating_source = "consolidated_a1" if team_ratings is None else "supplied_ratings_with_a1"
-            except Exception:
-                self._a1_engine = None
-        else:
-            self._a1_engine = None
-    @staticmethod
-    def _load_team_ratings() -> dict[str, float]:
-        ratings: dict[str, float] = {}
-        with connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT normalized_entity_name, rating_value
-                FROM entity_ratings
-                WHERE entity_type = 'team' AND rating_system = 'gl'
-                ORDER BY id DESC
-                LIMIT 4000
-                """
-            ).fetchall()
-        for r in rows:
-            key = canonical_team_key(str(r["normalized_entity_name"]))
-            if key and key not in ratings and r.get("rating_value") is not None:
-                ratings[key] = float(r["rating_value"])
-        return ratings
 
     @staticmethod
     def _validate_best_of(best_of: int) -> None:
-        if type(best_of) is not int or best_of not in {1, 3, 5, 7}:
-            raise ValueError("best_of must be one of 1, 3, 5, 7.")
+        if type(best_of) is not int or best_of not in {1, 3, 5}:
+            raise ValueError("Native C0 supports best_of values 1, 3, and 5.")
 
     @staticmethod
     def _validate_simulations(n_simulations: int) -> None:
@@ -777,132 +738,148 @@ class TournamentSimulator:
             raise ValueError("n_simulations must be a positive integer.")
 
     def _team_key(self, team: str) -> str:
-        """Keep alias resolution consistent with this instance's rating snapshot."""
         key = self._team_keys.get(team)
         if key is None:
             key = canonical_team_key(team)
             self._team_keys[team] = key
         return key
 
-    def _map_probability(self, team1: str, team2: str) -> float:
-        k1, k2 = self._team_key(team1), self._team_key(team2)
-        if not k1 or not k2 or k1 == k2:
-            raise ValueError("A match requires two distinct named teams.")
-        r1 = self.team_ratings.get(k1, 1750.0)
-        r2 = self.team_ratings.get(k2, 1750.0)
-        log_odds = (r1 - r2) * math.log(10.0) / 400.0
-        exponential = math.exp(-abs(log_odds))
-        probability = 1.0 / (1.0 + exponential) if log_odds >= 0 else exponential / (1.0 + exponential)
-        # Match the existing map-to-series helper's numerical boundary.
-        return max(1e-6, min(1.0 - 1e-6, probability))
-
-    def _get_team_w20(self, team: str) -> np.ndarray:
-        k = self._team_key(team)
-        if hasattr(self, "team_w20") and k in self.team_w20:
-            val = self.team_w20[k]
-            if isinstance(val, np.ndarray) and val.shape == (10,):
-                return val.astype(np.float32)
-            if isinstance(val, (list, tuple)) and len(val) == 10:
-                return np.array(val, dtype=np.float32)
-        return np.zeros(10, dtype=np.float32)
+    def _team_identity(self, team: str) -> tuple[str, tuple[str, ...]]:
+        cached = self._identity_cache.get(team)
+        if cached is not None:
+            return cached
+        key = self._team_key(team)
+        team_id = self.team_ids.get(team)
+        roster = self.team_rosters.get(team)
+        if (team_id is None) != (roster is None):
+            raise ValueError(f"Native C0 unavailable: {team} requires team ID and roster IDs as a verified pair.")
+        if team_id is None:
+            with get_session() as session:
+                rows = session.execute(
+                    text(
+                        """
+                        SELECT player_id, role
+                        FROM team_current_roster_players
+                        WHERE normalized_team_name = :normalized
+                        ORDER BY CASE UPPER(role)
+                            WHEN 'TOP' THEN 1 WHEN 'JUNGLE' THEN 2 WHEN 'MID' THEN 3
+                            WHEN 'ADC' THEN 4 WHEN 'SUPPORT' THEN 5 ELSE 6
+                        END
+                        """
+                    ),
+                    {"normalized": normalize_team_name(team)},
+                ).mappings().all()
+            if not rows:
+                raise ValueError(f"Native C0 unavailable: no exact current roster for {team}.")
+            player_ids = [str(row["player_id"]) for row in rows if row.get("player_id")]
+            roles = {str(row["role"]).upper() for row in rows if row.get("role")}
+            if (
+                len(player_ids) != 5 or len(set(player_ids)) != 5
+                or roles != {"TOP", "JUNGLE", "MID", "ADC", "SUPPORT"}
+            ):
+                raise ValueError(f"Native C0 unavailable: {team} lacks a complete five-role roster.")
+            native_team_id = mapping_service.native_golgg_team_id(None, team_name=team)
+            if native_team_id is None:
+                team_id = f"tournament-target:{key}"
+                self._organization_identity_available[team] = False
+                self._organization_identity_source[team] = "unobserved"
+            else:
+                team_id = str(native_team_id)
+                self._organization_identity_available[team] = True
+                self._organization_identity_source[team] = "golgg_native_team_id"
+            roster = player_ids
+        else:
+            self._organization_identity_available[team] = True
+            self._organization_identity_source[team] = "explicit_native_team_id"
+        values = tuple(str(player_id) for player_id in roster)
+        if not key or not team_id or len(values) != 5 or len(set(values)) != 5 or any(not value for value in values):
+            raise ValueError(f"Native C0 unavailable: {team} lacks exact canonical/team/player IDs.")
+        identity = (str(team_id), values)
+        self._identity_cache[team] = identity
+        return identity
 
     def estimate_matchup_probability(self, team1: str, team2: str, best_of: int = 5) -> float:
-        """Convert the side-neutral logistic map heuristic to a full SERIES probability once using A1 when enabled."""
+        """Return C0's already-series probability without map-to-series projection."""
         self._validate_best_of(best_of)
-        cache_key = (team1, team2, best_of, None, None)
+        if self._team_key(team1) == self._team_key(team2):
+            raise ValueError("A match requires two distinct named teams.")
+        team1_id, roster1 = self._team_identity(team1)
+        team2_id, roster2 = self._team_identity(team2)
+        prediction_mode = (
+            self.mode
+            if self._organization_identity_available[team1] and self._organization_identity_available[team2]
+            else "no_organization"
+        )
+        origin = self.decision_at.isoformat()
+        cache_key = (
+            team1_id, roster1, team2_id, roster2, best_of, origin,
+            self.competition_context, prediction_mode, TOURNAMENT_PROBABILITY_VERSION,
+        )
         if cache_key not in self._prob_cache:
-            p_base_map = self._map_probability(team1, team2)
-            p_base_series = series_probability(p_base_map, best_of)
-            if getattr(self, "use_a1", False) and getattr(self, "_a1_engine", None) is not None:
-                w20_1 = self._get_team_w20(team1)
-                w20_2 = self._get_team_w20(team2)
-                tier_arr = np.array([getattr(self, "competition_tier", "regional")])
-                from src.models.regional_scaling import compute_regional_logit_offset
-                reg_off = compute_regional_logit_offset(
-                    team1, team2, getattr(self, "competition_tier", None),
-                    gamma=getattr(self, "regional_gamma", 0.70)
-                )
-                reg_off_arr = np.array([reg_off])
-                p_a1 = float(
-                    self._a1_engine.predict(
-                        np.array([p_base_series]),
-                        w20_1.reshape(1, 10),
-                        w20_2.reshape(1, 10),
-                        competition_tiers=tier_arr,
-                        regional_offsets=reg_off_arr,
-                    )[0]
-                )
-                self._prob_cache[cache_key] = max(1e-6, min(1.0 - 1e-6, p_a1))
-            else:
-                self._prob_cache[cache_key] = p_base_series
+            prediction = c0_inference.predict_c0({
+                "canonical": {"id": None},
+                "c0_request": {
+                    "team1_id": team1_id,
+                    "team2_id": team2_id,
+                    "roster_a": list(roster1),
+                    "roster_b": list(roster2),
+                    "best_of": best_of,
+                    "decision_at": origin,
+                    "competition_context": self.competition_context,
+                    "start_at": None,
+                    "mode": prediction_mode,
+                },
+            })
+            probability = float(prediction.prob_a)
+            if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
+                raise ValueError("Native C0 returned an invalid series probability.")
+            self._prob_cache[cache_key] = probability
+            self._native_diagnostics[cache_key] = {
+                "team1_id": team1_id,
+                "team2_id": team2_id,
+                "organization_identity_available": {
+                    team1: self._organization_identity_available[team1],
+                    team2: self._organization_identity_available[team2],
+                },
+                "mode": prediction_mode,
+                "best_of": best_of,
+                "diagnostics": dict(getattr(prediction, "diagnostics", {}) or {}),
+            }
         return self._prob_cache[cache_key]
-    def estimate_calibrated_probability(
-        self,
-        team1: str,
-        team2: str,
-        best_of: int = 5,
-        region1: str | None = None,
-        region2: str | None = None,
-    ) -> float:
-        """Convert map heuristic to a tournament bracket calibrated SERIES probability."""
-        raw_p = self.estimate_matchup_probability(team1, team2, best_of)
-        if not self.calibrate:
-            return raw_p
-        cache_key = (team1, team2, best_of, region1, region2)
-        if cache_key not in self._prob_cache:
-            calibrated_p = calibrate_pairwise_probability(
-                raw_p,
-                cap=self.pairwise_cap,
-                temperature=self.temperature,
-                dampening=self.entropy_dampening,
-                region_a=region1,
-                region_b=region2,
-                regional_offsets=self.regional_offsets,
-                regional_gamma=self.regional_gamma,
-            )
-            self._prob_cache[cache_key] = calibrated_p
-        return self._prob_cache[cache_key]
+
 
     def estimate_score_distribution(self, team1: str, team2: str, best_of: int = 5) -> dict[str, float]:
-        """Exact iid, side-neutral score probabilities, coherent with the series win marginal."""
-        self._validate_best_of(best_of)
-        probability = self._map_probability(team1, team2)
-        needed = best_of // 2 + 1
-        scores: dict[str, float] = {}
-        for losses in range(needed):
-            paths = math.comb(needed + losses - 1, losses)
-            scores[f"{needed}-{losses}"] = paths * probability**needed * (1.0 - probability)**losses
-            scores[f"{losses}-{needed}"] = paths * (1.0 - probability)**needed * probability**losses
-        return scores
+        raise ValueError("Native C0 does not provide map-level probabilities for scoreline projection.")
 
     def _live_probability(self, team1: str, team2: str, best_of: int, score1: int, score2: int) -> float:
-        probability = self._map_probability(team1, team2)
-        needed = best_of // 2 + 1
-        wins_remaining = needed - score1
-        losses_remaining = needed - score2
-        return sum(
-            math.comb(wins_remaining + losses - 1, losses)
-            * probability**wins_remaining * (1.0 - probability)**losses
-            for losses in range(losses_remaining)
-        )
+        raise ValueError("Native C0 tournament simulation does not support conditioning on partial live scores.")
 
     def _provenance(self, teams: Sequence[str]) -> dict[str, Any]:
+        identities = {team: self._team_identity(team)[0] for team in teams}
         return {
-            "prediction_source": self._rating_source,
-            "probability_model": "Consolidated-A1" if getattr(self, "use_a1", False) else "gl_logistic_map_iid_series",
+            "prediction_source": "native_c0",
+            "probability_model": "Causal-C0",
+            "probability_model_version": TOURNAMENT_PROBABILITY_VERSION,
             "probability_unit": "series",
-            "side_policy": "neutral_no_verified_side_selection",
-            "rating_source_available_at": None,
-            "rating_selection_policy": (
-                "latest_id_per_team_across_runs_limit4000_not_a_frozen_snapshot"
-                if self._rating_source == "current_database_gl" else "supplied_values_no_temporal_evidence"
-            ),
+            "side_policy": "ordered_native_team_ids",
+            "team_ids": identities,
+            "team_rosters": {team: list(self._team_identity(team)[1]) for team in teams},
+            "decision_at": self.decision_at.isoformat(),
+            "mode": self.mode,
+            "competition_context": self.competition_context,
+            "organization_identity_available": {
+                team: self._organization_identity_available[team]
+                for team in teams
+            },
+            "organization_identity_source": {
+                team: self._organization_identity_source[team]
+                for team in teams
+            },
+            "native_prediction_provenance": list(self._native_diagnostics.values()),
             "eligibility_live": 0,
             "point_in_time_certified": False,
-            "unrated_teams": sorted(team for team in teams if self._team_key(team) not in self.team_ratings),
-            "unrated_rating": 1750.0,
             "seed": self._seed,
-            "strength_uncertainty": "not_modelled_fixed_ratings",
+            "strength_uncertainty": "not_modelled",
         }
 
     def _validate_bracket(
@@ -1010,7 +987,7 @@ class TournamentSimulator:
         Overrides force only actual participants and never rewrite played history.
         A forced future winner requires compatible upstream outcomes; contradictory
         scenarios are rejected, not repaired by inserting an eliminated team.
-        Partial live scores condition iid remaining maps, not a fresh full series.
+        Unfinished live series are withheld: C0 has no conditional remaining-map law.
         """
         self._validate_simulations(n_simulations)
         manual = manual_overrides or {}
@@ -1039,7 +1016,7 @@ class TournamentSimulator:
                     probability = (
                         live_probabilities[match_id]
                         if match_id in live_probabilities
-                        else self.estimate_calibrated_probability(team1, team2, node.best_of)
+                        else self.estimate_matchup_probability(team1, team2, node.best_of)
                     )
                     if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
                         raise ValueError(f"Invalid series probability in {match_id}.")
@@ -1088,14 +1065,8 @@ class TournamentSimulator:
             "simulations": n_simulations,
             "standings": results,
             "joint_finalists": top_finalists,
-            "calibration": {
-                "calibrated": self.calibrate,
-                "mode": "composite_bracket_calibration",
-                "pairwise_cap": self.pairwise_cap,
-                "temperature": self.temperature,
-                "entropy_dampening": self.entropy_dampening,
-                "regional_gamma": self.regional_gamma,
-            },
+            "probability_model": "Causal-C0",
+            "probability_model_version": TOURNAMENT_PROBABILITY_VERSION,
             "provenance": self._provenance(bracket.teams),
             "simulation_scope": {
                 "mode": "conditional_current_bracket",
@@ -1137,7 +1108,8 @@ class WorldsSimulator(TournamentSimulator):
         region2: str | None = None,
     ) -> str:
         """Simulate one series and return its winner."""
-        probability = self.estimate_calibrated_probability(team1, team2, best_of=best_of, region1=region1, region2=region2)
+        del region1, region2
+        probability = self.estimate_matchup_probability(team1, team2, best_of=best_of)
         if not math.isfinite(probability) or not 0.0 <= probability <= 1.0:
             raise ValueError("Invalid series probability.")
         return team1 if self._rng.random() < probability else team2

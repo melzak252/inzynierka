@@ -3,84 +3,24 @@
 from __future__ import annotations
 
 import argparse
-import json
 
-from betting_app.core.db import init_db, query_df, transaction
-
-
-DEFAULT_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
-DEFAULT_MODEL_VERSION = "exp-039"
+from betting_app.core.db import init_db, query_df
+from betting_app.services.upcoming_inference_service import register_operational_model
 
 
 def main() -> None:
     """CLI entrypoint."""
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--register-default-model", action="store_true", help="Insert/update the EXP-039 model registry row.")
+    parser.add_argument("--register-default-model", action="store_true", help="Register the configured operational C0 model.")
     args = parser.parse_args()
 
     db_path = init_db()
     print(f"DB ready: {db_path}")
     if args.register_default_model:
-        register_default_model()
+        model_id = register_operational_model()
+        print(f"Registered operational model artifact #{model_id}")
     print_counts()
-
-
-def register_default_model() -> int:
-    """Register the final thesis model as the default upcoming-inference target."""
-
-    feature_schema = {
-        "rating_signals": ["player_elo", "player_gl", "player_ts", "player_os", "player_pl", "player_tm"],
-        "context_window": 20,
-        "series_adjustment": "binomial_bo1_bo3_bo5",
-        "postprocessing": ["order_symmetry", "expanding_platt"],
-    }
-    params = {
-        "estimator": "LogisticRegression",
-        "penalty": "elasticnet",
-        "C": 0.033,
-        "l1_ratio": 0.944,
-        "probability_clip": [0.001, 0.999],
-    }
-    metrics = {
-        "sample": 11609,
-        "auc": 0.755055,
-        "logloss": 0.585376,
-        "brier": 0.200659,
-        "ece": 0.010042,
-    }
-    with transaction() as connection:
-        connection.execute(
-            """
-            INSERT INTO model_artifacts(
-                model_name, model_version, artifact_path, feature_schema_json,
-                model_params_json, training_cutoff_at, metrics_json, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
-            ON CONFLICT(model_name, model_version) DO UPDATE SET
-                artifact_path = excluded.artifact_path,
-                feature_schema_json = excluded.feature_schema_json,
-                model_params_json = excluded.model_params_json,
-                training_cutoff_at = excluded.training_cutoff_at,
-                metrics_json = excluded.metrics_json,
-                status = 'active'
-            """,
-            (
-                DEFAULT_MODEL_NAME,
-                DEFAULT_MODEL_VERSION,
-                "docs/assets/final_symmetric_calibrated_market_comparison/",
-                json.dumps(feature_schema, ensure_ascii=False, sort_keys=True),
-                json.dumps(params, ensure_ascii=False, sort_keys=True),
-                None,
-                json.dumps(metrics, ensure_ascii=False, sort_keys=True),
-            ),
-        )
-        row = connection.execute(
-            "SELECT id FROM model_artifacts WHERE model_name = ? AND model_version = ?",
-            (DEFAULT_MODEL_NAME, DEFAULT_MODEL_VERSION),
-        ).fetchone()
-    model_id = int(row["id"])
-    print(f"Registered model artifact #{model_id}: {DEFAULT_MODEL_NAME} / {DEFAULT_MODEL_VERSION}")
-    return model_id
 
 
 def print_counts() -> None:

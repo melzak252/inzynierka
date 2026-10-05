@@ -1,9 +1,7 @@
-"""Auditable financial simulation based on the strict EXP-060 backtest source."""
+"""Financial simulation from exact stored C0 forecasts and frozen EXP-039 history."""
 
 from __future__ import annotations
 
-import math
-import re
 from collections import defaultdict
 from heapq import heappop, heappush
 from datetime import UTC, datetime, timedelta
@@ -15,43 +13,24 @@ from fastapi import APIRouter, Depends, HTTPException
 from betting_app.api.deps import get_db, query_df
 from betting_app.api.schemas import FinancialAnalysisResponse, FinancialBucket, FinancialLedgerEntry
 from betting_app.core.ev import expected_value, fair_market_probabilities
+from betting_app.core.models.registry import BAYESIAN_SHRUNK_HYBRID, C0_NATIVE
 from betting_app.services.canonical_match_service import align_snapshot_odds
 from betting_app.ml.calibration.conformal_contract import conformal_bounds_for_side
-
 from betting_app.services.market_service import kelly_fraction, none_or_float
-from betting_app.services import thesis_inference_service as thesis_inference
 
 
 router = APIRouter(prefix="/financial", tags=["financial"])
 
 TAX_RATE = 0.12
 BACKTEST_FEATURES_VERSION = "exp060-db-backfill-v1"
-LEGACY_FEATURES_VERSION = "thesis-exp039"
-from betting_app.core.models import get_thesis_hybrid, get_thesis_model
 
-THESIS_MODEL_NAME = get_thesis_model().name
-THESIS_MODEL_VERSION = get_thesis_model().version
-THESIS_BASE_ARTIFACT_VERSION = getattr(
-    thesis_inference, "THESIS_BASE_ARTIFACT_VERSION", THESIS_MODEL_VERSION
-)
-THESIS_FEATURES_VERSION = getattr(
-    thesis_inference, "THESIS_FEATURES_VERSION", LEGACY_FEATURES_VERSION
-)
-THESIS_HYBRID_MODEL_NAME = get_thesis_hybrid().hybrid_model_name
-THESIS_HYBRID_ALPHA = thesis_inference.THESIS_HYBRID_ALPHA
-THESIS_HYBRID_TEMPERATURE = thesis_inference.THESIS_HYBRID_TEMPERATURE
-THESIS_HYBRID_VERSION_SUFFIX = getattr(
-    thesis_inference, "THESIS_HYBRID_VERSION_SUFFIX", ""
-)
-HYBRID_MODEL_NAME = THESIS_HYBRID_MODEL_NAME
-DEFAULT_HYBRID_VERSION = (
-    f"a{THESIS_HYBRID_ALPHA:.2f}-t{THESIS_HYBRID_TEMPERATURE:.2f}"
-    + (
-        f"-{THESIS_HYBRID_VERSION_SUFFIX}"
-        if THESIS_HYBRID_VERSION_SUFFIX
-        else ""
-    )
-)
+# Frozen retrospective identity, deliberately independent of the active registry.
+ARCHIVED_EXP039_MODEL_NAME = "Sym-Cal LR-ElasticNet-W20-Binomial"
+ARCHIVED_EXP039_MODEL_VERSION = "exp-039"
+
+HYBRID_MODEL_NAME = BAYESIAN_SHRUNK_HYBRID.name
+DEFAULT_HYBRID_VERSION = BAYESIAN_SHRUNK_HYBRID.version
+
 HORIZONS: list[tuple[str, str, float, float | None]] = [
     ("0-2", "0–2 h", 0, 2),
     ("2-6", "2–6 h", 2, 6),
@@ -60,23 +39,6 @@ HORIZONS: list[tuple[str, str, float, float | None]] = [
     ("24-48", "24–48 h", 24, 48),
     ("48+", "48 h+", 48, None),
 ]
-EXP040_FEATURES_VERSION = "exp040-markov-va-v1"
-
-
-def _parse_hybrid_version(version: str) -> tuple[float, float]:
-    match = re.fullmatch(
-        r"a([0-9.]+)-t([0-9.]+)(?:-[a-z0-9-]+)?",
-        version or "",
-    )
-    if not match:
-        return THESIS_HYBRID_ALPHA, THESIS_HYBRID_TEMPERATURE
-    return float(match.group(1)), float(match.group(2))
-
-
-def _temperature_probability(probability: float, temperature: float) -> float:
-    probability = min(max(probability, 1e-6), 1 - 1e-6)
-    logit = math.log(probability / (1 - probability))
-    return 1 / (1 + math.exp(-logit / temperature))
 
 
 def _pick_snapshot(rows: list[dict[str, Any]], odds_mode: str) -> dict[str, Any] | None:
@@ -144,11 +106,9 @@ def financial_analysis(
 ):
     """Simulate event-time settlement from auditable prediction and quote rows.
 
-    ``live`` requires a timestamped prediction data cutoff, a quote observed
-    after prediction and before start, and a result recorded after start.
-    ``historical`` uses actual predictions with the selected pre-match price
-    snapshot but does not claim that price was available at prediction time.
-    ``retrospective`` is an EXP-060 research view.
+    Current scopes consume exact stored C0 forecasts; hybrid forecasts already
+    contain their market shrinkage and are never blended again here.
+    ``retrospective`` is the isolated frozen EXP-039 backfill.
     """
     odds_mode = odds_mode.lower().strip()
     if odds_mode not in {"open", "mid", "close"}:
@@ -171,61 +131,35 @@ def financial_analysis(
         raise HTTPException(400, "Invalid financial simulation parameters")
 
     use_hybrid = model_name == HYBRID_MODEL_NAME
-    exp040_names = {"Hierarchical-Markov-VennAbers-EXP040", "EXP-040", "exp-040"}
-    supported_direct_versions = {
-        THESIS_BASE_ARTIFACT_VERSION,
-        THESIS_MODEL_VERSION,
-    }
-    if not use_hybrid and (
-        (model_name not in {THESIS_MODEL_NAME, *exp040_names})
-        or (
-            model_name == THESIS_MODEL_NAME
-            and model_version not in supported_direct_versions
-        )
-    ):
-        raise HTTPException(
-            400,
-            "Unsupported model/version; use the frozen EXP-039, EXP-040 candidate, or current parity contract",
-        )
-    alpha, temperature = _parse_hybrid_version(model_version)
-    min_start_at = datetime.now(UTC) - timedelta(days=min(days_back, 730))
-
     if data_scope == "retrospective":
-        if not use_hybrid and model_name != THESIS_MODEL_NAME:
+        if (
+            model_name != ARCHIVED_EXP039_MODEL_NAME
+            or model_version != ARCHIVED_EXP039_MODEL_VERSION
+        ):
             raise HTTPException(
                 400,
-                "retrospective scope is limited to the reproducible EXP-039 backfill",
+                "retrospective scope requires the explicit frozen EXP-039 identity",
             )
-        query_model_name = THESIS_MODEL_NAME
-        query_model_version = THESIS_BASE_ARTIFACT_VERSION
+        query_model_name = ARCHIVED_EXP039_MODEL_NAME
+        query_model_version = ARCHIVED_EXP039_MODEL_VERSION
         features_version = BACKTEST_FEATURES_VERSION
-        effective_model_version = (
-            f"a{alpha:.2f}-t{temperature:.2f}"
-            if use_hybrid
-            else THESIS_BASE_ARTIFACT_VERSION
-        )
-    elif use_hybrid and model_version.endswith(f"-{THESIS_HYBRID_VERSION_SUFFIX}"):
-        query_model_name = THESIS_MODEL_NAME
-        query_model_version = THESIS_MODEL_VERSION
-        features_version = THESIS_FEATURES_VERSION
-    elif use_hybrid:
-        query_model_name = THESIS_MODEL_NAME
-        query_model_version = THESIS_BASE_ARTIFACT_VERSION
-        features_version = LEGACY_FEATURES_VERSION
+        effective_model_version = ARCHIVED_EXP039_MODEL_VERSION
     else:
-        query_model_name = model_name
-        query_model_version = model_version
-        features_version = (
-            EXP040_FEATURES_VERSION
-            if model_name in exp040_names
-            else (
-                THESIS_FEATURES_VERSION
-                if model_version == THESIS_MODEL_VERSION
-                else LEGACY_FEATURES_VERSION
+        selected_model = BAYESIAN_SHRUNK_HYBRID if use_hybrid else C0_NATIVE
+        if (
+            model_name != selected_model.name
+            or model_version != selected_model.version
+        ):
+            raise HTTPException(
+                400,
+                "Unsupported model/version; use the exact active C0 or C0 hybrid contract",
             )
-        )
-    if data_scope != "retrospective":
-        effective_model_version = model_version
+        query_model_name = selected_model.name
+        query_model_version = selected_model.version
+        features_version = selected_model.feature_version
+        effective_model_version = selected_model.version
+
+    min_start_at = datetime.now(UTC) - timedelta(days=min(days_back, 730))
 
     prediction_rows = query_df(db, """
         SELECT cm.id AS canonical_match_id, cm.team_a_name, cm.team_b_name, cm.league,
@@ -236,12 +170,12 @@ def financial_analysis(
         JOIN canonical_predictions p ON p.canonical_match_id = cm.id
         WHERE cm.status = 'finished'
           AND cm.winner_side IN ('team_a', 'team_b')
-          AND p.model_name = :thesis_name AND p.model_version = :thesis_version
+          AND p.model_name = :model_name AND p.model_version = :model_version
           AND p.features_version = :features_version
         ORDER BY cm.start_time_normalized, cm.id, p.predicted_at, p.id
     """, {
-        "thesis_name": query_model_name,
-        "thesis_version": query_model_version,
+        "model_name": query_model_name,
+        "model_version": query_model_version,
         "features_version": features_version,
     })
     latest_predictions: dict[int, dict[str, Any]] = {}
@@ -388,12 +322,9 @@ def financial_analysis(
         if base_a is None:
             continue
         market_a, market_b = fair_market_probabilities(odds_a, odds_b)
-        model_a = (
-            alpha * _temperature_probability(base_a, temperature)
-            + (1 - alpha) * market_a
-            if use_hybrid
-            else base_a
-        )
+        # A stored hybrid already contains its market shrinkage. Use the
+        # selected forecast directly instead of blending it with the quote again.
+        model_a = base_a
         model_b = 1 - model_a
         ev_a = expected_value(model_a, odds_a, TAX_RATE)
         ev_b = expected_value(model_b, odds_b, TAX_RATE)

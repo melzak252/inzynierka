@@ -1,8 +1,7 @@
-"""Run the versioned upcoming prediction pipeline.
+"""Run the native-C0 upcoming prediction pipeline.
 
-The operational baseline uses the immutable ``ratings-v2`` regional contract
-and never places bets. EXP-039 remains a separately callable frozen thesis
-model.
+Pure C0 forecasts are persisted first; optional market shrinkage consumes that
+saved C0 forecast once. EXP-039 remains a separately callable frozen thesis model.
 """
 
 from __future__ import annotations
@@ -57,13 +56,13 @@ def main() -> None:
     parser.add_argument(
         "--model",
         default=None,
-        help="Specific model to run (e.g. EXP-081, EXP-078, EXP-039). Defaults to active operational model.",
+        help="Select an exact registered model version. Defaults to active native C0.",
     )
     parser.add_argument(
         "--operational-hybrid",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Generate the ratings-v2 operational+market Bayesian shrinkage hybrid (default: True).",
+        help="Generate separate saved-C0 market shrinkage predictions (default: True).",
     )
     parser.add_argument(
         "--thesis",
@@ -88,7 +87,7 @@ def main() -> None:
     parser.add_argument(
         "--include-partial",
         action="store_true",
-        help="Also predict matches with missing ratings/W20.",
+        help="Also invoke inference for rows marked partial (usually fails closed on exact C0 input gaps).",
     )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--signals-limit", type=int, default=15)

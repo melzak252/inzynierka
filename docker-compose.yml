@@ -40,6 +40,10 @@ services:
       BETTING_APP_MIN_EV: "${BETTING_APP_MIN_EV:-0.05}"
       BETTING_APP_BANKROLL: "${BETTING_APP_BANKROLL:-100.0}"
       BETTING_APP_HEADLESS: "1"
+      C0_SERVING_CONFIG: /app/conf/base/c0_serving.json
+      C0_MODEL_ROOT: /app/data/06_models/a0_data_focus/a0_data_focus_20260929_192443
+      C0_RESEARCH_ROOT: /research-root
+      C0_RELEASE_MAP_PATH: /research-root/a0-phase-walkforward-20260914/data/04_feature/release_corrected_bank/release_days.json
       PYTHONPATH: /app:/app/src
       DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER:-betting}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-betting}"
     shm_size: "512m"
@@ -52,8 +56,12 @@ services:
         max-file: "3"
     volumes:
       - ./data:/app/data
+      - ${C0_MODEL_HOST_ROOT:-./data/06_models/a0_data_focus/a0_data_focus_20260929_192443}:/app/data/06_models/a0_data_focus/a0_data_focus_20260929_192443:ro
+      - ./data/artifacts/golgg-database-recovery-20260909:/app/data/artifacts/golgg-database-recovery-20260909:ro
+      - ${C0_RESEARCH_HOST_ROOT:?Set C0_RESEARCH_HOST_ROOT to the local C0 research root}:/research-root:ro
       - ./betting_app:/app/betting_app
       - ./conf:/app/conf
+      - ./conf/base/c0_serving.json:/app/conf/base/c0_serving.json:ro
       - ./src:/app/src
       - ./pyproject.toml:/app/pyproject.toml
     command: >
@@ -74,6 +82,10 @@ services:
     environment:
       BETTING_APP_TAX_RATE: "${BETTING_APP_TAX_RATE:-0.12}"
       BETTING_APP_MIN_EV: "${BETTING_APP_MIN_EV:-0.05}"
+      C0_SERVING_CONFIG: /app/conf/base/c0_serving.json
+      C0_MODEL_ROOT: /app/data/06_models/a0_data_focus/a0_data_focus_20260929_192443
+      C0_RESEARCH_ROOT: /research-root
+      C0_RELEASE_MAP_PATH: /research-root/a0-phase-walkforward-20260914/data/04_feature/release_corrected_bank/release_days.json
       IDENTITY_REVIEW_TOKEN_FILE: /run/secrets/identity_review_token
       PYTHONPATH: /app:/app/src
       DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER:-betting}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@timescaledb:5432/${POSTGRES_DB:-betting}"
@@ -87,8 +99,12 @@ services:
         max-file: "3"
     volumes:
       - ./data:/app/data
+      - ${C0_MODEL_HOST_ROOT:-./data/06_models/a0_data_focus/a0_data_focus_20260929_192443}:/app/data/06_models/a0_data_focus/a0_data_focus_20260929_192443:ro
+      - ./data/artifacts/golgg-database-recovery-20260909:/app/data/artifacts/golgg-database-recovery-20260909:ro
+      - ${C0_RESEARCH_HOST_ROOT:?Set C0_RESEARCH_HOST_ROOT to the local C0 research root}:/research-root:ro
       - ./betting_app:/app/betting_app
       - ./conf:/app/conf
+      - ./conf/base/c0_serving.json:/app/conf/base/c0_serving.json:ro
       - ./src:/app/src
       - ./pyproject.toml:/app/pyproject.toml
     secrets:

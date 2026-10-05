@@ -7,28 +7,16 @@ import './MatchResults.css'
 const DAYS_OPTIONS = [7, 14, 30, 60, 90]
 const MODEL_OPTIONS = [
   {
-    label: 'Hybrid Operacyjny (Causal A0)',
-    name: 'Hybrid-Bayesian-Shrunk-A0-Market',
-    version: 'hybrid-a0-mkt-v1-a0.50',
-    description: '50% Causal A0 + 50% rynek otwarcia (LogLoss 0.5608)',
-  },
-  {
-    label: 'Hybrid Operacyjny (EXP-081)',
+    label: 'Hybryda operacyjna (C0 + rynek)',
     name: 'Hybrid-Operational-Market',
-    version: 'exp081-siamese-series-v1-a0.50-t0.80',
-    description: '50% Siamese Series EXP-081 + 50% rynek (archiwalny)',
+    version: 'c0-native-2026-w32-e12-v1-a0.50-t1.00',
+    description: '50% natywnego C0 + 50% rynek',
   },
   {
-    label: 'Hybrid parity v2',
-    name: 'Hybrid-Thesis-Market',
-    version: 'a0.35-t0.80-p2',
-    description: '35% EXP-039 parity v2 + 65% rynek',
-  },
-  {
-    label: 'EXP-039 parity v2',
-    name: 'Sym-Cal LR-ElasticNet-W20-Binomial',
-    version: 'exp-039-parity-v2',
-    description: 'potwierdzone składy, stabilne ID i symetryczna kalibracja',
+    label: 'C0 natywny',
+    name: 'Causal-C0',
+    version: 'c0-native-2026-w32-e12-v1',
+    description: 'Natywne, zamrożone C0; bez projekcji BO i bez rating fallback',
   },
 ]
 const ODDS_MODE_OPTIONS = [

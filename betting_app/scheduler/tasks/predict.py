@@ -19,11 +19,11 @@ def rematch_canonical() -> bool:
 
 
 def sync_liquipedia_daily() -> dict:
-    """Daily task to sync Best-of formats and active team rosters from Liquipedia."""
-    logger.info("Running daily Liquipedia sync (BoN + rosters)")
+    """Collect ticker formats once; roster verification has its own daily job."""
+    logger.info("Running daily Liquipedia ticker sync")
     ok = _run_module(
         "betting_app.scripts.sync_liquipedia_bon",
-        args=["--limit", "60", "--sync-rosters"],
+        args=["--limit", "60"],
         timeout=300,
     )
     return {"success": ok}

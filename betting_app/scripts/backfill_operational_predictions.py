@@ -1,4 +1,4 @@
-"""Replay the regional operational model chronologically for completed matches.
+"""Replay the historical regional consensus recipe chronologically.
 
 This is a retrospective evaluation dataset, not a live prediction record. For
 each complete calendar date, every target prediction is emitted from state that
@@ -27,7 +27,6 @@ from betting_app.services.rating_contract import (
 )
 from betting_app.services.upcoming_inference_service import (
     _normalized_best_of,
-    predict_probability_from_features,
     series_probability,
     w20_probability,
 )
@@ -274,12 +273,19 @@ def backfill_operational_predictions(*, apply: bool, limit: int | None = None) -
             player_consensus = sum(player_probs.values()) / len(player_probs)
             w20_a = _w20_features(history[match.team_a_id])
             w20_b = _w20_features(history[match.team_b_id])
-            feature_payload = {
-                "ratings": {"probabilities": {"consensus": team_consensus, **team_probs}},
-                "player_ratings": {"probabilities": {"consensus": player_consensus, **player_probs}},
-                "w20": {"probability": w20_probability(w20_a, w20_b)},
+            w20_prob = w20_probability(w20_a, w20_b)
+            # Replay the registered historical formula, never the active serving model.
+            map_probability = (
+                0.70 * player_consensus
+                + 0.20 * team_consensus
+                + 0.10 * w20_prob
+            )
+            components = {
+                "model_name": OPERATIONAL_MODEL_NAME,
+                "model_version": OPERATIONAL_BACKFILL_MODEL_VERSION,
+                "feature_version": OPERATIONAL_BACKFILL_FEATURE_VERSION,
+                "market_features_used": False,
             }
-            map_probability, components = predict_probability_from_features(feature_payload)
             best_of = _normalized_best_of(target.get("best_of"))
             probability = series_probability(map_probability, best_of)
             is_reversed = _is_reversed_mapping(

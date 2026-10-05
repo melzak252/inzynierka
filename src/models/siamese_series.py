@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass
-from functools import cache
 from pathlib import Path
 from typing import Mapping
 
@@ -27,12 +26,14 @@ from src.models.symmetric_series import (
 MODEL_NAME = "Symmetrized-Siamese-Series-EXP081"
 MODEL_VERSION = "exp081-siamese-series-v1"
 FEATURE_VERSION = "ratings-w20-symmetric-series-v1"
-ARTIFACT_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "betting_app"
-    / "models"
-    / "exp081_siamese_series_v1.json"
-)
+
+
+def load_artifact(path: str | Path) -> "SiameseSeriesModel":
+    """Load an explicitly selected historical EXP-081 artifact."""
+    artifact_path = Path(path)
+    with artifact_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return SiameseSeriesModel.from_mapping(payload)
 
 
 def _sigmoid(z: float) -> float:
@@ -129,15 +130,6 @@ class SiameseSeriesModel:
             members=tuple(members),
             risk_kappa=risk_kappa,
         )
-
-    @classmethod
-    @cache
-    def load_default(cls) -> "SiameseSeriesModel":
-        if not ARTIFACT_PATH.exists():
-            raise FileNotFoundError(f"default EXP-081 artifact not found at {ARTIFACT_PATH}")
-        with ARTIFACT_PATH.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-        return cls.from_mapping(payload)
 
     def _prepare_vector(self, snapshot: Mapping[str, float], *, best_of: int) -> np.ndarray:
         engineered = build_feature_mapping(snapshot, best_of=best_of)

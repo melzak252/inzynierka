@@ -3,13 +3,14 @@
 from betting_app.core.models.contract import HybridSpec, ModelSpec, UnifiedPredictionResult
 from betting_app.core.models.engine import PredictionEngine
 from betting_app.core.models.registry import (
+    A1_CONSOLIDATED,
     ACTIVE_MODEL_FAMILY,
     ACTIVE_MODEL_NAME,
     ACTIVE_MODEL_VERSION,
     BAYESIAN_SHRUNK_HYBRID,
+    C0_NATIVE,
     EXP039_THESIS,
     EXP078_LINEAR,
-    EXP081_SIAMESE,
     REGISTERED_MODELS,
     THESIS_HYBRID,
     get_active_hybrid,
@@ -25,11 +26,14 @@ from betting_app.core.models.registry import (
 )
 
 __all__ = [
+    "A1_CONSOLIDATED",
     "ACTIVE_MODEL_FAMILY",
     "ACTIVE_MODEL_NAME",
     "ACTIVE_MODEL_VERSION",
     "BAYESIAN_SHRUNK_HYBRID",
+    "C0_NATIVE",
     "EXP039_THESIS",
+    "EXP078_LINEAR",
     "HybridSpec",
     "ModelSpec",
     "PredictionEngine",

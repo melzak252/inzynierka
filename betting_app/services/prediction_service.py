@@ -1,10 +1,4 @@
-"""Prediction service for upcoming matches.
-
-The current MVP stores manual/external probabilities while keeping metadata that
-will allow plugging in the full Sym-Cal inference pipeline later. This is safer
-than pretending that upcoming roster-level features can already be reconstructed
-perfectly from the thesis artefacts.
-"""
+"""Generic persistence helpers for predictions and their model identities."""
 
 from __future__ import annotations
 
@@ -13,10 +7,11 @@ from datetime import UTC, datetime
 import pandas as pd
 
 from betting_app.core.db import query_df, transaction
+from betting_app.core.models.registry import get_active_model
 
 
-MODEL_NAME = "manual-or-sym-cal-placeholder"
-MODEL_VERSION = "mvp-v0.1"
+MODEL_NAME = get_active_model().name
+MODEL_VERSION = get_active_model().version
 
 
 def utc_now_iso() -> str:

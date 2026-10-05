@@ -31,7 +31,7 @@ def test_positive_ev_eligible_standard() -> None:
 
 
 def test_high_underdog_positive_ev_eligible() -> None:
-    # High underdog: odds 4.00, model predicts 0.40 (e.g. risk-gated P_low from Siamese MLP)
+    # The C0 mean probability is the probability used for EV when uncertainty is unavailable.
     # EV_net = 0.40 * 4.00 * 0.88 - 1.0 = 1.408 - 1.0 = +0.408 (mathematical EV >= +5%)
     # When max_ev_longshot is disabled (None), high underdog EV qualifies
     eligible, reason, diag = is_bet_eligible(
@@ -269,40 +269,17 @@ def test_coinflip_market_divergence_trap_quarantined() -> None:
     assert eligible_fav
     assert reason_fav == "eligible"
 
-def test_conservative_ev_does_not_hide_mean_market_divergence() -> None:
+def test_mean_probability_drives_market_divergence_qualification() -> None:
     eligible, reason, diag = is_bet_eligible(
         prob_model=0.80,
-        prob_conservative=0.65,
-        uncertainty_required=True,
         odds=2.10,
         prob_market_novig=0.60,
         competition_tier="Tier-1 Domestic",
     )
     assert not eligible
     assert reason == "tier1_sharp_market_divergence"
-    assert diag["ev_net"] == pytest.approx(0.2012)
+    assert diag["ev_net"] == pytest.approx(0.4784)
     assert diag["market_gap"] == pytest.approx(0.20)
-
-
-def test_uncertainty_can_only_remove_qualification() -> None:
-    outcomes = [
-        is_bet_eligible(
-            prob_model=0.65, odds=2.10, prob_conservative=bound,
-            uncertainty_required=True,
-        )[0]
-        for bound in (0.65, 0.60, 0.50, 0.0)
-    ]
-    assert outcomes == [True, True, False, False]
-
-
-@pytest.mark.parametrize("bound", [None, float("nan"), float("inf"), -0.1, 0.9, "bad"])
-def test_required_uncertainty_fails_closed(bound) -> None:
-    eligible, _, _ = is_bet_eligible(
-        prob_model=0.7, odds=2.0, prob_conservative=bound,
-        uncertainty_required=True,
-    )
-    assert not eligible
-
 
 @pytest.mark.parametrize(
     "parameter",

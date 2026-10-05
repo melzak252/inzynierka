@@ -62,9 +62,9 @@ export default function ModelAnalysis() {
       {/* 1. Header & Filter Bar */}
       <header className="report-header">
         <div className="header-titles">
-          <h1>📊 Raport Walidacji Modeli & Reality Check</h1>
+          <h1>📊 Archiwalne zestawienie walidacji modeli</h1>
           <span className="header-subtitle">
-            Spójna ewaluacja empiryczna: Model vs Rynek, CLV, Expected vs Realized ROI oraz rozbicie bukmacherów.
+            Historyczne metryki Model vs Rynek, CLV i ROI. Ten raport nie jest walidacją ani bieżącą predykcją natywnego C0.
           </span>
         </div>
 

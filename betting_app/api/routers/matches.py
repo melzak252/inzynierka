@@ -8,7 +8,6 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 import json
-import pandas as pd
 import math
 import os
 import re
@@ -77,12 +76,10 @@ from betting_app.services.market_service import (
 )
 from betting_app.ml.calibration.conformal_contract import conformal_bounds_for_side
 from betting_app.services.bet_qualification_service import (
-    DEFAULT_MAX_EV_NET,
     qualify_prediction_sides,
 )
-from betting_app.ml.model_lifecycle import RETIRED_PUBLIC_MODEL_NAME
 
-from betting_app.services.mapping_service import suggest_mapping
+from betting_app.services.mapping_service import native_golgg_team_id, suggest_mapping
 from betting_app.services.current_roster_service import upsert_current_roster
 from betting_app.services.thesis_inference_service import EPSILON, _load_roster_overrides
 from betting_app.core.models import (
@@ -97,6 +94,7 @@ from betting_app.services.upcoming_inference_service import (
     DEFAULT_HYBRID_TEMPERATURE,
     generate_hybrid_predictions,
     predict_operational_match,
+    register_operational_model,
 )
 
 router = APIRouter(prefix="/matches", tags=["matches"])
@@ -1389,54 +1387,71 @@ def verify_rosters_endpoint(body: RosterVerificationRequest = RosterVerification
 
 @router.get("/active-teams")
 def get_active_teams(db=Depends(get_db)):
-    """Return a curated list of active professional teams with recent matches."""
+    """Return teams with a known GOL.GG team row and five exact current players."""
     from betting_app.services.rating_contract import OPERATIONAL_RATINGS_VERSION
 
-    # Load teams with recent activity from entity_ratings
-    rows = query_df(
+    teams = query_df(
+        db,
+        "SELECT id, team_id, team_name FROM golgg_teams ORDER BY team_name",
+    )
+    roster_rows = query_df(
         db,
         """
-        SELECT entity_name, normalized_entity_name, rating_value, games_played, last_match_at
+        SELECT team_id, team_name, player_id
+        FROM team_current_roster_players
+        WHERE player_id IS NOT NULL AND TRIM(player_id) <> ''
+        """,
+    )
+    rating_rows = query_df(
+        db,
+        """
+        SELECT entity_name, rating_value, games_played, last_match_at
         FROM entity_ratings
-        WHERE ratings_version = :version
-          AND entity_type = 'team'
-          AND rating_system = 'gl'
-          AND games_played >= 5
-          AND last_match_at IS NOT NULL
-          AND SUBSTR(last_match_at, 1, 4) >= '2024'
-        ORDER BY rating_value DESC
-        LIMIT 150
+        WHERE ratings_version = :version AND entity_type = 'team' AND rating_system = 'gl'
         """,
         {"version": OPERATIONAL_RATINGS_VERSION},
     )
-    if not rows:
-        # Fallback to golgg_teams if entity_ratings is empty in dev.
-        fallback_rows = query_df(
-            db,
-            """
-            SELECT team_name AS entity_name, 1500.0 AS rating_value
-            FROM golgg_teams
-            LIMIT 100
-            """,
-        )
-        teams = [
-            {"name": str(row["entity_name"]), "rating": round(float(row["rating_value"]), 0)}
-            for row in fallback_rows
+    ratings_by_name = {
+        str(row.get("entity_name") or "").strip().casefold(): row
+        for row in rating_rows if row.get("entity_name")
+    }
+    ready_teams = []
+    for team in teams:
+        team_name = str(team.get("team_name") or "").strip()
+        external_id = str(team.get("team_id") or "").strip()
+        players = [
+            row for row in roster_rows
+            if (
+                str(row.get("team_id") or "").strip() == external_id and external_id
+            ) or (
+                str(row.get("team_name") or "").strip().casefold() == team_name.casefold()
+            )
         ]
-        return {"teams": teams}
-
-    teams = [
-        {
-            "name": str(row["entity_name"]),
-            "rating": round(float(row["rating_value"]), 0)
-            if row.get("rating_value") is not None
-            else None,
-            "games": int(row.get("games_played", 0)),
-            "last_active": str(row.get("last_match_at") or "")[:10],
+        player_ids = {
+            str(row.get("player_id") or "").strip()
+            for row in players if str(row.get("player_id") or "").strip()
         }
-        for row in rows
-    ]
-    return {"teams": teams}
+        if len(players) != 5 or len(player_ids) != 5 or not team.get("id") or not team_name:
+            continue
+        rating = ratings_by_name.get(team_name.casefold())
+        ready_teams.append(
+            {
+                "team_row_id": int(team["id"]),
+                "native_team_id": native_golgg_team_id(int(team["id"]), team_name=team_name),
+                "name": team_name,
+                "rating": none_or_float(rating.get("rating_value")) if rating else None,
+                "games": int(rating.get("games_played") or 0) if rating else None,
+                "last_active": str(rating.get("last_match_at") or "")[:10] if rating else None,
+            }
+        )
+    ready_teams.sort(
+        key=lambda row: (
+            row["rating"] is None,
+            -(row["rating"] or 0.0),
+            row["name"].casefold(),
+        )
+    )
+    return {"teams": ready_teams}
 
 
 # ── POST /matches/matchup — custom team vs team simulation ──────────────────
@@ -1447,23 +1462,44 @@ def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
     """Simulate a hypothetical head-to-head matchup between any two teams."""
     from betting_app.services.upcoming_inference_service import (
         DEFAULT_FEATURE_VERSION,
-        DEFAULT_MODEL_NAME,
-        DEFAULT_MODEL_VERSION,
         DEFAULT_RATINGS_VERSION,
         DEFAULT_W20_VERSION,
+        _native_c0_active,
         _normalized_best_of,
         build_features_for_match,
-        predict_probability_from_features,
-        series_probability,
     )
 
     best_of = _normalized_best_of(body.best_of)
+    resolved_native_ids = []
+    for side, team_name, row_id, supplied_native_id in (
+        ("a", body.team_a_name, body.team_a_team_row_id, body.native_team_a_id),
+        ("b", body.team_b_name, body.team_b_team_row_id, body.native_team_b_id),
+    ):
+        native_id = supplied_native_id
+        if row_id is not None:
+            try:
+                resolved_id = native_golgg_team_id(row_id, team_name=team_name)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            if native_id is not None and resolved_id is not None and str(native_id) != resolved_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Explicit native team ID for side {side} conflicts with its database team row.",
+                )
+            native_id = native_id if native_id is not None else resolved_id
+        resolved_native_ids.append(native_id)
+    decision_clock = datetime.now(UTC)
     synthetic_match = {
         "id": 0,
         "team_a_name": body.team_a_name,
         "team_b_name": body.team_b_name,
+        "team_a_golgg_id": body.team_a_team_row_id,
+        "team_b_golgg_id": body.team_b_team_row_id,
+        "native_team_a_id": resolved_native_ids[0],
+        "native_team_b_id": resolved_native_ids[1],
         "league": body.league or "Custom Matchup",
-        "start_time_normalized": datetime.now(UTC).isoformat(),
+        "_c0_decision_at": decision_clock.isoformat(),
+        "start_time_normalized": (decision_clock + timedelta(hours=1)).isoformat(),
         "best_of": best_of,
     }
 
@@ -1477,6 +1513,14 @@ def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
         team_b_roster_override=body.team_b_roster_override,
         persist=False,
     )
+    if _native_c0_active(get_active_model()) and feature_result.get("status") != "ready_player":
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Native C0 matchup requires exact team IDs and five unique player IDs per side.",
+                "missing": feature_result.get("missing", []),
+            },
+        )
 
     features = feature_result.get("features") or {}
     if "canonical" not in features:
@@ -1485,7 +1529,9 @@ def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
         features["canonical"]["best_of"] = best_of
     pred_res = PredictionEngine.predict_from_features(features)
     series_prob_a = pred_res.prob_a
-    map_prob_a = pred_res.map_prob_a if pred_res.map_prob_a is not None else pred_res.prob_a
+    map_prob_a = pred_res.map_prob_a
+    map_prob_b = pred_res.map_prob_b
+    c0_request = features.get("c0_request") or {}
     components = {
         "model_name": pred_res.model_name,
         "model_version": pred_res.model_version,
@@ -1496,6 +1542,8 @@ def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
         "epistemic_sigma_z": pred_res.epistemic_sigma_z,
         "p_low_a": pred_res.p_low_a,
         "p_low_b": pred_res.p_low_b,
+        "c0_input_mode": c0_request.get("mode"),
+        "c0_organization_identity_missing": c0_request.get("mode") == "no_organization",
         **pred_res.diagnostics,
     }
     # Extract rosters and comparison info
@@ -1621,12 +1669,12 @@ def simulate_matchup(body: MatchupSimulationRequest, db=Depends(get_db)):
         team_a_name=body.team_a_name,
         team_b_name=body.team_b_name,
         best_of=best_of,
-        map_prob_a=round(map_prob_a, 4),
-        map_prob_b=round(1.0 - map_prob_a, 4),
+        map_prob_a=round(map_prob_a, 4) if map_prob_a is not None else None,
+        map_prob_b=round(map_prob_b, 4) if map_prob_b is not None else None,
         series_prob_a=round(series_prob_a, 4),
         series_prob_b=round(1.0 - series_prob_a, 4),
-        model_name=DEFAULT_MODEL_NAME,
-        model_version=DEFAULT_MODEL_VERSION,
+        model_name=pred_res.model_name,
+        model_version=pred_res.model_version,
         roster_a=roster_a_info,
         roster_b=roster_b_info,
         recent_stats_a=recent_stats_a,
@@ -2659,14 +2707,13 @@ def prediction_history(match_id: int, db=Depends(get_db)):
     preds = query_df(
         db,
         """
-        SELECT predicted_at, model_name, model_version, prob_a, prob_b
+        SELECT predicted_at, model_name, model_version, prob_a, prob_b, diagnostics_json
         FROM canonical_predictions
         WHERE canonical_match_id=:mid
-          AND model_name <> :retired_model_name
           AND prob_a IS NOT NULL AND prob_b IS NOT NULL
         ORDER BY predicted_at
         """,
-        {"mid": match_id, "retired_model_name": RETIRED_PUBLIC_MODEL_NAME},
+        {"mid": match_id},
     )
 
     if not preds:
@@ -2800,10 +2847,23 @@ def prediction_history(match_id: int, db=Depends(get_db)):
         else:
             ts_str = ""
 
-        result.append(PredictionHistoryPoint(
+        raw_mname = str(p.get("model_name", ""))
+        diag = {}
+        try:
+            diag_raw = p.get("diagnostics_json")
+            if diag_raw:
+                import json
+                diag = json.loads(diag_raw) if isinstance(diag_raw, str) else dict(diag_raw)
+        except Exception:
+            diag = {}
+
+        p_sports = diag.get("p_sports")
+
+        # Preserve the identity that actually generated each stored forecast.
+        point = PredictionHistoryPoint(
             timestamp=ts_str,
-            model_name=p.get("model_name", ""),
-            model_version=p.get("model_version", ""),
+            model_name=raw_mname,
+            model_version=str(p.get("model_version") or ""),
             prob_a=prob_a,
             prob_b=prob_b,
             avg_odds_a=avg_a,
@@ -2812,8 +2872,24 @@ def prediction_history(match_id: int, db=Depends(get_db)):
             market_prob_b=round(market_prob_b, 4) if market_prob_b is not None else None,
             ev_a=round(ev_a, 4) if ev_a is not None else None,
             ev_b=round(ev_b, 4) if ev_b is not None else None,
-        ))
-
+        )
+        result.append(point)
+        base_name = diag.get("base_model_name")
+        base_version = diag.get("base_model_version")
+        if (
+            isinstance(base_name, str) and base_name
+            and isinstance(base_version, str) and base_version
+            and isinstance(p_sports, (int, float)) and math.isfinite(p_sports)
+            and 0.0 <= p_sports <= 1.0
+        ):
+            result.append(point.model_copy(update={
+                "model_name": base_name,
+                "model_version": base_version,
+                "prob_a": p_sports,
+                "prob_b": 1.0 - p_sports,
+                "ev_a": round(expected_value(p_sports, avg_a, TAX_RATE), 4) if avg_a and avg_a > 1 else None,
+                "ev_b": round(expected_value(1.0 - p_sports, avg_b, TAX_RATE), 4) if avg_b and avg_b > 1 else None,
+            }))
     return result
 
 
@@ -3083,8 +3159,8 @@ def delete_match_roster_override(match_id: int, team_side: str, db=Depends(get_d
 def predict_match(match_id: int, db=Depends(get_db)):
     """Build and store one regional operational prediction for a match.
 
-    The new operational model is the only interactive prediction path. EXP-039
-    remains stored for retrospective, cohort-matched comparison only.
+    The native C0 model is the interactive prediction path. Frozen research
+    models remain stored for retrospective, cohort-matched comparison only.
     """
     meta = query_df(db, "SELECT * FROM canonical_matches WHERE id=:id", {"id": match_id})
     if not meta:
@@ -3099,26 +3175,74 @@ def predict_match(match_id: int, db=Depends(get_db)):
         )
 
     roster_overrides = _load_roster_overrides(match_id)
+    active_hybrid = get_active_hybrid()
+    base_model = active_hybrid.base_model
     try:
         prediction = predict_operational_match(
             match,
+            model_name=base_model.name,
+            model_version=base_model.version,
+            feature_version=base_model.feature_version,
+            ratings_version=base_model.ratings_version,
+            w20_version=base_model.w20_version,
             team_a_roster_override=roster_overrides.get("a"),
             team_b_roster_override=roster_overrides.get("b"),
         )
     except ValueError as error:
         return PredictResponse(status="error", message=str(error))
 
+    now_iso = datetime.now(UTC).isoformat()
     try:
-        generate_hybrid_predictions()
-    except Exception as error:
-        import logging
-
-        logging.getLogger(__name__).warning(
-            "Operational hybrid generation failed for match %s: %s", match_id, error
+        artifact_id = register_operational_model(
+            model_name=base_model.name, model_version=base_model.version,
+            feature_version=base_model.feature_version, ratings_version=base_model.ratings_version,
+            runtime_identity=prediction.get("diagnostics", {}).get("model_identity"),
         )
+        db.execute(
+            text("""
+            UPDATE canonical_predictions
+            SET prediction_status = 'stale'
+            WHERE canonical_match_id = :mid AND model_name = :mname AND model_version = :mver
+            """),
+            {"mid": match_id, "mname": base_model.name, "mver": base_model.version},
+        )
+        db.execute(
+            text("""
+            INSERT INTO canonical_predictions(
+                canonical_match_id, model_artifact_id, model_name, model_version, predicted_at,
+                prob_a, prob_b, features_version, ratings_version, data_cutoff_at, diagnostics_json,
+                prediction_status
+            ) VALUES (:mid, :artifact_id, :mname, :mver, :predicted_at, :prob_a, :prob_b, :fver, :rver, :cutoff, :diag, 'active')
+            """),
+            {
+                "mid": match_id,
+                "artifact_id": artifact_id,
+                "cutoff": prediction["data_cutoff_at"],
+                "mname": base_model.name,
+                "mver": base_model.version,
+                "predicted_at": now_iso,
+                "prob_a": prediction["prob_a"],
+                "prob_b": prediction["prob_b"],
+                "fver": base_model.feature_version,
+                "rver": base_model.ratings_version,
+                "diag": json.dumps(prediction.get("diagnostics") or {}, ensure_ascii=False, sort_keys=True),
+            },
+        )
+        db.commit()
+    except Exception as save_err:
+        db.rollback()
+        import logging
+        logging.getLogger(__name__).warning("Failed to persist base prediction for match %s: %s", match_id, save_err)
+        raise HTTPException(status_code=503, detail="Failed to persist prediction") from save_err
 
-    active_model = get_active_model()
-    active_hybrid = get_active_hybrid()
+    generate_hybrid_predictions(
+        canonical_match_id=match_id,
+        base_model_name=base_model.name, base_model_version=base_model.version,
+        hybrid_model_name=active_hybrid.hybrid_model_name,
+        hybrid_model_version=active_hybrid.hybrid_model_version,
+        alpha=active_hybrid.alpha, temperature=active_hybrid.temperature,
+        blending_mode=active_hybrid.blending_mode,
+    )
     hybrid_pred = query_df(
         db,
         """
@@ -3140,8 +3264,8 @@ def predict_match(match_id: int, db=Depends(get_db)):
         prob_b=prediction["prob_b"],
         hybrid_prob_a=hybrid_prob_a,
         hybrid_prob_b=hybrid_prob_b,
-        model_name=prediction.get("model_name") or active_model.name,
-        model_version=prediction.get("model_version") or active_model.version,
+        model_name=prediction["model_name"],
+        model_version=prediction["model_version"],
         diagnostics=prediction["diagnostics"],
     )
 

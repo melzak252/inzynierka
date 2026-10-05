@@ -6,21 +6,15 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from betting_app.services.enc_simulation_service import (
-    EncConfigurationError,
-    EncSimulator,
-    build_enc_configuration,
-)
 from betting_app.services.liquipedia_bracket_service import LiquipediaBracketService
+from betting_app.services.enc_simulation_service import EncSimulator, build_enc_configuration
 from betting_app.services.tournament_cache_service import (
-    DEFAULT_DEPTHS,
+    current_input_fingerprint,
+    get_cache_file,
     get_cached_simulation,
     recalculate_and_cache,
 )
 from betting_app.services.tournament_service import (
-    DEFAULT_TOURNAMENT_ENTROPY_DAMPENING,
-    DEFAULT_TOURNAMENT_PAIRWISE_CAP,
-    DEFAULT_TOURNAMENT_TEMPERATURE,
     SUPPORTED_BRACKETS,
     TournamentSimulator,
     WorldsSimulator,
@@ -32,14 +26,9 @@ router = APIRouter(prefix="/tournaments", tags=["tournaments"])
 class SimulateTournamentRequest(BaseModel):
     simulations: int = 10000
     manual_overrides: dict[str, str] | None = None  # match_id -> winner team name
-    calibrate: bool = True
-    temperature: float | None = None
-    pairwise_cap: float | None = None
-    entropy_dampening: float | None = None
-
 class SyncBracketRequest(BaseModel):
     source: str = "auto"  # "auto" | "fandom" | "liquipedia"
-    force: bool = True
+    force: bool = False
     raw_content: str | None = None
 
 
@@ -58,6 +47,24 @@ class SimulateWorldsRequest(BaseModel):
 
 class SimulateEncRequest(BaseModel):
     simulations: int = 5000
+
+def _validate_bracket_for_route(
+    bracket: Any,
+    manual_overrides: dict[str, str] | None = None,
+) -> None:
+    """Reject malformed bracket graphs before resolving native C0 inputs."""
+    TournamentSimulator()._validate_bracket(bracket, manual_overrides or {})
+
+
+def _invalid_bracket(error: Exception) -> HTTPException:
+    return HTTPException(status_code=422, detail=f"Invalid tournament bracket: {error}")
+
+
+def _native_c0_error(error: Exception) -> HTTPException:
+    if isinstance(error, ValueError):
+        return HTTPException(status_code=422, detail=f"Native C0 unavailable: {error}")
+    return HTTPException(status_code=500, detail="Native C0 service unavailable.")
+
 
 @router.get("")
 def list_tournaments() -> list[dict[str, Any]]:
@@ -81,7 +88,7 @@ def list_tournaments() -> list[dict[str, Any]]:
 @router.post("/worlds/simulate")
 def simulate_worlds(body: SimulateWorldsRequest) -> dict[str, Any]:
     """Simulate a user-configured Worlds Play-In, Swiss Stage, and knockout."""
-    simulator = WorldsSimulator()
+    simulator = WorldsSimulator(competition_context="worlds_2026")
     direct_teams = [
         WorldsTeam(name=team.team, region=team.region, pool=team.pool)
         for team in body.direct_teams
@@ -98,25 +105,28 @@ def simulate_worlds(body: SimulateWorldsRequest) -> dict[str, Any]:
             play_in_winner_pool=body.play_in_winner_pool,
             n_simulations=n_simulations,
         )
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise _native_c0_error(error) from error
 
 
 @router.get("/enc")
 def get_enc_configuration() -> dict[str, Any]:
-    """Return the published ENC field and best available GL lineup for every nation."""
-    return build_enc_configuration()
+    """Return published ENC roster and ratings as metadata for native C0."""
+    try:
+        return build_enc_configuration()
+    except Exception as error:
+        raise _native_c0_error(error) from error
 
 
 @router.post("/enc/simulate")
 def simulate_enc(body: SimulateEncRequest) -> dict[str, Any]:
     """Simulate the published ENC 2027 format when every roster is verifiable."""
-    configuration = build_enc_configuration()
     n_simulations = min(max(body.simulations, 100), 50000)
     try:
+        configuration = build_enc_configuration()
         return EncSimulator.from_configuration(configuration).simulate(n_simulations)
-    except EncConfigurationError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise _native_c0_error(error) from error
 
 
 @router.get("/{tournament_id}")
@@ -124,29 +134,29 @@ def get_tournament_bracket(
     tournament_id: str,
     simulations: int = Query(10000, description="Monte Carlo simulation path depth (5000, 10000, 20000, 100000)"),
 ) -> dict[str, Any]:
-    """Return the tournament bracket state and simulation results (O(1) from daily cache)."""
+    """Return a fresh C0 simulation when its current input fingerprint matches."""
     builder = SUPPORTED_BRACKETS.get(tournament_id)
     if not builder:
         raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
 
-    cached = get_cached_simulation(tournament_id, n_simulations=simulations)
-    if cached is not None:
-        return cached
+    bracket = builder()
+    try:
+        _validate_bracket_for_route(bracket)
+    except Exception as error:
+        raise _invalid_bracket(error) from error
 
     try:
-        return recalculate_and_cache(tournament_id, depths=DEFAULT_DEPTHS, use_a1=True)
+        expected_fingerprint = current_input_fingerprint(tournament_id, bracket.teams)
+        cached = get_cached_simulation(
+            tournament_id,
+            n_simulations=simulations,
+            expected_input_fingerprint=expected_fingerprint,
+        )
+        if cached is not None:
+            return cached
+        return recalculate_and_cache(tournament_id, depths=(simulations,))
     except Exception as error:
-        # Fallback to direct simulation if cache engine encounters an issue
-        service = LiquipediaBracketService()
-        sync_res = service.sync_bracket(tournament_id, source="auto", force=False)
-        bracket = sync_res.get("bracket") or builder()
-        simulator = TournamentSimulator()
-        try:
-            sim_res = simulator.simulate(bracket, n_simulations=simulations)
-            sim_res["cached"] = False
-            return sim_res
-        except ValueError as sim_error:
-            raise HTTPException(status_code=422, detail=str(sim_error)) from sim_error
+        raise _native_c0_error(error) from error
 
 @router.post("/{tournament_id}/sync")
 def sync_tournament_bracket(
@@ -158,6 +168,12 @@ def sync_tournament_bracket(
     if not builder:
         raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
 
+    bracket = builder()
+    try:
+        _validate_bracket_for_route(bracket)
+    except Exception as error:
+        raise _invalid_bracket(error) from error
+
     service = LiquipediaBracketService()
     sync_res = service.sync_bracket(
         tournament_id,
@@ -165,12 +181,19 @@ def sync_tournament_bracket(
         raw_content=body.raw_content,
         force=body.force,
     )
-    bracket = sync_res.get("bracket") or builder()
+    if sync_res.get("ok"):
+        get_cache_file(tournament_id).unlink(missing_ok=True)
+    bracket = sync_res.get("bracket") or bracket
+    try:
+        _validate_bracket_for_route(bracket)
+    except Exception as error:
+        raise _invalid_bracket(error) from error
     simulator = TournamentSimulator()
+    simulator.competition_context = tournament_id
     try:
         sim_res = simulator.simulate(bracket, n_simulations=5000)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise _native_c0_error(error) from error
     sim_res["source"] = sync_res.get("source", "curated")
     sim_res["status"] = sync_res.get("status", "ready")
     sim_res["synced_at"] = sync_res.get("synced_at")
@@ -186,24 +209,27 @@ def simulate_tournament(tournament_id: str, body: SimulateTournamentRequest) -> 
     if not builder:
         raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
 
-    service = LiquipediaBracketService()
-    sync_res = service.sync_bracket(tournament_id, source="auto", force=False)
-    bracket = sync_res.get("bracket") or builder()
+    bracket = builder()
+    try:
+        _validate_bracket_for_route(bracket, body.manual_overrides)
+    except Exception as error:
+        raise _invalid_bracket(error) from error
 
-    if not body.calibrate or body.temperature is not None or body.pairwise_cap is not None or body.entropy_dampening is not None:
-        simulator = TournamentSimulator(
-            calibrate=body.calibrate,
-            temperature=body.temperature if body.temperature is not None else DEFAULT_TOURNAMENT_TEMPERATURE,
-            pairwise_cap=body.pairwise_cap if body.pairwise_cap is not None else DEFAULT_TOURNAMENT_PAIRWISE_CAP,
-            entropy_dampening=body.entropy_dampening if body.entropy_dampening is not None else DEFAULT_TOURNAMENT_ENTROPY_DAMPENING,
-        )
-    else:
-        simulator = TournamentSimulator()
+    service = LiquipediaBracketService()
+    sync_res = service.load_bracket(tournament_id)
+    bracket = sync_res.get("bracket") or bracket
+    try:
+        _validate_bracket_for_route(bracket, body.manual_overrides)
+    except Exception as error:
+        raise _invalid_bracket(error) from error
+
+    simulator = TournamentSimulator()
+    simulator.competition_context = tournament_id
     n_sims = min(max(body.simulations, 100), 50000)
     try:
         sim_res = simulator.simulate(bracket, n_simulations=n_sims, manual_overrides=body.manual_overrides)
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+    except Exception as error:
+        raise _native_c0_error(error) from error
     sim_res["source"] = sync_res.get("source", "curated")
     sim_res["status"] = sync_res.get("status", "ready")
     sim_res["synced_at"] = sync_res.get("synced_at")
@@ -217,23 +243,17 @@ def recalculate_tournament_bracket(
     tournament_id: str,
     body: SimulateTournamentRequest = SimulateTournamentRequest(),
 ) -> dict[str, Any]:
-    """Recalculate simulation distributions for 5k, 10k, 20k, and 100k paths using A1 and refresh cache."""
+    """Recalculate native C0 tournament distributions and refresh the cache."""
     builder = SUPPORTED_BRACKETS.get(tournament_id)
     if not builder:
         raise HTTPException(status_code=404, detail=f"Tournament {tournament_id} not found")
 
-    depths_to_run = [5000, 10000, 20000, 100000]
-    if body.simulations not in depths_to_run:
-        depths_to_run.append(body.simulations)
 
     try:
         return recalculate_and_cache(
             tournament_id,
-            depths=depths_to_run,
+            depths=(body.simulations,),
             manual_overrides=body.manual_overrides,
-            use_a1=True,
-            force_sync=True,
-            calibrate=body.calibrate,
         )
     except Exception as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
+        raise _native_c0_error(error) from error

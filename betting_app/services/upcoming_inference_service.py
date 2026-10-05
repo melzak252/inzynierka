@@ -1,17 +1,18 @@
-"""Build auditable ratings/W20 features and EXP-078 predictions for upcoming LoL.
+"""Build upcoming features and predictions for the configured C0 model.
 
-The pure sports model uses confirmed pre-match roster ratings, team ratings,
-rolling form, rest, and series format. It never consumes bookmaker odds. Rows
-without the complete EXP-078 feature contract are skipped explicitly rather
-than predicted from neutral fallback values.
+Legacy aggregate feature construction remains for frozen research models only;
+the active native model consumes a separate, explicitly identified request.
 """
 
 from __future__ import annotations
 from collections import Counter
+from collections.abc import Sequence
+import hashlib
 import json
 import logging
 import math
 import re
+from urllib.parse import quote
 from datetime import UTC, datetime
 from typing import Any
 
@@ -41,10 +42,14 @@ from betting_app.services.canonical_match_service import (
     canonical_team_key,
     parse_iso,
 )
-from betting_app.services.mapping_service import suggest_mapping
-from betting_app.services.mapping_service import golgg_name_from_id
+from betting_app.services.mapping_service import (
+    golgg_name_from_id,
+    native_golgg_team_id,
+    suggest_mapping,
+)
 from betting_app.core.models import (
     HybridSpec,
+    ModelSpec,
     PredictionEngine,
     UnifiedPredictionResult,
     get_active_hybrid,
@@ -52,13 +57,7 @@ from betting_app.core.models import (
     get_model,
 )
 from betting_app.core.models.engine import apply_temperature_scaling
-from src.models.siamese_series import (
-    ARTIFACT_PATH as EXP081_ARTIFACT_PATH,
-    FEATURE_VERSION as EXP081_FEATURE_VERSION,
-    MODEL_NAME as EXP081_MODEL_NAME,
-    MODEL_VERSION as EXP081_MODEL_VERSION,
-    SiameseSeriesModel,
-)
+from betting_app.core.models.registry import get_hybrid_spec
 from src.models.competition_tiers import (
     CompetitionScope,
     CompetitionTier,
@@ -118,7 +117,7 @@ logger = logging.getLogger(__name__)
 
 
 def utc_now_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def sigmoid(value: float) -> float:
@@ -167,7 +166,7 @@ def _select_aligned_golgg_ids(
     canonical_match: dict[str, Any],
     offers: list[dict[str, Any]],
 ) -> tuple[int | None, int | None]:
-    """Return GOL.GG IDs in canonical A/B order from the newest valid offer.
+    """Return internal GOL.GG team row IDs in canonical A/B order.
 
     ``upcoming_matches`` keeps the bookmaker's raw team order. Selecting the
     newest row directly therefore swaps rosters whenever a bookmaker lists
@@ -201,8 +200,40 @@ def _select_aligned_golgg_ids(
     return None, None
 
 
+
+
+def resolve_exact_canonical_team_ids(match: dict[str, Any]) -> dict[str, Any]:
+    """Attach canonical-side-aligned DB and provider IDs from exact sources."""
+    resolved = dict(match)
+    match_id = resolved.get("id") or resolved.get("canonical_match_id")
+    if int(match_id or 0) != 0 and (
+        resolved.get("team_a_golgg_id") is None or resolved.get("team_b_golgg_id") is None
+    ):
+        offers = query_df(
+            """
+            SELECT raw_team_a, raw_team_b, league, team_a_golgg_id, team_b_golgg_id
+            FROM upcoming_matches
+            WHERE canonical_match_id = ?
+            ORDER BY last_seen_at DESC, id DESC
+            """,
+            (int(match_id),),
+        ).to_dict("records")
+        team_a_id, team_b_id = _select_aligned_golgg_ids(resolved, offers)
+        if resolved.get("team_a_golgg_id") is None:
+            resolved["team_a_golgg_id"] = team_a_id
+        if resolved.get("team_b_golgg_id") is None:
+            resolved["team_b_golgg_id"] = team_b_id
+    if resolved.get("native_team_a_id") is None:
+        resolved["native_team_a_id"] = native_golgg_team_id(
+            resolved.get("team_a_golgg_id"), team_name=resolved.get("team_a_name"),
+        )
+    if resolved.get("native_team_b_id") is None:
+        resolved["native_team_b_id"] = native_golgg_team_id(
+            resolved.get("team_b_golgg_id"), team_name=resolved.get("team_b_name"),
+        )
+    return resolved
 def load_canonical_matches(*, include_past: bool = False, limit: int | None = None):
-    """Load canonical matches with GOL.GG IDs aligned to canonical A/B sides."""
+    """Load canonical matches with internal team row IDs aligned to A/B sides."""
 
     where = "WHERE cm.status = 'upcoming'"
     params: list[Any] = []
@@ -262,6 +293,123 @@ def _normalize_roster_override(override: Any, default_team_name: str) -> dict[st
     return {"team_name": default_team_name, "players": players}
 
 
+def _aware_iso(value: Any, *, label: str) -> str:
+    if value is None:
+        raise ValueError(f"{label} is required for native C0 inference")
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"{label} must include a timezone")
+    return parsed.astimezone(UTC).isoformat()
+
+
+def _no_organization_target_id(team_name: Any) -> str:
+    """Create a reversible, namespaced ID for a non-organization target."""
+    return "no_organization:target:" + quote(str(team_name or "").strip(), safe="")
+
+
+def _native_c0_request(
+    match: dict[str, Any],
+    roster_a: dict[str, Any] | None,
+    roster_b: dict[str, Any] | None,
+    *,
+    mode: str = "full",
+) -> tuple[dict[str, Any], list[str]]:
+    """Build native C0 inputs without leaking local database team-row IDs."""
+    missing: list[str] = []
+    team_a_id = match.get("native_team_a_id")
+    team_b_id = match.get("native_team_b_id")
+    if team_a_id is None and match.get("team_a_golgg_id") is not None:
+        team_a_id = native_golgg_team_id(
+            match["team_a_golgg_id"], team_name=match.get("team_a_name"),
+        )
+    if team_b_id is None and match.get("team_b_golgg_id") is not None:
+        team_b_id = native_golgg_team_id(
+            match["team_b_golgg_id"], team_name=match.get("team_b_name"),
+        )
+    team_a_id = team_a_id if team_a_id is not None else (roster_a or {}).get("team_id")
+    team_b_id = team_b_id if team_b_id is not None else (roster_b or {}).get("team_id")
+    no_organization = (
+        (team_a_id is None or team_b_id is None)
+        and roster_a is not None and roster_b is not None
+    )
+    if no_organization:
+        team_a_id = _no_organization_target_id(match.get("team_a_name"))
+        team_b_id = _no_organization_target_id(match.get("team_b_name"))
+        mode = "no_organization"
+    if team_a_id is None:
+        missing.append("c0_team_a_id")
+    if team_b_id is None:
+        missing.append("c0_team_b_id")
+
+    def player_ids(roster: dict[str, Any] | None, side: str) -> list[str]:
+        players = (roster or {}).get("players") or []
+        ids = [
+            str(player.get("player_id")).strip()
+            for player in players
+            if isinstance(player, dict) and player.get("player_id") not in (None, "")
+        ]
+        if len(ids) != 5 or len(set(ids)) != 5:
+            missing.append(f"c0_{side}_roster_requires_five_exact_ids")
+            return []
+        return ids
+
+    roster_a_ids = player_ids(roster_a, "team_a")
+    roster_b_ids = player_ids(roster_b, "team_b")
+    try:
+        decision_at = _aware_iso(
+            match.get("_c0_decision_at") or datetime.now(UTC),
+            label="decision_at",
+        )
+    except (TypeError, ValueError) as error:
+        missing.append(f"c0_time:{error}")
+        decision_at = datetime.now(UTC).isoformat()
+    try:
+        start_at = _aware_iso(
+            match.get("start_time_normalized") or match.get("start_at") or match.get("start_time"),
+            label="start_at",
+        )
+        if datetime.fromisoformat(start_at) <= datetime.fromisoformat(decision_at):
+            missing.append("c0_time:start_at_must_follow_decision_at")
+    except (TypeError, ValueError) as error:
+        missing.append(f"c0_time:{error}")
+        start_at = None
+    best_of = _normalized_best_of(match.get("best_of"))
+    if best_of not in {1, 3, 5}:
+        missing.append(f"c0_unsupported_best_of:{best_of}")
+    context = match.get("league") or match.get("tournament_name")
+    request = {
+        "team1_id": str(team_a_id) if team_a_id is not None else "",
+        "team2_id": str(team_b_id) if team_b_id is not None else "",
+        "roster_a": roster_a_ids,
+        "roster_b": roster_b_ids,
+        "best_of": best_of,
+        "decision_at": decision_at,
+        "competition_context": str(context) if context else None,
+        "start_at": start_at,
+        "mode": mode,
+    }
+    return request, missing
+
+
+def _native_c0_active(model_spec: ModelSpec | None = None) -> bool:
+    spec = model_spec or get_active_model()
+    return spec.family == "native_c0" or (
+        spec.family == "bayesian_market_hybrid"
+        and get_hybrid_spec(spec).base_model.family == "native_c0"
+    )
+
+
+def _prediction_cutoff(
+    diagnostics: dict[str, Any],
+    feature_cutoff: Any,
+    *,
+    native_c0: bool,
+) -> Any:
+    if native_c0:
+        return diagnostics.get("data_cutoff_at")
+    return diagnostics.get("market_cutoff_at") or feature_cutoff
+
+
 def build_features_for_match(
     match: dict[str, Any],
     *,
@@ -273,6 +421,7 @@ def build_features_for_match(
     team_b_roster_override: dict[str, Any] | None = None,
     persist: bool = True,
     is_lineup_confirmed: bool = False,
+    native_c0: bool | None = None,
 ) -> dict[str, Any]:
     """Build one canonical match feature vector and upsert it."""
 
@@ -363,11 +512,17 @@ def build_features_for_match(
     except ValueError as error:
         missing.append(str(error))
         player_probs = {}
+    c0_request, c0_missing = _native_c0_request(match, roster_a, roster_b)
+    native_active = _native_c0_active() if native_c0 is None else native_c0
+    if native_active:
+        # Aggregate ratings/W20 remain display/research diagnostics only.
+        missing = list(c0_missing)
     lineup_confirmed_flag = is_lineup_confirmed or bool(match.get("is_lineup_confirmed", False))
     features = {
+        "c0_request": c0_request,
         "canonical_match_id": canonical_match_id,
-        "is_lineup_confirmed": lineup_confirmed_flag,
         "canonical": {
+            "id": canonical_match_id,
             "team_a_name": team_a_raw,
             "team_b_name": team_b_raw,
             "start_time_normalized": match.get("start_time_normalized"),
@@ -397,19 +552,24 @@ def build_features_for_match(
         "w20": {"team_a": w20_a, "team_b": w20_b},
         "diagnostics": {
             "missing": missing,
+            "c0_missing": c0_missing,
             "missing_player_roster": not roster_a or not roster_b,
             "is_lineup_confirmed": lineup_confirmed_flag,
-            "note": "Upcoming rosters use the durable current team roster; it is refreshed from the latest GOL.GG game or manually confirmed.",
+            "c0_input_mode": c0_request["mode"],
+            "c0_organization_identity_missing": c0_request["mode"] == "no_organization",
+            "note": "Native C0 consumes exact IDs and its bounded temporal history; aggregate ratings and W20 are not C0 inputs.",
         },
     }
-    try:
-        _exp078_snapshot_from_features(features)
-    except ValueError as error:
-        missing.append(str(error))
+    if not native_active:
+        try:
+            _exp078_snapshot_from_features(features)
+        except ValueError as error:
+            missing.append(str(error))
     status = "ready_player" if not missing else "partial"
-    data_cutoff_at = latest_data_cutoff(ratings_version, w20_version)
+    data_cutoff_at = None if native_active else latest_data_cutoff(ratings_version, w20_version)
     if persist:
-        data_cutoff_at = latest_data_cutoff(ratings_version, w20_version)
+        if not native_active:
+            data_cutoff_at = latest_data_cutoff(ratings_version, w20_version)
         upsert_upcoming_features(
             canonical_match_id=canonical_match_id,
             feature_version=feature_version,
@@ -556,7 +716,7 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
     try:
         current = query_df(
             """
-            SELECT player_id, player_name, role, team_name, source,
+            SELECT team_id, player_id, player_name, role, team_name, source,
                    source_match_id, source_match_date, source_game_id
             FROM team_current_roster_players
             WHERE normalized_team_name = ?
@@ -569,7 +729,12 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
         if len(current) == 5 and len(set(current["role"].astype(str).str.upper())) == 5:
             rows = current.to_dict("records")
             first = rows[0]
+            source_ids = {
+                str(row.get("team_id")).strip()
+                for row in rows if row.get("team_id") not in (None, "")
+            }
             return {
+                "team_id": next(iter(source_ids)) if len(source_ids) == 1 else None,
                 "team_name": first.get("team_name") or team_name,
                 "source_match_id": first.get("source_match_id"),
                 "source_match_date": first.get("source_match_date"),
@@ -644,7 +809,7 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
         return None
     players = query_df(
         """
-        SELECT player_id, player_name, role, team_name
+        SELECT team_id, player_id, player_name, role, team_name
         FROM golgg_game_players
         WHERE match_id = ? AND game_id = ? AND team_name = ?
         ORDER BY CASE role
@@ -653,17 +818,23 @@ def load_last_roster(team_name: str | None) -> dict[str, Any] | None:
         """,
         (str(match["match_id"]), str(first_game.iloc[0]["game_id"]), team_name),
     )
+    source_rows = players.to_dict("records")
+    source_team_ids = {
+        str(row.get("team_id")).strip()
+        for row in source_rows if row.get("team_id") not in (None, "")
+    }
     roster_players = [
         {
             "player_id": str(row.get("player_id") or ""),
             "player_name": row.get("player_name"),
             "role": row.get("role"),
         }
-        for row in players.to_dict("records")
+        for row in source_rows
         if row.get("player_id")
     ]
     return {
         "team_name": team_name,
+        "team_id": next(iter(source_team_ids)) if len(source_team_ids) == 1 else None,
         "source_match_id": str(match["match_id"]),
         "source_match_date": match.get("date"),
         "source_tournament": match.get("tournament_name"),
@@ -1165,14 +1336,18 @@ def register_operational_model(
     model_version: str = DEFAULT_MODEL_VERSION,
     feature_version: str = DEFAULT_FEATURE_VERSION,
     ratings_version: str = DEFAULT_RATINGS_VERSION,
+    runtime_identity: dict[str, Any] | None = None,
 ) -> int:
-    """Register one exact, immutable regional operational-model contract."""
-    expected = (
-        DEFAULT_MODEL_NAME,
-        DEFAULT_MODEL_VERSION,
-        DEFAULT_FEATURE_VERSION,
-        DEFAULT_RATINGS_VERSION,
-    )
+    """Register a pure-model contract with its true serving artifact identity."""
+    spec = get_model(model_name)
+    native_c0 = spec is not None and spec.family == "native_c0"
+    if (
+        spec is None or spec.artifact_path is None
+        or spec.metadata.get("operational") is False
+        or (not native_c0 and not spec.artifact_path.is_file())
+    ):
+        raise ValueError("operational model contract requires an available pure-model artifact")
+    expected = (spec.name, spec.version, spec.feature_version, spec.ratings_version)
     actual = (model_name, model_version, feature_version, ratings_version)
     if actual != expected:
         raise ValueError(
@@ -1180,43 +1355,76 @@ def register_operational_model(
             f"{expected!r}, got {actual!r}"
         )
 
-    SiameseSeriesModel.load_default()
+    if spec.family == "linear_symmetric":
+        from src.models.symmetric_series import SymmetricSeriesModel
+        SymmetricSeriesModel.load_default()
 
-    with EXP081_ARTIFACT_PATH.open("r", encoding="utf-8") as handle:
-        artifact = json.load(handle)
-    arch = artifact["architecture"]
-    scaler = artifact["scaler"]
-    feature_schema = {
-        "feature_version": artifact["feature_version"],
-        "ratings_version": ratings_version,
-        "feature_names": scaler["feature_names"],
-        "ratings": list(RATING_SYSTEMS),
-        "player_ratings": list(RATING_SYSTEMS),
-        "regional_projection": {
-            "engine": "regional_offset_projection",
-            "excluded_system": "gl",
-            "applies_to": [s for s in RATING_SYSTEMS if s != "gl"],
-        },
-        "roster_source": "current team roster, refreshed from GOL.GG or manual confirmation",
-        "w20_fields": list(W20_FIELDS),
-        "market_features_used": False,
-        "side_symmetric": True,
-        "limitations": [
-            "last-match roster fallback",
-            "not confirmed upcoming rosters",
-            "epistemic uncertainty gating under turnover tax",
-        ],
-    }
-    params = {
-        "artifact_path": str(EXP081_ARTIFACT_PATH.relative_to(EXP081_ARTIFACT_PATH.parents[2])),
-        "family": arch["family"],
-        "d_in": arch["d_in"],
-        "d_h1": arch["d_h1"],
-        "d_h2": arch["d_h2"],
-        "loss": arch["loss"],
-        "risk_kappa": arch["risk_kappa"],
-        "n_members": arch["n_members"],
-    }
+    artifact: dict[str, Any] = {}
+    artifact_sha256 = None
+    if native_c0:
+        if runtime_identity is None:
+            from betting_app.services.c0_inference import get_c0_artifact_identity
+
+            runtime_identity = get_c0_artifact_identity()
+        feature_schema = {
+            "feature_version": spec.feature_version,
+            "input_contract": "native-c0-request-v1",
+            "request_fields": [
+                "team1_id", "team2_id", "roster_a", "roster_b", "best_of",
+                "decision_at", "competition_context", "start_at", "mode",
+            ],
+            "market_features_used": False,
+            "has_uncertainty": False,
+            "side_symmetric": True,
+            "artifact_release": spec.metadata.get("artifact_release"),
+            "artifact_kind": spec.metadata.get("artifact_kind"),
+        }
+        arch = {}
+        params = {
+            "artifact_path": str(spec.artifact_path),
+            "artifact_release": spec.metadata.get("artifact_release"),
+            "artifact_kind": spec.metadata.get("artifact_kind"),
+            "model_identity": runtime_identity,
+        }
+    else:
+        with spec.artifact_path.open("rb") as handle:
+            artifact_sha256 = hashlib.file_digest(handle, "sha256").hexdigest()
+            handle.seek(0)
+            artifact = json.load(handle) if spec.artifact_path.suffix == ".json" else {}
+        arch = artifact.get("architecture", artifact.get("estimator", {}))
+        scaler = artifact.get("scaler", artifact.get("estimator", {}))
+        feature_schema = {
+            "feature_version": spec.feature_version,
+            "ratings_version": ratings_version,
+            "feature_names": scaler.get("feature_names"),
+            "ratings": list(RATING_SYSTEMS),
+            "player_ratings": list(RATING_SYSTEMS),
+            "regional_projection": {
+                "engine": "regional_offset_projection",
+                "excluded_system": "gl",
+                "applies_to": [s for s in RATING_SYSTEMS if s != "gl"],
+            },
+            "roster_source": "current team roster, refreshed from GOL.GG or manual confirmation",
+            "w20_fields": list(W20_FIELDS),
+            "market_features_used": False,
+            "side_symmetric": True,
+            "limitations": [
+                "last-match roster fallback",
+                "not confirmed upcoming rosters",
+                "epistemic uncertainty gating under turnover tax",
+            ],
+        }
+        params = {
+            key: arch[key] for key in (
+                "family", "d_in", "d_h1", "d_h2", "loss", "risk_kappa", "n_members", "C"
+            ) if key in arch
+        }
+        params.update(
+            artifact_path=str(spec.artifact_path.relative_to(spec.artifact_path.parents[2])),
+            artifact_sha256=artifact_sha256,
+            artifact_model_name=artifact.get("model_name"),
+            artifact_model_version=artifact.get("model_version"),
+        )
     with transaction() as connection:
         connection.execute(
             """
@@ -1229,15 +1437,15 @@ def register_operational_model(
                 status = 'active'
             """,
             (
-                DEFAULT_MODEL_NAME,
-                DEFAULT_MODEL_VERSION,
+                spec.name,
+                spec.version,
                 json.dumps(feature_schema, ensure_ascii=False, sort_keys=True),
                 json.dumps(params, ensure_ascii=False, sort_keys=True),
             ),
         )
         row = connection.execute(
             "SELECT id FROM model_artifacts WHERE model_name = ? AND model_version = ?",
-            (DEFAULT_MODEL_NAME, DEFAULT_MODEL_VERSION),
+            (spec.name, spec.version),
         ).fetchone()
         return int(row["id"])
 
@@ -1256,14 +1464,28 @@ def predict_all_upcoming(
     m_version = model_version or active.version
     f_version = feature_version or active.feature_version
 
-    model_artifact_id = register_operational_model()
+    if (m_name, m_version, f_version, ratings_version) != (
+        active.name, active.version, active.feature_version, active.ratings_version
+    ):
+        raise ValueError("Prediction identity must match the configured model and feature contract.")
+    if active.family == "bayesian_market_hybrid":
+        hybrid = get_active_hybrid()
+        model_artifact_id = register_hybrid_model(
+            spec=hybrid, base_version=hybrid.base_model.version, version=m_version
+        )
+    else:
+        model_artifact_id = register_operational_model(
+            model_name=m_name, model_version=m_version, feature_version=f_version,
+            ratings_version=ratings_version,
+        )
     params: list[Any] = [f_version, ratings_version]
     status_filter = "AND feature_status = 'ready_player'"
     if include_partial:
         status_filter = "AND feature_status IN ('ready_player', 'ready_team', 'partial')"
     frame = query_df(
         f"""
-        SELECT umf.*, cm.team_a_name, cm.team_b_name, cm.start_time_normalized, cm.league
+        SELECT umf.*, cm.team_a_name, cm.team_b_name, cm.start_time_normalized, cm.league,
+               cm.status
         FROM upcoming_match_features umf
         JOIN canonical_matches cm ON cm.id = umf.canonical_match_id
         WHERE feature_version = ? AND ratings_version = ? {status_filter}
@@ -1271,18 +1493,35 @@ def predict_all_upcoming(
         """,
         tuple(params),
     )
+    decision_clock = datetime.now(UTC)
     results: list[dict[str, Any]] = []
+    eligible_rows: list[dict[str, Any]] = []
+    for row in frame.to_dict("records"):
+        match_id = int(row["canonical_match_id"])
+        status = str(row.get("status") or "").strip().casefold()
+        start = row.get("start_time_normalized")
+        try:
+            start_at = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+            future = start_at.tzinfo is not None and start_at > decision_clock
+        except (TypeError, ValueError):
+            future = False
+        if status != "upcoming" or not future:
+            results.append({
+                "prediction_id": None,
+                "canonical_match_id": match_id,
+                "match": f"{row.get('team_a_name')} vs {row.get('team_b_name')}",
+                "prediction_status": "skipped",
+                "error": "Match is finished or has no future aware start time.",
+            })
+        else:
+            eligible_rows.append(row)
     with transaction() as connection:
-        connection.execute(
-            """
-            UPDATE canonical_predictions
-            SET prediction_status = 'stale'
-            WHERE prediction_status = 'active' AND model_name = ? AND model_version = ?
-            """,
-            (m_name, m_version),
-        )
-        for row in frame.to_dict("records"):
+        for row in eligible_rows:
             features = json.loads(row.get("features_json") or "{}")
+            if _native_c0_active(active):
+                c0_request = features.get("c0_request")
+                if isinstance(c0_request, dict):
+                    c0_request["decision_at"] = decision_clock.isoformat()
             try:
                 prob_a, diagnostics = predict_probability_from_features(features)
             except ValueError as error:
@@ -1296,6 +1535,16 @@ def predict_all_upcoming(
                     }
                 )
                 continue
+            match_id = int(row["canonical_match_id"])
+            connection.execute(
+                """
+                UPDATE canonical_predictions
+                SET prediction_status = 'stale'
+                WHERE canonical_match_id = ? AND prediction_status = 'active'
+                  AND model_name = ? AND model_version = ?
+                """,
+                (match_id, m_name, m_version),
+            )
             cursor = connection.execute(
                 """
                 INSERT INTO canonical_predictions(
@@ -1304,7 +1553,7 @@ def predict_all_upcoming(
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    int(row["canonical_match_id"]),
+                    match_id,
                     model_artifact_id,
                     m_name,
                     m_version,
@@ -1313,14 +1562,17 @@ def predict_all_upcoming(
                     1.0 - prob_a,
                     f_version,
                     ratings_version,
-                    row.get("data_cutoff_at"),
+                    _prediction_cutoff(
+                        diagnostics, row.get("data_cutoff_at"),
+                        native_c0=_native_c0_active(active),
+                    ),
                     json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
                 ),
             )
             results.append(
                 {
                     "prediction_id": int(cursor.lastrowid),
-                    "canonical_match_id": int(row["canonical_match_id"]),
+                    "canonical_match_id": match_id,
                     "match": f"{row.get('team_a_name')} vs {row.get('team_b_name')}",
                     "prob_a": prob_a,
                     "prob_b": 1.0 - prob_a,
@@ -1377,7 +1629,12 @@ def predict_operational_match(
     persist: bool = True,
     is_lineup_confirmed: bool = False,
 ) -> dict[str, Any]:
-    """Build features and predict one upcoming match using the default operational model."""
+    """Build one match feature vector and predict with the exact registered model."""
+    model_spec = get_model(model_name)
+    if model_spec is None or model_spec.version != model_version:
+        raise ValueError("Prediction identity must identify an exact registered model version.")
+    if _native_c0_active(model_spec):
+        match = resolve_exact_canonical_team_ids(match)
     feature_result = build_features_for_match(
         match,
         feature_version=feature_version,
@@ -1388,6 +1645,7 @@ def predict_operational_match(
         team_b_roster_override=team_b_roster_override,
         persist=persist,
         is_lineup_confirmed=is_lineup_confirmed,
+        native_c0=_native_c0_active(model_spec),
     )
     if feature_result["status"] != "ready_player" and not include_partial:
         raise ValueError(
@@ -1395,11 +1653,17 @@ def predict_operational_match(
             + "; ".join(feature_result["missing"])
         )
     features = feature_result["features"]
-    prob_a, diagnostics = predict_probability_from_features(features)
+    prob_a, diagnostics = predict_probability_from_features(features, model_spec=model_spec)
     return {
         "canonical_match_id": match.get("id"),
         "prob_a": prob_a,
         "prob_b": 1.0 - prob_a,
+        "model_name": model_spec.name,
+        "model_version": model_spec.version,
+        "data_cutoff_at": _prediction_cutoff(
+            diagnostics, feature_result.get("data_cutoff_at"),
+            native_c0=_native_c0_active(model_spec),
+        ),
         "diagnostics": diagnostics,
         "features": features,
     }
@@ -1516,6 +1780,19 @@ def process_confirmed_lineup_update(
     has_sub_b, subs_b = detect_lineup_substitution(prev_b_ids, conf_b) if conf_b else (False, [])
     substitution_detected = has_sub_a or has_sub_b
 
+    model_spec = get_model(model_name)
+    native_c0 = model_spec is not None and _native_c0_active(model_spec)
+    if native_c0:
+        match = resolve_exact_canonical_team_ids(match)
+        for side, roster in (("team_a", conf_a), ("team_b", conf_b)):
+            if roster is None:
+                continue
+            if (
+                len(roster) != 5
+                or any(not isinstance(player, dict) or not player.get("player_id") for player in roster)
+                or len({str(player["player_id"]) for player in roster if isinstance(player, dict) and player.get("player_id")}) != 5
+            ):
+                raise ValueError(f"Native C0 confirmed {side} lineup requires five unique exact player IDs.")
     formatted_a = _format_roster_five(conf_a, team_a_name) if conf_a else None
     formatted_b = _format_roster_five(conf_b, team_b_name) if conf_b else None
 
@@ -1563,59 +1840,60 @@ def process_confirmed_lineup_update(
         team_a_roster_override=team_a_override,
         team_b_roster_override=team_b_override,
         is_lineup_confirmed=True,
+        native_c0=native_c0,
         persist=True,
     )
 
     canonical_match_id = int(match_id) if match_id is not None else 0
 
     if substitution_detected or force_re_infer:
-        try:
-            with transaction() as conn:
-                conn.execute(
-                    """
-                    UPDATE canonical_predictions
-                    SET prediction_status = 'stale'
-                    WHERE canonical_match_id = ? AND model_name = ? AND model_version = ?
-                    """,
-                    (canonical_match_id, model_name, model_version),
-                )
-        except Exception as err:
-            logger.debug("Marking prior prediction stale skipped: %s", err)
+        model_spec = get_model(model_name)
+        if model_spec is None or model_spec.version != model_version:
+            raise ValueError("Lineup re-inference requires an exact registered model version.")
 
         features = feature_result["features"]
-        prob_a, diagnostics = predict_probability_from_features(features)
+        prob_a, diagnostics = predict_probability_from_features(features, model_spec=model_spec)
         diagnostics["lineup_substitution_detected"] = True
         diagnostics["substituted_players"] = {"team_a": subs_a, "team_b": subs_b}
 
-        pred_id = None
-        try:
-            model_artifact_id = register_operational_model(model_name=model_name, model_version=model_version)
-            with transaction() as conn:
-                cursor = conn.execute(
-                    """
-                    INSERT INTO canonical_predictions(
-                        canonical_match_id, model_artifact_id, model_name, model_version, predicted_at,
-                        prob_a, prob_b, features_version, ratings_version, data_cutoff_at, diagnostics_json,
-                        prediction_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
-                    """,
-                    (
-                        canonical_match_id,
-                        model_artifact_id,
-                        model_name,
-                        model_version,
-                        utc_now_iso(),
-                        prob_a,
-                        1.0 - prob_a,
-                        feature_version,
-                        ratings_version,
-                        feature_result.get("data_cutoff_at"),
-                        json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
+        if model_spec.family == "bayesian_market_hybrid":
+            hybrid = get_hybrid_spec(model_spec)
+            model_artifact_id = register_hybrid_model(
+                spec=hybrid, base_version=hybrid.base_model.version, version=model_version
+            )
+        else:
+            model_artifact_id = register_operational_model(
+                model_name=model_name, model_version=model_version,
+                feature_version=feature_version, ratings_version=ratings_version,
+                runtime_identity=diagnostics.get("model_identity"),
+            )
+        with transaction() as conn:
+            conn.execute(
+                """
+                UPDATE canonical_predictions SET prediction_status = 'stale'
+                WHERE canonical_match_id = ? AND model_name = ? AND model_version = ?
+                """,
+                (canonical_match_id, model_name, model_version),
+            )
+            cursor = conn.execute(
+                """
+                INSERT INTO canonical_predictions(
+                    canonical_match_id, model_artifact_id, model_name, model_version, predicted_at,
+                    prob_a, prob_b, features_version, ratings_version, data_cutoff_at, diagnostics_json,
+                    prediction_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active') RETURNING id
+                """,
+                (
+                    canonical_match_id, model_artifact_id, model_name, model_version,
+                    utc_now_iso(), prob_a, 1.0 - prob_a, feature_version, ratings_version,
+                    _prediction_cutoff(
+                        diagnostics, feature_result.get("data_cutoff_at"),
+                        native_c0=native_c0,
                     ),
-                )
-                pred_id = getattr(cursor, "lastrowid", None)
-        except Exception as err:
-            logger.debug("Saving re-inferred canonical prediction skipped: %s", err)
+                    json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+            pred_id = int(cursor.fetchone()["id"])
 
         return {
             "status": "re_inferred",
@@ -1793,218 +2071,167 @@ def _exp078_snapshot_from_features(features: dict[str, Any]) -> tuple[dict[str, 
     return snapshot, best_of
 
 
-def fetch_opening_no_vig_market_prob(
+def fetch_latest_pre_match_market_prob(
     canonical_match_id: int | None,
     normalized_team_a: str | None = None,
     normalized_team_b: str | None = None,
+    *,
+    as_of: datetime | None = None,
 ) -> float | None:
-    """Fetch the earliest/latest available pre-match no-vig opening odds from odds_snapshots."""
+    """Average one latest available, pre-start, aligned quote per bookmaker."""
     if canonical_match_id is None:
         return None
-    try:
-        rows = query_df(
-            """
-            SELECT os.raw_team_a, os.raw_team_b, os.odds_a, os.odds_b, os.scraped_at,
-                   cm.normalized_team_a, cm.normalized_team_b
+    cutoff = as_of or datetime.now(UTC)
+    if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+        raise ValueError("Market cutoff must have a timezone.")
+    rows = query_df(
+        """
+        WITH ranked_quotes AS (
+            SELECT os.raw_team_a, os.raw_team_b, os.odds_a, os.odds_b,
+                   cm.normalized_team_a, cm.normalized_team_b,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY os.bookmaker_id
+                       ORDER BY os.scraped_at DESC, os.id DESC
+                   ) AS quote_rank
             FROM odds_snapshots os
             JOIN canonical_matches cm ON cm.id = os.canonical_match_id
             WHERE os.canonical_match_id = ?
               AND os.market_type = 'match_winner'
               AND COALESCE(os.is_live, 0) = 0
-              AND os.odds_a IS NOT NULL AND os.odds_b IS NOT NULL
               AND os.odds_a > 1.0 AND os.odds_b > 1.0
-            ORDER BY os.scraped_at ASC
-            """,
-            (int(canonical_match_id),),
+              AND os.scraped_at <= ?
+              AND os.scraped_at < CAST(cm.start_time_normalized AS TIMESTAMPTZ)
         )
-        if rows.empty:
-            return None
-        market_probs: list[float] = []
-        for row in rows.to_dict("records"):
-            norm_a = normalized_team_a or str(row.get("normalized_team_a") or "")
-            norm_b = normalized_team_b or str(row.get("normalized_team_b") or "")
-            raw_a = str(row.get("raw_team_a") or "")
-            raw_b = str(row.get("raw_team_b") or "")
-            aligned = align_snapshot_odds(norm_a, norm_b, raw_a, raw_b, row.get("odds_a"), row.get("odds_b"))
-            if aligned is None:
-                continue
-            oa, ob = aligned
-            if oa > 1.0 and ob > 1.0:
-                p_a, _ = fair_market_probabilities(float(oa), float(ob))
-                market_probs.append(p_a)
-        if market_probs:
-            return sum(market_probs) / len(market_probs)
-    except Exception as exc:
-        logger.debug("Failed to fetch opening market prob for match %s: %s", canonical_match_id, exc)
-    return None
+        SELECT * FROM ranked_quotes WHERE quote_rank = 1
+        """,
+        (int(canonical_match_id), cutoff),
+    )
+    probabilities = []
+    for row in rows.to_dict("records"):
+        aligned = align_snapshot_odds(
+            normalized_team_a or str(row.get("normalized_team_a") or ""),
+            normalized_team_b or str(row.get("normalized_team_b") or ""),
+            str(row.get("raw_team_a") or ""), str(row.get("raw_team_b") or ""),
+            row.get("odds_a"), row.get("odds_b"),
+        )
+        if aligned is None:
+            continue
+        odds_a, odds_b = aligned
+        if not all(math.isfinite(float(value)) and value > 1.0 for value in aligned):
+            continue
+        probabilities.append(fair_market_probabilities(odds_a, odds_b)[0])
+    return sum(probabilities) / len(probabilities) if probabilities else None
 
 
 def evaluate_bayesian_market_hybrid(
     features: dict[str, Any],
     spec: Any,
 ) -> UnifiedPredictionResult:
-    """Evaluate Bayesian Shrunk Hybrid model on an upcoming fixture.
+    """Blend the declared sports artifact once using the shared fixed-weight policy.
 
-    1. Compute base sports probability p_sports (from A0 / symmetric ratings).
-    2. Fetch latest pre-match no-vig opening odds p_market_novig from odds_snapshots.
-    3. In logit space: z_hybrid = 0.50 * logit(p_sports) + 0.50 * logit(p_market_novig), p = expit(z_hybrid).
-    4. If no bookmaker odds exist yet (> 48h prior), fall back gracefully to p_sports.
+    Alpha is the sports-model weight, as in PredictionEngine.blend_with_market.
+    A missing market leaves the sports prediction unchanged; a failed sports
+    artifact or invalid input is an error, never an unnamed rating fallback.
     """
-    canonical_match_id = features.get("canonical_match_id") or features.get("canonical", {}).get("id")
+    hybrid = get_hybrid_spec(spec)
+    base_spec = hybrid.base_model
+    PredictionEngine.blend_with_market(0.5, 0.5, hybrid)
+    sports = PredictionEngine.predict_from_features(features, base_spec)
     canonical = features.get("canonical", {})
-    best_of = _normalized_best_of(canonical.get("best_of") or features.get("best_of"))
-
-    # Step 1: Base sports probability p_sports
-    p_sports: float
-    map_sports: float
-    sigma_z: float | None = None
-    p_low: float | None = None
-    p_low_b: float | None = None
-    try:
-        snapshot, _ = _exp078_snapshot_from_features(features)
-        from src.models.siamese_series import SiameseSeriesModel
-        model = SiameseSeriesModel.load_default()
-        p_sports, sigma_z, p_low, p_low_b = model.predict_with_uncertainty(snapshot, best_of=best_of)
-        if best_of > 1:
-            map_sports, _, _, _ = model.predict_with_uncertainty(snapshot, best_of=1)
-        else:
-            map_sports = p_sports
-    except Exception:
-        # Fallback to symmetric rating consensus
-        p_player = features.get("player_ratings", {}).get("probabilities", {}).get("consensus")
-        p_team = features.get("ratings", {}).get("probabilities", {}).get("consensus")
-        p_w20 = features.get("w20", {}).get("probability")
-        weights = []
-        if p_player is not None:
-            weights.append((0.70, float(p_player)))
-        if p_team is not None:
-            weights.append((0.20, float(p_team)))
-        if p_w20 is not None:
-            weights.append((0.10, float(p_w20)))
-        if weights:
-            tot = sum(w for w, _ in weights)
-            raw = sum((w / tot) * v for w, v in weights)
-            map_prob_a = max(0.01, min(0.99, raw))
-        else:
-            map_prob_a = 0.50
-        map_sports = map_prob_a
-        from betting_app.core.models.engine import _series_probability_binomial
-        p_sports = _series_probability_binomial(map_prob_a, best_of)
-
-    p_sports = max(1e-6, min(1.0 - 1e-6, float(p_sports)))
-    map_sports = max(1e-6, min(1.0 - 1e-6, float(map_sports)))
-
-    # Step 2: Fetch pre-match no-vig opening odds
-    p_market_novig = features.get("market_novig_prob_a") or features.get("market_prob_a")
-    if p_market_novig is None:
-        team_a_name = canonical.get("team_a_name")
-        team_b_name = canonical.get("team_b_name")
-        p_market_novig = fetch_opening_no_vig_market_prob(
+    canonical_match_id = features.get("canonical_match_id") or canonical.get("id")
+    market = features.get("market_novig_prob_a")
+    if market is None:
+        market = features.get("market_prob_a")
+    market_cutoff = None
+    if market is None:
+        market_cutoff = datetime.now(UTC)
+        market = fetch_latest_pre_match_market_prob(
             canonical_match_id,
-            normalized_team_a=team_a_name,
-            normalized_team_b=team_b_name,
+            normalized_team_a=canonical.get("team_a_name"),
+            normalized_team_b=canonical.get("team_b_name"),
+            as_of=market_cutoff,
         )
-
-    # Step 3: Adaptive alpha(t) — model weight varies with market maturity
-    # Early opening odds (>24h) are soft → higher model weight (lower alpha toward market)
-    # Late closing odds (<2h) are sharp → higher market weight (higher alpha)
-    # α(t) = clip(0.40 + 0.15 * sigmoid((t - 12) / 6), 0.40, 0.55)
-    base_alpha = float(spec.metadata.get("alpha", 0.50)) if hasattr(spec, "metadata") and spec.metadata else 0.50
-    hours_before = None
-    try:
-        start_time_str = canonical.get("start_time") or canonical.get("start_time_normalized")
-        if start_time_str:
-            match_start = parse_iso(start_time_str)
-            if match_start is not None:
-                now = datetime.now(UTC)
-                hours_before = max(0.0, (match_start - now).total_seconds() / 3600.0)
-    except Exception:
-        pass
-    if hours_before is not None:
-        # Early lines (t > 24h) -> alpha ~ 0.40 (higher sports model weight 0.60)
-        # Late lines (t < 2h) -> alpha ~ 0.53-0.55 (higher market consensus weight)
-        adaptive_alpha = 0.55 - 0.15 * sigmoid((hours_before - 12.0) / 6.0)
-        alpha = max(0.40, min(0.55, adaptive_alpha))
+    if market is not None:
+        market = float(market)
+        if not math.isfinite(market) or not 0.0 < market < 1.0:
+            raise ValueError("Market probability must be finite and strictly between zero and one.")
+        probability = PredictionEngine.blend_with_market(sports.prob_a, market, hybrid)
+        low_a = (
+            PredictionEngine.blend_with_market(sports.p_low_a, market, hybrid)
+            if sports.p_low_a is not None else None
+        )
+        low_b = (
+            PredictionEngine.blend_with_market(sports.p_low_b, 1.0 - market, hybrid)
+            if sports.p_low_b is not None else None
+        )
     else:
-        alpha = base_alpha
-    if p_market_novig is not None and math.isfinite(p_market_novig) and 0.0 < p_market_novig < 1.0:
-        p_mkt = max(1e-6, min(1.0 - 1e-6, float(p_market_novig)))
-        z_sports = logit(p_sports)
-        z_market = logit(p_mkt)
-        z_hybrid = (1.0 - alpha) * z_sports + alpha * z_market
-        prob_a = sigmoid(z_hybrid)
-        map_prob_a_out = sigmoid((1.0 - alpha) * logit(map_sports) + alpha * z_market) if best_of > 1 else prob_a
-        market_used = True
-    else:
-        prob_a = p_sports
-        map_prob_a_out = map_sports
-        market_used = False
-
-    # Clamp to valid open interval (0, 1) and guarantee exact symmetry
-    prob_a = max(1e-6, min(1.0 - 1e-6, float(prob_a)))
-    prob_b = 1.0 - prob_a
-
-    # If conservative bounds exist, scale them symmetrically: (1 - alpha)*z_low + alpha*z_market
-    if p_low is not None and p_low_b is not None and market_used and p_market_novig is not None:
-        z_low_a = (1.0 - alpha) * logit(max(1e-6, min(1.0 - 1e-6, p_low))) + alpha * logit(p_mkt)
-        z_low_b = (1.0 - alpha) * logit(max(1e-6, min(1.0 - 1e-6, p_low_b))) + alpha * logit(1.0 - p_mkt)
-        p_low_a_final = min(prob_a, sigmoid(z_low_a))
-        p_low_b_final = min(prob_b, sigmoid(z_low_b))
-    elif p_low is not None and p_low_b is not None:
-        p_low_a_final = min(prob_a, p_low)
-        p_low_b_final = min(prob_b, p_low_b)
-    else:
-        ratings_probs = [float(v) for v in features.get("ratings", {}).get("probabilities", {}).values() if v is not None]
-        player_probs = [float(v) for v in features.get("player_ratings", {}).get("probabilities", {}).values() if v is not None]
-        all_p = [p for p in (ratings_probs + player_probs) if isinstance(p, (int, float)) and 0.0 < p < 1.0]
-        if all_p and len(all_p) >= 2:
-            logits = [logit(p) for p in all_p]
-            mean_l = sum(logits) / len(logits)
-            sigma_z = math.sqrt(sum((x - mean_l) ** 2 for x in logits) / len(logits))
-        else:
-            sigma_z = 0.25
-        sigma_z = max(0.05, min(2.0, sigma_z))
-        kappa = float(spec.metadata.get("risk_kappa", 0.75)) if hasattr(spec, "metadata") else 0.75
-        p_low_a_final = min(prob_a, sigmoid(logit(prob_a) - kappa * sigma_z))
-        p_low_b_final = min(prob_b, sigmoid(logit(prob_b) - kappa * sigma_z))
+        probability = sports.prob_a
+        low_a, low_b = sports.p_low_a, sports.p_low_b
+    # Match-winner odds describe a series, not its individual maps.
+    base_data_cutoff = sports.diagnostics.get("data_cutoff_at")
+    market_cutoff_at = market_cutoff.isoformat() if market_cutoff is not None and market is not None else None
+    effective_cutoff = base_data_cutoff
+    if market_cutoff_at:
+        cutoffs = [value for value in (base_data_cutoff, market_cutoff_at) if value]
+        try:
+            effective_cutoff = max(
+                cutoffs,
+                key=lambda value: datetime.fromisoformat(str(value).replace("Z", "+00:00")),
+            )
+        except (TypeError, ValueError):
+            effective_cutoff = market_cutoff_at
     diagnostics = {
+        **sports.diagnostics,
+        "base_diagnostics": sports.diagnostics,
+        "base_model_identity": sports.diagnostics.get("model_identity"),
+        "model_identity": sports.diagnostics.get("model_identity"),
+        "base_data_cutoff_at": base_data_cutoff,
+        "data_cutoff_at": effective_cutoff,
+        "feature_provenance": sports.diagnostics.get("feature_provenance"),
         "family": spec.family,
-        "p_sports": p_sports,
-        "p_market_novig": p_market_novig,
-        "alpha": alpha,
-        "market_features_used": market_used,
-        "side_symmetric": True,
+        "base_model_name": sports.model_name,
+        "base_model_version": sports.model_version,
+        "p_sports": sports.prob_a,
+        "p_market_novig": market,
+        "alpha": hybrid.alpha,
+        "alpha_semantics": "sports_model_weight",
+        "temperature": hybrid.temperature,
+        "blending_mode": hybrid.blending_mode,
+        "market_features_used": market is not None,
+        "market_cutoff_at": market_cutoff_at,
+        "side_symmetric": sports.diagnostics.get("side_symmetric", False),
+        "uncertainty_required": base_spec.has_uncertainty,
+        "epistemic_sigma_z": sports.epistemic_sigma_z,
+        "p_low_a": low_a,
+        "p_low_b": low_b,
+        "map_probability_source": "series_hybrid_bo1" if sports.best_of == 1 else "sports_model",
     }
-    if sigma_z is not None:
-        diagnostics.update(
-            epistemic_sigma_z=sigma_z,
-            p_low_a=p_low_a_final,
-            p_low_b=p_low_b_final,
-            uncertainty_required=True,
-        )
-
+    map_probability = probability if sports.best_of == 1 else sports.map_prob_a
     return UnifiedPredictionResult(
         canonical_match_id=canonical_match_id,
-        prob_a=prob_a,
-        prob_b=prob_b,
-        map_prob_a=map_prob_a_out,
-        map_prob_b=1.0 - map_prob_a_out,
-        p_low_a=p_low_a_final,
-        p_low_b=p_low_b_final,
-        epistemic_sigma_z=sigma_z,
+        prob_a=probability,
+        prob_b=1.0 - probability,
+        map_prob_a=map_probability,
+        map_prob_b=1.0 - map_probability if map_probability is not None else None,
+        p_low_a=low_a,
+        p_low_b=low_b,
+        epistemic_sigma_z=sports.epistemic_sigma_z,
         model_name=spec.name,
         model_version=spec.version,
         feature_version=spec.feature_version,
-        best_of=best_of,
+        best_of=sports.best_of,
         diagnostics=diagnostics,
     )
 
 
 def predict_probability_from_features(
     features: dict[str, Any],
+    *,
+    model_spec: ModelSpec | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """Evaluate model prediction via the unified PredictionEngine."""
-    result = PredictionEngine.predict_from_features(features)
+    spec = model_spec or get_active_model()
+    result = PredictionEngine.predict_from_features(features, spec)
     diag = {
         "model_name": result.model_name,
         "model_version": result.model_version,
@@ -2016,9 +2243,13 @@ def predict_probability_from_features(
         "p_low_a": result.p_low_a,
         "p_low_b": result.p_low_b,
     }
-    ratings = features.get("ratings", {}).get("probabilities", {})
-    player_ratings = features.get("player_ratings", {}).get("probabilities", {})
+    ratings = {} if spec.family == "native_c0" else features.get("ratings", {}).get("probabilities", {})
+    player_ratings = {} if spec.family == "native_c0" else features.get("player_ratings", {}).get("probabilities", {})
     diag.update(result.diagnostics)
+    c0_request = features.get("c0_request")
+    if isinstance(c0_request, dict):
+        diag["c0_input_mode"] = c0_request.get("mode")
+        diag["c0_organization_identity_missing"] = c0_request.get("mode") == "no_organization"
     if ratings and player_ratings:
         try:
             team_probs = [float(ratings[system]) for system in RATING_SYSTEMS]
@@ -2050,6 +2281,7 @@ def generate_hybrid_predictions(
     hybrid_model_name: str | None = None,
     hybrid_model_version: str | None = None,
     blending_mode: str | None = None,
+    canonical_match_id: int | None = None,
 ) -> list[dict[str, Any]]:
     """Blend validated base means and sidewise safety scores with the latest market."""
     active_hybrid = get_active_hybrid()
@@ -2057,6 +2289,8 @@ def generate_hybrid_predictions(
     base_spec = get_model(base_model_name)
     if base_spec is None:
         raise ValueError(f"unknown hybrid base model: {base_model_name}")
+    if base_spec.family == "bayesian_market_hybrid" or base_spec.metadata.get("operational") is False:
+        raise ValueError("Hybrid generation requires an available pure sports model.")
     base_model_version = base_model_version or base_spec.version
     alpha = active_hybrid.alpha if alpha is None else alpha
     temperature = active_hybrid.temperature if temperature is None else temperature
@@ -2075,14 +2309,22 @@ def generate_hybrid_predictions(
     if hybrid_model_version is None:
         hybrid_model_version = (
             active_hybrid.hybrid_model_version
-            if hybrid_spec == active_hybrid
-            else f"{base_model_version}-a{alpha:.2f}-t{temperature:.2f}"
+            if (
+                base_model_version == active_hybrid.base_model.version
+                and base_spec == active_hybrid.base_model
+                and (alpha, temperature, hybrid_model_name, blending_mode) == (
+                    active_hybrid.alpha, active_hybrid.temperature,
+                    active_hybrid.hybrid_model_name, active_hybrid.blending_mode,
+                )
+            )
+            else f"{base_model_version}-a{alpha:g}-t{temperature:g}-{blending_mode}-v2"
         )
     model_artifact_id = register_hybrid_model(
         spec=hybrid_spec,
         base_version=base_model_version,
         version=hybrid_model_version,
     )
+    market_cutoff = datetime.now(UTC)
     rows = query_df(
         """
         WITH latest_predictions AS (
@@ -2092,22 +2334,25 @@ def generate_hybrid_predictions(
                 SELECT canonical_match_id, model_name, model_version, MAX(predicted_at) AS predicted_at
                 FROM canonical_predictions
                 WHERE prediction_status = 'active' AND model_name = ? AND model_version = ?
+                  AND (CAST(? AS INTEGER) IS NULL OR canonical_match_id = ?)
                 GROUP BY canonical_match_id, model_name, model_version
             ) lp ON lp.canonical_match_id = p.canonical_match_id
                 AND lp.model_name = p.model_name
                 AND lp.model_version = p.model_version
                 AND lp.predicted_at = p.predicted_at
-        ), latest_odds AS (
-            SELECT os.*
+        ), ranked_odds AS (
+            SELECT os.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY os.canonical_match_id, os.bookmaker_id
+                       ORDER BY os.scraped_at DESC, os.id DESC
+                   ) AS quote_rank
             FROM odds_snapshots os
-            JOIN (
-                SELECT canonical_match_id, bookmaker_id, MAX(scraped_at) AS scraped_at
-                FROM odds_snapshots
-                WHERE market_type = 'match_winner' AND COALESCE(is_live, 0) = 0
-                GROUP BY canonical_match_id, bookmaker_id
-            ) lo ON lo.canonical_match_id = os.canonical_match_id
-                 AND lo.bookmaker_id = os.bookmaker_id
-                 AND lo.scraped_at = os.scraped_at
+            JOIN canonical_matches cm ON cm.id = os.canonical_match_id
+            WHERE os.market_type = 'match_winner' AND COALESCE(os.is_live, 0) = 0
+              AND os.odds_a > 1.0 AND os.odds_b > 1.0
+              AND os.scraped_at <= ?
+              AND os.scraped_at < CAST(cm.start_time_normalized AS TIMESTAMPTZ)
+              AND (CAST(? AS INTEGER) IS NULL OR os.canonical_match_id = ?)
         )
         SELECT lp.id AS base_prediction_id, lp.canonical_match_id, lp.prob_a AS model_prob_a,
                lp.features_version, lp.ratings_version, lp.data_cutoff_at, lp.diagnostics_json,
@@ -2115,20 +2360,19 @@ def generate_hybrid_predictions(
                os.raw_team_a, os.raw_team_b, os.odds_a, os.odds_b
         FROM latest_predictions lp
         JOIN canonical_matches cm ON cm.id = lp.canonical_match_id
-        JOIN latest_odds os ON os.canonical_match_id = lp.canonical_match_id
+        JOIN ranked_odds os ON os.canonical_match_id = lp.canonical_match_id AND os.quote_rank = 1
+        WHERE CAST(cm.start_time_normalized AS TIMESTAMPTZ) > ?
+          AND CAST(lp.predicted_at AS TIMESTAMPTZ) <= ?
+          AND CAST(lp.data_cutoff_at AS TIMESTAMPTZ) <= ?
         """,
-        (base_model_name, base_model_version),
+        (
+            base_model_name, base_model_version, canonical_match_id, canonical_match_id,
+            market_cutoff, canonical_match_id, canonical_match_id,
+            market_cutoff, market_cutoff, market_cutoff,
+        ),
     )
     results: list[dict[str, Any]] = []
     with transaction() as connection:
-        connection.execute(
-            """
-            UPDATE canonical_predictions
-            SET prediction_status = 'stale'
-            WHERE prediction_status = 'active' AND model_name = ? AND model_version = ?
-            """,
-            (hybrid_model_name, hybrid_model_version),
-        )
         if rows.empty:
             return []
         for canonical_match_id, group in rows.groupby("canonical_match_id"):
@@ -2170,6 +2414,23 @@ def generate_hybrid_predictions(
                     "Skipping hybrid prediction %s: %s", canonical_match_id, exc
                 )
                 continue
+            base_raw = first.get("diagnostics_json")
+            if isinstance(base_raw, str):
+                try:
+                    base_raw = json.loads(base_raw)
+                except (TypeError, ValueError):
+                    base_raw = {}
+            if not isinstance(base_raw, dict):
+                base_raw = {}
+            base_cutoff = base_raw.get("data_cutoff_at") or first.get("data_cutoff_at")
+            market_cutoff_at = market_cutoff.isoformat()
+            effective_cutoff = market_cutoff_at
+            if base_cutoff:
+                try:
+                    if datetime.fromisoformat(str(base_cutoff).replace("Z", "+00:00")) > market_cutoff:
+                        effective_cutoff = str(base_cutoff)
+                except (TypeError, ValueError):
+                    effective_cutoff = market_cutoff_at
             model_t = apply_temperature_probability(model_prob, temperature)
             market_prob = sum(market_probs) / len(market_probs)
             hybrid_prob = PredictionEngine.blend_with_market(
@@ -2180,9 +2441,17 @@ def generate_hybrid_predictions(
                 "base_model_name": base_model_name,
                 "base_model_version": base_model_version,
                 "base_prediction_id": int(first["base_prediction_id"]),
+                "base_model_identity": base_raw.get("model_identity"),
+                "model_identity": base_raw.get("model_identity"),
+                "base_data_cutoff_at": base_cutoff,
+                "data_cutoff_at": effective_cutoff,
+                "base_diagnostics": base_raw,
+                "feature_provenance": base_raw.get("feature_provenance"),
                 "alpha": alpha,
                 "temperature": temperature,
                 "blending_mode": blending_mode,
+                "market_cutoff_at": market_cutoff_at,
+                "alpha_semantics": "sports_model_weight",
                 "model_prob_a": model_prob,
                 "model_prob_a_temperature": model_t,
                 "market_prob_a_avg_no_vig": market_prob,
@@ -2209,6 +2478,15 @@ def generate_hybrid_predictions(
                     epistemic_sigma_z=base_diagnostics["epistemic_sigma_z"],
                     uncertainty_semantics="sidewise transformed conservative scores; no coverage guarantee",
                 )
+            connection.execute(
+                """
+                UPDATE canonical_predictions
+                SET prediction_status = 'stale'
+                WHERE canonical_match_id = ? AND prediction_status = 'active'
+                  AND model_name = ? AND model_version = ?
+                """,
+                (int(canonical_match_id), hybrid_model_name, hybrid_model_version),
+            )
             cursor = connection.execute(
                 """
                 INSERT INTO canonical_predictions(
@@ -2226,7 +2504,7 @@ def generate_hybrid_predictions(
                     1.0 - hybrid_prob,
                     first.get("features_version"),
                     first.get("ratings_version"),
-                    first.get("data_cutoff_at"),
+                    effective_cutoff,
                     json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
                 ),
             )
@@ -2298,20 +2576,14 @@ def generate_model_ev_signals(
     open bets and portfolio risk limits.
     """
     if check_confirmed_lineups:
-        try:
-            upcoming_matches = load_canonical_matches(include_past=False)
-            for u_match in upcoming_matches:
-                try:
-                    process_confirmed_lineup_update(
-                        dict(u_match),
-                        current_time=lineup_current_time,
-                        model_name=model_name,
-                        model_version=model_version,
-                    )
-                except Exception as exc:
-                    logger.warning("Lineup check failed for match %s: %s", u_match.get("id"), exc)
-        except Exception as exc:
-            logger.warning("Failed to check upcoming match lineups before EV generation: %s", exc)
+        upcoming_matches = load_canonical_matches(include_past=False)
+        for u_match in upcoming_matches:
+            process_confirmed_lineup_update(
+                dict(u_match),
+                current_time=lineup_current_time,
+                model_name=model_name,
+                model_version=model_version,
+            )
     if not math.isfinite(tax_rate) or not 0.0 <= tax_rate < 1.0:
         raise ValueError("tax_rate must be finite and in [0, 1)")
     if not math.isfinite(min_ev) or min_ev < 0.0:

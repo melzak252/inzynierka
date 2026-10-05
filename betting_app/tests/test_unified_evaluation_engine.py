@@ -3,9 +3,7 @@
 import math
 import pytest
 from src.analysis.unified_evaluation_engine import (
-    CalibrationBin,
     EvaluatedBet,
-    SimulationSummary,
     UnifiedBettingEngine,
     calculate_quarter_kelly_stake,
     compute_p_low,
@@ -152,38 +150,3 @@ def test_shin_devigging_favorite_longshot_bias() -> None:
     # Invalid odds must raise ValueError
     with pytest.raises(ValueError):
         fair_market_probabilities(0.95, 2.10)
-
-
-def test_adaptive_alpha_horizon() -> None:
-    """Adaptive alpha must assign higher sports model weight early (>24h) and higher market weight late (<2h)."""
-    from datetime import UTC, datetime, timedelta
-    from betting_app.core.models.registry import get_active_model
-    from betting_app.services.upcoming_inference_service import evaluate_bayesian_market_hybrid
-
-    model_spec = get_active_model()
-    now = datetime.now(UTC)
-
-    # Early line: 48 hours before match -> alpha ~ 0.40 (sports model weight ~ 0.60)
-    early_start = (now + timedelta(hours=48)).isoformat()
-    features_early = {
-        "canonical": {"id": 1, "best_of": 1, "start_time": early_start, "team_a_name": "T1", "team_b_name": "GEN"},
-        "market_novig_prob_a": 0.50,
-        "ratings": {"probabilities": {"consensus": 0.80}},
-        "player_ratings": {"probabilities": {"consensus": 0.80}},
-    }
-    res_early = evaluate_bayesian_market_hybrid(features_early, model_spec)
-    alpha_early = res_early.diagnostics["alpha"]
-    assert alpha_early < 0.45, f"Expected early alpha < 0.45, got {alpha_early}"
-
-    # Late line: 1 hour before match -> alpha ~ 0.53 (higher market weight)
-    late_start = (now + timedelta(hours=1)).isoformat()
-    features_late = {
-        "canonical": {"id": 2, "best_of": 1, "start_time": late_start, "team_a_name": "T1", "team_b_name": "GEN"},
-        "market_novig_prob_a": 0.50,
-        "ratings": {"probabilities": {"consensus": 0.80}},
-        "player_ratings": {"probabilities": {"consensus": 0.80}},
-    }
-    res_late = evaluate_bayesian_market_hybrid(features_late, model_spec)
-    alpha_late = res_late.diagnostics["alpha"]
-    assert alpha_late > 0.50, f"Expected late alpha > 0.50, got {alpha_late}"
-    assert alpha_late > alpha_early

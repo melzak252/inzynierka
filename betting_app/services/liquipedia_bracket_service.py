@@ -1,17 +1,13 @@
-"""Tournament Bracket Synchronizer and Parser service supporting LoL Fandom (Leaguepedia) and Liquipedia.
+"""Explicit tournament source synchronization and local bracket snapshots.
 
-Fetches and synchronizes active tournament bracket states (matches, confirmed winners,
-scores, and next-round progression) from LoL Fandom Cargo Export API and Liquipedia MediaWiki API / HTML.
-Includes resilient multi-source fallback:
-  1. LoL Fandom Cargo API: fast, structured JSON, 100% open, zero IP rate limit blocks.
-  2. Liquipedia MediaWiki API / HTML: authoritative wiki bracket wikitext/HTML.
-  3. Curated snapshot / persistent disk cache: ensures the simulation view never breaks even if external APIs are down.
+Normal reads and simulations do not fetch sources. Explicit synchronization
+uses the shared Liquipedia cache/budget or the configured Fandom Cargo endpoint;
+neither source is assumed unlimited or timestamp-certified.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import gzip
 import json
 import logging
 from pathlib import Path
@@ -22,6 +18,7 @@ import urllib.request
 
 from betting_app.core.matching import normalize_team_name
 from betting_app.services.canonical_match_service import canonical_team_key
+from betting_app.services.liquipedia_transport import LiquipediaRequestError, query as liquipedia_query
 from betting_app.services.tournament_service import (
     SUPPORTED_BRACKETS,
     BracketMatchNode,
@@ -136,6 +133,33 @@ class LiquipediaBracketService:
             logger.warning("Failed to read cached bracket for %s: %s", tournament_id, e)
             return None
 
+    def load_bracket(self, tournament_id: str) -> dict[str, Any]:
+        """Load stored or curated state without making any external request."""
+        if tournament_id not in SUPPORTED_BRACKETS:
+            raise ValueError(f"Tournament '{tournament_id}' is not supported.")
+        bracket = SUPPORTED_BRACKETS[tournament_id]()
+        cached = self.read_cached_bracket(tournament_id)
+        if cached is None:
+            return {
+                "ok": True, "bracket": bracket, "source": "curated",
+                "status": "curated", "synced_at": None, "updated_matches": 0,
+                "message": "Lokalna drabinka; dane źródłowe nie zostały pobrane.",
+            }
+        self._apply_cached_state(bracket, cached.get("matches", {}))
+        fresh = False
+        try:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(cached["synced_at"])).total_seconds()
+            fresh = 0 <= age < CACHE_TTL_SECONDS
+        except (KeyError, TypeError, ValueError):
+            pass
+        return {
+            "ok": True, "bracket": bracket, "source": cached.get("source", "cache"),
+            "status": "cached" if fresh else "stale_cache",
+            "synced_at": cached.get("synced_at"),
+            "updated_matches": cached.get("updated_matches", 0),
+            "message": "Załadowano lokalny stan drabinki bez pobierania danych.",
+        }
+
     def write_cached_bracket(self, tournament_id: str, data: dict[str, Any]) -> None:
         """Save bracket snapshot to disk."""
         cache_file = self._get_cache_file(tournament_id)
@@ -207,29 +231,19 @@ class LiquipediaBracketService:
             "prop": "text|wikitext",
             "format": "json",
         }
-        url = f"{self.liquipedia_url}?{urllib.parse.urlencode(params)}"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": LIQUIPEDIA_USER_AGENT,
-                "Api-User-Agent": LIQUIPEDIA_USER_AGENT,
-                "Accept-Encoding": "gzip",
-            },
-        )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read()
-                if resp.info().get("Content-Encoding") == "gzip":
-                    raw = gzip.decompress(raw)
-                data = json.loads(raw.decode("utf-8"))
-                return data, None
-        except urllib.error.HTTPError as e:
-            err_msg = f"Liquipedia API HTTP {e.code}: {e.reason}"
+            data = liquipedia_query(
+                self.liquipedia_url,
+                params,
+                LIQUIPEDIA_USER_AGENT,
+                timeout=timeout,
+            )
+            if not isinstance(data, dict):
+                raise LiquipediaRequestError("Liquipedia bracket API returned a non-object response", kind="response")
+            return data, None
+        except LiquipediaRequestError as error:
+            err_msg = str(error)
             logger.warning("Liquipedia fetch failed for %s: %s", page_title, err_msg)
-            return None, err_msg
-        except Exception as e:
-            err_msg = f"Liquipedia request error: {e}"
-            logger.warning("Liquipedia fetch error for %s: %s", page_title, err_msg)
             return None, err_msg
 
     @staticmethod
@@ -466,7 +480,7 @@ class LiquipediaBracketService:
 
         # Check existing cache if not forced
         cached = self.read_cached_bracket(tournament_id)
-        if not force and cached and not raw_content:
+        if not force and cached and raw_content is None:
             cached_time = cached.get("synced_at")
             if cached_time:
                 try:
@@ -491,7 +505,7 @@ class LiquipediaBracketService:
         sync_status = "success"
         message = "Pomyślnie zsynchronizowano aktualny stan drabinki."
 
-        if raw_content:
+        if raw_content is not None:
             if "<" in raw_content:
                 parsed_matches = self.parse_bracket_html(raw_content)
             else:
@@ -519,9 +533,9 @@ class LiquipediaBracketService:
                     # Fallback to Fandom
                     parsed_matches = self.fetch_fandom_cargo_matches(meta["fandom_overview"])
                     sync_source = "fandom_cargo_fallback"
-                    message = f"Liquipedia (429 Rate Limit) - pobrano aktualny stan z LoL Fandom Cargo ({len(parsed_matches)} meczów)."
+                    message = f"Liquipedia niedostępna ({error}); użyto LoL Fandom Cargo ({len(parsed_matches)} meczów)."
 
-        if not parsed_matches and source in ("fandom", "auto"):
+        if not parsed_matches and raw_content is None and source in ("fandom", "auto"):
             # Fetch from LoL Fandom Cargo
             parsed_matches = self.fetch_fandom_cargo_matches(meta["fandom_overview"])
             sync_source = "fandom_cargo"
@@ -531,11 +545,11 @@ class LiquipediaBracketService:
         if parsed_matches:
             bracket, updated_count = self.map_matches_chronologically(bracket, parsed_matches, round_order)
         else:
-            if cached and cached.get("matches"):
-                self._apply_cached_state(bracket, cached["matches"])
-                sync_source = "cached_fallback"
-                sync_status = "fallback"
-                message = "Brak połączenia z API zewnętrznymi. Użyto zapisanego stanu drabinki."
+            local = self.load_bracket(tournament_id)
+            local["ok"] = False
+            local["status"] = "cached_fallback" if cached is not None else "unavailable"
+            local["message"] = "Nie pobrano nowych danych. Zachowano lokalny stan i czas ostatniej synchronizacji."
+            return local
 
         # Persist to disk cache
         cache_payload = {

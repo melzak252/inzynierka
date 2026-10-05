@@ -216,7 +216,7 @@ def verify_team_rosters_task(source: str = "auto", force: bool = False) -> dict:
     success = _run_module(
         "betting_app.scripts.verify_and_sync_team_rosters",
         args=args,
-        timeout=300,
+        timeout=7200,  # Up to 50 teams; CLI paces Liquipedia parses at 30s.
     )
     duration = (datetime.now(UTC) - start).total_seconds()
     logger.info("Team roster verification task: %s (%.1fs)", "OK" if success else "FAIL", duration)

@@ -289,8 +289,8 @@ class FandomRosterClient:
 class LiquipediaRosterAdapter:
     """Adapter wrapping LiquipediaClient for active roster fetching."""
 
-    def __init__(self) -> None:
-        self.client = LiquipediaClient()
+    def __init__(self, client: LiquipediaClient | None = None) -> None:
+        self.client = client or LiquipediaClient(wait_for_spacing=True)
 
     def fetch_active_roster(self, team_name: str) -> VerifiedRosterResult | None:
         try:
@@ -415,7 +415,11 @@ class RosterVerificationService:
             return {
                 "team_name": team_name,
                 "status": "failed",
-                "reason": "Could not fetch 5-player active roster from source",
+                "reason": (
+                    str(self.liquipedia.client.last_error)
+                    if source in ("auto", "liquipedia") and self.liquipedia.client.last_error
+                    else "Could not fetch 5-player active roster from source"
+                ),
                 "stored_players": stored,
                 "changes": [],
             }
@@ -478,10 +482,12 @@ class RosterVerificationService:
         own_session = session is None
         sess = session or get_session()
 
-        target_teams = list(team_names) if team_names else []
+        target_teams = list(dict.fromkeys(
+            team.strip() for team in (team_names or ()) if team.strip()
+        ))
 
         try:
-            if not target_teams:
+            if not team_names:
                 # Query distinct upcoming match teams
                 rows = sess.execute(
                     text("""
@@ -500,7 +506,7 @@ class RosterVerificationService:
                         found_teams.add(str(r["team_a_name"]))
                     if r.get("team_b_name"):
                         found_teams.add(str(r["team_b_name"]))
-                target_teams = sorted(found_teams)
+                target_teams = sorted(found_teams)[:limit]
 
             total = len(target_teams)
             updated: list[dict[str, Any]] = []

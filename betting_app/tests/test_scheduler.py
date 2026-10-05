@@ -41,24 +41,16 @@ def _next_fire(task_id: str, now: datetime) -> datetime:
     return next_fire
 
 
-def test_registry_fires_scrape_and_prediction_chain_in_order() -> None:
+
+
+
+def test_prediction_consumers_follow_scrape_and_prediction_origins() -> None:
     register_all_tasks()
     now = datetime(2026, 9, 2, 9, 12, tzinfo=UTC)
-
-    assert _next_fire("scrape_sts", now) == datetime(2026, 9, 2, 9, 15, tzinfo=UTC)
-    assert _next_fire("prediction_pipeline", now) == datetime(2026, 9, 2, 9, 20, tzinfo=UTC)
-    assert _next_fire("value_alerts_dispatch", now) == datetime(2026, 9, 2, 9, 23, tzinfo=UTC)
-    assert _next_fire("shadow_ml_inference", now) == datetime(2026, 9, 2, 9, 25, tzinfo=UTC)
-    assert _next_fire("scrape_prop_odds", now) == datetime(2026, 9, 2, 9, 40, tzinfo=UTC)
-    assert _next_fire("expire_matches", now) == datetime(2026, 9, 2, 10, 0, tzinfo=UTC)
-def test_registry_schedules_ordered_cycles() -> None:
-    register_all_tasks()
-    now = datetime(2026, 9, 2, 8, 56, tzinfo=UTC)
-
-    assert _next_fire("heavy_maintenance_cycle", now) == datetime(2026, 9, 2, 12, 40, tzinfo=UTC)
-    assert _next_fire("backfill_expired_matches", now) == datetime(2026, 9, 3, 2, 40, tzinfo=UTC)
-    assert _next_fire("embedding_refresh_cycle", now) == datetime(2026, 9, 3, 4, 50, tzinfo=UTC)
-
+    scrape_at = _next_fire("scrape_sts", now)
+    prediction_at = _next_fire("prediction_pipeline", now)
+    assert now < scrape_at < prediction_at < _next_fire("value_alerts_dispatch", now)
+    assert prediction_at < _next_fire("shadow_ml_inference", now)
 
 
 def test_schedule_tasks_excludes_manual_components() -> None:

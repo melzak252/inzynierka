@@ -78,8 +78,14 @@ def wallet_transactions(account_id: int | None = None, limit: int = 200) -> pd.D
 
 
 def latest_model_ev_signals(limit: int = 200, min_ev: float | None = None) -> pd.DataFrame:
-    where = "WHERE mes.status = 'new'"
-    params: list[float | int] = []
+    from betting_app.core.models.registry import get_active_hybrid
+
+    hybrid = get_active_hybrid()
+    where = (
+        "WHERE mes.status = 'new' AND cp.prediction_status = 'active'"
+        " AND cp.model_name = ? AND cp.model_version = ?"
+    )
+    params: list[str | float | int] = [hybrid.hybrid_model_name, hybrid.hybrid_model_version]
     if min_ev is not None:
         where += " AND mes.ev >= ?"
         params.append(float(min_ev))
@@ -87,7 +93,7 @@ def latest_model_ev_signals(limit: int = 200, min_ev: float | None = None) -> pd
     return query_df(
         f"""
         SELECT mes.id, mes.side, mes.odds, mes.model_prob, mes.market_prob, mes.ev, mes.tax_rate,
-               mes.stake_suggestion, mes.created_at, b.name AS bookmaker,
+               mes.stake_suggestion, b.name AS bookmaker,
                os.bookmaker_id, os.offer_url, os.scraped_at,
                cm.id AS canonical_match_id, cm.team_a_name, cm.team_b_name,
                cm.league, cm.start_time_normalized,
@@ -98,7 +104,7 @@ def latest_model_ev_signals(limit: int = 200, min_ev: float | None = None) -> pd
         JOIN canonical_matches cm ON cm.id = mes.canonical_match_id
         JOIN canonical_predictions cp ON cp.id = mes.canonical_prediction_id
         {where}
-        ORDER BY mes.ev DESC, mes.created_at DESC
+        ORDER BY mes.ev DESC, mes.id DESC
         LIMIT ?
         """,
         tuple(params),

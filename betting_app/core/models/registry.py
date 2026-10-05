@@ -14,21 +14,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 # Known Model Specifications
 # -----------------------------------------------------------------------------
 
-EXP081_SIAMESE = ModelSpec(
-    name="Symmetrized-Siamese-Series-EXP081",
-    version="exp081-siamese-series-v1",
-    feature_version="ratings-w20-symmetric-series-v1",
-    ratings_version="latest-full",
-    w20_version="w20-latest",
-    prediction_target="series",
-    has_uncertainty=True,
-    family="siamese_mlp",
-    artifact_path=PROJECT_ROOT / "betting_app" / "models" / "exp081_siamese_series_v1.json",
-    description="Anti-symmetric Siamese MLP ensemble with Focal Loss (gamma=1.0) and epistemic uncertainty gating.",
+
+C0_NATIVE = ModelSpec(
+    name="Causal-C0",
+    version="c0-native-2026-w32-e12-v1",
+    feature_version="native-c0-history16-v1",
+    artifact_path=PROJECT_ROOT / "data" / "06_models" / "a0_data_focus" / "a0_data_focus_20260929_192443",
+    description="Frozen native C0 series predictor using native pre-match history features.",
     metadata={
-        "risk_kappa": 0.75,
-        "n_members": 5,
+        "operational": True,
         "symmetric": True,
+        "artifact_release": "data/06_models/a0_data_focus/a0_data_focus_20260929_192443",
+        "artifact_kind": "native_control_trio_shared_calibration",
     },
 )
 
@@ -60,39 +57,59 @@ EXP039_THESIS = ModelSpec(
     metadata={"frozen": True, "academic_baseline": True},
 )
 
-ACTIVE_MODEL_NAME = "Hybrid-Operational-Market"
-ACTIVE_MODEL_VERSION = "exp081-siamese-series-v1-a0.50-t1.00"
-ACTIVE_MODEL_FAMILY = "bayesian_market_hybrid"
-
-BAYESIAN_SHRUNK_HYBRID = ModelSpec(
-    name=ACTIVE_MODEL_NAME,
-    version=ACTIVE_MODEL_VERSION,
-    feature_version="ratings-w20-symmetric-series-v1",
+A1_CONSOLIDATED = ModelSpec(
+    name="Consolidated-A1",
+    version="a1-consolidated-v1",
+    feature_version="causal-a0-research-bank-residual-v1",
     ratings_version="latest-full",
     w20_version="w20-latest",
     prediction_target="series",
-    has_uncertainty=True,
-    family=ACTIVE_MODEL_FAMILY,
-    description="Bayesian Shrunk Hybrid combining pre-match sports signal with no-vig market odds in logit space (alpha=0.50).",
+    has_uncertainty=False,
+    family="a1_engine",
+    description="Research-only residual over Causal A0; no validated live A0 feature adapter or macro artifact is configured.",
     metadata={
+        "operational": False,
+        "unavailable_reason": "Consolidated A1 requires a validated Causal A0 adapter and out-of-sample macro artifact; rating consensus is not Causal A0.",
+        "tier_scale": 0.94,
+        "symmetric": True,
+    },
+)
+
+ACTIVE_MODEL_NAME = C0_NATIVE.name
+ACTIVE_MODEL_VERSION = C0_NATIVE.version
+ACTIVE_MODEL_FAMILY = C0_NATIVE.family
+
+BAYESIAN_SHRUNK_HYBRID = ModelSpec(
+    name="Hybrid-Operational-Market",
+    version="c0-native-2026-w32-e12-v1-a0.50-t1.00",
+    feature_version=C0_NATIVE.feature_version,
+    ratings_version=C0_NATIVE.ratings_version,
+    w20_version=C0_NATIVE.w20_version,
+    prediction_target="series",
+    has_uncertainty=False,
+    family="bayesian_market_hybrid",
+    description="Native C0 series predictions blended with no-vig series market odds.",
+    metadata={
+        "base_model_name": C0_NATIVE.name,
         "alpha": 0.50,
         "temperature": 1.0,
-        "risk_kappa": 0.75,
+        "blending_mode": "logit_shrinkage",
         "symmetric": True,
     },
 )
 
 REGISTERED_MODELS: dict[str, ModelSpec] = {
+    C0_NATIVE.name: C0_NATIVE,
     BAYESIAN_SHRUNK_HYBRID.name: BAYESIAN_SHRUNK_HYBRID,
-    EXP081_SIAMESE.name: EXP081_SIAMESE,
+    A1_CONSOLIDATED.name: A1_CONSOLIDATED,
     EXP078_LINEAR.name: EXP078_LINEAR,
     EXP039_THESIS.name: EXP039_THESIS,
-    # Shorthand and historical aliases
+    "c0": C0_NATIVE,
+    "native_c0": C0_NATIVE,
     "shrunk_hybrid": BAYESIAN_SHRUNK_HYBRID,
     "bayesian_hybrid": BAYESIAN_SHRUNK_HYBRID,
-    "a0_market": BAYESIAN_SHRUNK_HYBRID,
-    "Hybrid-Bayesian-Shrunk-A0-Market": BAYESIAN_SHRUNK_HYBRID,
-    "exp081": EXP081_SIAMESE,
+    "a1": A1_CONSOLIDATED,
+    "a1_consolidated": A1_CONSOLIDATED,
     "exp078": EXP078_LINEAR,
     "exp039": EXP039_THESIS,
 }
@@ -100,17 +117,16 @@ REGISTERED_MODELS: dict[str, ModelSpec] = {
 # -----------------------------------------------------------------------------
 # Active Model and Hybrid State
 # -----------------------------------------------------------------------------
-# Default active operational model: Bayesian Shrunk Hybrid
-_ACTIVE_MODEL: ModelSpec = BAYESIAN_SHRUNK_HYBRID
+_ACTIVE_MODEL: ModelSpec = C0_NATIVE
 
-# Default active operational hybrid: wraps pure sports model (EXP081_SIAMESE) with market blending
+# The separately selectable market-shrinkage policy uses native C0 once.
 _ACTIVE_HYBRID: HybridSpec = HybridSpec(
-    base_model=EXP081_SIAMESE,
-    hybrid_model_name=ACTIVE_MODEL_NAME,
+    base_model=C0_NATIVE,
+    hybrid_model_name=BAYESIAN_SHRUNK_HYBRID.name,
     alpha=0.50,
     temperature=1.0,
     blending_mode="logit_shrinkage",
-    custom_version=ACTIVE_MODEL_VERSION,
+    custom_version=BAYESIAN_SHRUNK_HYBRID.version,
 )
 # Thesis hybrid reference
 THESIS_HYBRID: HybridSpec = HybridSpec(
@@ -123,16 +139,34 @@ THESIS_HYBRID: HybridSpec = HybridSpec(
 )
 
 
+def get_hybrid_spec(model: ModelSpec) -> HybridSpec:
+    """Resolve the pure base and blending policy declared by one model version."""
+    if model.family != "bayesian_market_hybrid":
+        raise ValueError("Expected a hybrid ModelSpec.")
+    base = get_model(model.metadata.get("base_model_name", ""))
+    if base is None or base.family == "bayesian_market_hybrid":
+        raise ValueError("A hybrid must declare a registered pure sports model.")
+    if base.metadata.get("operational") is False:
+        raise ValueError(base.metadata["unavailable_reason"])
+    return HybridSpec(
+        base_model=base,
+        hybrid_model_name=model.name,
+        alpha=float(model.metadata["alpha"]),
+        temperature=float(model.metadata["temperature"]),
+        blending_mode=model.metadata.get("blending_mode", "logit_shrinkage"),
+        custom_version=model.version,
+    )
+
+
 def get_active_model() -> ModelSpec:
-    """Return the currently configured operational model."""
-    global _ACTIVE_MODEL
-    # Allow overriding via environment variable
+    """Return the configured model, rejecting unknown or unavailable overrides."""
     override = os.getenv("ACTIVE_PREDICTION_MODEL")
-    if override:
-        model_from_env = get_model(override)
-        if model_from_env:
-            return model_from_env
-    return _ACTIVE_MODEL
+    spec = get_model(override) if override else _ACTIVE_MODEL
+    if spec is None:
+        raise ValueError(f"Unknown ACTIVE_PREDICTION_MODEL: {override}")
+    if spec.metadata.get("operational") is False:
+        raise ValueError(spec.metadata["unavailable_reason"])
+    return spec
 
 
 def get_active_model_spec() -> ModelSpec:
@@ -141,52 +175,76 @@ def get_active_model_spec() -> ModelSpec:
 
 
 def set_active_model(model_or_name: ModelSpec | str) -> None:
-    """Switch the active operational model."""
+    """Switch the active sports model or explicitly selected hybrid model."""
     global _ACTIVE_MODEL, _ACTIVE_HYBRID
     if isinstance(model_or_name, str):
         spec = get_model(model_or_name)
         if spec is None:
             raise KeyError(f"Unknown model: {model_or_name}. Registered: {list(REGISTERED_MODELS.keys())}")
-        _ACTIVE_MODEL = spec
     else:
-        _ACTIVE_MODEL = model_or_name
-
-    # If active model is the hybrid itself, its base sports model is EXP081_SIAMESE
-    if _ACTIVE_MODEL.family == "bayesian_market_hybrid":
-        base_sports = EXP081_SIAMESE
-        custom_ver = ACTIVE_MODEL_VERSION
+        spec = model_or_name
+    if spec.metadata.get("operational") is False:
+        raise ValueError(spec.metadata["unavailable_reason"])
+    if spec.family == "bayesian_market_hybrid":
+        hybrid = get_hybrid_spec(spec)
     else:
-        base_sports = _ACTIVE_MODEL
-        custom_ver = _ACTIVE_HYBRID.custom_version if _ACTIVE_HYBRID.base_model == _ACTIVE_MODEL else None
-
-    _ACTIVE_HYBRID = HybridSpec(
-        base_model=base_sports,
-        hybrid_model_name=_ACTIVE_HYBRID.hybrid_model_name,
-        alpha=_ACTIVE_HYBRID.alpha,
-        temperature=_ACTIVE_HYBRID.temperature,
-        blending_mode=_ACTIVE_HYBRID.blending_mode,
-        custom_version=custom_ver,
-    )
+        hybrid = HybridSpec(
+            base_model=spec,
+            hybrid_model_name=_ACTIVE_HYBRID.hybrid_model_name,
+            alpha=_ACTIVE_HYBRID.alpha,
+            temperature=_ACTIVE_HYBRID.temperature,
+            blending_mode=_ACTIVE_HYBRID.blending_mode,
+            custom_version=_ACTIVE_HYBRID.custom_version if _ACTIVE_HYBRID.base_model == spec else None,
+        )
+    _ACTIVE_MODEL = spec
+    _ACTIVE_HYBRID = hybrid
 
 
 def get_active_hybrid() -> HybridSpec:
-    """Return the active operational hybrid specification, synchronized with active model."""
+    """Return market shrinkage synchronized with the currently selected sports model."""
     current_active = get_active_model()
-    if current_active.family != "bayesian_market_hybrid" and _ACTIVE_HYBRID.base_model != current_active:
+    if current_active.family == "bayesian_market_hybrid":
+        return get_hybrid_spec(current_active)
+    if _ACTIVE_HYBRID.base_model != current_active:
         return HybridSpec(
             base_model=current_active,
             hybrid_model_name=_ACTIVE_HYBRID.hybrid_model_name,
             alpha=_ACTIVE_HYBRID.alpha,
             temperature=_ACTIVE_HYBRID.temperature,
             blending_mode=_ACTIVE_HYBRID.blending_mode,
-            custom_version=None,
         )
     return _ACTIVE_HYBRID
 
 def set_active_hybrid(hybrid_spec: HybridSpec) -> None:
-    """Switch or update the active hybrid specification."""
+    """Set the separate market-shrinkage policy for the active sports model."""
     global _ACTIVE_HYBRID
-    _ACTIVE_HYBRID = hybrid_spec
+    if hybrid_spec.base_model.family == "bayesian_market_hybrid":
+        raise ValueError("A hybrid must use a pure sports model, not another hybrid.")
+    if hybrid_spec.base_model.metadata.get("operational") is False:
+        raise ValueError(hybrid_spec.base_model.metadata["unavailable_reason"])
+    active = get_active_model()
+    if active.family == "bayesian_market_hybrid":
+        if hybrid_spec != get_hybrid_spec(active):
+            raise ValueError("Select a separately versioned ModelSpec before changing its hybrid policy.")
+    elif hybrid_spec.base_model != active:
+        raise ValueError("Hybrid base must match the active sports model.")
+    if (
+        hybrid_spec.base_model == C0_NATIVE
+        and hybrid_spec.hybrid_model_name == BAYESIAN_SHRUNK_HYBRID.name
+        and hybrid_spec.alpha == BAYESIAN_SHRUNK_HYBRID.metadata["alpha"]
+        and hybrid_spec.temperature == BAYESIAN_SHRUNK_HYBRID.metadata["temperature"]
+        and hybrid_spec.blending_mode == BAYESIAN_SHRUNK_HYBRID.metadata["blending_mode"]
+        and hybrid_spec.custom_version == BAYESIAN_SHRUNK_HYBRID.version
+    ):
+        _ACTIVE_HYBRID = hybrid_spec
+    else:
+        _ACTIVE_HYBRID = HybridSpec(
+            base_model=hybrid_spec.base_model,
+            hybrid_model_name=hybrid_spec.hybrid_model_name,
+            alpha=hybrid_spec.alpha,
+            temperature=hybrid_spec.temperature,
+            blending_mode=hybrid_spec.blending_mode,
+        )
 
 def get_thesis_model() -> ModelSpec:
     """Return the frozen thesis baseline model specification."""
@@ -202,7 +260,7 @@ def get_model(name_or_alias: str) -> ModelSpec | None:
     """Retrieve a model by key, alias, name, or version (case/dash insensitive)."""
     if name_or_alias in REGISTERED_MODELS:
         return REGISTERED_MODELS[name_or_alias]
-    # Normalize: e.g. "EXP-081", "exp-081", "exp_081" -> "exp081"
+    # Normalize model names, versions, and supported aliases.
     normalized = name_or_alias.lower().replace("-", "").replace("_", "").strip()
     for key, spec in REGISTERED_MODELS.items():
         key_norm = key.lower().replace("-", "").replace("_", "")
@@ -218,7 +276,7 @@ def list_registered_models() -> list[dict[str, Any]]:
     active = get_active_model()
     seen = set()
     result = []
-    for model in (BAYESIAN_SHRUNK_HYBRID, EXP081_SIAMESE, EXP078_LINEAR, EXP039_THESIS):
+    for model in (C0_NATIVE, BAYESIAN_SHRUNK_HYBRID, EXP078_LINEAR, EXP039_THESIS):
         if model.name in seen:
             continue
         seen.add(model.name)
@@ -241,15 +299,15 @@ def list_registered_models() -> list[dict[str, Any]]:
 
 def get_active_prediction_db_params() -> dict[str, str]:
     """Return SQL bind params for filtering active operational & hybrid predictions."""
-    active = get_active_model()
     hybrid = get_active_hybrid()
+    base_sports = hybrid.base_model
     return {
-        "sn": active.name,
-        "sv": active.version,
+        "sn": base_sports.name,
+        "sv": base_sports.version,
         "hn": hybrid.hybrid_model_name,
         "hv": hybrid.hybrid_model_version,
-        "operational_name": active.name,
-        "operational_version": active.version,
+        "operational_name": base_sports.name,
+        "operational_version": base_sports.version,
         "hybrid_name": hybrid.hybrid_model_name,
         "hybrid_version": hybrid.hybrid_model_version,
     }

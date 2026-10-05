@@ -537,8 +537,8 @@ export interface MatchupSimulationResponse {
   team_a_name: string;
   team_b_name: string;
   best_of: number;
-  map_prob_a: number;
-  map_prob_b: number;
+  map_prob_a: number | null;
+  map_prob_b: number | null;
   series_prob_a: number;
   series_prob_b: number;
   model_name: string;
@@ -583,6 +583,14 @@ export interface TournamentSimulationResponse {
   synced_at?: string | null;
   sync_message?: string | null;
   updated_matches?: number;
+  cached?: boolean;
+  cached_at?: string | null;
+  available_depths?: number[];
+  provenance?: {
+    probability_model?: string;
+    prediction_source?: string;
+    [key: string]: unknown;
+  };
   joint_finalists?: Array<{ pair: string; prob: number }>;
   calibration?: {
     calibrated: boolean;
@@ -715,7 +723,8 @@ export interface HorizonAccuracyResponse {
   market_close_comparison: MarketCloseComparison;
 }
 
-export type ModelAnalysisKey = 'exp081' | 'operational_hybrid' | 'operational' | 'hybrid' | 'thesis';
+// Backend-generated analysis keys are open-ended so archived historical model keys remain readable.
+export type ModelAnalysisKey = string
 
 export interface ModelClvBin {
   model_key: ModelAnalysisKey | string;
@@ -1643,4 +1652,73 @@ export interface PropOddsLatestResponse {
   map_number: number;
   total_lines: number;
   lines: PropOddsSnapshotItem[];
+}
+
+export interface SimilarPlayerSummary {
+  player_name: string;
+  team_name: string;
+  role: string;
+  similarity: number;
+}
+
+export interface PlayerEmbeddingPoint {
+  player_name: string;
+  team_name: string;
+  role: string;
+  x: number;
+  y: number;
+  cluster: number;
+  is_major?: boolean;
+  n_games: number;
+  glicko_rating: number;
+  stats: {
+    kda: number;
+    dpm: number;
+    dmg_pct: number;
+    gold_pct: number;
+    csm: number;
+    vspm: number;
+    gd15: number;
+    csd15: number;
+    xpd15: number;
+    kp_pct: number;
+    mitigated: number;
+    [key: string]: number | undefined;
+  };
+  similar_players?: SimilarPlayerSummary[];
+}
+
+export interface PlayerClusterSummary {
+  cluster_id: number;
+  size: number;
+  pct: number;
+  dominant_role?: string;
+  label?: string;
+  characteristic_features?: Array<{
+    feature: string;
+    label: string;
+    level: string;
+    direction: string;
+    z_score: number;
+    pct_diff: number;
+  }>;
+  [key: string]: unknown;
+}
+
+export interface PlayerEmbeddingProjectionResponse {
+  points: PlayerEmbeddingPoint[];
+  summary: {
+    method: string;
+    preset: string;
+    requested_role: string;
+    requested_tier: string;
+    major_count: number;
+    days_active: number | null;
+    total_matching_filters?: number;
+    total_points: number;
+    cluster_count: number;
+    cluster_algorithm: string;
+    clusters?: PlayerClusterSummary[];
+    [key: string]: unknown;
+  };
 }

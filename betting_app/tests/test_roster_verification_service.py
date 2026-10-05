@@ -277,3 +277,22 @@ def test_api_rosters_verify_endpoint_dry_run(client):
         data = response.json()
         assert data["total_teams"] == 1
         assert data["updated_count"] == 1
+
+def test_roster_collection_deduplicates_explicit_targets(monkeypatch):
+    from types import SimpleNamespace
+
+    fetched = []
+    def fetch(team):
+        fetched.append(team)
+        return None
+
+    service = RosterVerificationService(fandom_client=SimpleNamespace(fetch_active_roster=fetch))
+    monkeypatch.setattr(service, "get_stored_roster", lambda *_args: [])
+    summary = service.verify_and_sync_rosters(
+        team_names=["T1", "T1", " T1 ", "", "G2"],
+        session=SimpleNamespace(), source="fandom", dry_run=True,
+        delay_between_requests=0,
+    )
+    assert fetched == ["T1", "G2"]
+    assert summary["total_teams"] == 2
+    assert summary["failed_count"] == 2

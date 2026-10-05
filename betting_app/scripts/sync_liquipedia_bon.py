@@ -23,7 +23,7 @@ def main() -> None:
     print("BoN sync result:", json.dumps(bon_result, indent=2))
 
     if args.sync_rosters or args.team:
-        roster_result = sync_liquipedia_team_rosters(team_names=args.team)
+        roster_result = sync_liquipedia_team_rosters(team_names=args.team, wait_for_spacing=True)
         print("Roster sync result:", json.dumps(roster_result, indent=2))
 
 
