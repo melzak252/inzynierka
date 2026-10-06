@@ -36,6 +36,10 @@ z zachowaniem hashy. Archiwum rozwiązuje istniejący `ENSEMBLE_RESEARCH_ROOT`
 lub lokalny `data/research_root.txt`; brak zasobów nie uruchamia pobierania
 ani zastępczego modelu. Publikacja kodu nie jest wdrożeniem na serwer.
 
+Archiwalny helper cech C0 importuje także LightGBM. Zależność jest deklarowana
+w `requirements-betting.txt`, a obraz `Dockerfile.betting` instaluje wymagany
+runtime OpenMP (`libgomp1`). Import helpera nie uruchamia treningu.
+
 `betting_app/scripts/backfill_operational_predictions.py` pozostaje odtworzeniem
 historycznej regionalnej receptury 70% player ratings / 20% team ratings / 10% W20,
 z pojedynczą projekcją BO. Nie korzysta z aktywnego C0 i nie zapisuje wyników

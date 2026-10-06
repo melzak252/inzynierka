@@ -27,6 +27,7 @@ RUN apt-get update \
         libdrm2 \
         libgbm1 \
         libglib2.0-0 \
+        libgomp1 \
         libgtk-3-0 \
         libnspr4 \
         libnss3 \
